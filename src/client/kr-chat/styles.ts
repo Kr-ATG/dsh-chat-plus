@@ -669,14 +669,36 @@ body[data-kr-resizing="true"] * {
   gap: 1px;
 }
 
-/* 任务行：轻盈、透气、微反馈 */
+/*
+ * 空态常驻：卡片不再因为「这轮还没有 todo」整张消失，右栏第一张卡的位置永远
+ * 稳定。压低对比度让它退成背景，不与真有任务时抢注意力。
+ */
+.kr-task-empty {
+  padding: 7px 8px 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  opacity: .72;
+}
+
+.kr-card--task[data-empty] .kr-card__badge {
+  opacity: .6;
+}
+
+/* 任务行落位：首条 34ms、逐条错峰，读作「步骤在铺开」而不是整张卡突然出现。 */
 .kr-task-item {
   display: flex;
   align-items: flex-start;
   gap: 9px;
   padding: 6px 8px;
   border-radius: 6px;
+  animation: kr-task-item-in .3s cubic-bezier(.16, 1, .3, 1) both;
   transition: background-color 0.12s ease;
+}
+
+@keyframes kr-task-item-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
 }
 
 .kr-task-item:hover {

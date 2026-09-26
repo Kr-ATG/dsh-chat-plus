@@ -1,7 +1,10 @@
 /**
  * dsh-chat-plus — 任务概览卡片（一个卡片框统领全部任务项）。
  * 呈现 DSH 官方真实的 todo / task 列表。
- * 若当前轮次或对话未产生任何任务，则完全不显示本卡片。
+ *
+ * 卡片常驻：当前轮没有任务时给一行低对比度空态，而不是整张 return null。
+ * 原因见下方注释——整张卡消失会让「模型什么时候想起写 todo」直接变成
+ * 「卡片什么时候出现」。
  */
 import { memo, useState } from 'react'
 
@@ -22,24 +25,31 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
 }: TaskOverviewCardProps) {
   const [collapsed, setCollapsed] = useState(false)
 
-  // 核心规则：若对话中没有任务，直接返回 null，不占用任何视觉空间
-  if (!tasks || tasks.length === 0) {
-    return null
-  }
-
+  /*
+   * 原来这里是 `if (!tasks || tasks.length === 0) return null`——卡片整张消失。
+   * 于是只要模型这一轮还没写出任务，右栏第一张卡就是空的；等第一条 todo 落地
+   * 时整张卡突然弹出来，读作「最后才出现」。卡片的出现时机不该取决于模型
+   * 什么时候想起写 todo。
+   *
+   * 现在常驻：没有任务时给一行低对比度的空态，位置永远稳定；有任务时进度条
+   * 与列表自然填进去，不做整卡重挂载。
+   */
+  const empty = !tasks || tasks.length === 0
   const doneCount = tasks.filter((t) => t.status === 'completed').length
   const activeCount = tasks.filter((t) => t.status === 'in_progress').length
   const allDone = doneCount === tasks.length
-  const percent = Math.round((doneCount / tasks.length) * 100)
+  const percent = empty ? 0 : Math.round((doneCount / tasks.length) * 100)
 
-  const progressText = allDone
+  const progressText = empty
+    ? '暂无任务'
+    : allDone
     ? `${tasks.length} 项已完成`
     : activeCount > 0
     ? `${doneCount}/${tasks.length} 完成 · 进行中`
     : `${doneCount}/${tasks.length} 完成`
 
   return (
-    <div className="kr-card kr-card--task">
+    <div className="kr-card kr-card--task" data-empty={empty || undefined}>
       {/* 卡片头部 */}
       <div className="kr-card__header" onClick={() => setCollapsed(!collapsed)}>
         <span className="kr-card__icon">
@@ -73,6 +83,7 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
       {/* 任务列表（整洁单层卡片排布，无俄式套盒，去除非必要重复徽标） */}
       {!collapsed && (
         <div className="kr-task-list">
+          {empty && <div className="kr-task-empty">本轮还没有任务清单</div>}
           {tasks.map((task, index) => {
             const isCompleted = task.status === 'completed'
             const isInProgress = task.status === 'in_progress'
@@ -81,6 +92,7 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
               <div
                 key={task.id || index}
                 className={`kr-task-item kr-task-item--${task.status}`}
+                style={{ animationDelay: `${Math.min(index, 8) * 34}ms` }}
               >
                 <span className="kr-task-item__icon">
                   {isCompleted ? (
