@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import { callName, isRunning } from '../tool-summary/tool-stats.ts'
 import { useMotionAllowed } from '../motion-utils.ts'
+import { KrFreshText } from './KrFreshText.tsx'
 
 const EXIT_MS = 980
 const AVATAR_STORAGE_KEY = 'dsh.kr_chat.agent_avatar.v1'
@@ -594,7 +595,9 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
                     {stage.status === 'done' ? '✓' : ''}
                   </span>
                   <div className="kr-agent-workflow-step__copy" data-solo={stage.detail === '' || undefined}>
-                    <span className="kr-agent-workflow-step__label">{stage.label}</span>
+                    <span className="kr-agent-workflow-step__label">
+                      <KrFreshText text={stage.label} />
+                    </span>
                     {stage.detail !== '' && (
                       <span className="kr-agent-workflow-step__detail">{stage.detail}</span>
                     )}

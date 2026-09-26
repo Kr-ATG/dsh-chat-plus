@@ -2166,6 +2166,26 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
     animation: kr-agent-text-sweep 4.5s linear infinite;
   }
 }
+/* ══ 流式文本的平滑显影 ═══════════════════════════════════════════════════
+ *
+ * 思考流是按块到达的，一整行字常在同一次更新里凭空出现。KrFreshText 把文本
+ * 切成「已稳定前缀 + 本次新增段」，只让新增段里的字逐个淡入（相邻 12ms 错峰），
+ * 旧内容不重播。纯 opacity、零位移——带位移的逐字显影会被读成「一跳一跳」。
+ */
+.kr-fresh-run {
+  display: inline;
+}
+
+.kr-fresh {
+  display: inline;
+  animation: kr-fresh-fade .3s ease-out both;
+}
+
+@keyframes kr-fresh-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /*
  * 光带从文字右侧外进入、推过整行、最后从左侧外离开（色标 50% 落在背景图
  * 200% 处，一个周期正好横跨文字宽度的两倍，位移 0% -> -200% 把它从容器
@@ -2370,6 +2390,7 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
 @media (prefers-reduced-motion: reduce) {
   .kr-agent-mini-card,
   .kr-agent-mini-action,
+  .kr-fresh,
   .kr-agent-mini-shell[data-closing="true"][data-committed="true"],
   .kr-agent-avatar-menu,
   .kr-agent-mini-avatar__status,

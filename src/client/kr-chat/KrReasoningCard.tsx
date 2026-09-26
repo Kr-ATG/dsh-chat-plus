@@ -16,6 +16,7 @@
 import { memo, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useMotionAllowed, useSteppedFollow } from '../motion-utils.ts'
+import { KrFreshText } from './KrFreshText.tsx'
 
 /** 视口最多显示的行数（超出在视口内滚动）。 */
 export const REASONING_MAX_ROWS = 25
@@ -104,7 +105,9 @@ export const KrReasoningCard = memo(function KrReasoningCard({
               <div className="kr-reasoning-inner">
                 {points.map((item, idx) => (
                   <div className="kr-reasoning-row" key={idx}>
-                    <span>{item}</span>
+                    {/* 逐字淡入：思考是流式按块到达的，整行直接冒出来会被读成
+                        「一行字突然出现」；这里只让本次新增的字错峰显影。 */}
+                    <span><KrFreshText text={item} /></span>
                   </div>
                 ))}
               </div>
