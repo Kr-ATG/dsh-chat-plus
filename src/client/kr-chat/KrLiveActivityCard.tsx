@@ -225,18 +225,25 @@ function buildWorkflow(
 ): WorkflowView {
   if (tasks.length > 0) return buildTaskWorkflow(tasks)
   /*
-   * 先找正在流式的那条，再退回最后一条非空。
+   * 展示到「正在流式的那条」为止的**全部**思考，按顺序拼接。
    *
-   * 只取「最后一条非空」在流式下会闪：模型分片下发时最新那条往往只有半句，
-   * 卡片会跟着在片段之间来回换，视觉上又是另一种一行一行跳。正在跑的那条
-   * 才是当下完整的判断。
+   * 早先只取最后一条，模型每换一条思考，卡片内容就被整段换掉——视觉上最难受
+   * 的就是这种「突然更替」：上一段话说到一半，下一段话凭空顶上来。拼接后内容
+   * 只增不减，新思考是接在旧思考后面的追加，配合 KrFreshText 的逐字淡入就
+   * 读作「还在往下写」，而不是被换掉。
+   *
+   * 截到 running 那条为止，是因为 running 之后的条目是尚未开始的占位。
    */
-  const ordered = [...reasoning].reverse()
-  const latest = ordered.find((item) => item.running && item.text.trim() !== '')
-    ?? ordered.find((item) => item.text.trim() !== '')
-  const semantic = latest === undefined
+  let cut = -1
+  for (let index = reasoning.length - 1; index >= 0; index -= 1) {
+    if (reasoning[index].running && reasoning[index].text.trim() !== '') { cut = index; break }
+  }
+  const upto = (cut >= 0 ? reasoning.slice(0, cut + 1) : reasoning)
+    .filter((item) => item.text.trim() !== '')
+  const joined = upto.map((item) => item.text).join('\n\n')
+  const semantic = joined.trim() === ''
     ? (active ? '模型正在处理当前请求' : '模型已整理当前结果')
-    : structuredText(latest.text)
+    : capSolo(structuredText(joined))
   return {
     title: '模型进度',
     stages: [{
@@ -246,6 +253,19 @@ function buildWorkflow(
       status: closing ? 'done' : 'current',
     }],
   }
+}
+
+/**
+ * 思考总量兜底：从**尾部**保留，丢掉最早的部分并明说丢了多少。
+ *
+ * 只留尾部是刻意的——最新的一段才是当下相关的；砍头部同样是「更替」，那正是
+ * 这次要消灭的东西。正常一轮思考远到不了这个量级，触顶只发生在极端长任务。
+ */
+const SOLO_MAX_CHARS = 20000
+function capSolo(text: string): string {
+  if (text.length <= SOLO_MAX_CHARS) return text
+  const dropped = text.length - SOLO_MAX_CHARS
+  return `（更早的 ${dropped} 字已折叠，完整思考见右侧「思考过程」）\n\n${text.slice(-SOLO_MAX_CHARS)}`
 }
 
 /** 进度卡可视窗口内最多平铺几行；超出的收成一行计数，不做纵向滚动。 */
