@@ -12,7 +12,7 @@ import type { ChatNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import { callName, isRunning } from '../tool-summary/tool-stats.ts'
-import { useMotionAllowed } from '../motion-utils.ts'
+import { useMotionAllowed, useSteppedFollow } from '../motion-utils.ts'
 import { KrFreshText } from './KrFreshText.tsx'
 
 const EXIT_MS = 980
@@ -171,7 +171,7 @@ export interface KrActivityTask {
  * 压掉等于把列表拍平）；只收行内连续空白和多余空行，交给 pre-wrap 还原。
  *
  * 长度不裁：早先这里截到 1200 字再补省略号，用户看到的是「话没说完」。超长
- * 改由 UI 折叠（SOLO_FULL_LIMIT + 展开按钮），可见的文本永远完整。
+ * 改由步骤区的固定高度滚动承载，可见文本永远完整。
  */
 function structuredText(text: string): string {
   return text
@@ -186,8 +186,6 @@ function structuredText(text: string): string {
     .trim()
 }
 
-/** 单行判断超过这个字数才出现「展开全部」；低于它的一律整段直接显示。 */
-const SOLO_FULL_LIMIT = 900
 
 function taskStatusLabel(status: KrActivityTask['status']): string {
   return status === 'completed' ? '已完成' : status === 'in_progress' ? '进行中' : '待处理'
@@ -346,7 +344,6 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
   const [avatarMenuPosition, setAvatarMenuPosition] = useState<AvatarMenuPosition | null>(null)
   const [avatarError, setAvatarError] = useState(false)
   const [expanded, setExpanded] = useState(true)
-  const [textExpanded, setTextExpanded] = useState(false)
 
   const runningTool = useMemo(() => {
     for (let index = tools.length - 1; index >= 0; index -= 1) {
@@ -367,6 +364,19 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
     [workflow.stages],
   )
   const stageSummary = stageWindowSummary(stageWindow)
+  /*
+   * 步骤区改成「固定高度 + 滚动」，与右栏思考过程同一套跟随手感
+   * （useSteppedFollow）：内容增长自动贴底，上滚即停、滚回底部自动恢复，
+   * 选中文字期间不跟随。此前是「截断到 N 行 + 展开全部」两段式，展开后整张卡
+   * 会长到几千像素把对话流顶飞，收起又等于没写全。
+   */
+  const followActive = expanded && active && !closing
+  const { ref: followRef, onScroll: onFollowScroll, onWheel: onFollowWheel, edges, overflow, following } =
+    useSteppedFollow(
+      `${followActive ? '1' : '0'}:${stageWindow.items.map((stage) => stage.label).join(' ')}`,
+      followActive,
+      motion,
+    )
   const thinking = reasoning.some((item) => item.running)
   const action = closing
     ? 'Agent 正在总结'
@@ -473,9 +483,6 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
 
   const toggleExpanded = useCallback((): void => {
     setExpanded((value) => !value)
-  }, [])
-  const toggleTextExpanded = useCallback((): void => {
-    setTextExpanded((value) => !value)
   }, [])
   const handleCardClick = useCallback((event: ReactMouseEvent<HTMLElement>): void => {
     if ((event.target as HTMLElement).closest('button, input') !== null) return
@@ -618,7 +625,14 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
             </div>
             <div
               className="kr-agent-workflow-card__steps"
-              data-text-expanded={textExpanded || undefined}
+              data-edges={edges}
+              data-following={followActive && following ? 'true' : undefined}
+              ref={followRef}
+              onScroll={onFollowScroll}
+              onWheel={onFollowWheel}
+              role="region"
+              aria-label="执行进度，可滚动阅读"
+              tabIndex={overflow ? 0 : undefined}
             >
               {stageWindow.items.map((stage) => (
                 <div className="kr-agent-workflow-step" data-status={stage.status} key={stage.key}>
@@ -636,21 +650,6 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
                   </div>
                 </div>
               ))}
-              {stageWindow.items.some((stage) => stage.detail === '' && stage.label.length > SOLO_FULL_LIMIT) && (
-                <button
-                  type="button"
-                  className="kr-agent-workflow-card__expand"
-                  aria-expanded={textExpanded}
-                  onClick={toggleTextExpanded}
-                >
-                  <span className="kr-agent-workflow-card__expandChevron" data-open={textExpanded || undefined} aria-hidden>
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="m5 6 3 3 3-3" />
-                    </svg>
-                  </span>
-                  {textExpanded ? '收起' : '展开全部'}
-                </button>
-              )}
             </div>
             {stageSummary !== null && (
               <div className="kr-agent-workflow-card__more">{stageSummary}</div>

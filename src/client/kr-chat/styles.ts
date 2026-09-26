@@ -1853,14 +1853,41 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   font-variant-numeric: tabular-nums;
 }
 
-/* 步骤：单列竖排轨道，每条独占一整行宽度，任务名最多两行完整可读。
-   原来是 auto-fit 横排网格，440px 只塞得下两列，六个任务被挤成三行、
-   每个任务名截断成半句，这里改回它本来该有的线性节奏。 */
+/*
+ * 步骤区单列竖排轨道，每条独占一整行宽度。
+ * 固定高度 + 纵向滚动：此前是「截断到 N 行 + 展开全部」，展开后整张卡会长到
+ * 几千像素把对话流顶飞，收起又等于没写全。滚动把两者一次解决掉，跟随手感复用
+ * 右栏思考过程那套 useSteppedFollow（自动贴底 / 上滚截停 / 滚回恢复）。
+ */
 .kr-agent-workflow-card__steps {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  max-height: calc(360px * var(--kr-text-scale, 1));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0 8px 9px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--dsw-alias-label-tertiary) 26%, transparent) transparent;
+}
+
+.kr-agent-workflow-card__steps::-webkit-scrollbar {
+  width: 6px;
+}
+
+.kr-agent-workflow-card__steps::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--dsw-alias-label-tertiary) 26%, transparent);
+}
+
+.kr-agent-workflow-card__steps::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.kr-agent-workflow-card__steps:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--kr-accent) 40%, transparent);
+  outline-offset: -2px;
+  border-radius: 8px;
 }
 
 .kr-agent-workflow-step {
@@ -2005,72 +2032,20 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
 /* 单行判断（无任务列表时的退化形态）整行就是一整句话，右侧没有状态词并排。
    pre-wrap 是这里的关键：模型当前的判断本来就是它自己排好版的有序清单，
    换行、空行、条目序号原样还原，分类感来自文本本身而不是我们替它断句。
-   JS 侧不再裁长度，所以「话没说完」只会由这个行数上限造成——而它有展开按钮
-   兜底，收起时 20 行、展开时全开。 */
+   JS 侧不裁长度、外层是可滚动视口，所以这里也不必再 clamp——完整文本一直
+   在，只是需要滚动才看得到。 */
 .kr-agent-workflow-step__copy[data-solo] {
   align-items: flex-start;
 }
 
 .kr-agent-workflow-step__copy[data-solo] .kr-agent-workflow-step__label {
-  display: -webkit-box;
-  -webkit-line-clamp: 20;
-  overflow: hidden;
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
   white-space: pre-wrap;
   /* 每一行都是模型自己写的独立条目，行距给到 1.6 让它们读起来分行而不是
      挤成一段；空行是模型的分段，照原样留着。 */
   line-height: 1.6;
-}
-
-/* 展开后不限行数；同时把壳子的高度预算一并放开，否则长文本撑到 490px 就被切掉。 */
-.kr-agent-workflow-card__steps[data-text-expanded="true"]
-  .kr-agent-workflow-step__copy[data-solo] .kr-agent-workflow-step__label {
-  -webkit-line-clamp: unset;
-  overflow: visible;
-}
-
-.kr-agent-mini-shell:has(.kr-agent-workflow-card__steps[data-text-expanded="true"]) {
-  max-height: none;
-}
-
-/* 展开/收起：贴着内容底部的一行小字按钮，不做成第二个头。 */
-.kr-agent-workflow-card__expand {
-  display: flex;
-  align-items: center;
-  align-self: flex-start;
-  gap: 4px;
-  margin: 2px 0 0 5px;
-  border: 0;
-  border-radius: 7px;
-  padding: 4px 7px;
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  font: inherit;
-  font-size: calc(10.5px * var(--kr-text-scale, 1));
-  line-height: calc(15px * var(--kr-text-scale, 1));
-  cursor: pointer;
-  transition: color .16s ease, background-color .16s ease;
-}
-
-.kr-agent-workflow-card__expand:hover {
-  color: var(--dsw-alias-label-secondary);
-  background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
-}
-
-.kr-agent-workflow-card__expandChevron {
-  display: grid;
-  place-items: center;
-  width: 13px;
-  height: 13px;
-  transition: transform .22s cubic-bezier(.16, 1, .3, 1);
-}
-
-.kr-agent-workflow-card__expandChevron[data-open] {
-  transform: rotate(180deg);
-}
-
-.kr-agent-workflow-card__expandChevron svg {
-  width: 12px;
-  height: 12px;
 }
 
 .kr-agent-workflow-step__detail {
