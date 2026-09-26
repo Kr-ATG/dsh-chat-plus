@@ -1622,13 +1622,21 @@ body[data-kr-resizing="true"] * {
   --kr-card-bg: var(--dsw-alias-bg-layer-1, #ffffff);
   --kr-card-border: var(--dsw-alias-border-l1, rgba(0, 0, 0, .06));
   --kr-hover-bg: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, .06));
-  --kr-float-shadow: 0 1px 2px rgba(15, 17, 21, .04), 0 8px 24px -18px rgba(15, 17, 21, .28);
+  /* 浮层卡在对话流里是唯一的「浮起」层，投影要真能把它从正文里托起来：
+     贴地一层 0.5px 接触影 + 中层 6px 柔影 + 底层 28px 大范围落影，三层叠出高度。 */
+  --kr-float-shadow:
+    0 1px 2px rgba(15, 17, 21, .05),
+    0 3px 8px -2px rgba(15, 17, 21, .12),
+    0 14px 30px -14px rgba(15, 17, 21, .32);
 }
 
 body[data-ds-dark-theme] .kr-agent-mini-shell {
   --kr-card-border: rgba(255, 255, 255, 0.07);
-  /* 浮层卡在深色下靠描边 + 更黑的落影分层，不能沿用浅色的暖灰阴影。 */
-  --kr-float-shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 10px 28px -18px rgba(0, 0, 0, .78);
+  /* 深色下靠更黑的落影分层，浅色那套暖灰在黑底上等于没有影子。 */
+  --kr-float-shadow:
+    0 1px 2px rgba(0, 0, 0, .55),
+    0 3px 10px -2px rgba(0, 0, 0, .5),
+    0 16px 34px -16px rgba(0, 0, 0, .9);
 }
 
 /*
@@ -1658,9 +1666,10 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
    * 上下最好读，再宽就成了「一行 150 字」的长条，反而比 440px 固定宽更难扫。
    */
   max-width: min(100%, 880px);
-  /* 展开态 = 状态卡 50px + 间隔 7px + 进度卡（头 34 + 二十行单行判断约 335），
-     给到 480px 让长文本按内容撑开时也完整可读，不必靠裁切收口。 */
-  max-height: 480px;
+  /* 展开态 = 状态卡 50px + 间隔 12px + 进度卡（头 34 + 二十行单行判断约 335），
+     给到 490px 让长文本按内容撑开时也完整可读，不必靠裁切收口。
+     高度预算跟着字号缩放走，否则「特大」档的行高会把 20 行顶出可视区。 */
+  max-height: calc(490px * var(--kr-text-scale, 1));
   margin: -4px 0;
   overflow: visible;
 }
@@ -1746,8 +1755,13 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   overflow: hidden;
 }
 
+/*
+ * 12px 不是随手取的：两张卡共用同一份 --kr-float-shadow，间距太小时上方状态卡
+ * 的落影正好压在下方进度卡的顶部，两层阴影糊在一起，进度卡看着就像贴平在流里、
+ * 「没有阴影」。拉开一点让各自的投影各归各位，浮起感才读得出来。
+ */
 .kr-agent-mini-details[data-open="true"] {
-  margin-top: 7px;
+  margin-top: 12px;
 }
 
 .kr-agent-mini-details:not([data-open="true"]) {
@@ -1777,13 +1791,13 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   justify-content: space-between;
   gap: 8px;
   padding: 10px 13px 6px;
-  font-size: 10.5px;
-  line-height: 16px;
+  font-size: calc(10.5px * var(--kr-text-scale, 1));
+  line-height: calc(16px * var(--kr-text-scale, 1));
 }
 
 .kr-agent-workflow-card__head > span:first-child {
   color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
+  font-size: calc(11px * var(--kr-text-scale, 1));
   font-weight: 600;
 }
 
@@ -1794,7 +1808,7 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   min-width: 0;
   overflow: hidden;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 10px;
+  font-size: calc(10px * var(--kr-text-scale, 1));
   white-space: nowrap;
 }
 
@@ -1842,7 +1856,7 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   border-radius: 50%;
   background: var(--kr-card-bg);
   color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
+  font-size: calc(11px * var(--kr-text-scale, 1));
   font-weight: 600;
   line-height: 1;
 }
@@ -1936,7 +1950,7 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   -webkit-line-clamp: 2;
   overflow: hidden;
   color: var(--dsw-alias-label-secondary);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kr-text-scale, 1));
   font-weight: 500;
   line-height: 1.45;
   word-break: break-word;
@@ -1974,8 +1988,8 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   align-self: flex-start;
   margin-top: 1px;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 10px;
-  line-height: 16px;
+  font-size: calc(10px * var(--kr-text-scale, 1));
+  line-height: calc(16px * var(--kr-text-scale, 1));
   white-space: nowrap;
 }
 
@@ -1991,8 +2005,8 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
 .kr-agent-workflow-card__more {
   padding: 0 13px 10px;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 10px;
-  line-height: 15px;
+  font-size: calc(10px * var(--kr-text-scale, 1));
+  line-height: calc(15px * var(--kr-text-scale, 1));
   text-align: right;
 }
 
@@ -2092,9 +2106,9 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   min-width: 0;
   overflow: hidden;
   color: var(--dsw-alias-label-primary);
-  font-size: 13px;
+  font-size: calc(13px * var(--kr-text-scale, 1));
   font-weight: 550;
-  line-height: 20px;
+  line-height: calc(20px * var(--kr-text-scale, 1));
   white-space: nowrap;
 }
 
@@ -2161,7 +2175,9 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
 }
 
 .kr-agent-avatar-menu__action:hover:not(:disabled) {
-  background: var(--kr-hover-bg);
+  /* 菜单 portal 到 body，拿不到壳子上的 --kr-hover-bg；直接用 DSH 的中性交互色，
+     两套主题都拿得到真值，hover 反馈不会再静默失效。 */
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
   color: var(--dsw-alias-label-primary);
 }
 
@@ -2180,6 +2196,63 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
   padding: 4px 4px 1px;
   font-size: 10px;
   line-height: 14px;
+}
+
+/* 分节：头像操作之后接字号档位，一眼能看出这是两件事。 */
+.kr-agent-avatar-menu__sep {
+  height: 1px;
+  margin: 5px 2px 7px;
+  background: var(--dsw-alias-border-l1, rgba(0, 0, 0, .06));
+}
+
+.kr-agent-avatar-menu__label {
+  padding: 0 4px 5px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10.5px;
+  line-height: 14px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+/* 字号档位：四档分段。选中态是 accent 描边 + 淡底 + 字重，切换有 0.16s 过渡。 */
+.kr-agent-avatar-menu__scaleRow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+}
+
+.kr-agent-avatar-menu__scale {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 5px 0;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+  transition: background-color .16s ease, color .16s ease, border-color .16s ease, transform .16s cubic-bezier(.16, 1, .3, 1);
+}
+
+.kr-agent-avatar-menu__scale:hover {
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-agent-avatar-menu__scale:active {
+  transform: scale(.94);
+}
+
+.kr-agent-avatar-menu__scale[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 42%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 13%, transparent);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
+.kr-agent-avatar-menu__scale:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 48%, transparent);
+  outline-offset: -1px;
 }
 
 .kr-agent-avatar-menu__hint {
@@ -2237,8 +2310,8 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
 }
 
 @keyframes kr-agent-mini-exit {
-  0% { max-height: 480px; margin-top: -4px; margin-bottom: -4px; opacity: 1; transform: translateY(0) scale(1); }
-  65% { max-height: 380px; margin-top: -2px; margin-bottom: -2px; opacity: .92; transform: translateY(-12px) scale(.992); }
+  0% { max-height: calc(490px * var(--kr-text-scale, 1)); margin-top: -4px; margin-bottom: -4px; opacity: 1; transform: translateY(0) scale(1); }
+  65% { max-height: calc(390px * var(--kr-text-scale, 1)); margin-top: -2px; margin-bottom: -2px; opacity: .92; transform: translateY(-12px) scale(.992); }
   100% { max-height: 0; margin-top: 0; margin-bottom: 0; opacity: 0; transform: translateY(-28px) scale(.985); }
 }
 

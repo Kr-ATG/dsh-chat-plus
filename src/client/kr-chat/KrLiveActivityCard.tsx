@@ -3,6 +3,7 @@
  *
  * 只展示“正在做什么”，不把思考全文、工具参数或调用树塞进左侧消息流。
  * 头像可点击上传并持久化到 localStorage；图片会裁切为 128×128。
+ * 卡片文字大小同样在头像菜单里调，落在 --kr-text-scale 上即时生效。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
@@ -16,9 +17,35 @@ import { useMotionAllowed } from '../motion-utils.ts'
 const EXIT_MS = 980
 const AVATAR_STORAGE_KEY = 'dsh.kr_chat.agent_avatar.v1'
 const AVATAR_MENU_WIDTH = 188
-const AVATAR_MENU_ESTIMATED_HEIGHT = 132
+const AVATAR_MENU_ESTIMATED_HEIGHT = 198
 const AVATAR_MENU_GAP = 7
 const AVATAR_MENU_VIEWPORT_GAP = 8
+
+/**
+ * 卡片文字大小档位：只改壳子上的 --kr-text-scale，卡内所有 font-size / line-height
+ * 都按它 calc，阴影与高度预算也跟着缩放，字号与行高不会各走各的。
+ */
+const FONT_SCALE_KEY = 'dsh.kr_chat.font_scale.v1'
+const FONT_SCALES = { sm: 0.92, md: 1, lg: 1.12, xl: 1.26 } as const
+type FontScaleId = keyof typeof FONT_SCALES
+const FONT_SCALE_OPTIONS: readonly { readonly id: FontScaleId; readonly label: string }[] = [
+  { id: 'sm', label: '紧凑' },
+  { id: 'md', label: '标准' },
+  { id: 'lg', label: '大' },
+  { id: 'xl', label: '特大' },
+]
+
+function readStoredFontScale(): FontScaleId {
+  if (typeof localStorage === 'undefined') return 'md'
+  try {
+    const value = localStorage.getItem(FONT_SCALE_KEY)
+    return value !== null && Object.prototype.hasOwnProperty.call(FONT_SCALES, value)
+      ? value as FontScaleId
+      : 'md'
+  } catch {
+    return 'md'
+  }
+}
 
 interface AvatarMenuPosition {
   readonly left: number
@@ -263,6 +290,7 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
   onExitedRef.current = onExited
   const [present, setPresent] = useState(active)
   const [avatar, setAvatar] = useState<string | null>(readStoredAvatar)
+  const [fontScale, setFontScale] = useState<FontScaleId>(readStoredFontScale)
   const [avatarMenu, setAvatarMenu] = useState(false)
   const [avatarMenuPosition, setAvatarMenuPosition] = useState<AvatarMenuPosition | null>(null)
   const [avatarError, setAvatarError] = useState(false)
@@ -300,6 +328,7 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
   useEffect(() => {
     const onStorage = (event: StorageEvent): void => {
       if (event.key === AVATAR_STORAGE_KEY) setAvatar(readStoredAvatar())
+      if (event.key === FONT_SCALE_KEY) setFontScale(readStoredFontScale())
     }
     window.addEventListener('storage', onStorage)
     return () => { window.removeEventListener('storage', onStorage) }
@@ -385,6 +414,12 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
     setAvatarMenu(false)
   }, [])
 
+  /** 字号档位只落一个枚举 id，读时回放成 --kr-text-scale 供卡内所有 calc 使用。 */
+  const chooseFontScale = useCallback((id: FontScaleId): void => {
+    setFontScale(id)
+    try { localStorage.setItem(FONT_SCALE_KEY, id) } catch { /* storage 不可用时仅改内存 */ }
+  }, [])
+
   const toggleExpanded = useCallback((): void => {
     setExpanded((value) => !value)
   }, [])
@@ -409,6 +444,7 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
       data-closing={closing || undefined}
       data-committed={committed || undefined}
       data-expanded={expanded || undefined}
+      style={{ '--kr-text-scale': FONT_SCALES[fontScale] } as CSSProperties}
     >
       <section
         className="kr-agent-mini-card"
@@ -482,9 +518,9 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
           aria-label="Agent 头像设置"
           onClick={(event) => { event.stopPropagation() }}
         >
-          <div className="kr-agent-avatar-menu__title">Agent 头像</div>
+          <div className="kr-agent-avatar-menu__title">Agent 设置</div>
           <button type="button" className="kr-agent-avatar-menu__action" onClick={() => { inputRef.current?.click() }}>
-            上传图片
+            上传头像
           </button>
           <button
             type="button"
@@ -492,9 +528,24 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
             onClick={resetAvatar}
             disabled={avatar === null}
           >
-            恢复默认
+            恢复默认头像
           </button>
           <div className="kr-agent-avatar-menu__hint">自动居中裁切为 128 × 128</div>
+          <div className="kr-agent-avatar-menu__sep" />
+          <div className="kr-agent-avatar-menu__label">卡片文字大小</div>
+          <div className="kr-agent-avatar-menu__scaleRow" role="group" aria-label="卡片文字大小">
+            {FONT_SCALE_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className="kr-agent-avatar-menu__scale"
+                aria-pressed={fontScale === option.id}
+                onClick={() => { chooseFontScale(option.id) }}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           {avatarError && <div className="kr-agent-avatar-menu__error">图片无法读取，请换一张</div>}
         </div>,
         document.body,
