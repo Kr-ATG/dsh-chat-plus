@@ -57,6 +57,39 @@ function guarded(ctx: ClientContext, label: string, mount: () => void): void {
   }
 }
 
+/**
+ * 页面不可见 → 给 body 挂一个标记，配套样式把全页 CSS 动画置为 paused。
+ *
+ * 选 animation-play-state 而不是 display/opacity 关停：前者由合成器直接挂起
+ * 时间轴，不触发任何布局与重绘，切回来就继续；后者会造成一次强制重排，反而
+ * 在切走/切回的瞬间制造新的掉帧。
+ */
+const ANIM_PAUSE_ATTR = 'data-dsh-anim-paused'
+const ANIM_PAUSE_CSS = `
+body[${ANIM_PAUSE_ATTR}] *,
+body[${ANIM_PAUSE_ATTR}] *::before,
+body[${ANIM_PAUSE_ATTR}] *::after {
+  animation-play-state: paused !important;
+}
+`
+function installAnimationThrottle(): void {
+  if (typeof document === 'undefined') return
+  if (document.getElementById('dsh-anim-pause') === null) {
+    const style = document.createElement('style')
+    style.id = 'dsh-anim-pause'
+    style.textContent = ANIM_PAUSE_CSS
+    document.head.appendChild(style)
+  }
+  const sync = (): void => {
+    const hidden = document.visibilityState === 'hidden'
+    if (hidden === document.body.hasAttribute(ANIM_PAUSE_ATTR)) return
+    if (hidden) document.body.setAttribute(ANIM_PAUSE_ATTR, '')
+    else document.body.removeAttribute(ANIM_PAUSE_ATTR)
+  }
+  document.addEventListener('visibilitychange', sync)
+  sync()
+}
+
 let savedCtx: ClientContext | null = null
 export let officialAssistantNodeView: any = null
 export let officialTurnProcessNodeView: any = null
@@ -189,6 +222,18 @@ export function apply(ctx: ClientContext): void {
     guarded(ctx, 'kr-chat styles', injectKrStyles)
     guarded(ctx, 'kr-chat controller', mountKrChatController)
   }
+
+  // 全局动画节流：页面不可见时把整页 CSS 动画按暂停处理。
+  //
+  // 背景：显示器 2560×1440 @ 300Hz，Chromium 的 requestAnimationFrame 跟随刷新
+  // 走，实测 rAF 能到 196–300fps。于是一堆常驻 infinite 动画（官方 state-dot /
+  // dash，本插件的卡片呼吸、扫光、转圈）在没人看的时候也按 300Hz 满帧重绘，
+  // 渲染进程实测 121% 单核。
+  //
+  // 只在 document 不可见时暂停（标签页切走、窗口完全隐藏）。不做更激进的「空闲
+  // 降频」——那要判断用户意图，误伤正在看的动画就得不偿失；不可见时暂停是零
+  // 风险且覆盖了绝大多数浪费场景。
+  guarded(ctx, 'animation throttle', installAnimationThrottle)
 
   // 桥接官方 todos 投影，供右侧大盘实时展示真实任务。
   //

@@ -2150,6 +2150,12 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
  */
 .kr-agent-mini-action {
   display: block;
+  /*
+   * max-content 而不是满宽：background-clip: text 的绘制区域就是这块盒子的
+   * 面积，满宽等于每次重绘都把整张卡片重画一遍（高刷屏上是 300 次/秒）。
+   * 收到文字实际宽度后，paint 区域小一个量级。
+   */
+  width: max-content;
   max-width: 100%;
   min-width: 0;
   overflow: hidden;
@@ -2186,7 +2192,13 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
     background-repeat: repeat-x;
     -webkit-background-clip: text;
     background-clip: text;
-    animation: kr-agent-text-sweep 4.5s linear infinite;
+    /*
+     * 只扫一次，不循环。infinite 意味着这条动画在高刷屏上永远按 300Hz 重绘
+     * 文字（background-position 不能走合成器加速，每帧都是真 paint），页面静止
+     * 也在烧 CPU。扫一次就把「一道光掠过去」讲完了，之后彻底静止；动作文字
+     * 变化时元素重建（key={action}），自然会再扫一次。
+     */
+    animation: kr-agent-text-sweep 2.6s cubic-bezier(.4, 0, .2, 1) both;
   }
 }
 /* ══ 流式文本的平滑显影 ═══════════════════════════════════════════════════

@@ -328,6 +328,8 @@ const expectedStyles = [
   'dsh-chat-flow-proto-styles', 'dsh-chat-flow-diagram-styles',
   'dsh-chat-flow-download-styles',
   'dsh-triad-skill-source-styles',
+  // 全局动画节流（页面不可见时暂停全页 CSS 动画），与 KR 开关无关，始终注入。
+  'dsh-anim-pause',
   ...(krEnabled ? ['dsh-kr-chat-styles'] : []),
 ]
 for (const expected of expectedStyles) {
@@ -360,9 +362,17 @@ if (!code.includes('kr-agent-text-sweep')
 }
 
 if (styleIds.length === expectedStyles.length) {
-  pass(`injected ${styleIds.length} <style> sheets (dtt__ + dts__ + tsh__ + modal + proto + diagram + download${krEnabled ? ' + kr' : ''})`)
+  pass(`injected ${styleIds.length} <style> sheets (dtt__ + dts__ + tsh__ + modal + proto + diagram + download + anim-pause${krEnabled ? ' + kr' : ''})`)
 } else if (styleIds.length > expectedStyles.length) {
   fail(`unexpected extra styles: ${styleIds.join(', ')}`)
+}
+
+// 页面不可见 → body 打标记 → 全页 CSS 动画挂起。高刷屏（300Hz）上 rAF 会跑满
+// 帧，常驻 infinite 动画没人看时也在满帧重绘，这层是插件侧能兜住的部分。
+if (!code.includes('data-dsh-anim-paused') || !code.includes('animation-play-state: paused !important')) {
+  fail('client bundle is missing the global animation throttle (page hidden → pause all CSS animations)')
+} else {
+  pass('global animation throttle pauses all CSS animations when the page is hidden')
 }
 
 // 八枚槽位：对话增强五枚（turn-process / assistant-step keyed / 截图按钮 /
