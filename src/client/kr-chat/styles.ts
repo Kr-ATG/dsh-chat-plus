@@ -2135,17 +2135,21 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
 }
 
 /*
- * 状态卡动作文字的扫光：一道光自左向右推过去，走到哪个字哪个字临时变色
- * （accent 蓝 + 一层柔光），光过去就还原成本来的主文字色。
+ * 状态卡动作文字的扫光：一道光自左向右推过去，走到哪个字哪个字临时提亮成
+ * 灰（label-secondary）+ 一层收敛的柔光，光过去就还原成本来的主文字色。
  *
  * 全程只动 color 与 text-shadow，**没有 transform、没有 opacity**：旧的逐字
  * 上浮淡入（translateY 7px + opacity 0）看起来是一跳一跳的，读起来像卡顿，
  * 而扫光是连续的水平推移，才像「有一道光掠过去」。
  * 逐字的 animation-delay 递增，正好把这条动画排成一道从左往右的波。
+ *
+ * 波峰刻意取灰色而不是 accent 蓝：蓝点在这张白卡上跳得太抢眼，灰色更接近
+ * 「一层光膜掠过字面」。时长 420ms、字距 30ms —— 早先 640ms/42ms 的光带铺
+ * 开将近整行，看起来是整行发亮而不是一道光。
  */
 .kr-agent-mini-copy[data-running="true"] .kr-agent-mini-char {
-  animation: kr-agent-mini-char-sweep .64s cubic-bezier(.33, .66, .36, 1) both;
-  animation-delay: calc(var(--kr-char-index, 0) * 42ms);
+  animation: kr-agent-mini-char-sweep .42s cubic-bezier(.33, .66, .36, 1) both;
+  animation-delay: calc(var(--kr-char-index, 0) * 30ms);
 }
 
 /* 官方 turn-process 行是固定高度且 overflow:hidden；菜单必须 portal 到 body，
@@ -2312,17 +2316,18 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
 }
 
 /*
- * 扫光的波峰形状：起手是本来的字色，20% 处到顶（accent 蓝 + 柔光），收尾回到
- * 本来的字色、光晕散尽。整段没有位移，所以是「颜色被刷过」而不是「字跳了一下」。
+ * 扫光的波峰形状：起手是本来的字色，14% 处到顶（提亮一档的灰 + 4px 柔光），
+ * 收尾回到本来的字色、光晕散尽。整段没有位移，所以是「颜色被刷过」而不是
+ * 「字跳了一下」。峰位靠前 + 时长短，光带才收得住。
  */
 @keyframes kr-agent-mini-char-sweep {
   0% {
     color: var(--dsw-alias-label-primary);
     text-shadow: none;
   }
-  20% {
-    color: var(--kr-accent);
-    text-shadow: 0 0 7px color-mix(in srgb, var(--kr-accent) 50%, transparent);
+  14% {
+    color: var(--dsw-alias-label-secondary);
+    text-shadow: 0 0 4px color-mix(in srgb, var(--dsw-alias-label-secondary) 42%, transparent);
   }
   100% {
     color: var(--dsw-alias-label-primary);
