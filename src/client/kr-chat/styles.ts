@@ -1682,13 +1682,12 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   gap: 10px;
   min-width: 0;
   /*
-   * 固定宽度：状态卡不再跟文字长度、也不跟下方进度卡变化。
-   * 内容一变宽度就跳的观感比宽度本身更难受，所以这里回到定值 440px。
-   * 唯一的缩放来源是用户自己设的字号档（--kr-text-scale）——否则「特大」档
-   * 下一个长工具名会被 440px 直接切掉半截字；档位不变时宽度就是恒定的。
+   * 状态卡恒定 500px：既不跟文字长度走，也不跟下方进度卡走，连字号档都不跟。
+   * 任何一处变化都会让它在对话流里抽一下，比宽度本身更难受。
+   * 只保留 min() 是为了窄容器（小于 500px 的分栏/手机宽度）不横向溢出。
    */
   justify-self: start;
-  width: min(calc(440px * var(--kr-text-scale, 1)), 100%);
+  width: min(500px, 100%);
   min-height: 50px;
   padding: 7px 14px 7px 7px;
   border: 1px solid var(--kr-card-border);
