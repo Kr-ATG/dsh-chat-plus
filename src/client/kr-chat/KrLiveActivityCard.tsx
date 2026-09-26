@@ -165,7 +165,7 @@ function buildWorkflow(
   const latest = [...reasoning].reverse().find((item) => item.text.trim() !== '')
   const semantic = latest === undefined
     ? (active ? '模型正在处理当前请求' : '模型已整理当前结果')
-    : compactText(latest.text, 110)
+    : compactText(latest.text, 1200)
   return {
     title: '模型进度',
     stages: [{

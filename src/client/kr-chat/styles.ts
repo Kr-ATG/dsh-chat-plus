@@ -1631,15 +1631,30 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   --kr-float-shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 10px 28px -18px rgba(0, 0, 0, .78);
 }
 
+/*
+ * 两张卡共享同一列（minmax(0, max-content)），而不是各自写死 440px：
+ *
+ *  - 短内容（一句动作 + 一条判断）→ 列宽收成 max-content，卡片贴着文字走，
+ *    不再留一大片空白把内容挤在左上角；
+ *  - 长内容 → max-content 被容器宽度封顶，文字照常换行，不会横向溢出；
+ *  - 两张卡永远同宽、右边缘齐平（网格同一列的必然结果）。
+ *
+ * 上界用 max-content 而非 fit-content 是有意的：卡片内部已经给 label 留了
+ * word-break + 换行，让它由 max-content 撑到容器宽度、由文字自己决定行数，
+ * 才是真正「按内容自适应」；fit-content 会先按 max-content 定宽再按容器压缩，
+ * 结果与写死 440px 无异。
+ */
 .kr-agent-mini-shell {
   position: relative;
   display: grid;
   grid-template-rows: 1fr;
+  grid-template-columns: minmax(0, max-content);
+  justify-content: start;
   width: 100%;
   min-width: 0;
-  /* 展开态 = 状态卡 50px + 间隔 7px + 进度卡（头 34 + 四步约 130 + 计数行 26），
-     给到 330px 让四行步骤完整可读，不必靠裁切收口。 */
-  max-height: 330px;
+  /* 展开态 = 状态卡 50px + 间隔 7px + 进度卡（头 34 + 十二行单行判断约 220），
+     给到 460px 让长文本按内容撑开时也完整可读，不必靠裁切收口。 */
+  max-height: 460px;
   margin: -4px 0;
   overflow: visible;
 }
@@ -1651,7 +1666,8 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   align-items: center;
   gap: 10px;
   min-width: 0;
-  width: min(440px, 100%);
+  /* 宽度交给 shell 那一列，自身不再写死 440px。 */
+  width: 100%;
   min-height: 50px;
   padding: 7px 14px 7px 7px;
   border: 1px solid var(--kr-card-border);
@@ -1732,7 +1748,8 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
 .kr-agent-workflow-card {
   position: relative;
   box-sizing: border-box;
-  width: min(440px, 100%);
+  /* 与上方状态卡同列同宽：短进度贴文字，长进度由容器封顶后换行铺开。 */
+  width: 100%;
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--kr-card-border);
@@ -1923,15 +1940,16 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
 }
 
 /* 单行判断（无任务列表时的退化形态）整行就是一整句话，右侧没有状态词并排，
-   放开两行截断让它自然铺满 —— 那条文本就是这一格的全部内容。 */
+   放到十二行让模型当前的判断完整铺出来 —— 那条文本就是这一格的全部内容，
+   截掉半句等于什么都没说。十二行仍在壳子的 460px 预算内，再长才由省略号收口。 */
 .kr-agent-workflow-step__copy[data-solo] {
   align-items: flex-start;
 }
 
 .kr-agent-workflow-step__copy[data-solo] .kr-agent-workflow-step__label {
-  display: block;
-  -webkit-line-clamp: unset;
-  overflow: visible;
+  display: -webkit-box;
+  -webkit-line-clamp: 12;
+  overflow: hidden;
 }
 
 .kr-agent-workflow-step__detail {
@@ -1960,6 +1978,25 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   line-height: 15px;
   text-align: right;
 }
+
+/* ══ 内容动效：文本换新、展开落位都走淡入上浮，不硬切 ═════════════════ */
+
+/*
+ * 行 key 里带了 label 文本，文本一变整行重建，动画自然重播一次；
+ * 宽度改成内容自适应之后换行数会跟着变，淡入正好接住这次重排。
+ */
+.kr-agent-workflow-step__label {
+  animation: kr-agent-step-in .34s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+/* 进度卡展开时各行错峰 45ms 落位，读作「步骤逐条铺出来」而不是整块弹出。 */
+.kr-agent-mini-shell[data-expanded] .kr-agent-workflow-step {
+  animation: kr-agent-step-in .36s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.kr-agent-mini-shell[data-expanded] .kr-agent-workflow-step:nth-child(2) { animation-delay: 45ms; }
+.kr-agent-mini-shell[data-expanded] .kr-agent-workflow-step:nth-child(3) { animation-delay: 90ms; }
+.kr-agent-mini-shell[data-expanded] .kr-agent-workflow-step:nth-child(4) { animation-delay: 135ms; }
 
 .kr-agent-mini-avatar {
   position: relative;
@@ -2183,8 +2220,8 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
 }
 
 @keyframes kr-agent-mini-exit {
-  0% { max-height: 330px; margin-top: -4px; margin-bottom: -4px; opacity: 1; transform: translateY(0) scale(1); }
-  65% { max-height: 280px; margin-top: -2px; margin-bottom: -2px; opacity: .92; transform: translateY(-12px) scale(.992); }
+  0% { max-height: 460px; margin-top: -4px; margin-bottom: -4px; opacity: 1; transform: translateY(0) scale(1); }
+  65% { max-height: 360px; margin-top: -2px; margin-bottom: -2px; opacity: .92; transform: translateY(-12px) scale(.992); }
   100% { max-height: 0; margin-top: 0; margin-bottom: 0; opacity: 0; transform: translateY(-28px) scale(.985); }
 }
 
@@ -2196,6 +2233,12 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
 /* 当前节点的转圈：0.85s 一圈，匀速，读作「在跑」。 */
 @keyframes kr-agent-step-spin {
   to { transform: rotate(360deg); }
+}
+
+/* 步骤落位：淡入 + 4px 上浮。 */
+@keyframes kr-agent-step-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
 }
 
 @media (max-width: 520px) {
@@ -2210,6 +2253,8 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
   .kr-agent-mini-shell[data-closing="true"][data-committed="true"],
   .kr-agent-avatar-menu,
   .kr-agent-mini-avatar__status,
+  .kr-agent-workflow-step,
+  .kr-agent-workflow-step__label,
   .kr-agent-workflow-step[data-status="current"] .kr-agent-workflow-step__index::after {
     animation: none !important;
   }}
