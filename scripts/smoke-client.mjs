@@ -347,10 +347,14 @@ if (!code.includes('avatarMenuPosition') || !code.includes('.kr-agent-avatar-men
 } else {
   pass('Agent avatar menu is body-portaled with fixed positioning')
 }
-if (!code.includes('kr-agent-mini-char-in') || code.includes('kr-agent-mini-color-flow')) {
-  fail('KR Agent action must use per-character motion without the old whole-line color sweep')
+// 状态卡动作文字必须是「扫光」：颜色自左向右推过去、过去就还原，
+// 且不能带任何位移/透明度起伏（旧 kr-agent-mini-char-in 与整行色扫都算退化）。
+if (!code.includes('kr-agent-mini-char-sweep')
+  || code.includes('kr-agent-mini-char-in')
+  || code.includes('kr-agent-mini-color-flow')) {
+  fail('KR Agent action must sweep color left-to-right without per-character jumping')
 } else {
-  pass('KR Agent action uses staggered per-character motion')
+  pass('KR Agent action uses left-to-right color sweep motion')
 }
 
 if (styleIds.length === expectedStyles.length) {

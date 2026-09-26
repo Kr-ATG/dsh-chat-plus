@@ -2134,10 +2134,18 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   white-space: pre;
 }
 
-/* 运行中按字符依次上浮显现；不再用整行灰色渐变横扫。 */
+/*
+ * 状态卡动作文字的扫光：一道光自左向右推过去，走到哪个字哪个字临时变色
+ * （accent 蓝 + 一层柔光），光过去就还原成本来的主文字色。
+ *
+ * 全程只动 color 与 text-shadow，**没有 transform、没有 opacity**：旧的逐字
+ * 上浮淡入（translateY 7px + opacity 0）看起来是一跳一跳的，读起来像卡顿，
+ * 而扫光是连续的水平推移，才像「有一道光掠过去」。
+ * 逐字的 animation-delay 递增，正好把这条动画排成一道从左往右的波。
+ */
 .kr-agent-mini-copy[data-running="true"] .kr-agent-mini-char {
-  animation: kr-agent-mini-char-in .46s cubic-bezier(.2, .8, .2, 1) both;
-  animation-delay: calc(var(--kr-char-index, 0) * 34ms);
+  animation: kr-agent-mini-char-sweep .64s cubic-bezier(.33, .66, .36, 1) both;
+  animation-delay: calc(var(--kr-char-index, 0) * 42ms);
 }
 
 /* 官方 turn-process 行是固定高度且 overflow:hidden；菜单必须 portal 到 body，
@@ -2303,24 +2311,22 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-@keyframes kr-agent-mini-char-in {
+/*
+ * 扫光的波峰形状：起手是本来的字色，20% 处到顶（accent 蓝 + 柔光），收尾回到
+ * 本来的字色、光晕散尽。整段没有位移，所以是「颜色被刷过」而不是「字跳了一下」。
+ */
+@keyframes kr-agent-mini-char-sweep {
   0% {
-    opacity: 0;
-    color: var(--dsw-alias-label-tertiary);
-    filter: blur(2px);
-    transform: translateY(7px);
+    color: var(--dsw-alias-label-primary);
+    text-shadow: none;
   }
-  58% {
-    opacity: 1;
-    color: var(--dsw-alias-label-secondary);
-    filter: blur(0);
-    transform: translateY(-1px);
+  20% {
+    color: var(--kr-accent);
+    text-shadow: 0 0 7px color-mix(in srgb, var(--kr-accent) 50%, transparent);
   }
   100% {
-    opacity: 1;
-    color: var(--dsw-alias-label-secondary);
-    filter: blur(0);
-    transform: none;
+    color: var(--dsw-alias-label-primary);
+    text-shadow: none;
   }
 }
 
