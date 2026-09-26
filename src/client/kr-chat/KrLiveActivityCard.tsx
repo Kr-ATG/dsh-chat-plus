@@ -348,7 +348,6 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
       : thinking
         ? 'Agent 正在思考'
         : active ? 'Agent 正在分析' : 'Agent 正在整理结果'
-  const actionCharacters = useMemo(() => Array.from(action), [action])
 
   useEffect(() => {
     const onStorage = (event: StorageEvent): void => {
@@ -505,17 +504,13 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
         </button>
 
         <div className="kr-agent-mini-copy" data-running={active && !closing ? 'true' : undefined}>
-          <span key={action} className="kr-agent-mini-action">
-            {actionCharacters.map((character, index) => (
-              <span
-                key={`${index}-${character}`}
-                className="kr-agent-mini-char"
-                style={{ '--kr-char-index': index } as CSSProperties}
-              >
-                {character}
-              </span>
-            ))}
-          </span>
+          {/*
+           * 这里不再逐字拆 span：扫光改成 background-clip: text 的整行遮罩，
+           * 逐字 span 反而会把渐变切进各自的盒子（inline-block 各自成盒），
+           * 扫出来是整行一起闪而不是一道光推过去。key 用 action 本身，
+           * 动作一变元素重建、扫光从右侧重新起一次。
+           */}
+          <span key={action} className="kr-agent-mini-action">{action}</span>
         </div>
 
         <span className="kr-agent-mini-chevron" data-open={expanded || undefined} aria-hidden>

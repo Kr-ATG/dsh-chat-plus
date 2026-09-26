@@ -2114,9 +2114,19 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   overflow: hidden;
 }
 
+/*
+ * 状态卡动作文字：一道窄光带自左向右推过去，扫到谁谁提亮一档灰，扫过去还原。
+ *
+ * 用 background-clip: text 的整行遮罩，而不是逐字延时。逐字延时有个死结：
+ * 光带宽度 ≈ 动画时长，想收窄就得缩短时长，一缩短就「扫得太快」，两个要求
+ * 互相打架。遮罩把两件事解耦了——光带多宽由渐变色标决定（这里 4%，约文字宽
+ * 的 1/6），推多快由 3s 的循环时长决定，可以又窄又慢。
+ *
+ * 底色与波峰都是灰：灰更像一层光膜掠过字面，accent 蓝在这张白卡上太抢眼。
+ * 文字本身不参与动画（不位移、不闪断），光带走过去就还原，不是永久染色。
+ */
 .kr-agent-mini-action {
-  display: flex;
-  width: max-content;
+  display: block;
   max-width: 100%;
   min-width: 0;
   overflow: hidden;
@@ -2127,29 +2137,43 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   white-space: nowrap;
 }
 
-.kr-agent-mini-char {
-  display: inline-block;
-  flex: 0 0 auto;
-  color: inherit;
-  white-space: pre;
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .kr-agent-mini-copy[data-running="true"] .kr-agent-mini-action {
+    color: transparent;
+    /*
+     * 90deg（色变沿水平方向）而不是斜角：光带要 repeat-x 平移，渐变线必须与
+     * 平移方向垂直，否则平铺后接缝两侧颜色对不上，会在文字上留一条假接缝。
+     * 两端色标都是底色，所以无论平移到哪里，接缝都是隐形的。
+     */
+    background-image: linear-gradient(
+      90deg,
+      var(--dsw-alias-label-primary) 0%,
+      var(--dsw-alias-label-primary) 48.5%,
+      var(--dsw-alias-label-secondary) 50%,
+      var(--dsw-alias-label-primary) 51.5%,
+      var(--dsw-alias-label-primary) 100%
+    );
+    background-size: 400% 100%;
+    /*
+     * repeat-x 而不是 no-repeat：no-repeat 下背景一被推出容器，容器内就没有
+     * 任何背景像素，background-clip: text 会把那一片文字整个不渲染——表现为
+     * 状态卡文字凭空少一截。周期 400% 远大于文字宽度，容器里最多只有一条
+     * 光带，平铺不会变成多道。
+     */
+    background-repeat: repeat-x;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: kr-agent-text-sweep 4.5s linear infinite;
+  }
 }
-
 /*
- * 状态卡动作文字的扫光：一道光自左向右推过去，走到哪个字哪个字临时提亮成
- * 灰（label-secondary）+ 一层收敛的柔光，光过去就还原成本来的主文字色。
- *
- * 全程只动 color 与 text-shadow，**没有 transform、没有 opacity**：旧的逐字
- * 上浮淡入（translateY 7px + opacity 0）看起来是一跳一跳的，读起来像卡顿，
- * 而扫光是连续的水平推移，才像「有一道光掠过去」。
- * 逐字的 animation-delay 递增，正好把这条动画排成一道从左往右的波。
- *
- * 波峰刻意取灰色而不是 accent 蓝：蓝点在这张白卡上跳得太抢眼，灰色更接近
- * 「一层光膜掠过字面」。时长 420ms、字距 30ms —— 早先 640ms/42ms 的光带铺
- * 开将近整行，看起来是整行发亮而不是一道光。
+ * 光带从文字右侧外进入、推过整行、最后从左侧外离开（色标 50% 落在背景图
+ * 200% 处，一个周期正好横跨文字宽度的两倍，位移 0% -> -200% 把它从容器
+ * 右外送到左外，同时不留下无背景的死区）。
  */
-.kr-agent-mini-copy[data-running="true"] .kr-agent-mini-char {
-  animation: kr-agent-mini-char-sweep .42s cubic-bezier(.33, .66, .36, 1) both;
-  animation-delay: calc(var(--kr-char-index, 0) * 30ms);
+@keyframes kr-agent-text-sweep {
+  from { background-position: 0% 0; }
+  to { background-position: -200% 0; }
 }
 
 /* 官方 turn-process 行是固定高度且 overflow:hidden；菜单必须 portal 到 body，
@@ -2315,26 +2339,6 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/*
- * 扫光的波峰形状：起手是本来的字色，14% 处到顶（提亮一档的灰 + 4px 柔光），
- * 收尾回到本来的字色、光晕散尽。整段没有位移，所以是「颜色被刷过」而不是
- * 「字跳了一下」。峰位靠前 + 时长短，光带才收得住。
- */
-@keyframes kr-agent-mini-char-sweep {
-  0% {
-    color: var(--dsw-alias-label-primary);
-    text-shadow: none;
-  }
-  14% {
-    color: var(--dsw-alias-label-secondary);
-    text-shadow: 0 0 4px color-mix(in srgb, var(--dsw-alias-label-secondary) 42%, transparent);
-  }
-  100% {
-    color: var(--dsw-alias-label-primary);
-    text-shadow: none;
-  }
-}
-
 @keyframes kr-agent-mini-exit {
   0% { max-height: calc(490px * var(--kr-text-scale, 1)); margin-top: -4px; margin-bottom: -4px; opacity: 1; transform: translateY(0) scale(1); }
   65% { max-height: calc(390px * var(--kr-text-scale, 1)); margin-top: -2px; margin-bottom: -2px; opacity: .92; transform: translateY(-12px) scale(.992); }
@@ -2365,7 +2369,7 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
 
 @media (prefers-reduced-motion: reduce) {
   .kr-agent-mini-card,
-  .kr-agent-mini-char,
+  .kr-agent-mini-action,
   .kr-agent-mini-shell[data-closing="true"][data-committed="true"],
   .kr-agent-avatar-menu,
   .kr-agent-mini-avatar__status,
@@ -2373,7 +2377,13 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
   .kr-agent-workflow-step__label,
   .kr-agent-workflow-step[data-status="current"] .kr-agent-workflow-step__index::after {
     animation: none !important;
-  }}
+  }
+  /* 扫光停了但底色还是透明的，字会消失；把文字色还给底色。 */
+  .kr-agent-mini-copy[data-running="true"] .kr-agent-mini-action {
+    color: var(--dsw-alias-label-primary) !important;
+    background-image: none !important;
+  }
+}
 
 /* ══ 隐藏原生 DSH 任务列表/Plan卡片（KR模式下收敛至右侧大盘） ═══════════════ */
 body[data-dsh-kr-chat="true"] [data-testid="todo-panel"],

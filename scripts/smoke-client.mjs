@@ -347,14 +347,16 @@ if (!code.includes('avatarMenuPosition') || !code.includes('.kr-agent-avatar-men
 } else {
   pass('Agent avatar menu is body-portaled with fixed positioning')
 }
-// 状态卡动作文字必须是「扫光」：颜色自左向右推过去、过去就还原，
-// 且不能带任何位移/透明度起伏（旧 kr-agent-mini-char-in 与整行色扫都算退化）。
-if (!code.includes('kr-agent-mini-char-sweep')
+// 状态卡动作文字必须是整行遮罩扫光（background-clip: text + background-position 位移）：
+// 光带宽度与推进速度解耦，才能又窄又慢。逐字延时那套（kr-agent-mini-char-in）
+// 光带宽度≈动画时长，窄了就必然快，属于退化。
+if (!code.includes('kr-agent-text-sweep')
+  || !code.includes('-webkit-background-clip: text')
   || code.includes('kr-agent-mini-char-in')
   || code.includes('kr-agent-mini-color-flow')) {
-  fail('KR Agent action must sweep color left-to-right without per-character jumping')
+  fail('KR Agent action must use a mask-based left-to-right sweep (not per-character jumping)')
 } else {
-  pass('KR Agent action uses left-to-right color sweep motion')
+  pass('KR Agent action uses mask-based left-to-right color sweep motion')
 }
 
 if (styleIds.length === expectedStyles.length) {
