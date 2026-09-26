@@ -1682,13 +1682,13 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   gap: 10px;
   min-width: 0;
   /*
-   * 状态卡只跟自己的文字长度走：justify-self: start + fit-content 让它从共享列
-   * 里脱出来，列宽（由下方进度卡决定）怎么变都不再把它拉长——否则下面出现一段
-   * 长任务名，上面「Agent 正在思考」就被拽成一条 880px 的长带。
+   * 固定宽度：状态卡不再跟文字长度、也不跟下方进度卡变化。
+   * 内容一变宽度就跳的观感比宽度本身更难受，所以这里回到定值 440px。
+   * 唯一的缩放来源是用户自己设的字号档（--kr-text-scale）——否则「特大」档
+   * 下一个长工具名会被 440px 直接切掉半截字；档位不变时宽度就是恒定的。
    */
   justify-self: start;
-  width: fit-content;
-  max-width: 100%;
+  width: min(calc(440px * var(--kr-text-scale, 1)), 100%);
   min-height: 50px;
   padding: 7px 14px 7px 7px;
   border: 1px solid var(--kr-card-border);
