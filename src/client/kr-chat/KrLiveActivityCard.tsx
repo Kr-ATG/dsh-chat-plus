@@ -123,8 +123,22 @@ export interface KrActivityTask {
   readonly status: 'pending' | 'in_progress' | 'completed'
 }
 
-function compactText(text: string, limit = 140): string {
-  const value = text.replace(/\s+/g, ' ').trim()
+/**
+ * 模型当前的判断原样上屏：只裁长度，不动排版。
+ *
+ * 原来这里用 /\s+/g 把换行全压成一行，于是模型写的「1. … 2. … 3. …」清单
+ * 糊成一坨连续文字——那才是「看着很杂、没有分类」的真凶，宽度不够只是让它
+ * 更明显。这些文本本来就是模型自己排好版的结构化输出，压平等于把分类扔掉。
+ *
+ * 只把行内连续空白收成一个、行内缩进压平，行末换行和空行分段原样保留，
+ * 交给 CSS 的 pre-wrap 还原成它本来的样子。
+ */
+function structuredText(text: string, limit = 1200): string {
+  const value = text
+    .replace(/\r\n?/g, '\n')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
   return value.length > limit ? `${value.slice(0, limit - 1)}…` : value
 }
 
@@ -165,7 +179,7 @@ function buildWorkflow(
   const latest = [...reasoning].reverse().find((item) => item.text.trim() !== '')
   const semantic = latest === undefined
     ? (active ? '模型正在处理当前请求' : '模型已整理当前结果')
-    : compactText(latest.text, 1200)
+    : structuredText(latest.text)
   return {
     title: '模型进度',
     stages: [{

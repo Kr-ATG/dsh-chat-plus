@@ -1652,9 +1652,15 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   justify-content: start;
   width: 100%;
   min-width: 0;
-  /* 展开态 = 状态卡 50px + 间隔 7px + 进度卡（头 34 + 十二行单行判断约 220），
-     给到 460px 让长文本按内容撑开时也完整可读，不必靠裁切收口。 */
-  max-height: 460px;
+  /*
+   * 880px 是行长上限，不是固定宽度：短内容照样收窄到文字宽度，只有当模型
+   * 某一行特别长（max-content 撑到上千 px）才在这里封顶。中文正文一行 75 字
+   * 上下最好读，再宽就成了「一行 150 字」的长条，反而比 440px 固定宽更难扫。
+   */
+  max-width: min(100%, 880px);
+  /* 展开态 = 状态卡 50px + 间隔 7px + 进度卡（头 34 + 二十行单行判断约 335），
+     给到 480px 让长文本按内容撑开时也完整可读，不必靠裁切收口。 */
+  max-height: 480px;
   margin: -4px 0;
   overflow: visible;
 }
@@ -1666,8 +1672,14 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   align-items: center;
   gap: 10px;
   min-width: 0;
-  /* 宽度交给 shell 那一列，自身不再写死 440px。 */
-  width: 100%;
+  /*
+   * 状态卡只跟自己的文字长度走：justify-self: start + fit-content 让它从共享列
+   * 里脱出来，列宽（由下方进度卡决定）怎么变都不再把它拉长——否则下面出现一段
+   * 长任务名，上面「Agent 正在思考」就被拽成一条 880px 的长带。
+   */
+  justify-self: start;
+  width: fit-content;
+  max-width: 100%;
   min-height: 50px;
   padding: 7px 14px 7px 7px;
   border: 1px solid var(--kr-card-border);
@@ -1939,17 +1951,22 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* 单行判断（无任务列表时的退化形态）整行就是一整句话，右侧没有状态词并排，
-   放到十二行让模型当前的判断完整铺出来 —— 那条文本就是这一格的全部内容，
-   截掉半句等于什么都没说。十二行仍在壳子的 460px 预算内，再长才由省略号收口。 */
+/* 单行判断（无任务列表时的退化形态）整行就是一整句话，右侧没有状态词并排。
+   pre-wrap 是这里的关键：模型当前的判断本来就是它自己排好版的有序清单，
+   换行、空行、条目序号原样还原，分类感来自文本本身而不是我们替它断句。
+   二十行仍收在壳子的 480px 预算内，再长才由省略号收口。 */
 .kr-agent-workflow-step__copy[data-solo] {
   align-items: flex-start;
 }
 
 .kr-agent-workflow-step__copy[data-solo] .kr-agent-workflow-step__label {
   display: -webkit-box;
-  -webkit-line-clamp: 12;
+  -webkit-line-clamp: 20;
   overflow: hidden;
+  white-space: pre-wrap;
+  /* 每一行都是模型自己写的独立条目，行距给到 1.6 让它们读起来分行而不是
+     挤成一段；空行是模型的分段，照原样留着。 */
+  line-height: 1.6;
 }
 
 .kr-agent-workflow-step__detail {
@@ -2220,8 +2237,8 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
 }
 
 @keyframes kr-agent-mini-exit {
-  0% { max-height: 460px; margin-top: -4px; margin-bottom: -4px; opacity: 1; transform: translateY(0) scale(1); }
-  65% { max-height: 360px; margin-top: -2px; margin-bottom: -2px; opacity: .92; transform: translateY(-12px) scale(.992); }
+  0% { max-height: 480px; margin-top: -4px; margin-bottom: -4px; opacity: 1; transform: translateY(0) scale(1); }
+  65% { max-height: 380px; margin-top: -2px; margin-bottom: -2px; opacity: .92; transform: translateY(-12px) scale(.992); }
   100% { max-height: 0; margin-top: 0; margin-bottom: 0; opacity: 0; transform: translateY(-28px) scale(.985); }
 }
 
