@@ -377,7 +377,28 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
     labels,
     t,
   })
-  if (!hasVisible && chip === undefined && gallery === undefined) return null
+
+  /*
+   * KR 模式不显示过程性发言。
+   *
+   * 工具调用之间的助手正文（“Chrome 已在运行”“窗口合并了，重新指向…”这类）
+   * 走的是 response 投影、不是 thinking——KR 把 thinking 收进右栏是对的，但
+   * 这些正文照样以消息气泡堆在左栏，读起来像一堆絮叨抢在正式回答前面。
+   *
+   * 判据是「本节点是不是本回合最后一个 assistant-step」：
+   *   - 最后一个：流式期就是模型正在写的那句，实时可见；回合收口后它就是
+   *     最终答案（isClosingReply），同样要显示。
+   *   - 不是最后一个：说明后面还有工具调用，这段就是过程性发言，不渲染。
+   * 于是过程性发言在新步骤产生时即退场，最终回答始终在场。
+   * 生图画廊（gallery）挂在最后一个 step 上，不能被这条规则一起吃掉，所以
+   * 正文被隐藏时仍保留画廊。
+   */
+  const hideProcessText = KR_CHAT_ENABLED && isKrMode
+  const isLastStep = steps.length > 0 && node.key === steps[steps.length - 1]?.key
+  const showBody = !hideProcessText || isLastStep || isClosingReply || interrupted
+  const shown = showBody ? rendered : []
+
+  if (shown.length === 0 && chip === undefined && gallery === undefined) return null
 
   return (
     <div
@@ -387,10 +408,10 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
     >
       <div className="dtt__assistant-body">
         {chip}
-        {rendered.length > 0 && (variant !== undefined
-          ? <FlowCard variant={variant} meta={cardMeta} interrupted={interrupted}>{rendered}{gallery}</FlowCard>
-          : <>{rendered}{gallery}</>)}
-        {rendered.length === 0 && gallery}
+        {shown.length > 0 && (variant !== undefined
+          ? <FlowCard variant={variant} meta={cardMeta} interrupted={interrupted}>{shown}{gallery}</FlowCard>
+          : <>{shown}{gallery}</>)}
+        {shown.length === 0 && gallery}
         {interrupted && <span className="dtt__stopped">{t('message.stopped')}</span>}
       </div>
     </div>
