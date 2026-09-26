@@ -1983,7 +1983,8 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
 /* 单行判断（无任务列表时的退化形态）整行就是一整句话，右侧没有状态词并排。
    pre-wrap 是这里的关键：模型当前的判断本来就是它自己排好版的有序清单，
    换行、空行、条目序号原样还原，分类感来自文本本身而不是我们替它断句。
-   二十行仍收在壳子的 480px 预算内，再长才由省略号收口。 */
+   JS 侧不再裁长度，所以「话没说完」只会由这个行数上限造成——而它有展开按钮
+   兜底，收起时 20 行、展开时全开。 */
 .kr-agent-workflow-step__copy[data-solo] {
   align-items: flex-start;
 }
@@ -1996,6 +1997,58 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   /* 每一行都是模型自己写的独立条目，行距给到 1.6 让它们读起来分行而不是
      挤成一段；空行是模型的分段，照原样留着。 */
   line-height: 1.6;
+}
+
+/* 展开后不限行数；同时把壳子的高度预算一并放开，否则长文本撑到 490px 就被切掉。 */
+.kr-agent-workflow-card__steps[data-text-expanded="true"]
+  .kr-agent-workflow-step__copy[data-solo] .kr-agent-workflow-step__label {
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.kr-agent-mini-shell:has(.kr-agent-workflow-card__steps[data-text-expanded="true"]) {
+  max-height: none;
+}
+
+/* 展开/收起：贴着内容底部的一行小字按钮，不做成第二个头。 */
+.kr-agent-workflow-card__expand {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  margin: 2px 0 0 5px;
+  border: 0;
+  border-radius: 7px;
+  padding: 4px 7px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: calc(10.5px * var(--kr-text-scale, 1));
+  line-height: calc(15px * var(--kr-text-scale, 1));
+  cursor: pointer;
+  transition: color .16s ease, background-color .16s ease;
+}
+
+.kr-agent-workflow-card__expand:hover {
+  color: var(--dsw-alias-label-secondary);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+}
+
+.kr-agent-workflow-card__expandChevron {
+  display: grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  transition: transform .22s cubic-bezier(.16, 1, .3, 1);
+}
+
+.kr-agent-workflow-card__expandChevron[data-open] {
+  transform: rotate(180deg);
+}
+
+.kr-agent-workflow-card__expandChevron svg {
+  width: 12px;
+  height: 12px;
 }
 
 .kr-agent-workflow-step__detail {
@@ -2391,6 +2444,7 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
   .kr-agent-mini-card,
   .kr-agent-mini-action,
   .kr-fresh,
+  .kr-agent-workflow-card__expandChevron,
   .kr-agent-mini-shell[data-closing="true"][data-committed="true"],
   .kr-agent-avatar-menu,
   .kr-agent-mini-avatar__status,

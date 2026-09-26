@@ -161,7 +161,7 @@ export interface KrActivityTask {
 }
 
 /**
- * 模型当前的判断原样上屏：只裁长度，不动排版。
+ * 模型当前的判断原样上屏：**不裁长度**，只规范空白。
  *
  * 原来这里用 /\s+/g 把换行全压成一行，于是模型写的「1. … 2. … 3. …」清单
  * 糊成一坨连续文字——那才是「看着很杂、没有分类」的真凶，宽度不够只是让它
@@ -169,9 +169,12 @@ export interface KrActivityTask {
  *
  * 行末换行、空行分段、**行首缩进**全部原样保留（缩进就是 markdown 的层级，
  * 压掉等于把列表拍平）；只收行内连续空白和多余空行，交给 pre-wrap 还原。
+ *
+ * 长度不裁：早先这里截到 1200 字再补省略号，用户看到的是「话没说完」。超长
+ * 改由 UI 折叠（SOLO_FULL_LIMIT + 展开按钮），可见的文本永远完整。
  */
-function structuredText(text: string, limit = 1200): string {
-  const value = text
+function structuredText(text: string): string {
+  return text
     .replace(/\r\n?/g, '\n')
     .split('\n')
     .map((line) => {
@@ -181,8 +184,10 @@ function structuredText(text: string, limit = 1200): string {
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
-  return value.length > limit ? `${value.slice(0, limit - 1)}…` : value
 }
+
+/** 单行判断超过这个字数才出现「展开全部」；低于它的一律整段直接显示。 */
+const SOLO_FULL_LIMIT = 900
 
 function taskStatusLabel(status: KrActivityTask['status']): string {
   return status === 'completed' ? '已完成' : status === 'in_progress' ? '进行中' : '待处理'
@@ -321,6 +326,7 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
   const [avatarMenuPosition, setAvatarMenuPosition] = useState<AvatarMenuPosition | null>(null)
   const [avatarError, setAvatarError] = useState(false)
   const [expanded, setExpanded] = useState(true)
+  const [textExpanded, setTextExpanded] = useState(false)
 
   const runningTool = useMemo(() => {
     for (let index = tools.length - 1; index >= 0; index -= 1) {
@@ -447,6 +453,9 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
 
   const toggleExpanded = useCallback((): void => {
     setExpanded((value) => !value)
+  }, [])
+  const toggleTextExpanded = useCallback((): void => {
+    setTextExpanded((value) => !value)
   }, [])
   const handleCardClick = useCallback((event: ReactMouseEvent<HTMLElement>): void => {
     if ((event.target as HTMLElement).closest('button, input') !== null) return
@@ -587,7 +596,10 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
                 )}
               </span>
             </div>
-            <div className="kr-agent-workflow-card__steps">
+            <div
+              className="kr-agent-workflow-card__steps"
+              data-text-expanded={textExpanded || undefined}
+            >
               {stageWindow.items.map((stage) => (
                 <div className="kr-agent-workflow-step" data-status={stage.status} key={stage.key}>
                   {/* 节点只承担三态（✓ / 呼吸点 / 灰点），位次交给头部计数与底部汇总。 */}
@@ -604,6 +616,21 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
                   </div>
                 </div>
               ))}
+              {stageWindow.items.some((stage) => stage.detail === '' && stage.label.length > SOLO_FULL_LIMIT) && (
+                <button
+                  type="button"
+                  className="kr-agent-workflow-card__expand"
+                  aria-expanded={textExpanded}
+                  onClick={toggleTextExpanded}
+                >
+                  <span className="kr-agent-workflow-card__expandChevron" data-open={textExpanded || undefined} aria-hidden>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="m5 6 3 3 3-3" />
+                    </svg>
+                  </span>
+                  {textExpanded ? '收起' : '展开全部'}
+                </button>
+              )}
             </div>
             {stageSummary !== null && (
               <div className="kr-agent-workflow-card__more">{stageSummary}</div>
