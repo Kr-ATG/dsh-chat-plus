@@ -501,37 +501,10 @@ body[data-kr-resizing="true"] * {
   background: var(--kr-canvas-bg);
 }
 
-/* 历史轮次提示胶囊 */
-.kr-panel__turn-hint {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 12px;
-  background: var(--kr-surface-bg);
-  border: 1px solid var(--kr-card-border);
-  border-radius: 8px;
-  font-size: 12px;
-  color: var(--dsw-alias-label-secondary);
-  /* 它也是浮在透明大盘上的一张小卡，跟 .kr-card 用同一档投影，
-     免得滚动区里出现「一部分浮、一部分贴平」的两种高度。 */
-  box-shadow: var(--kr-card-shadow);
-}
-
-.kr-panel__turn-hint-btn {
-  background: var(--kr-fill-bg);
-  color: var(--dsw-alias-label-primary);
-  border: 1px solid var(--kr-card-border);
-  border-radius: 4px;
-  padding: 2px 8px;
-  font-size: 11px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: all 0.15s ease;
-}
-
-.kr-panel__turn-hint-btn:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.22));
-}
+/* ══ 历史轮次提示胶囊已移除 ════════════════════════════════════════════════
+   「已选对话：xxx / 返回最新对话」那条整条删掉：它常驻在大盘顶部，与下面的卡片
+   标题叠在一起既占位又抢注意力，而「返回最新对话」本身也是多余动作——点击对话
+   流里任意一条消息即可切到那一轮。相关样式随之删除。 */
 
 /* ══ 统计指标药丸已移除 ════════════════════════════════════════════════════
    顶部「查看执行统计指标」按钮与它展开的药丸行（第 N 轮 / N 次工具调用 /

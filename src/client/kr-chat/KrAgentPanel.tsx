@@ -479,24 +479,15 @@ export const KrAgentPanel = memo(function KrAgentPanel({
           </div>
         )}
 
-        {/* 对话查看提示 */}
-        {validSelectedTurn !== null && (
-          <div className="kr-panel__turn-hint">
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }} title={dialogueTitle || '已选对话'}>
-              已选对话：{dialogueTitle || '当前对话'}
-            </span>
-            <button
-              type="button"
-              className="kr-panel__turn-hint-btn"
-              onClick={() => store.setSelectedTurn(null)}
-              title="解除指定对话，自动跟随最新对话"
-            >
-              {isViewingHistory ? '返回最新对话' : '跟随最新对话'}
-            </button>
-          </div>
-        )}
+        {/*
+         * 原先这里有一条「已选对话：xxx / 返回最新对话」的提示带。
+         * 整条删掉：它常驻在大盘顶部，和下面的卡片标题叠在一起既占位又抢注意力，
+         * 而且「返回最新对话」这个动作本身是多余的——点击对话流里任意一条消息
+         * 就会切换到那一轮，再点另一条即可返回，不需要一个常驻按钮提醒。
+         * 仍保留 store.setSelectedTurn 的能力，只是入口不再常驻占位。
+         */}
 
-        {/* 任务概览卡片：有真实任务时展示，若该轮无任务则自动返回 null */}
+        {/* 任务概览卡片：常驻，无任务时给一行低对比度空态 */}
         <KrTaskOverviewCard tasks={tasks} isRunning={currentRunning} />
 
         {/* 思考过程卡片（行数随右栏挤压自适应：默认 25 行，空间不够自动降档） */}
