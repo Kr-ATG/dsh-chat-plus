@@ -21,12 +21,21 @@ export interface KrFreshTextProps {
   readonly step?: number
   /** 错峰字数上限：超过这个字数后的字同时淡入，避免长片段拖出一条长尾。 */
   readonly cap?: number
+  /**
+   * 逐字显影的字数上限。超过就整段一次性淡入。
+   *
+   * 逐字意味着一个字符一个 span：整段几千字挂满时是几千个 DOM 节点，每次流式
+   * 更新都要 diff 一遍，展开长思考时肉眼可见地卡。超过这个量级，整段一起淡入
+   * 观感损失很小（本来就是一大块新内容），节点数却从几千降到 1。
+   */
+  readonly maxStaggerChars?: number
 }
 
 export const KrFreshText = memo(function KrFreshText({
   text,
   step = 12,
   cap = 28,
+  maxStaggerChars = 400,
 }: KrFreshTextProps) {
   const previousRef = useRef<string | null>(null)
   // 纯追加（流式的常态）时前缀即已稳定部分；一旦不是追加（重写、截断、换了一条
@@ -39,24 +48,32 @@ export const KrFreshText = memo(function KrFreshText({
     previousRef.current = text
   }, [text])
 
-  if (fresh === '') return <>{stable}</>
+  if (fresh === '') return <>{stable === '' ? null : <span className="kr-fresh-stable">{stable}</span>}</>
 
-  const delayCap = (cap - 1) * step
+  /*
+   * 三段式节点结构，是为了让「已显示的部分」永远只占一个 DOM 节点：
+   * stable 整体一个 span（它不再动，逐字包裹毫无意义），只有 fresh 逐字。
+   * 流式每帧的 diff 规模因此是 1 + 新增字数，而不是全文总字数。
+   */
   return (
     <>
-      {stable}
+      {stable === '' ? null : <span className="kr-fresh-stable">{stable}</span>}
       {/* key 用新增段的起点：同一段内继续追加不会重播动画，换段才重播一次。 */}
-      <span key={stable.length} className="kr-fresh-run">
-        {Array.from(fresh).map((character, index) => (
-          <span
-            key={index}
-            className="kr-fresh"
-            style={{ animationDelay: `${Math.min(index * step, delayCap)}ms` } as CSSProperties}
-          >
-            {character}
-          </span>
-        ))}
-      </span>
+      {Array.from(fresh).length > maxStaggerChars ? (
+        <span key={stable.length} className="kr-fresh kr-fresh--bulk">{fresh}</span>
+      ) : (
+        <span key={stable.length} className="kr-fresh-run">
+          {Array.from(fresh).map((character, index) => (
+            <span
+              key={index}
+              className="kr-fresh"
+              style={{ animationDelay: `${Math.min(index * step, (cap - 1) * step)}ms` } as CSSProperties}
+            >
+              {character}
+            </span>
+          ))}
+        </span>
+      )}
     </>
   )
 })

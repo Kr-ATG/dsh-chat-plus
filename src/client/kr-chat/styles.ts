@@ -2234,6 +2234,15 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   animation: kr-fresh-fade .3s ease-out both;
 }
 
+/* 大段新内容（超过 maxStaggerChars）整段一次淡入，不逐字拆 span。 */
+.kr-fresh--bulk {
+  animation-duration: .34s;
+}
+
+.kr-fresh-stable {
+  display: inline;
+}
+
 @keyframes kr-fresh-fade {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -2444,6 +2453,7 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
   .kr-agent-mini-card,
   .kr-agent-mini-action,
   .kr-fresh,
+  .kr-fresh--bulk,
   .kr-agent-workflow-card__expandChevron,
   .kr-agent-mini-shell[data-closing="true"][data-committed="true"],
   .kr-agent-avatar-menu,
