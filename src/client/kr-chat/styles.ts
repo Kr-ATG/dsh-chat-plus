@@ -1750,9 +1750,25 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   transition: grid-template-rows .34s cubic-bezier(.16, 1, .3, 1), opacity .24s ease, margin .34s cubic-bezier(.16, 1, .3, 1);
 }
 
+/*
+ * 这里不能写 overflow: hidden。
+ *
+ * inner 的高度正好等于进度卡的高度，hidden 会把它四周的投影整圈切掉——两张卡
+ * 共用同一份 --kr-float-shadow、box-shadow 计算值完全一致，可状态卡在 shell 里
+ * （overflow: visible）影子清清楚楚，进度卡却被裁成一张贴着对话流的平片。
+ * hidden 当初只是为 0fr 折叠动画兜底，现在改由 visibility 承担：展开态放行让
+ * 投影完整，折叠态等收拢动画跑完再隐藏，0fr 动画照常。
+ */
 .kr-agent-mini-details > .kr-agent-mini-details__inner {
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
+  transition: visibility 0s linear 0s;
+}
+
+.kr-agent-mini-details:not([data-open="true"]) > .kr-agent-mini-details__inner {
+  visibility: hidden;
+  /* 与 .34s 的收拢动画同步：动画里内容原地淡出而不是被一刀切掉，收完再隐藏。 */
+  transition: visibility 0s linear .34s;
 }
 
 /*
