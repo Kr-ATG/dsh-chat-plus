@@ -624,6 +624,13 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
               </span>
             </div>
             <div
+              /*
+               * key 带上形态：这一区会在「模型进度（思考文本）」与「模型任务
+               * （todo 列表）」之间切换，子节点完全不同。形态一变就换 key 让整块
+               * 重建，配合 CSS 淡入读作「换了一种呈现」；不换的话新内容直接顶掉
+               * 旧内容，看起来像凭空跳出来。
+               */
+              key={workflow.stages.some((stage) => stage.detail !== '') ? 'tasks' : 'solo'}
               className="kr-agent-workflow-card__steps"
               data-edges={edges}
               data-following={followActive && following ? 'true' : undefined}

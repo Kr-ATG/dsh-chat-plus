@@ -1842,6 +1842,13 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   padding: 0 8px 9px;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--dsw-alias-label-tertiary) 26%, transparent) transparent;
+  /* 形态切换（思考文本 ↔ todo 列表）时 key 变、整块重建，这里接住那一次淡入。 */
+  animation: kr-agent-steps-in .3s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+@keyframes kr-agent-steps-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
 }
 
 .kr-agent-workflow-card__steps::-webkit-scrollbar {
@@ -2441,6 +2448,7 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
   .kr-agent-avatar-menu,
   .kr-agent-mini-avatar__status,
   .kr-agent-workflow-step,
+  .kr-agent-workflow-card__steps,
   .kr-agent-workflow-step__label,
   .kr-agent-workflow-step[data-status="current"] .kr-agent-workflow-step__index::after {
     animation: none !important;
