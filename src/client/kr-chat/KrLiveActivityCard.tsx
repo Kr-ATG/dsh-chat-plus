@@ -134,6 +134,15 @@ function toolVerb(name: string): string {
 type WorkflowStatus = 'done' | 'current' | 'pending'
 
 interface WorkflowStage {
+  /**
+   * 节点身份，**绝不能含 label 文本**。
+   *
+   * 原先 key 是 `${label}:${index}`，而 reasoning 是流式来的：模型每多吐一段
+   * 文本，label 就变一次 → key 变 → 整行被卸载重建 → 淡入 + 上浮动画重播一次，
+   * 顺带整段重排。看上去就是「一行一行蹦出来」，比不做动画还糟。
+   * 换成与文本无关的稳定身份后，流式只改文本内容，节点不重建、动画不重播。
+   */
+  readonly key: string
   readonly label: string
   readonly detail: string
   readonly status: WorkflowStatus
@@ -157,13 +166,18 @@ export interface KrActivityTask {
  * 糊成一坨连续文字——那才是「看着很杂、没有分类」的真凶，宽度不够只是让它
  * 更明显。这些文本本来就是模型自己排好版的结构化输出，压平等于把分类扔掉。
  *
- * 只把行内连续空白收成一个、行内缩进压平，行末换行和空行分段原样保留，
- * 交给 CSS 的 pre-wrap 还原成它本来的样子。
+ * 行末换行、空行分段、**行首缩进**全部原样保留（缩进就是 markdown 的层级，
+ * 压掉等于把列表拍平）；只收行内连续空白和多余空行，交给 pre-wrap 还原。
  */
 function structuredText(text: string, limit = 1200): string {
   const value = text
     .replace(/\r\n?/g, '\n')
-    .replace(/[^\S\n]+/g, ' ')
+    .split('\n')
+    .map((line) => {
+      const indent = /^[ \t]*/.exec(line)?.[0] ?? ''
+      return `${indent}${line.slice(indent.length).replace(/[^\S\n]+/g, ' ')}`
+    })
+    .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
   return value.length > limit ? `${value.slice(0, limit - 1)}…` : value
@@ -182,6 +196,7 @@ function buildTaskWorkflow(tasks: readonly KrActivityTask[]): WorkflowView {
   return {
     title: '模型任务',
     stages: visible.map((task) => ({
+      key: task.id,
       label: task.content,
       detail: taskStatusLabel(task.status),
       status: task.id === currentId ? 'current' : task.status === 'completed' ? 'done' : 'pending',
@@ -203,13 +218,23 @@ function buildWorkflow(
   closing: boolean,
 ): WorkflowView {
   if (tasks.length > 0) return buildTaskWorkflow(tasks)
-  const latest = [...reasoning].reverse().find((item) => item.text.trim() !== '')
+  /*
+   * 先找正在流式的那条，再退回最后一条非空。
+   *
+   * 只取「最后一条非空」在流式下会闪：模型分片下发时最新那条往往只有半句，
+   * 卡片会跟着在片段之间来回换，视觉上又是另一种一行一行跳。正在跑的那条
+   * 才是当下完整的判断。
+   */
+  const ordered = [...reasoning].reverse()
+  const latest = ordered.find((item) => item.running && item.text.trim() !== '')
+    ?? ordered.find((item) => item.text.trim() !== '')
   const semantic = latest === undefined
     ? (active ? '模型正在处理当前请求' : '模型已整理当前结果')
     : structuredText(latest.text)
   return {
     title: '模型进度',
     stages: [{
+      key: 'solo',
       label: semantic,
       detail: '',
       status: closing ? 'done' : 'current',
@@ -567,8 +592,8 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
               </span>
             </div>
             <div className="kr-agent-workflow-card__steps">
-              {stageWindow.items.map((stage, index) => (
-                <div className="kr-agent-workflow-step" data-status={stage.status} key={`${stage.label}:${stageWindow.offset + index}`}>
+              {stageWindow.items.map((stage) => (
+                <div className="kr-agent-workflow-step" data-status={stage.status} key={stage.key}>
                   {/* 节点只承担三态（✓ / 呼吸点 / 灰点），位次交给头部计数与底部汇总。 */}
                   <span className="kr-agent-workflow-step__index">
                     {stage.status === 'done' ? '✓' : ''}
