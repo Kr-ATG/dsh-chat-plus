@@ -410,12 +410,29 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     now: Date.now(),
   })
   if (tl.intent !== '打开携程，搜索北京到上海的机票') fail(`timeline intent must reach the card, got ${tl.intent}`)
-  else if (tl.steps.length !== 3) fail(`timeline must keep all 3 calls, got ${tl.steps.length}`)
-  else if (tl.steps[tl.steps.length - 1].verb !== '更新任务清单') fail('todo_write must be moved to the end of the timeline')
-  else if (tl.steps[0].status !== 'running' || tl.steps[1].status !== 'done') fail('per-step status must reflect the call state')
+  else if (tl.steps.length !== 3) fail(`timeline must keep all calls, got ${tl.steps.length}`)
+  else if (tl.steps[0].id !== 'n1') fail('the first call must stay first')
+  // todo_write 只出**一行汇总**，且钉在它首次出现的位置（不是甩到最后）。
+  else if (tl.steps[1].id !== 'plain-todo-summary') fail('todo_write must collapse into one summary row at its first position')
+  else if (tl.steps[1].verb !== '维护任务清单') fail(`summary row must read as 维护任务清单, got ${tl.steps[1].verb}`)
+  else if (tl.steps.filter((s) => s.id === 'plain-todo-summary').length !== 1) fail('todo_write must produce exactly one summary row')
+  else if (tl.steps[2].id !== 'n2') fail('calls after the todo_write must keep their order')
   else if (tl.activeCount !== 1 || tl.doneCount !== 2) fail(`active/done counts wrong: ${tl.activeCount}/${tl.doneCount}`)
   else if (!tl.nowLabel.includes('打开携程')) fail(`nowLabel must lead with the narration, got ${tl.nowLabel}`)
-  else pass('timeline assembles narration + calls in order')
+  else pass('timeline assembles narration + calls in order, todo collapsed in place')
+
+  // 多次 todo_write 折叠成一行，并报出「改了几次 / 完成几项」。
+  const twiceTl = buildPlainTimeline({
+    reasoningTexts: [], tools: [metaTool, doneTool, metaTool], running: false, now: 2000,
+  })
+  const summary = twiceTl.steps.find((s) => s.id === 'plain-todo-summary')
+  if (twiceTl.steps.filter((s) => s.id === 'plain-todo-summary').length !== 1) {
+    fail('repeated todo_write calls must still collapse into ONE row')
+  } else if (summary?.detail === undefined || !summary.detail.includes('2 次')) {
+    fail(`summary row must report how many times the list changed, got ${summary?.detail}`)
+  } else {
+    pass('repeated todo_write calls collapse into one row with a change count')
+  }
 
   // 无播报时退化成工具推导，卡片不能空：进行中的调用直接接管「当前动作」。
   const bare = buildPlainTimeline({ reasoningTexts: ['嗯'], tools: [runningTool], running: true, now: Date.now() })

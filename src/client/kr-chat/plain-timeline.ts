@@ -94,8 +94,7 @@ function statusOf(root: Parameters<typeof viewPhase>[0]): 'running' | 'done' | '
   return 'done'
 }
 
-/** 失败调用的错误原文。形状随宿主版本变过，一律防御式取，取不到就 undefined。 */
-function errorTextOf(root: unknown): string | undefined {
+/** 失败调用的错误原文。形状随宿主版本变过，一律防御式取，取不到就 undefined。 */function errorTextOf(root: unknown): string | undefined {
   if (typeof root !== 'object' || root === null) return undefined
   const record = root as { isError?: unknown; error?: unknown }
   if (record.isError !== true) return undefined
@@ -108,17 +107,60 @@ function errorTextOf(root: unknown): string | undefined {
   return undefined
 }
 
-export function buildPlainTimeline(input: PlainTimelineInput): PlainTimeline {
-  const meta: PlainStep[] = []
-  const main: PlainStep[] = []
+/** 判元信息那一步不能抛：节点形状未知时按「不是 todo」处理。 */
+function safeCallName(node: ChatNode<'tool-call'>): string {
+  try {
+    return callName(node.data.root)
+  } catch {
+    return ''
+  }
+}
+
+/** 读 todo_write 的 todos 列表；形状不对返回 null（汇总行照常出，只少计数）。 */
+function safeTodoList(node: ChatNode<'tool-call'>): ReadonlyArray<{ status?: unknown }> | null {
+  try {
+    const todos = argFields(toolArgsRaw(node.data.root)).todos
+    return Array.isArray(todos) ? (todos as ReadonlyArray<{ status?: unknown }>) : null
+  } catch {
+    return null
+  }
+}
+
+export function buildPlainTimeline(input: PlainTimelineInput): PlainTimeline {  const main: PlainStep[] = []
+  /*
+   * 任务清单维护（todo_write）**按时间原位出现一次**，不再甩到末尾。
+   *
+   * 旧做法是把它当"元信息"强行挪到最后：理由是模型每改一次任务状态就重写
+   * 一次清单，按时间排会得到「更新清单 → 做A → 更新清单 → 做B」这种反复穿插。
+   * 但那张卡叫"正在做什么"、是一列按顺序的步骤，读者默认它按发生时间读——把
+   * 一件往往发生在**开头**的事（模型列计划）固定甩到最后，等于对用户撒了个
+   * 小谎。而且任务状态已经有上面那张「任务概览」卡实时在显示，这里逐条重复
+   * 纯属冗余。
+   *
+   * 现在折中：整轮只出**一行汇总**，钉在它第一次出现的位置，说清「改了几次、
+   * 完成了几项」。既不打断阅读，也不破坏时间语义，还留着「模型在按计划推进」
+   * 这个事实。
+   */
+  let todoCalls = 0
+  let todoAt = -1
+  let todoDone = 0
+  let todoTotal = 0
 
   for (const [index, node] of input.tools.entries()) {
+    if (isMetaTool(safeCallName(node))) {
+      todoCalls += 1
+      if (todoAt < 0) todoAt = main.length
+      const todos = safeTodoList(node)
+      if (todos !== null) {
+        todoTotal = todos.length
+        todoDone = todos.filter((item) => item?.status === 'completed').length
+      }
+      continue
+    }
     let step: PlainStep
-    let metaLike = false
     try {
       const root = node.data.root
       const name = callName(root)
-      metaLike = isMetaTool(name)
       const durationMs = callDurationMs(root, input.now)
       const errorText = errorTextOf(root)
       step = toPlainStep({
@@ -134,11 +176,22 @@ export function buildPlainTimeline(input: PlainTimelineInput): PlainTimeline {
       // 未知节点形状不该让整条时间线消失：给一条最小可显示的兜底。
       step = toPlainStep({ id: `plain-fallback-${index}`, toolName: '', status: 'done' })
     }
-    ;(metaLike ? meta : main).push(step)
+    main.push(step)
   }
 
-  // 元信息（任务清单更新）是一次性动作，混在流程中间会打断阅读，挪到末尾。
-  const steps = [...main, ...meta]
+  if (todoCalls > 0) {
+    const parts = [todoCalls > 1 ? `改 ${todoCalls} 次` : '列了任务清单']
+    parts.push(todoTotal > 0 ? `${todoDone} / ${todoTotal} 项完成` : '暂无完成项')
+    main.splice(Math.max(0, todoAt), 0, {
+      id: 'plain-todo-summary',
+      icon: 'task',
+      verb: '维护任务清单',
+      detail: parts.join(' · '),
+      status: 'done',
+    })
+  }
+
+  const steps = main
 
   const activeCount = steps.filter((step) => step.status === 'running').length
   const doneCount = steps.filter((step) => step.status === 'done').length
