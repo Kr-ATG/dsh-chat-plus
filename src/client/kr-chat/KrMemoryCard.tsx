@@ -613,12 +613,13 @@ export const KrMemoryCard = memo(function KrMemoryCard({
           </svg>
         </span>
         <span className="kr-card__title">记忆</span>
-        {/* 头部只留图标 + 名称 + 条数徽标：原来把「(N)」「展开其余」「选择」三样都
+        {/* 头部只留图标 + 名称 + 条数：原来把「(N)」「展开其余」「选择」三样都
             堆在这一行，是「乱」的直接来源。现在总数是唯一的数字来源，分区行
             只报各批条数，两者不再互相重复。
-            徽标带单位（「3 条」而不是光一个 3）：卡片常态是折叠的，这行字是折叠
+            条数是**纯文字**而不是带底色的徽标（按用户要求，与其它卡片一致）：
+            带单位（「3 条」而不是光一个 3），因为卡片常态是折叠的，这行字是折叠
             状态下唯一的正文，写清楚「几条」比让人数数字更省一步理解。 */}
-        <span className="kr-card__badge kr-card__badge--count">{newEntryCount} 条</span>
+        <span className="kr-card__meta">{newEntryCount} 条</span>
       </div>
 
       {/* 到这里必有本会话新增（否则组件早已 return null），所以只剩两种分区

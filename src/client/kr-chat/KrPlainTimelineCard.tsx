@@ -161,24 +161,18 @@ function SubagentBlock({ catalog }: { readonly catalog: SubagentCatalogView }): 
   )
 }
 
-function StepRow({ step, index, showTech, catalog }: {
+function StepRow({ step, index, catalog }: {
   readonly step: PlainStep
   readonly index: number
-  /** 卡片级的「技术细节」总开关：开则本行展开，关闭时这一行干干净净。 */
-  readonly showTech: boolean
   /** 仅当 step.spawnsSubagents 为真时才有内容。 */
   readonly catalog: SubagentCatalogView | null
 }): ReactElement {
   const title = step.detail === undefined ? step.verb : `${step.verb} · ${step.detail}`
-  const techText = step.tech === undefined
-    ? ''
-    : [step.tech.name, step.tech.args, step.tech.error].filter(Boolean).join('\n')
   return (
     <div
       className="kr-plain-step"
       data-status={step.status}
       data-nested={step.spawnsSubagents === true ? 'true' : undefined}
-      data-tech={showTech && techText !== '' ? 'open' : undefined}
       // 错峰入场：只对靠后的若干条错开，卡片整体不拖出一段长尾。
       style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
     >
@@ -193,7 +187,6 @@ function StepRow({ step, index, showTech, catalog }: {
           {catalog.state === 'ready' ? `${catalog.rows.length} 个子智能体` : '子智能体'}
         </span>
       )}
-      {showTech && techText !== '' && <pre className="kr-plain-step__tech">{techText}</pre>}
       {step.spawnsSubagents === true && catalog !== null && <SubagentBlock catalog={catalog} />}
     </div>
   )
@@ -207,15 +200,6 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
 }: KrPlainTimelineCardProps) {
   // 默认展开：这张卡挂在滚动区最末尾，收起等于把它藏到视线之外。
   const [open, setOpen] = useState(true)
-  /**
-   * 「技术细节」改成**卡片级**总开关。
-   *
-   * 原来每行挂一枚「技术细节」按钮：一轮 15 步就是 15 枚一模一样的按钮并排
-   * 在右边，横向噪声比内容还大，还把每行标题的可用宽度压掉一截。现在收成
-   * 头部一枚开关，开了每行下方统一展开——看全部技术细节本来就是一个整体意图，
-   * 不该让人逐条点十五次。
-   */
-  const [showTech, setShowTech] = useState(false)
   const motion = useMotionAllowed(true)
   const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(open, motion)
   const nowLayers = useCrossfadeText(timeline.nowLabel, motion)
@@ -230,13 +214,6 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
     [timeline.steps],
   )
   const subagentCatalog = useSubagentCatalog(hasSpawning ? sessionId : null)
-
-  /** 本轮是否有任何一条带技术信息（决定头部那枚开关渲不渲染）。 */
-  const hasTech = useMemo(
-    () => timeline.steps.some((step) => step.tech !== undefined
-      && [step.tech.name, step.tech.args, step.tech.error].some((part) => part !== undefined && part !== '')),
-    [timeline.steps],
-  )
 
   // 跟随探针：条目数 / 当前动作 / 预告任一变化都重新贴底。
   const probe = useMemo(
@@ -265,15 +242,6 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   }, [running, listRef])
 
   const empty = timeline.steps.length === 0
-  /*
-   * 徽标只报规模，不报状态。
-   *
-   * 原来运行中会变成「进行中」，那是标题行右边和「技术细节」并排的第二枚状态
-   * 提示，而此刻标题行中间那句「正在派出子任务」已经把"现在在干什么"说完了——
-   * 两句话讲同一件事，右侧还因此挤了一枚。运行态由那句话承载（它随动作实时
-   * 变化），徽标回到它该干的活：这一轮一共几步。
-   */
-  const badge = empty ? '待开始' : `${timeline.steps.length} 步`
   const maxRows = squeezed ? LIST_MAX_ROWS_SQUEEZED : LIST_MAX_ROWS
 
   return (
@@ -317,6 +285,11 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
          * 回答了"此刻它在干什么"，正文从「接下来」或步骤列表直接开始，省下一整行。
          *
          * 宽度不够时整段 ellipsis（不是换行——换行会把标题行撑成两行，等于没省）。
+         *
+         * 标题行右侧原先还有两样东西，都按用户要求删了：「N 步」徽标（一枚带底色
+         * 的胶囊，而表头中间这句已经说清此刻在做什么，步数是可数的东西）与
+         * 「技术细节」总开关（一枚常驻按钮 + 打开时的蓝底）。现在标题行只有
+         * 标题与这句人话，其余信息一律留给列表正文。
          */}
         <span className="kr-plain-now kr-plain-now--inline" title={timeline.nowLabel}>
           <span className="kr-plain-now__stack">
@@ -332,20 +305,6 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
             ))}
           </span>
         </span>
-        <span className={`kr-card__badge ${running ? 'kr-card__badge--running' : 'kr-card__badge--done'}`}>
-          {badge}
-        </span>
-        {hasTech && (
-          <button
-            type="button"
-            className="kr-plain-tech-toggle"
-            data-on={showTech ? 'true' : undefined}
-            aria-pressed={showTech}
-            onClick={(event) => { event.stopPropagation(); setShowTech((value) => !value) }}
-          >
-            技术细节
-          </button>
-        )}
       </div>
 
       {bodyPresent && (
@@ -393,7 +352,6 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
                   key={step.id}
                   step={step}
                   index={index}
-                  showTech={showTech}
                   catalog={step.spawnsSubagents === true ? subagentCatalog : null}
                 />
               ))}

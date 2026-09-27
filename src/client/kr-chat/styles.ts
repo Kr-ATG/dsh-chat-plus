@@ -560,61 +560,39 @@ body[data-kr-resizing="true"] * {
 /*
  * 操作面板的标题不占满剩余宽度。
  *
- * .kr-card__title 的 flex:1 是为「标题 + 右侧徽标」两件东西准备的（徽标靠右
- * 对齐）。这张卡标题行里还塞了「当前在做什么」与「技术细节」开关，标题再吃掉
- * 弹性空间的话，后面两件只能被挤到换行或省略。改成 flex:0 后弹性交给紧随其后的
- * nowLabel，其余卡的排布完全不变。
+ * .kr-card__title 的 flex:1 是为「标题 + 右侧那件东西」准备的。这张卡标题行里
+ * 还塞了「当前在做什么」，标题再吃掉弹性空间的话，它只能被挤到换行或省略。
+ * 改成 flex:0 后弹性交给紧随其后的 nowLabel，其余卡的排布完全不变。
  */
 .kr-card--plain .kr-card__title {
   flex: 0 0 auto;
   white-space: nowrap;
 }
 
-.kr-card__badge {
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  /*
-   * flex: none + nowrap：徽标是「N 步」「N 条」这类固定短文本，绝不能参与收缩。
-   *
-   * 之前它默认 flex-shrink:1，而 flex item 的 min-width:auto 解析成 min-content
-   * —— 对含空格的「2 步」来说 min-content 就是「2」，于是标题行一挤，徽标被压到
-   * 只剩一个字宽，"步" 掉到第二行，徽标凭空长高一截（就是那个「2 / 步」竖排）。
-   * 挤压压力理应交给旁边可省略的动作名（.kr-plain-now--inline 有 min-width:0 +
-   * ellipsis），徽标必须完整。
-   */
+/*
+ * 标题行右侧的补充说明（任务概览的进度、记忆卡的条数）：**纯文字**，无底色。
+ *
+ * 原来是一枚带底色的胶囊徽标。三张卡各挂一枚，右栏从上到下就是一列色块——
+ * 每张卡都在标题右侧挂一枚东西，扫读时先看到的是那列色块而不是标题。信息
+ * 本身（3/5 完成、3 条）弱一级字色就够读，不需要底色来喊。
+ *
+ * flex: none + nowrap 的理由与被它替代的徽标一致：固定短文本不参与收缩，
+ * 否则窄栏里「2 步」会被压成一个字宽（min-width:auto → min-content）而竖排。
+ * 省略交给旁边可压缩的标题或动作名。
+ */
+.kr-card__meta {
   flex: none;
   white-space: nowrap;
-}
-
-.kr-card__badge--running {
-  background: var(--kr-fill-bg);
-  color: var(--dsw-alias-label-primary);
-  border: 1px solid var(--kr-card-border);
-}
-
-.kr-card__badge--done {
-  background: var(--kr-hover-bg);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
   color: var(--dsw-alias-label-tertiary);
-}
-
-/* 记忆卡的条数徽标：卡片常态折叠，这枚徽标是折叠态下**唯一**的正文，
-   所以比 --done 那一档（hover 底 + 三级字色）再抬一格：常规底色 + 二级字色。
-   够读得清，又不至于亮到像一枚待办提醒。 */
-.kr-card__badge--count {
-  background: var(--kr-fill-bg);
-  color: var(--dsw-alias-label-secondary);
   font-variant-numeric: tabular-nums;
-  transition: background-color .18s ease, color .18s ease;
+  transition: color .18s ease;
 }
 
-.kr-card--memory .kr-card__header:hover .kr-card__badge--count {
-  background: color-mix(in srgb, var(--kr-accent) 14%, var(--kr-fill-bg));
-  color: var(--kr-accent);
+.kr-card__header:hover .kr-card__meta {
+  color: var(--dsw-alias-label-secondary);
 }
 
 /*
@@ -666,9 +644,7 @@ body[data-kr-resizing="true"] * {
  * （卡片不整张消失），信息也依然在。规则留着备用：将来若要恢复独立空态
  * （比如给一行引导操作），把 .kr-task-empty 挂回列表区即可。
  */
-.kr-card--task[data-empty] .kr-card__badge {
-  opacity: .6;
-}
+/* 空态：进度说明（纯文字）弱一档，不必再单独压暗。 */
 
 /* 任务行落位：首条 34ms、逐条错峰，读作「步骤在铺开」而不是整张卡突然出现。 */
 .kr-task-item {
@@ -846,10 +822,8 @@ body[data-kr-resizing="true"] * {
   padding-bottom: 11px;
 }
 
-.kr-card--plain[data-empty] .kr-card__badge {
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-}
+/* 原 .kr-card--plain[data-empty] .kr-card__badge 规则已删：徽标整体取消，
+   空态下不再有任何底色需要中和。 */
 
 /* 展开体：高度补间由 useHeightAnimation 的 WAAPI 接管（写内联 height +
    overflow），这里只排版，**绝不写 height**，否则和内联样式打架。 */
@@ -997,42 +971,10 @@ body[data-kr-resizing="true"] * {
   .kr-plain-list { -webkit-mask-image: none !important; mask-image: none !important; }
 }
 
-/* 卡片级「技术细节」开关（头部）。
-   原来这枚按钮挂在每一行上：一轮 15 步就是 15 枚一模一样的按钮并排右侧，
-   横向噪声压过内容本身，还把标题的可用宽度吃掉一截。收成一枚之后每行只剩
-   「状态点 + 图标 + 标题 + 耗时」，该有的呼吸感回来了。 */
-.kr-plain-tech-toggle {
-  flex: none;
-  /* 同 .kr-card__badge：固定短文本不参与收缩，窄栏时省略的是旁边的动作名。 */
-  white-space: nowrap;
-  padding: 1px 7px;
-  border: 1px solid var(--kr-card-border);
-  border-radius: 7px;
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  font-family: inherit;
-  font-size: 10.5px;
-  line-height: 15px;
-  cursor: pointer;
-  transition: color .16s ease, border-color .16s ease, background-color .16s ease;
-}
-
-.kr-plain-tech-toggle:hover {
-  color: var(--dsw-alias-label-secondary);
-  border-color: var(--kr-card-hover);
-  background: var(--kr-hover-bg);
-}
-
-.kr-plain-tech-toggle[data-on="true"] {
-  color: var(--kr-accent);
-  border-color: color-mix(in srgb, var(--kr-accent) 34%, transparent);
-  background: color-mix(in srgb, var(--kr-accent) 11%, transparent);
-}
-
-.kr-plain-tech-toggle:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--kr-accent) 52%, transparent);
-  outline-offset: 1px;
-}
+/* 卡片级「技术细节」开关已整块删除（按用户要求）：开关与它打开时那层蓝底
+   （data-on 的 accent 描边 + 11% 底色）一起没了，KrPlainTimelineCard 里的
+   showTech 状态与 kr-plain-step__tech 渲染点同样删除。这张卡从此只讲人话，
+   技术视角完全交给对话流里官方那条工具折叠行。 */
 
 /* ── 单条步骤 ─────────────────────────────────────────────────────────── */
 .kr-plain-step {
@@ -1128,32 +1070,7 @@ body[data-kr-resizing="true"] * {
   font-variant-numeric: tabular-nums;
 }
 
-/* 行内那枚「技术细节」按钮的样式已删：收成卡片级开关（.kr-plain-tech-toggle，
-   挂在卡片头部）之后，行内只剩「状态点 + 图标 + 标题 + 耗时」，标题终于能
-   占满整行宽度。 */
-
-/* 展开的技术明细独占一行：flex-basis 100% 让它从当前行折下去。 */
-.kr-plain-step__tech {
-  flex: 1 0 100%;
-  margin: 4px 0 2px;
-  padding: 6px 8px;
-  max-height: 140px;
-  overflow: auto;
-  border-radius: 6px;
-  background: var(--kr-hover-bg);
-  font-family: var(--dsw-font-family-mono, ui-monospace, monospace);
-  font-size: 10.5px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: var(--dsw-alias-label-tertiary);
-  animation: kr-plain-tech-in .22s cubic-bezier(.16, 1, .3, 1) both;
-}
-
-@keyframes kr-plain-tech-in {
-  from { opacity: 0; transform: translateY(-3px); }
-  to { opacity: 1; transform: none; }
-}
+/* @keyframes kr-plain-tech-in 已删：唯一使用它的 .kr-plain-step__tech 整块移除。 */
 
 /* ── 子智能体区块（挂在「派生子任务」那一步下面） ───────────────────────
    子智能体是独立会话，父调用对它们内部在做什么一无所知。这里只列拿得到的
@@ -1344,7 +1261,6 @@ body[data-kr-resizing="true"] * {
 .kr-reasoning-view::-webkit-scrollbar,
 .kr-plain-list::-webkit-scrollbar,
 .kr-memory__list::-webkit-scrollbar,
-.kr-plain-step__tech::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
@@ -1353,7 +1269,6 @@ body[data-kr-resizing="true"] * {
 .kr-reasoning-view::-webkit-scrollbar-track,
 .kr-plain-list::-webkit-scrollbar-track,
 .kr-memory__list::-webkit-scrollbar-track,
-.kr-plain-step__tech::-webkit-scrollbar-track {
   background: transparent;
 }
 
@@ -1361,7 +1276,6 @@ body[data-kr-resizing="true"] * {
 .kr-reasoning-view::-webkit-scrollbar-thumb,
 .kr-plain-list::-webkit-scrollbar-thumb,
 .kr-memory__list::-webkit-scrollbar-thumb,
-.kr-plain-step__tech::-webkit-scrollbar-thumb {
   background-color: var(--kr-scrollbar-thumb);
   /*
    * 这里**不能**再叠 border + background-clip: content-box 去「把 6px 槽收成
@@ -1377,7 +1291,6 @@ body[data-kr-resizing="true"] * {
 .kr-reasoning-view::-webkit-scrollbar-thumb:hover,
 .kr-plain-list::-webkit-scrollbar-thumb:hover,
 .kr-memory__list::-webkit-scrollbar-thumb:hover,
-.kr-plain-step__tech::-webkit-scrollbar-thumb:hover {
   background-color: var(--kr-scrollbar-thumb-hover);
 }
 
@@ -1385,7 +1298,6 @@ body[data-kr-resizing="true"] * {
 .kr-reasoning-view::-webkit-scrollbar-corner,
 .kr-plain-list::-webkit-scrollbar-corner,
 .kr-memory__list::-webkit-scrollbar-corner,
-.kr-plain-step__tech::-webkit-scrollbar-corner {
   background: transparent;
 }
 
@@ -1401,7 +1313,6 @@ body[data-kr-resizing="true"] * {
   .kr-reasoning-view,
   .kr-plain-list,
   .kr-memory__list,
-  .kr-plain-step__tech {
     scrollbar-width: thin;
     scrollbar-color: var(--kr-scrollbar-thumb) transparent;
   }
@@ -1414,7 +1325,6 @@ body[data-kr-resizing="true"] * {
   .kr-reasoning-view::-webkit-scrollbar-thumb,
   .kr-plain-list::-webkit-scrollbar-thumb,
   .kr-memory__list::-webkit-scrollbar-thumb,
-  .kr-plain-step__tech::-webkit-scrollbar-thumb {
     background-color: CanvasText;
   }
 }
@@ -1424,7 +1334,6 @@ body[data-kr-resizing="true"] * {
   .kr-reasoning-view::-webkit-scrollbar-thumb,
   .kr-plain-list::-webkit-scrollbar-thumb,
   .kr-memory__list::-webkit-scrollbar-thumb,
-  .kr-plain-step__tech::-webkit-scrollbar-thumb {
     transition: none;
   }
 }

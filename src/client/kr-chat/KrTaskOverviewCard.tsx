@@ -60,9 +60,12 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
           </svg>
         </span>
         <span className="kr-card__title">任务概览</span>
-        <span className={`kr-card__badge ${isRunning || activeCount > 0 ? 'kr-card__badge--running' : 'kr-card__badge--done'}`}>
-          {progressText}
-        </span>
+        {/*
+         * 进度说明是**纯文字**，不再是一枚带底色的徽标（按用户要求）：卡片标题行
+         * 右侧挂一枚胶囊，右栏每张卡各挂一枚，三张并排时是一列色块，噪声比信息
+         * 本身大。文字弱一级（.kr-card__meta）即可，扫读时不会和标题抢。
+         */}
+        <span className="kr-card__meta">{progressText}</span>
       </div>
 
       {/*

@@ -375,19 +375,19 @@ if (krEnabled) {
   }
 }
 
-// 记忆卡：默认折叠 + 折叠态带「N 条」徽标。
+// 记忆卡：默认折叠 + 折叠态右侧带一行「N 条」纯文字（不再是带底色的徽标）。
 // 断言读源码而不是 bundle —— bundle 里中文被 esbuild 转成 \uXXXX，正则难写；
 // 而这两条契约本身就是源码里的一行状态初值与一个类名，直接读最实。
 if (krEnabled) {
   const memorySrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrMemoryCard.tsx'), 'utf8')
   if (!/const \[collapsed, setCollapsed\] = useState\(true\)/.test(memorySrc)) {
     fail('记忆卡必须默认折叠（有新增也不自动展开），useState 初值应为 true')
-  } else if (!memorySrc.includes('kr-card__badge--count')) {
-    fail('记忆卡折叠态必须带「N 条」徽标（kr-card__badge--count）')
-  } else if (!code.includes('.kr-card__badge--count')) {
-    fail('client bundle is missing the .kr-card__badge--count style')
+  } else if (!memorySrc.includes('kr-card__meta')) {
+    fail('记忆卡折叠态必须带「N 条」说明文字（.kr-card__meta）')
+  } else if (!/\.kr-card__meta \{[^}]*white-space: nowrap/.test(code)) {
+    fail('.kr-card__meta 必须 white-space: nowrap（固定短文本不参与收缩）')
   } else {
-    pass('记忆卡默认折叠，折叠态带「N 条」徽标')
+    pass('记忆卡默认折叠，折叠态带「N 条」纯文字')
   }
 }
 
@@ -581,16 +581,15 @@ if (!/className="kr-elapsed"[\s\S]{0,400}aria-hidden="true"/.test(cardCode)) {
   pass('用时读数与思考视口都不在 live 播报面上（高频文本不轰炸读屏）')
 }
 
-// 表头短徽标不许被 flex 压成竖排。回归过一次：「2 步」在窄栏里被压成一个字宽、
-// 「步」掉到第二行，徽标凭空长高一截——根因是 flex item 的 min-width:auto 解析成
-// min-content，而含空格的短文本 min-content 就是第一个词。
+// 标题行右侧的短文本不参与收缩：否则窄栏里「3/5 完成」这类含空格的文本会被
+// 压到一个词宽（min-width:auto → min-content）而竖排换行。
 if (krEnabled) {
-  if (!/\.kr-card__badge \{[^}]*white-space: nowrap/.test(code)) {
-    fail('.kr-card__badge 必须 white-space: nowrap（窄栏里「2 步」会被压成竖排两行）')
-  } else if (!/\.kr-plain-tech-toggle \{[^}]*white-space: nowrap/.test(code)) {
-    fail('.kr-plain-tech-toggle 必须 white-space: nowrap（窄栏里「技术细节」会竖排）')
+  if (!/\.kr-card__meta \{[^}]*white-space: nowrap/.test(code)) {
+    fail('.kr-card__meta 必须 white-space: nowrap（窄栏里「3/5 完成」会被压成竖排）')
+  } else if (/\.kr-card__badge\s*\{/.test(code) || /\.kr-plain-tech-toggle\s*\{/.test(code)) {
+    fail('卡片头部不再有徽标与「技术细节」开关，bundle 里不该再有 kr-card__badge / kr-plain-tech-toggle 规则')
   } else {
-    pass('表头短徽标与开关按钮不会被压成竖排')
+    pass('标题行右侧只留纯文字，无徽标 / 无技术细节开关')
   }
 }
 
@@ -633,18 +632,20 @@ if (krEnabled) {
       pass('子智能体区块样式与父会话 id 传递在位')
     }
 
-    // 「操作面板」卡的三个布局修复：行内技术细节按钮必须收成卡片级（15 行挂
-    // 15 枚按钮是横向噪声）、列表必须有上下渐隐（否则顶部被硬切出半行）、
+    // 「操作面板」卡：技术细节入口已按要求整块删除（连带它打开时的蓝底），
+    // 于是这张卡只剩人话；列表仍必须有上下渐隐（否则顶部被硬切出半行）、
     // 收口时必须回顶（内容定格后停在底部会把开头几步挡在视口外）。
     const cardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrPlainTimelineCard.tsx'), 'utf8')
-    if (/kr-plain-step__tech-toggle/.test(cardSrc)) {
-      fail('行内「技术细节」按钮已废弃，必须收成卡片级总开关（.kr-plain-tech-toggle）')
+    if (/showTech|kr-plain-tech-toggle|kr-plain-step__tech/.test(cardSrc)) {
+      fail('「技术细节」开关与展开块已整块删除，卡片里不该再有残留')
+    } else if (/kr-card__badge/.test(cardSrc)) {
+      fail('标题行的「N 步」徽标已删除，只留文字')
     } else if (!code.includes('.kr-plain-list[data-edges="both"]')) {
       fail('时间线列表缺少上下渐隐遮罩（顶部会被硬切出半行）')
     } else if (!/wasRunningRef/.test(cardSrc)) {
       fail('轮次收口时必须把时间线列表拉回顶部')
     } else {
-      pass('技术细节收成卡片级开关 + 列表渐隐 + 收口回顶')
+      pass('操作面板只留人话（无徽标 / 无技术细节）+ 列表渐隐 + 收口回顶')
     }
 
     // 子智能体：主数据源必须是 items（实时投影），subagentsByParent 只作兜底。
