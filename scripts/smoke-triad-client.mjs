@@ -334,6 +334,107 @@ if (typeof activityColor === 'function') {
   }
 }
 
+// ── 人话行动流：工具调用 → 中文人话 + 时间线组装 ────────────────────────
+const {
+  toPlainStep, plainToolName, siteOf, isMetaTool, buildPlainTimeline, extractIntent,
+} = mod
+
+if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function' || typeof extractIntent !== 'function') {
+  fail('toPlainStep / buildPlainTimeline / extractIntent must be exported from the client bundle')
+} else {
+  pass('plain-language exports present')
+
+  // 命名空间前缀必须被剥掉：MCP 服务前缀由注册决定，规则表不该跟着它变。
+  if (plainToolName('mcp__playwright-mcp__browser_click') !== 'browser_click') fail('mcp__ prefix must be stripped')
+  else if (plainToolName('cua_driver_native__click') !== 'click') fail('plugin __ prefix must be stripped')
+  else pass('tool names are namespace-normalised')
+
+  if (siteOf('https://flights.ctrip.com/online/list/oneway-ctrip') !== '携程 · 机票') fail(`ctrip must map to 携程 · 机票, got ${siteOf('https://flights.ctrip.com/online/list/oneway-ctrip')}`)
+  else if (siteOf('https://www.taobao.com') !== '淘宝') fail('taobao must map to 淘宝')
+  else if (siteOf('https://unknown-shop.example/page') !== 'unknown-shop.example') fail('unknown hosts must fall back to the bare host')
+  else pass('site names resolve to friendly labels')
+
+  // 站点友好名 + 业务后缀
+  const nav = toPlainStep({
+    toolName: 'mcp__playwright-mcp__browser_navigate',
+    args: { url: 'https://flights.ctrip.com/online/list/oneway-ctrip' },
+    status: 'done',
+  })
+  if (nav.verb !== '打开网页' || nav.detail !== '携程 · 机票') fail(`browser_navigate must read as 打开网页 · 携程 · 机票, got ${nav.verb} · ${nav.detail}`)
+  else pass('browser_navigate reads as plain language with a friendly site name')
+
+  const typed = toPlainStep({ toolName: 'browser_type', args: { ref: 'e12', text: '北京' }, status: 'done' })
+  if (typed.verb !== '在输入框里填写' || typed.detail !== '北京') fail(`browser_type must show the typed text, got ${typed.verb} · ${typed.detail}`)
+  else pass('browser_type shows the typed value')
+
+  const clicked = toPlainStep({ toolName: 'browser_click', args: { ref: 'e9', element: '出发地' }, status: 'done' })
+  if (clicked.verb !== '点击网页' || clicked.detail !== '出发地') fail(`browser_click must show the element label, got ${clicked.verb} · ${clicked.detail}`)
+  else pass('browser_click shows the element label')
+
+  // 完整路径绝不上屏：只留文件名。
+  const read = toPlainStep({ toolName: 'read', args: { file_path: 'D:\\AI\\Dsh\\dsh-chat-plus\\src\\client\\index.ts' }, status: 'done' })
+  if (read.verb !== '查看文件' || read.detail !== 'index.ts') fail(`read must show only the file name, got ${read.detail}`)
+  else if (read.detail.includes('D:\\')) fail('read must never surface a full path')
+  else pass('read shows the file name only')
+
+  // 原始命令行绝不上屏：只进 tech。
+  const sh = toPlainStep({ toolName: 'pwsh', args: { command: 'Get-ChildItem -Recurse C:\\secret', description: '列出目录' }, argsRaw: '{"command":"Get-ChildItem -Recurse C:\\\\secret","description":"列出目录"}', status: 'done' })
+  if (sh.verb !== '在终端执行命令' || sh.detail !== '列出目录') fail(`pwsh must use the description, got ${sh.verb} · ${sh.detail}`)
+  else if (sh.verb.includes('Get-ChildItem') || (sh.detail ?? '').includes('secret')) fail('the raw command must never reach the headline')
+  else if (sh.tech?.name !== 'pwsh' || !String(sh.tech?.args ?? '').includes('Get-ChildItem')) fail('the raw command must stay reachable through the technical detail')
+  else pass('pwsh keeps the raw command out of the headline but reachable in tech')
+
+  const unknown = toPlainStep({ toolName: 'mcp__acme__do_the_thing', args: {}, status: 'done' })
+  if (!unknown.verb.startsWith('执行 ')) fail(`unknown tools must fall back to 执行 X, got ${unknown.verb}`)
+  else pass('unknown tools fall back without throwing')
+
+  // 意图抽取：取最后一条（流式重述天然去重），行首严格 + 行内兜底。
+  if (extractIntent(['先看看仓库', '下一步：打开携程', '下一步：搜索北京到上海的机票']) !== '搜索北京到上海的机票') fail('intent must be the LAST 下一步 line')
+  else if (extractIntent(['我接下来要查一下机票', '无所谓']) !== undefined) fail('text without the marker must not fabricate an intent')
+  else if (extractIntent(['顺便说一下下一步：看看价格']) !== '看看价格') fail('an in-line 下一步 must still be picked up')
+  else pass('intent extraction picks the latest narration line')
+
+  if (!isMetaTool('todo_write') || isMetaTool('read')) fail('only todo_write counts as meta')
+  else pass('todo_write is flagged as meta')
+
+  // 时间线组装：真实节点形状 —— 运行中无 kind（顶层 name/argsRaw），
+  // 已结束有 kind 且工具名/入参都在 block.call 下（callName / toolArgsRaw 读的是它）。
+  const runningTool = { key: 'n1', data: { root: { name: 'browser_navigate', argsRaw: JSON.stringify({ url: 'https://flights.ctrip.com/online/list/oneway-ctrip' }), time: Date.now() - 900, subCalls: [] } } }
+  const doneTool = { key: 'n2', data: { root: { kind: 'tool-call', call: { name: 'read', argsRaw: JSON.stringify({ file_path: 'C:\\work\\notes.md' }) }, time: 1000, callTime: 900, subCalls: [], content: [{ type: 'text', text: 'ok' }], isError: false, meta: {} } } }
+  const metaTool = { key: 'n3', data: { root: { kind: 'tool-call', call: { name: 'todo_write', argsRaw: JSON.stringify({ todos: [] }) }, time: 1100, callTime: 1000, subCalls: [], content: [], isError: false, meta: {} } } }
+
+  const tl = buildPlainTimeline({
+    reasoningTexts: ['先拆解需求', '下一步：打开携程，搜索北京到上海的机票'],
+    tools: [runningTool, metaTool, doneTool],
+    running: true,
+    now: Date.now(),
+  })
+  if (tl.intent !== '打开携程，搜索北京到上海的机票') fail(`timeline intent must reach the card, got ${tl.intent}`)
+  else if (tl.steps.length !== 3) fail(`timeline must keep all 3 calls, got ${tl.steps.length}`)
+  else if (tl.steps[tl.steps.length - 1].verb !== '更新任务清单') fail('todo_write must be moved to the end of the timeline')
+  else if (tl.steps[0].status !== 'running' || tl.steps[1].status !== 'done') fail('per-step status must reflect the call state')
+  else if (tl.activeCount !== 1 || tl.doneCount !== 2) fail(`active/done counts wrong: ${tl.activeCount}/${tl.doneCount}`)
+  else if (!tl.nowLabel.includes('打开携程')) fail(`nowLabel must lead with the narration, got ${tl.nowLabel}`)
+  else pass('timeline assembles narration + calls in order')
+
+  // 无播报时退化成工具推导，卡片不能空：进行中的调用直接接管「当前动作」。
+  const bare = buildPlainTimeline({ reasoningTexts: ['嗯'], tools: [runningTool], running: true, now: Date.now() })
+  if (bare.intent !== undefined) fail('no narration must yield no intent')
+  else if (bare.steps.length !== 1) fail(`fallback timeline must still list the call, got ${bare.steps.length}`)
+  else if (!bare.nowLabel.includes('打开网页') || !bare.nowLabel.includes('携程')) fail(`fallback nowLabel must come from the running call, got ${bare.nowLabel}`)
+  else pass('timeline degrades to call-derived wording without narration')
+
+  // 回合收口、全部结束：只报完成步数，不重复念最后一条动作。
+  const doneTl = buildPlainTimeline({ reasoningTexts: ['嗯'], tools: [doneTool], running: false, now: 2000 })
+  if (!doneTl.nowLabel.includes('已完成')) fail(`a finished turn must report completion, got ${doneTl.nowLabel}`)
+  else pass('finished turn reports completion instead of repeating the last action')
+
+  // 纯函数性：相同输入必须等价输出。
+  const again = buildPlainTimeline({ reasoningTexts: ['下一步：再查一次'], tools: [doneTool], running: false, now: 2000 })
+  if (again.intent !== '再查一次' || again.steps.length !== bare.steps.length) fail('buildPlainTimeline must be deterministic')
+  else pass('buildPlainTimeline is deterministic')
+}
+
 console.log(`\n${process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED'} — ${CLIENT}`)
 // Explicit exit: stubbed modules may hold listeners/timers that keep node alive.
 process.exit(process.exitCode ?? 0)

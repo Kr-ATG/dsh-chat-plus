@@ -257,5 +257,7 @@ export function apply(ctx: ClientContext): void {
   })
 }
 
-/** 纯逻辑再导出：smoke 断言「Token 活动」贡献热力模型（原 dsh-triad 同款导出）。 */
+/** 纯逻辑再导出：供 smoke 断言「Token 活动」贡献热力模型 + 人话行动流翻译。 */
 export { buildActivityGrid, activityColor, ACTIVITY_COLUMNS }
+export { toPlainStep, plainToolName, siteOf, isMetaTool } from './kr-chat/plain-language.ts'
+export { buildPlainTimeline, extractIntent } from './kr-chat/plain-timeline.ts'

@@ -343,6 +343,22 @@ if (!code.includes('kr-agent-mini-card') || !code.includes('kr-agent-mini-exit')
 } else {
   pass('client bundle contains KR minimal activity card and exit motion')
 }
+// 「正在做什么」卡（人话行动时间线）：默认开着，样式与组件都必须在 bundle 里。
+// 断言样式族而非组件名——组件名可能因打包混淆消失，.kr-card--plain 是契约。
+if (krEnabled) {
+  const plainCardVisible = /export const KR_PLAIN_TIMELINE_CARD_VISIBLE = (true|false)/
+    .exec(readFileSync(resolve(ROOT, 'src/client/kr-chat/enabled.ts'), 'utf8'))?.[1] === 'true'
+  if (!plainCardVisible) {
+    fail('KR_PLAIN_TIMELINE_CARD_VISIBLE must default to true (人话行动流卡默认展示)')
+  } else if (!code.includes('.kr-card--plain') || !code.includes('.kr-plain-intent') || !code.includes('kr-plain-step-in')) {
+    fail('client bundle is missing the plain-progress card styles (.kr-card--plain / .kr-plain-intent / kr-plain-step-in)')
+  } else if (!/\\u6[Bb]63\\u5728\\u505[Aa]\\u4[Ee][Cc]0\\u4[Ee]48/.test(code)) {
+    // bundle 里中文被 esbuild 转成字面 \uXXXX（大写 hex），正则里要写双反斜杠。
+    fail('client bundle is missing the plain-progress card title (正在做什么)')
+  } else {
+    pass('plain-progress card (人话行动流) present with its styles')
+  }
+}
 // 头像菜单不能留在 turn-process 固定高度 / overflow:hidden 的子树里；必须 portal 到 body。
 if (!code.includes('avatarMenuPosition') || !code.includes('.kr-agent-avatar-menu {\n  position: fixed;')) {
   fail('client bundle is missing the body-portaled Agent avatar menu')

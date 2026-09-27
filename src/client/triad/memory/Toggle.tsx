@@ -42,6 +42,9 @@ function toState(res: InjectStateView): InjectStateView {
     // 缺字段按 false 兜底：diagram 通道默认关，且缺字段意味着旧 host 根本没
     // 这个能力——显示「关」比显示「开」诚实（显示开着却注不进去是假阳性）。
     diagramEnabled: res.diagramEnabled === true,
+    // 缺字段按 false 兜底：这条通道的老 host 根本没有，卡片会退回「只按工具
+    // 事实推导当前动作」。显示「关」比显示一个实际注入不上的「开」诚实。
+    plainEnabled: res.plainEnabled === true,
   }
 }
 
@@ -55,7 +58,7 @@ export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.E
   apiRef.current = api
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const hideTimer = useRef<number | null>(null)
-  const [state, setState] = useState<InjectStateView>({ enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false })
+  const [state, setState] = useState<InjectStateView>({ enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false, plainEnabled: true })
   const [open, setOpen] = useState(false)
   // 钉住（点击后悬停移出也不收）。pinnedRef 供 120ms 收起计时器闭包读取，
   // 避免计时器读到调度时的过期值。
@@ -67,7 +70,7 @@ export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.E
   const reload = useCallback((): void => {
     void apiRef.current.getInjectState(sessionId)
       .then(res => { setState(toState(res)) })
-      .catch(() => { setState({ enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false }) })
+      .catch(() => { setState({ enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false, plainEnabled: true }) })
   }, [sessionId])
 
   useEffect(() => { reload() }, [reload])
@@ -83,9 +86,10 @@ export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.E
           // 本地已知值，explicit 按本次动作推断，否则角标永远出不来。
           defaultEnabled: typeof res.defaultEnabled === 'boolean' ? res.defaultEnabled : prev.defaultEnabled,
           explicit: next === null ? false : (typeof res.explicit === 'boolean' ? res.explicit : true),
-          // 同样要透传：这两个 setter 只该动自己的字段，写整个对象会把它抹掉。
+          // 同样要透传：这几个 setter 只该动自己的字段，写整个对象会把它抹掉。
           zhEnabled: typeof res.zhEnabled === 'boolean' ? res.zhEnabled : prev.zhEnabled,
           diagramEnabled: typeof res.diagramEnabled === 'boolean' ? res.diagramEnabled : prev.diagramEnabled,
+          plainEnabled: typeof res.plainEnabled === 'boolean' ? res.plainEnabled : prev.plainEnabled,
         }))
       })
       .catch(reload)
@@ -111,6 +115,7 @@ export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.E
           explicit: typeof res.explicit === 'boolean' ? res.explicit : prev.explicit,
           zhEnabled: typeof res.zhEnabled === 'boolean' ? res.zhEnabled : prev.zhEnabled,
           diagramEnabled: typeof res.diagramEnabled === 'boolean' ? res.diagramEnabled : prev.diagramEnabled,
+          plainEnabled: typeof res.plainEnabled === 'boolean' ? res.plainEnabled : prev.plainEnabled,
         }))
       })
       .catch(() => undefined)
@@ -143,6 +148,21 @@ export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.E
     setState(prev => ({ ...prev, diagramEnabled: next }))
     void apiRef.current.setDiagramInjectState(next)
       .then(res => { setState(prev => ({ ...prev, diagramEnabled: res.enabled === true })) })
+      .catch(reload)
+      .finally(() => { setBusy(false) })
+  }, [reload])
+
+  /**
+   * 写执行过程播报通道开关（全局单值，与上面四个开关零联动）。
+   *
+   * 与 pushDiagram 完全同款：乐观更新 + 失败回读。host 半身未重启时新路由
+   * 不存在、写入会失败，UI 必须诚实地弹回真实状态，而不是挂一个假的「已开启」。
+   */
+  const pushPlain = useCallback((next: boolean): void => {
+    setBusy(true)
+    setState(prev => ({ ...prev, plainEnabled: next }))
+    void apiRef.current.setPlainInjectState(next)
+      .then(res => { setState(prev => ({ ...prev, plainEnabled: res.enabled === true })) })
       .catch(reload)
       .finally(() => { setBusy(false) })
   }, [reload])
@@ -206,6 +226,7 @@ export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.E
   // 中文通道独立于上面三个，纯读自己的字段。
   const zhOn = state.zhEnabled !== false
   const diagramOn = state.diagramEnabled === true
+  const plainOn = state.plainEnabled !== false
   const button = (
     <button
       type="button"
@@ -267,6 +288,24 @@ export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.E
             disabled={busy}
             className={css.switch}
             onClick={() => { pushDiagram(!diagramOn) }}
+          />
+        </div>
+        <div className={css.injectDivider} />
+        <div className={plainOn ? `${css.zhRow} ${css.zhRowOn}` : css.zhRow}>
+          <span className={css.zhMain}>
+            <span className={css.zhLabel}>
+              {t('plainInjectLabel')}
+              <span className={css.zhBuiltin}>{t('plainInjectBuiltin')}</span>
+            </span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={plainOn}
+            aria-label={t('plainInjectLabel')}
+            disabled={busy}
+            className={css.switch}
+            onClick={() => { pushPlain(!plainOn) }}
           />
         </div>
         <div className={css.injectDivider} />

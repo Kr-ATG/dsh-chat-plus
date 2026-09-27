@@ -1,0 +1,278 @@
+/**
+ * dsh-chat-plus — 「正在做什么」卡（右栏大盘第 4 张，挂在工具调用卡下方）。
+ *
+ * 读者是**不会编程的普通用户**。这张卡只回答两件事：
+ *   · **已经做了什么** —— 来自工具调用事实，由 plain-language 翻成中文人话；
+ *   · **准备做什么**   —— 来自模型在思考里自己播报的 `下一步：…`。
+ *
+ * 刻意不做的三件事：
+ *  1. 不显示工具函数名、参数名、原始命令行、完整文件路径——那些只在点开
+ *     单条时的二级技术信息里出现；
+ *  2. 不做「同一动作聚合计数」——browser_click 点了 20 次，「点了 20 次」
+ *     本身就是事实，折叠成一行会把它抹掉；
+ *  3. 不自己算进度百分比——进行中 / 已完成 / 失败三个计数已经够了。
+ *
+ * 实时性：列表用 useSteppedFollow 跟随，新步骤贴底；用户上滚即截停，滚回
+ * 底部自动恢复。与思考过程卡同一套手感。
+ */
+
+import { memo, useMemo, useState } from 'react'
+import type { CSSProperties, ReactElement } from 'react'
+import { useCrossfadeText, useHeightAnimation, useMotionAllowed, useSteppedFollow } from '../motion-utils.ts'
+import { formatDuration } from '../tool-summary/tool-stats.ts'
+import type { PlainIconKey, PlainStep } from './plain-language.ts'
+import type { PlainTimeline } from './plain-timeline.ts'
+
+/** 列表视口最大行数：再高就把思考卡和记忆卡挤出屏幕了。 */
+const LIST_MAX_ROWS = 6
+/** 被右栏挤压时（记忆卡常驻底部触发自适应降档）收一档。 */
+const LIST_MAX_ROWS_SQUEEZED = 3
+
+export interface KrPlainTimelineCardProps {
+  readonly timeline: PlainTimeline
+  readonly running: boolean
+  /** 右栏被挤压时为 true，列表降一档高度。 */
+  readonly squeezed?: boolean
+}
+
+/** 类别图标：单色描边、13px，与既有工具行图标同一套视觉语言。 */
+function Icon({ name }: { readonly name: PlainIconKey }): ReactElement {
+  const common = {
+    width: 13, height: 13, viewBox: '0 0 16 16', fill: 'none',
+    stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round',
+  } as const
+  switch (name) {
+    case 'globe':
+      return <svg {...common}><circle cx="8" cy="8" r="6" /><path d="M2 8h12M8 2c1.8 2 1.8 10 0 12M8 2c-1.8 2-1.8 10 0 12" /></svg>
+    case 'cursor':
+      return <svg {...common}><path d="m3 2 10 5-4.2 1.6L7 13z" /></svg>
+    case 'keyboard':
+      return <svg {...common}><rect x="1.5" y="4" width="13" height="8" rx="1.5" /><path d="M4 6.5h.01M7 6.5h.01M10 6.5h.01M5 9.5h6" /></svg>
+    case 'eye':
+      return <svg {...common}><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" /><circle cx="8" cy="8" r="2" /></svg>
+    case 'scroll':
+      return <svg {...common}><path d="M8 2v9M5 8.5 8 11.5l3-3M2.5 13.5h11" /></svg>
+    case 'arrow':
+      return <svg {...common}><path d="M13 8H3.5M7 4.5 3.5 8 7 11.5" /></svg>
+    case 'folder':
+      return <svg {...common}><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h5.5A1.5 1.5 0 0 1 14 6.1v5.4A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5z" /></svg>
+    case 'search':
+      return <svg {...common}><circle cx="6.8" cy="6.8" r="4.3" /><path d="m10.2 10.2 3.3 3.3" /></svg>
+    case 'terminal':
+      return <svg {...common}><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" /><path d="m4.5 6 2 2-2 2M8.5 10.5H12" /></svg>
+    case 'image':
+      return <svg {...common}><rect x="1.5" y="3" width="13" height="10" rx="1.5" /><circle cx="5.6" cy="6.4" r="1.1" /><path d="m2.5 11.5 3.6-3.3 3 2.6 2-1.8 2.4 2.2" /></svg>
+    case 'download':
+      return <svg {...common}><path d="M8 2v7.5M5 6.8 8 9.8l3-3M2.5 12.5h11" /></svg>
+    case 'cloud':
+      return <svg {...common}><path d="M4.5 12.5a3 3 0 0 1-.3-6 4 4 0 0 1 7.6-.6 2.9 2.9 0 0 1-.3 6.6z" /></svg>
+    case 'bolt':
+      return <svg {...common}><path d="M9 1.5 4 9h3.4l-.4 5.5L12 7H8.6z" /></svg>
+    case 'task':
+      return <svg {...common}><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h7" /></svg>
+    case 'spark':
+      return <svg {...common}><path d="M8 1.8 9.4 6 13.6 7.4 9.4 8.8 8 13 6.6 8.8 2.4 7.4 6.6 6z" /></svg>
+    case 'file':
+    default:
+      return <svg {...common}><path d="M9 1.8H4.5A1.5 1.5 0 0 0 3 3.3v9.4a1.5 1.5 0 0 0 1.5 1.5h7a1.5 1.5 0 0 0 1.5-1.5V5.8z" /><path d="M9 1.8v4h4" /></svg>
+  }
+}
+
+/** 状态点：进行中转圈脉冲 / 已完成对勾 / 失败叉。 */
+function StatusDot({ status }: { readonly status: PlainStep['status'] }): ReactElement {
+  if (status === 'running') {
+    return (
+      <span className="kr-plain-dot kr-plain-dot--running" aria-hidden>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <circle cx="6" cy="6" r="4.2" strokeDasharray="3 3" />
+        </svg>
+      </span>
+    )
+  }
+  if (status === 'failed') {
+    return (
+      <span className="kr-plain-dot kr-plain-dot--failed" aria-hidden>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <path d="M3 3l6 6M9 3l-6 6" strokeLinecap="round" />
+        </svg>
+      </span>
+    )
+  }
+  return (
+    <span className="kr-plain-dot kr-plain-dot--done" aria-hidden>
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.7">
+        <path d="M2.6 6.2 4.8 8.4 9.4 3.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </span>
+  )
+}
+
+function StepRow({ step, index, techOpen, onToggleTech }: {
+  readonly step: PlainStep
+  readonly index: number
+  readonly techOpen: boolean
+  readonly onToggleTech: (id: string) => void
+}): ReactElement {
+  const title = step.detail === undefined ? step.verb : `${step.verb} · ${step.detail}`
+  const techText = step.tech === undefined
+    ? ''
+    : [step.tech.name, step.tech.args, step.tech.error].filter(Boolean).join('\n')
+  return (
+    <div
+      className="kr-plain-step"
+      data-status={step.status}
+      // 错峰入场：只对靠后的若干条错开，卡片整体不拖出一段长尾。
+      style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
+    >
+      <span className="kr-plain-step__dot" aria-hidden><StatusDot status={step.status} /></span>
+      <span className="kr-plain-step__icon" aria-hidden><Icon name={step.icon} /></span>
+      <span className="kr-plain-step__title" title={title}>{title}</span>
+      {step.durationMs !== undefined && step.durationMs > 40 && (
+        <span className="kr-plain-step__time">{formatDuration(step.durationMs)}</span>
+      )}
+      {techText !== '' && (
+        <button
+          type="button"
+          className="kr-plain-step__tech-toggle"
+          aria-expanded={techOpen}
+          onClick={() => { onToggleTech(step.id) }}
+        >
+          {techOpen ? '收起技术细节' : '技术细节'}
+        </button>
+      )}
+      {techOpen && techText !== '' && <pre className="kr-plain-step__tech">{techText}</pre>}
+    </div>
+  )
+}
+
+export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
+  timeline,
+  running,
+  squeezed = false,
+}: KrPlainTimelineCardProps) {
+  // 默认展开：这张卡挂在滚动区最末尾，收起等于把它藏到视线之外。
+  const [open, setOpen] = useState(true)
+  const [techOpen, setTechOpen] = useState<ReadonlySet<string>>(new Set())
+  const motion = useMotionAllowed(true)
+  const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(open, motion)
+  const nowLayers = useCrossfadeText(timeline.nowLabel, motion)
+
+  const toggleTech = (id: string): void => {
+    setTechOpen((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // 跟随探针：条目数 / 当前动作 / 预告任一变化都重新贴底。
+  const probe = useMemo(
+    () => `${timeline.steps.length}:${timeline.nowLabel}:${timeline.intent ?? ''}`,
+    [timeline.steps.length, timeline.nowLabel, timeline.intent],
+  )
+  const { ref: listRef, onScroll, onWheel, following } = useSteppedFollow(probe, running && open, motion)
+
+  const empty = timeline.steps.length === 0
+  const badge = timeline.activeCount > 0
+    ? '进行中'
+    : empty
+      ? '待开始'
+      : timeline.failedCount > 0
+        ? `${timeline.doneCount} 步 · ${timeline.failedCount} 失败`
+        : `${timeline.doneCount} 步`
+  const maxRows = squeezed ? LIST_MAX_ROWS_SQUEEZED : LIST_MAX_ROWS
+
+  return (
+    <div className="kr-card kr-card--plain" data-empty={empty || undefined}>
+      <div
+        className="kr-card__header"
+        onClick={() => { setOpen((value) => !value) }}
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            setOpen((value) => !value)
+          }
+        }}
+      >
+        <span className="kr-card__icon">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.5 3.5l1.1 1.1M11.4 11.4l1.1 1.1M3.5 12.5l1.1-1.1M11.4 4.6l1.1-1.1" />
+            <circle cx="8" cy="8" r="2.6" />
+          </svg>
+        </span>
+        <span className="kr-card__title">正在做什么</span>
+        <span className={`kr-card__badge ${running ? 'kr-card__badge--running' : 'kr-card__badge--done'}`}>
+          {badge}
+        </span>
+        <span className="kr-card__chevron" data-collapsed={!open ? 'true' : 'false'}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <path d="M2.5 4.5 6 8 9.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+      </div>
+
+      {bodyPresent && (
+        <div
+          ref={bodyRef}
+          className="kr-plain-body"
+          data-open={open || undefined}
+          aria-hidden={!open}
+          {...(!open ? { inert: '' } : {})}
+        >
+          {/* 当前动作：与左侧对话流那张瞬态卡同一句话，但这里带细节。 */}
+          <div className="kr-plain-now" data-running={running ? 'true' : undefined}>
+            <span className="kr-plain-now__stack">
+              {nowLayers.map((layer) => (
+                <span
+                  key={layer.id}
+                  className="kr-plain-now__layer"
+                  data-phase={layer.exiting ? 'out' : 'in'}
+                  aria-hidden={layer.exiting || undefined}
+                >
+                  {layer.text}
+                </span>
+              ))}
+            </span>
+          </div>
+
+          {/* 预告：模型自己写的「下一步：…」，没有就整行不出现。 */}
+          {timeline.intent !== undefined && (
+            <div className="kr-plain-intent" data-live={running ? 'true' : undefined}>
+              <span className="kr-plain-intent__label">接下来</span>
+              <span className="kr-plain-intent__text">{timeline.intent}</span>
+            </div>
+          )}
+
+          {empty ? (
+            <div className="kr-plain-empty">本轮还没有执行动作</div>
+          ) : (
+            <div
+              className="kr-plain-list"
+              ref={listRef}
+              onScroll={onScroll}
+              onWheel={onWheel}
+              role="region"
+              aria-label="人话行动时间线"
+              data-following={running && open && following ? 'true' : undefined}
+              style={{ '--kr-plain-rows': maxRows } as CSSProperties}
+            >
+              {timeline.steps.map((step, index) => (
+                <StepRow
+                  key={step.id}
+                  step={step}
+                  index={index}
+                  techOpen={techOpen.has(step.id)}
+                  onToggleTech={toggleTech}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+})

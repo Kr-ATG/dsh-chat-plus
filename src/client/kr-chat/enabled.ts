@@ -53,3 +53,22 @@ export const KR_PANEL_HEADER_VISIBLE = false
  * （REASONING_MAX_ROWS），不再有挤压自适应。
  */
 export const KR_MEMORY_CARD_VISIBLE = true
+
+/**
+ * KR 右侧大盘「正在做什么」卡显隐开关（位于工具调用卡片下方，第 4 张）。
+ *
+ * 这张卡把本轮的工具调用翻译成**中文人话时间线**（「打开携程 · 机票」而不是
+ * `browser_navigate(url)`），并显示模型自己播报的「接下来准备做什么」。它的读者
+ * 是不会编程的普通用户，是大盘里唯一一张「讲人话」的卡。
+ *
+ * 依赖三块纯逻辑：`plain-language.ts`（工具名 → 人话）、`plain-timeline.ts`
+ * （思考播报 + 工具事实 → 时间线）、`KrPlainTimelineCard.tsx`（呈现）。
+ * 三者互不依赖组件，单独拿去做别的面板也成立。
+ *
+ * ⚠ 同样是**隐藏开关，不是删除**：组件与 `.kr-card--plain` / `.kr-plain-*` 那一套
+ * 样式全部原样保留，改回 true 重新 build 即完整恢复。
+ *
+ * false 时右栏回到「任务 / 思考 / 工具调用」三张卡 + 记忆卡，行为与开关打开前
+ * 完全一致。
+ */
+export const KR_PLAIN_TIMELINE_CARD_VISIBLE = true

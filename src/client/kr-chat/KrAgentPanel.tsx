@@ -18,7 +18,9 @@ import { ShotPanel } from '../shot/Panel.tsx'
 import { collectMessages, deriveCurrentDialogueTitle, type ShotRange, type ShotMessage } from '../shot/collect.ts'
 import { useModalClose } from '../modal-animation.ts'
 import { getLiveDshTodos, subscribeLiveDshTodos } from './kr-todo-bridge.ts'
-import { KR_MEMORY_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE } from './enabled.ts'
+import { buildPlainTimeline } from './plain-timeline.ts'
+import { KrPlainTimelineCard } from './KrPlainTimelineCard.tsx'
+import { KR_MEMORY_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE } from './enabled.ts'
 
 export interface KrAgentPanelProps {
   readonly latestTurn: number
@@ -230,11 +232,30 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     return []
   }, [turnData, isViewingHistory, todoTick, snapTick])
 
+  // 人话行动时间线：把本轮工具调用翻成中文人话（「打开携程 · 机票」），
+  // 并把模型在思考里自己播报的「下一步：…」抽成预告。纯推导，无副作用。
+  // tools 已由 collectTurnNodes 按 anchorSeq 升序给出，无需再排。
+  const plainTimeline = useMemo(
+    () => buildPlainTimeline({
+      reasoningTexts,
+      tools,
+      running: currentRunning,
+      now,
+    }),
+    [reasoningTexts, tools, currentRunning, now],
+  )
+
   // 本轮/本会话是否已有可展示内容。新会话空白期一律走干净空态，
   // 绝不回落到 activityStore 里上一会话的缓存。
   // 回合已在执行（哪怕工具/思考尚未落盘）也算内容，避免空白新会话刚发起
   // 提问时错误地显示「等待本次对话开始」。
-  const hasContent = currentRunning || tasks.length > 0 || reasoningTexts.length > 0 || tools.length > 0
+  // 「正在做什么」卡的预告行也算内容：模型可能还没调任何工具，但已经
+  // 开口说了「接下来要做什么」，那一刻就不该是空态。
+  const hasContent = currentRunning
+    || tasks.length > 0
+    || reasoningTexts.length > 0
+    || tools.length > 0
+    || (KR_PLAIN_TIMELINE_CARD_VISIBLE && plainTimeline.intent !== undefined)
 
   // 大盘副标题
   const subtitle = useMemo(() => {
@@ -265,7 +286,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     () => reasoningTexts.reduce((sum, text) => sum + text.length, 0),
     [reasoningTexts],
   )
-  const heightFingerprint = `${memoryTick}|${reasoningChars}|${reasoningTexts.length}|${tools.length}|${tasks.length}`
+  const heightFingerprint = `${memoryTick}|${reasoningChars}|${reasoningTexts.length}|${tools.length}|${tasks.length}|${plainTimeline.steps.length}|${plainTimeline.intent ?? ''}`
   const reasoningRows = useAdaptiveReasoningRows(scrollRef, heightFingerprint)
 
   // 会话切换（新建 / 切换 / 离开）时重置本面板的本地视图状态，
@@ -508,6 +529,18 @@ export const KrAgentPanel = memo(function KrAgentPanel({
             }
           }}
         />
+
+        {/* 人话行动流：工具调用卡之下。给不懂技术的用户看的一张——
+            「已经做了什么」来自上面的工具调用事实，「准备做什么」来自模型
+            自己播报的预告。放在末尾而不是置顶，是因为它是复盘用的完整流水，
+            置顶会跟「任务概览」抢第一眼的注意力。 */}
+        {KR_PLAIN_TIMELINE_CARD_VISIBLE && (
+          <KrPlainTimelineCard
+            timeline={plainTimeline}
+            running={currentRunning}
+            squeezed={reasoningRows < REASONING_MAX_ROWS}
+          />
+        )}
       </div>
 
       {/* 记忆卡停靠区：滚动区之下的独立 flex footer（.kr-panel__memory-dock）。

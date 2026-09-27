@@ -1190,6 +1190,269 @@ body[data-kr-resizing="true"] * {
   flex: none;
 }
 
+/* ══ 「正在做什么」卡（人话行动时间线）═════════════════════════════════
+   大盘第 4 张卡，挂在工具调用卡下方。读者是**不会编程的普通用户**：整张卡
+   不出现工具函数名、参数名、原始命令行、完整路径，只出现「打开携程 · 机票」
+   这类中文人话。技术细节压在每条末尾的「技术细节」折叠里，需要的人自己点。 */
+
+.kr-card--plain {
+  padding-bottom: 11px;
+}
+
+.kr-card--plain[data-empty] .kr-card__badge {
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 展开体：高度补间由 useHeightAnimation 的 WAAPI 接管（写内联 height +
+   overflow），这里只排版，**绝不写 height**，否则和内联样式打架。 */
+.kr-plain-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* ── 当前动作一行 ─────────────────────────────────────────────────────── */
+.kr-plain-now {
+  position: relative;
+  min-height: 18px;
+}
+
+.kr-plain-now__stack {
+  display: grid;
+}
+
+.kr-plain-now__layer {
+  grid-area: 1 / 1;
+  font-size: 12.5px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-plain-now__layer[data-phase="in"] {
+  animation: kr-agent-action-in .26s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.kr-plain-now__layer[data-phase="out"] {
+  animation: kr-agent-action-out .2s ease both;
+}
+
+/* ── 「接下来」预告行（模型自己播报的那句） ───────────────────────────── */
+.kr-plain-intent {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--kr-accent) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--kr-accent) 16%, transparent);
+}
+
+.kr-plain-intent__label {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--kr-accent);
+}
+
+/* 执行中时标签前那颗呼吸点：预告本身就在变化，不需要再跳。 */
+.kr-plain-intent[data-live="true"] .kr-plain-intent__label::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--kr-accent);
+  animation: kr-pulse 1.4s ease-in-out infinite;
+}
+
+.kr-plain-intent__text {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-plain-empty {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  padding: 2px 0;
+}
+
+/* ── 时间线列表（有界视口 + 内部滚动） ───────────────────────────────── */
+.kr-plain-list {
+  --kr-plain-row-h: 22px;
+  max-height: calc(var(--kr-plain-rows, 6) * var(--kr-plain-row-h) + 6px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  scrollbar-width: thin;
+}
+
+.kr-plain-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.kr-plain-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.kr-plain-list::-webkit-scrollbar-thumb {
+  background: var(--kr-card-border);
+  border-radius: 3px;
+}
+
+/* ── 单条步骤 ─────────────────────────────────────────────────────────── */
+.kr-plain-step {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 22px;
+  padding: 2px 2px 2px 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  animation: kr-plain-step-in .26s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+@keyframes kr-plain-step-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.kr-plain-step__dot {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+}
+
+.kr-plain-dot {
+  display: grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.kr-plain-dot--running {
+  color: var(--kr-accent);
+  animation: kr-spin 1.2s linear infinite;
+}
+
+.kr-plain-dot--done {
+  color: var(--kr-success);
+}
+
+/* 对勾描边画出：完成的那一刻给一个可感知的「落定」。 */
+.kr-plain-dot--done path {
+  stroke-dasharray: 14;
+  stroke-dashoffset: 14;
+  animation: kr-plain-draw .4s ease forwards;
+}
+
+@keyframes kr-plain-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+.kr-plain-dot--failed {
+  color: var(--kr-error);
+}
+
+.kr-plain-step__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.kr-plain-step__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-plain-step[data-status="running"] .kr-plain-step__title {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}
+
+.kr-plain-step[data-status="failed"] .kr-plain-step__title {
+  color: var(--kr-error);
+}
+
+.kr-plain-step__time {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.kr-plain-step__tech-toggle {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--kr-card-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color .16s ease, border-color .16s ease, background-color .16s ease;
+}
+
+.kr-plain-step__tech-toggle:hover {
+  color: var(--dsw-alias-label-secondary);
+  border-color: var(--kr-card-hover);
+  background: var(--kr-hover-bg);
+}
+
+.kr-plain-step__tech-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--kr-accent) 52%, transparent);
+  outline-offset: 1px;
+}
+
+/* 展开的技术明细独占一行：flex-basis 100% 让它从当前行折下去。 */
+.kr-plain-step__tech {
+  flex: 1 0 100%;
+  margin: 4px 0 2px;
+  padding: 6px 8px;
+  max-height: 140px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--kr-hover-bg);
+  font-family: var(--dsw-font-family-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-plain-step,
+  .kr-plain-now__layer,
+  .kr-plain-dot--done path {
+    animation: none;
+  }
+  .kr-plain-dot--done path {
+    stroke-dashoffset: 0;
+  }
+  .kr-plain-dot--running {
+    animation: none;
+  }
+}
+
 /* ══ 标签行最右侧的「Agent 轨迹大盘」开关 ══════════════════════════════════
    座位是 header [role="tablist"] 的最后一个子节点：margin-left:auto 把它顶到
    KR对话 / 对话 / 轨迹 这一行的最右端，与三个 tab 同行、同基线。
@@ -1635,9 +1898,16 @@ body[data-kr-resizing="true"] * {
    */
   --kr-card-font: var(--dsw-font-family);
   font-family: var(--kr-card-font);
-}
-  /* 浮层卡在对话流里是唯一的「浮起」层，投影要真能把它从正文里托起来：
-     贴地一层 0.5px 接触影 + 中层 6px 柔影 + 底层 28px 大范围落影，三层叠出高度。 */
+  /*
+   * 浮层卡在对话流里是唯一的「浮起」层，投影要真能把它从正文里托起来：
+   * 贴地一层 0.5px 接触影 + 中层 6px 柔影 + 底层 28px 大范围落影，三层叠出高度。
+   *
+   * 这段以前落在规则外（上一行那个右花括号提前闭合了 .kr-agent-mini-shell），
+   * 于是整块声明被解析器连同末尾的花括号一起丢弃——页面靠 :root 那份
+   * --kr-float-shadow 兜住，看起来一直有影子，注释承诺的「三层」却从没生效。
+   * 现在放回规则内，两套阴影的分工也才真正成立：:root 那份给大盘卡片用，
+   * 这份更厚的只给对话流里那张浮起卡用。
+   */
   --kr-float-shadow:
     0 1px 2px rgba(15, 17, 21, .05),
     0 3px 8px -2px rgba(15, 17, 21, .12),
