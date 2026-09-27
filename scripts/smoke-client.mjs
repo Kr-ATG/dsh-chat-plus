@@ -17,7 +17,7 @@
  * Usage: node scripts/smoke-client.mjs
  */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
@@ -517,6 +517,43 @@ if (shot === undefined) {
 // 校验抽屉根存在即视为通道就绪）。
 const bus = sandbox.__dshActivityDrawerStore__
 console.log(`info  activity drawer bus present at apply time: ${bus !== undefined ? 'yes' : 'no (lazy, created on first chip mount)'}`)
+
+// 已清理的死文件：这些组件写下来却从没有任何地方渲染/引用，留着只会让人以为
+// 「默认视图判定」「结果卡」这些能力还在。锁住它们不被误复活。
+for (const dead of [
+  'src/client/kr-chat/KrChatView.tsx',
+  'src/client/kr-chat/KrExecutionResultCard.tsx',
+  'src/client/kr-chat/step-parser.ts',
+  'src/client/kr-chat/default-view.ts',
+]) {
+  if (existsSync(resolve(ROOT, dead))) fail(`死代码已清理，不应复活：${dead}`)
+}
+if (!existsSync(resolve(ROOT, 'src/client/kr-chat/plain-language.ts'))) {
+  fail('plain-language.ts 缺失（人话行动流的核心翻译层）')
+} else {
+  pass('死代码已清理（KrChatView / KrExecutionResultCard / step-parser / default-view）')
+}
+
+// 无障碍：用时细行与思考视口都**不能**用 aria-live。
+// 两处的文本都随时间/流式高频变化，polite 会让屏幕阅读器不停播报（用时每秒
+// 念一次时长、思考每秒念一段新内容），把读屏变成噪音。
+const timerSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrTurnTimer.tsx'), 'utf8')
+const reasoningSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrReasoningCard.tsx'), 'utf8')
+// 断言要打在**代码**上：这两个文件的注释里会解释「为什么不给 role="status"」，
+// 直接正则匹配整份源码会被注释里的字面量误伤。
+const timerCode = timerSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+const reasoningCode = reasoningSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+if (/role="status"/.test(timerCode)) {
+  fail('用时细行不得用 role="status"（隐含 aria-live=polite，会每秒播报一次时长）')
+} else if (!/aria-live="off"/.test(timerCode)) {
+  fail('用时细行必须显式 aria-live="off"')
+} else if (/aria-live=\{running \? 'polite'/.test(reasoningCode)) {
+  fail('思考视口不得在流式期间开 aria-live=polite（会持续打断读屏用户）')
+} else if (!/aria-live="off"/.test(reasoningCode)) {
+  fail('思考视口必须显式 aria-live="off"')
+} else {
+  pass('用时细行与思考视口均关闭 aria-live（高频文本不轰炸读屏）')
+}
 
 console.log(`\n${process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED'} — ${CLIENT}`)
 process.exit(process.exitCode ?? 0)

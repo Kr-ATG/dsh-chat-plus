@@ -38,6 +38,18 @@ export interface PlainTimeline {
 export interface PlainTimelineInput {
   /** 本轮思考文本（已按块收集）。 */
   readonly reasoningTexts: readonly string[]
+  /**
+   * 已抽好的「下一步」，用来跳过本函数内的抽取。
+   *
+   * 抽取要对**整轮**思考做一次 join + 逐行正则匹配，是这条链路上最贵的一步；
+   * 而 steps 那边为了刷新「进行中」那一条的耗时，`now` 每秒都在变。若把两者
+   * 绑在一个 useMemo 里，等于每秒重扫几千字思考一次。调用方把
+   * `extractIntent()` 单独 memo（只依赖 reasoningTexts）后把结果传进来，
+   * 这份开销就只在思考真的增长时才付。
+   *
+   * 传 undefined 时照常自己抽——纯函数语义不变，smoke 照旧直接调。
+   */
+  readonly intent?: string | undefined
   /** 本轮工具调用节点，须按 anchorSeq 升序（collectTurnNodes 已保证）。 */
   readonly tools: readonly ChatNode<'tool-call'>[]
   /** 本轮是否仍在执行。 */
@@ -132,7 +144,7 @@ export function buildPlainTimeline(input: PlainTimelineInput): PlainTimeline {
   const doneCount = steps.filter((step) => step.status === 'done').length
   const failedCount = steps.filter((step) => step.status === 'failed').length
 
-  const intent = extractIntent(input.reasoningTexts)
+  const intent = input.intent !== undefined ? input.intent : extractIntent(input.reasoningTexts)
 
   return {
     ...(intent !== undefined ? { intent } : {}),

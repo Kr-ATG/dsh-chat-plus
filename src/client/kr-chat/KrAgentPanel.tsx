@@ -19,7 +19,7 @@ import { ShotPanel } from '../shot/Panel.tsx'
 import { collectMessages, deriveCurrentDialogueTitle, type ShotRange, type ShotMessage } from '../shot/collect.ts'
 import { useModalClose } from '../modal-animation.ts'
 import { getLiveDshTodos, subscribeLiveDshTodos } from './kr-todo-bridge.ts'
-import { buildPlainTimeline } from './plain-timeline.ts'
+import { buildPlainTimeline, extractIntent } from './plain-timeline.ts'
 import { KrPlainTimelineCard } from './KrPlainTimelineCard.tsx'
 import { KR_MEMORY_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE } from './enabled.ts'
 
@@ -117,16 +117,6 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   const tools = useMemo<readonly ChatNode<'tool-call'>[]>(() => {
     return turnData?.tools ?? []
   }, [turnData, actTick, snapTick])
-
-  const toolNames = useMemo<readonly string[]>(() => {
-    return tools.map((t) => {
-      try {
-        return callName(t.data.root)
-      } catch {
-        return 'tool'
-      }
-    })
-  }, [tools])
 
   // 耗时计算：精确优先从真实轮次生命周期中获取
   const turnStart = turnData?.turnStart
@@ -244,14 +234,20 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   // 人话行动时间线：把本轮工具调用翻成中文人话（「打开携程 · 机票」），
   // 并把模型在思考里自己播报的「下一步：…」抽成预告。纯推导，无副作用。
   // tools 已由 collectTurnNodes 按 anchorSeq 升序给出，无需再排。
+  //
+  // 意图抽取单独 memo：它要对整轮思考做一次 join + 逐行正则匹配，是这条链路上
+  // 最贵的一步；而下面那个 memo 为了刷新「进行中」步骤的耗时，now 每秒都在变。
+  // 绑在一起就等于每秒重扫几千字思考。拆开后只有思考真的增长时才重扫。
+  const plainIntent = useMemo(() => extractIntent(reasoningTexts), [reasoningTexts])
   const plainTimeline = useMemo(
     () => buildPlainTimeline({
       reasoningTexts,
+      intent: plainIntent,
       tools,
       running: currentRunning,
       now,
     }),
-    [reasoningTexts, tools, currentRunning, now],
+    [reasoningTexts, plainIntent, tools, currentRunning, now],
   )
 
   // 本轮/本会话是否已有可展示内容。新会话空白期一律走干净空态，

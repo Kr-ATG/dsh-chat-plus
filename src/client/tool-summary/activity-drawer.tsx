@@ -168,9 +168,6 @@ export function activityStore(): ActivityStore {
           console.warn('[dsh-chat-plus] 弹窗无订阅者强制重挂失败：', healError)
         }
       }
-      try {
-        console.log('[dsh-chat-plus] 弹窗 open：第 ' + turn + ' 轮 / ' + mode)
-      } catch { /* 日志永不挡路 */ }
     },
     close: (reason?: string) => { void reason; openTurn = null; activeMode = null; notify() },
     setReasoning: (turn, items) => {

@@ -37,9 +37,6 @@ const SLOT_LAYOUT = [
   ['team'],
 ] as const
 
-/** 槽位名（布局表展平）。 */
-const SLOT_NAMES = SLOT_LAYOUT.flat() as readonly string[]
-
 /** 槽位名。 */
 export type NavSlotName = (typeof SLOT_LAYOUT)[number][number]
 

@@ -452,23 +452,24 @@ src/
         ├── icons.tsx                — kind 徽标 SVG 字形
         ├── use-now.ts               — 走秒时钟
         └── styles.ts                — 工具聚合样式（dts__ 命名空间）
-    └── kr-chat/                     — KR 对话双栏大盘（右栏四张卡）
-        ├── enabled.ts               — 三个「隐藏不删除」开关（KR/PANEL_HEADER/MEMORY_CARD）
-        ├── KrAgentPanel.tsx         — 右栏容器：头部开关 + 卡片编排 + 自适应行数下发
+    └── kr-chat/                     — KR 对话双栏大盘（右栏五张卡 + 用时细行）
+        ├── enabled.ts               — 四个「隐藏不删除」开关（KR / PANEL_HEADER / PLAIN_TIMELINE_CARD / MEMORY_CARD）
+        ├── KrAgentPanel.tsx         — 右栏容器：卡片编排 + 用时计算 + 自适应行数下发
         ├── KrTaskOverviewCard.tsx   — 任务卡（todo_write / 官方 todos 投影）
         ├── KrReasoningCard.tsx      — 思考卡（有界视口 + 实时跟随滚动 + maxRows 自适应）
         ├── KrToolCallsCard.tsx      — 工具调用卡（默认折叠，展开后是全量台账）
-        ├── KrMemoryCard.tsx         — 记忆卡（本会话口径、无新增分区不显示、批量删除）
+        ├── plain-language.ts        — 工具名 → 中文人话（站点友好名 / 只出文件名 / 命令行不上屏）
+        ├── plain-timeline.ts        — 思考播报 + 工具事实 → 人话行动时间线（纯函数）
+        ├── KrPlainTimelineCard.tsx  — 「正在做什么」卡（人话行动流，默认展开）
+        ├── KrTurnTimer.tsx          — footer「用时」细行（记忆卡上方，只显示真实测量值）
+        ├── KrMemoryCard.tsx         — 记忆卡（本会话口径、默认折叠、无新增整卡不渲染）
         ├── memory-api.ts            — /api/dsh-memory/* 最小 fetch 客户端（零依赖）
         ├── use-adaptive-rows.ts     — 挤压自适应 hook（ResizeObserver + 档位刹车）
         ├── kr-chat-store.ts         — panelOpen / selectedTurn 状态（含 localStorage）
         ├── kr-chat-controller.tsx   — 「KR对话」标签 + 「Agent 轨迹大盘」开关注入
         ├── kr-todo-bridge.ts        — 官方 todos 实时投影（同时是会话身份登记点）
-        ├── KrChatView.tsx           — Portal 双栏主视图
-        ├── step-parser.ts           — 步骤/总结卡解析
-        ├── default-view.ts          — 默认视图判定
-        ├── KrExecutionResultCard.tsx — 执行结果卡
-        └── styles.ts                — KR 专属 CSS（含 .kr-card--memory sticky 常驻）
+        ├── KrLiveActivityCard.tsx   — 左栏对话流那张瞬态状态卡
+        └── styles.ts                — KR 专属 CSS（含统一简约滚动条）
     └── triad/                       — 原 dsh-triad 四工作台 client 半身（整体搬迁）
         ├── index.ts                 — applyTriadClient（四模块各 try/catch）
         ├── memory/                  — 记忆面板 + composer 注入开关（纯 fetch）

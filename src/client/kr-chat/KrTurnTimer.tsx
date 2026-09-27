@@ -29,11 +29,18 @@ export const KrTurnTimer = memo(function KrTurnTimer({
   running,
 }: KrTurnTimerProps) {
   return (
+    /*
+     * 这里**刻意不给 role="status"**（它隐含 aria-live="polite"）：用时每秒变一
+     * 次，polite 会让屏幕阅读器每秒念一遍「本轮用时 1分24秒」，整轮下来就是
+     * 一段持续不断的报数噪音。改成 role="group" + 显式 aria-live="off"，
+     * 读屏用户主动浏览/聚焦这一行时仍能读到当前值，但不会被它自动打断。
+     */
     <div
       className="kr-turn-timer"
       data-running={running ? 'true' : undefined}
-      role="status"
-      aria-label={`本轮用时 ${text}${running ? '，仍在执行' : ''}`}
+      role="group"
+      aria-live="off"
+      aria-label={`用时 ${text}${running ? '，仍在执行' : ''}`}
     >
       <span className="kr-turn-timer__icon" aria-hidden>
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">

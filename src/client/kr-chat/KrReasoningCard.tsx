@@ -108,7 +108,16 @@ export const KrReasoningCard = memo(function KrReasoningCard({
               role="region"
               aria-label={running ? '正在思考，可滚动阅读' : '已完成的思考，可滚动阅读'}
               tabIndex={overflow ? 0 : undefined}
-              aria-live={running ? 'polite' : 'off'}
+              /*
+               * aria-live 固定 off（原来 running 时是 polite）。
+               *
+               * 思考是**流式**到达的：整轮几千字、每秒都在长。polite 会让屏幕
+               * 阅读器不停播报新增内容，读屏用户连自己正在看的那一段都听不全，
+               * 最后只剩下一串断断续续的碎句。这块视口本来就是「可滚动阅读的
+               * 思考记录」，读屏用户按需浏览比被动听更有用——需要跟踪最新内容
+               * 时，右侧那枚「跟随中 / 已暂停」才是真正的状态指示。
+               */
+              aria-live="off"
               /* 行数上限由 JS 常量/入参驱动，避免与 CSS 里的字面量各写一份而漂移。
                  右栏空间富余时用默认 25 行；被记忆卡等常驻内容挤压时由大盘
                  自适应下调（见 use-adaptive-rows.ts）。 */

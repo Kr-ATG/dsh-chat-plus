@@ -220,17 +220,6 @@ body[data-ds-dark-theme] .kr-split__side {
   overflow: hidden;
 }
 
-/* 左侧主对话流 */
-.kr-split__main {
-  flex: 1 1 0;
-  min-width: 0;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  overflow: hidden;
-  transition: flex 0.26s cubic-bezier(0.16, 1, 0.3, 1);
-}
 
 /* 右侧 Agent 轨迹大盘 */
 .kr-split__side {
@@ -326,26 +315,6 @@ body[data-kr-resizing="true"] * {
      卡片全靠投影浮起」的新策略下显得突兀（一道比卡片还实的色带）。
      下方分隔线继续承担「这是面板级 chrome」的边界声明。 */
   background: var(--kr-canvas-bg);
-}
-
-.kr-panel__close-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  color: var(--dsw-alias-label-tertiary);
-  cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
-  flex: none;
-}
-
-.kr-panel__close-btn:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.15));
-  color: var(--dsw-alias-label-primary);
 }
 
 .kr-panel__avatar {
@@ -485,21 +454,6 @@ body[data-kr-resizing="true"] * {
   color: var(--dsw-alias-label-primary);
 }
 
-.kr-panel__action-btn--active {
-  color: var(--kr-accent);
-  background: var(--kr-fill-bg);
-}
-
-.kr-panel__subtitle--clickable {
-  cursor: pointer;
-  transition: color 0.15s;
-}
-
-.kr-panel__subtitle--clickable:hover {
-  color: var(--dsw-alias-label-primary);
-}
-
-/* ══ 右栏内容滚动区 ════════════════════════════════════════════════════════ */
 .kr-panel__scroll {
   flex: 1 1 0;
   min-height: 0;
@@ -830,32 +784,6 @@ body[data-kr-resizing="true"] * {
   word-break: break-word;
 }
 
-.kr-reasoning-num {
-  color: var(--kr-accent);
-  font-weight: 600;
-  flex: none;
-}
-
-.kr-expand-btn {
-  background: transparent;
-  border: none;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  padding: 4px 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 4px;
-  transition: color 0.15s ease;
-}
-
-.kr-expand-btn:hover {
-  color: var(--dsw-alias-label-primary);
-  text-decoration: none;
-}
-
-/* ══ 工具调用卡片与点击展开交互 ═════════════════════════════════════════════ */
 .kr-tools-list {
   display: flex;
   flex-direction: column;
@@ -1189,19 +1117,9 @@ body[data-kr-resizing="true"] * {
   color: var(--dsw-alias-label-primary);
 }
 
-/* ══ 执行结果卡片 ══════════════════════════════════════════════════════════ */
-.kr-result-content {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.kr-result-icon {
-  color: var(--dsw-alias-label-secondary);
-  flex: none;
-}
+/* 原「执行结果卡片」的两条规则（.kr-result-content / .kr-result-icon）已删：
+   对应的 KrExecutionResultCard 组件是死代码（无人渲染），样式留着只是让人
+   以为还有一张结果卡。 */
 
 /* ══ 「正在做什么」卡（人话行动时间线）═════════════════════════════════
    大盘第 4 张卡，挂在工具调用卡下方。读者是**不会编程的普通用户**：整张卡
@@ -2040,16 +1958,6 @@ body[data-kr-resizing="true"] * {
   color: var(--dsw-alias-label-tertiary);
 }
 
-.kr-memory__note {
-  padding: 4px 2px;
-  font-size: 11.5px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-/* 行内错误（删除失败等）：不动用模态弹窗，也不打断阅读 */
-.kr-memory__err {
-  padding: 2px 6px 3px;
-  font-size: 11px;
   color: var(--dsw-alias-label-primary);
 }
 
