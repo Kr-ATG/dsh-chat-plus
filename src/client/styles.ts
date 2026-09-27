@@ -57,7 +57,7 @@ const CSS = `
 
 /* ══ 对话流卡片（自 webui flow-card 移植；回合结束后才出现）══════════════
    --step：回合中间的已完成片段。左侧一条竖线 + 极淡纱，圈出「一步」。
-   --reply：回合最终回复（总结卡）。描边 + 顶部高光 + 完成标记与统计 chip。
+   --reply：回合最终回复（总结卡）。描边 + 顶部高光 + 纯正文外壳。
    共同规则：跟随文字色的中性半透明纱（浅色=淡黑、深色=淡白，一条规则通吃
    两个主题）。⚠ 不加 backdrop-filter：消息流里每条回复都是一张卡，长会话
    下大面积模糊会拖垮滚动性能。 */
@@ -116,93 +116,8 @@ const CSS = `
   );
 }
 
-/* 头部：完成标记 + 统计 chip 行 */
-.dtt__card-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  border-bottom: 1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.12));
-  padding: 10px 16px;
-}
-
-.dtt__card-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex: none;
-  height: 22px;
-  border-radius: 11px;
-  padding: 0 9px;
-  background: var(--dsh-flow-veil, color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent));
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 22px;
-  white-space: nowrap;
-}
-
-.dtt__card-badge[data-interrupted] {
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 14%, transparent);
-  color: var(--dsw-alias-state-warn-label, #b45309);
-}
-
-/* 徽章里只留对勾一笔语义绿（中断态跟随琥珀色）。 */
-.dtt__card-badge > svg {
-  color: var(--dsw-alias-state-success-primary, #2f9e44);
-}
-
-.dtt__card-badge[data-interrupted] > svg {
-  color: inherit;
-}
-
-.dtt__card-chips {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.dtt__card-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 22px;
-  border: 1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.16));
-  border-radius: 7px;
-  padding: 0 8px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  line-height: 22px;
-  white-space: nowrap;
-  transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease;
-}
-
-/* 方案A：标签弱化 + 数值加强 + 状态圆点，扫一眼先看到数字。 */
-.dtt__card-chip::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  flex: none;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: .3;
-}
-
-.dtt__card-chip:hover {
-  transform: translateY(-2px);
-  border-color: var(--dsw-alias-border-l2, rgba(127,127,127,.3));
-  box-shadow: 0 6px 16px rgba(15,17,21,.1);
-}
-
-.dtt__card-chip-value {
-  color: var(--dsw-alias-label-primary);
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-  font-weight: 700;
-}
-
+/* 总结卡头部统计行（完成徽章 + 用时/步骤/Git chip）已随组件一起移除，
+   只留正文外壳。 */
 
 .dtt__card-body {
   display: flex;
@@ -566,8 +481,8 @@ const CSS = `
   border-radius: 0;
   padding: 2px 4px 6px 0;
   background: transparent;
-  scrollbar-width: thin;
-  scrollbar-color: var(--dsw-alias-scrollbar-bg-l2, rgba(127,127,127,.4)) transparent;
+  /* 滚动条样式见本文件下方的「实时思考轨道」段：Chromium 侧只走伪元素，
+     写了 scrollbar-width 会反过来让伪元素失效（Blink 121+）。 */
 }
 
 .dtt__reasoning-live-rail-inner {
@@ -649,9 +564,17 @@ const CSS = `
   padding: 10px 14px 10px 12px;
 }
 
+/*
+ * 实时思考轨道（左侧对话流）。形态与右栏大盘那套一致：6px 槽、槽即滑块宽、
+ * 999px 半圆端头、轨道与 corner 全透明。
+ *
+ * 同样**刻意不写** scrollbar-width / scrollbar-color：Blink 121 起同作用域
+ * 出现这两个标准属性（非 auto）就会让下面的伪元素整体忽略，规则从未生效。
+ * 两条路只能选一套，Chromium 要自定义就必须走伪元素。
+ */
 .dtt__reasoning-live-rail-view::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
 }
 
 .dtt__reasoning-live-rail-view::-webkit-scrollbar-track {
@@ -659,12 +582,25 @@ const CSS = `
 }
 
 .dtt__reasoning-live-rail-view::-webkit-scrollbar-thumb {
-  background: var(--dsw-alias-scrollbar-bg-l2, rgba(127,127,127,.4));
-  border-radius: 2px;
+  background-color: color-mix(in srgb, var(--dsw-alias-scrollbar-bg-l2, rgba(127,127,127,.4)) 52%, transparent);
+  border-radius: 999px;
+  transition: background-color .18s ease;
 }
 
 .dtt__reasoning-live-rail-view::-webkit-scrollbar-thumb:hover {
-  background: var(--dsw-alias-scrollbar-hover-l2, rgba(127,127,127,.6));
+  background-color: color-mix(in srgb, var(--dsw-alias-scrollbar-bg-l2, rgba(127,127,127,.4)) 82%, transparent);
+}
+
+.dtt__reasoning-live-rail-view::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox 兜底（必须包在 @supports 里，理由同上）。 */
+@supports not selector(::-webkit-scrollbar) {
+  .dtt__reasoning-live-rail-view {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--dsw-alias-scrollbar-bg-l2, rgba(127,127,127,.4)) 52%, transparent) transparent;
+  }
 }
 
 /* ══ 移植动效（github:aa2246740/dsh-better-display，MIT）════════════════
@@ -719,8 +655,6 @@ const CSS = `
     animation: none;
     transition: none;
   }
-  .dtt__card-chip { transition: none; }
-  .dtt__card-chip:hover { transform: none; }
   .dtt__fresh[data-fresh] { animation: none; }
   .dtt__reasoning-live-seg,
   .dtt__reasoning-live-rail-inner[data-reclaim="true"],
@@ -950,10 +884,6 @@ const CSS = `
 .dtt__card--reply { border: 1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.16)) !important; }
 .dtt__card--reply::before, .dtt__card--reply[data-interrupted]::before { display: none !important; }
 .dtt__card--step { border: none !important; }
-.dtt__card-chip { border-color: transparent !important; }
-.dtt__card-chip:hover { border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 45%, transparent) !important; }
-.dtt__card-badge, .dtt__card-badge[data-interrupted] { background: transparent !important; }
-.dtt__card-chip, .dtt__card-chip[data-kind="git"] { background: transparent !important; }
 body[data-ds-dark-theme] .dtt__card--reply { box-shadow: 0 12px 32px rgba(0,0,0,.55) !important; border-color: rgba(255,255,255,.10) !important; }
 
 /* ══ 会话头部视图标签（对话 / 轨迹）移到右上角 ═══════════════════════════

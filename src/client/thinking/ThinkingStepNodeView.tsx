@@ -15,7 +15,7 @@
  *     turn-process 活动卡与右侧大盘完整展示思考。
  *
  * 总结卡门控不变：turn.status === 'closed'（或中断）后，中间片段变轻量步骤
- * 卡，最终回复变总结卡（本轮完成徽章 + 用时/步骤/工具/思考统计）。
+ * 卡，最终回复变总结卡（纯正文外壳，头部统计行已移除）。
  */
 import { memo, useEffect, useMemo, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
@@ -31,12 +31,12 @@ import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import { activityStore } from '../tool-summary/activity-drawer.tsx'
 import { LiveThinkingCard as StackLiveCard, type LiveThinkingItem } from './live-stack.tsx'
-import { FlowCard, type ReplyCardMeta } from '../flow-card.tsx'
+import { FlowCard } from '../flow-card.tsx'
 import { splitDiagram } from '../diagram/parse.ts'
 import { DiagramCard } from '../diagram/DiagramCard.tsx'
 import { splitProtoTabs } from '../proto/parse.ts'
 import { ProtoTabsCard } from '../proto/ProtoTabsCard.tsx'
-import { gitVerbOf, isRunning } from '../tool-summary/tool-stats.ts'
+import { isRunning } from '../tool-summary/tool-stats.ts'
 import { GeneratedImageStrip } from '../generated-images/GeneratedImageStrip.tsx'
 import { useGeneratedImages } from '../generated-images/use-generated-images.ts'
 import { getKrChatStore } from '../kr-chat/kr-chat-store.ts'
@@ -291,15 +291,6 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
     () => data.blocks.filter(block => block.kind !== 'reasoning'),
     [data.blocks],
   )
-  // 本轮工具调用次数与耗时：复用已有的会话投影（无新增订阅）。
-  const toolCount = useChat((snapshot) => {
-    if (turnNumber === undefined) return 0
-    let count = 0
-    for (const key of snapshot.locations.getTurn(turnNumber)) {
-      if (snapshot.nodes.get(key)?.kind === 'tool-call') count += 1
-    }
-    return count
-  })
   // 思考材料登记（首步负责）：本轮有工具调用时思考行并入工具行（与官方
   // turn-process 一致，推理折叠不单独占行），chip 不挂载也得登记，抽屉里
   // 才有思考分区。
@@ -308,25 +299,10 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
       activityStore().setReasoning(turnNumber, reasoningItems)
     }
   }, [isKrMode, isFirstStep, reasoningItems, turnNumber])
-  // 本轮 git 相关调用：扫工具节点参数里的 git <动词>（见 tool-stats.gitVerbOf）。
-  // 总结卡元信息与右侧大盘共用这份去重结果。
-  const gitVerbs = useMemo(() => {
-    const verbs: string[] = []
-    for (const node of toolNodes) {
-      const verb = gitVerbOf(node.data.root)
-      if (verb !== undefined) verbs.push(verb)
-    }
-    return verbs
-  }, [toolNodes])
-  const gitDetail = useMemo(() => [...new Set(gitVerbs)].join(' · '), [gitVerbs])
 
   // 普通「对话」不展示思考 chip；KR 过程由 turn-process 座位上的实时活动卡承接。
   // 即使官方 assistant-step 捕获失败而落到本组件的自有 renderer，也不能恢复旧折叠。
   const chip = undefined
-  const timing = useChat((snapshot) => {
-    if (turnNumber === undefined) return undefined
-    return snapshot.legacy.turnTimings.get(turnNumber)
-  })
   const streaming = data.status === 'running'
   const interrupted = data.status === 'interrupted'
   // 卡片只在「回合已结束」时出现（含中断）：流式期不包卡，保住流式输出；
@@ -338,20 +314,6 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
   const variant: 'reply' | 'step' | undefined = !showCard
     ? undefined
     : isSummary ? 'reply' : 'step'
-  const cardMeta = useMemo<ReplyCardMeta | undefined>(() => {
-    if (!showCard) return undefined
-    const start = timing?.startTime
-    const end = timing?.endTime
-    return {
-      turnNumber: turnNumber as number,
-      durationMs: start !== undefined && end !== undefined ? Math.max(0, end - start) : undefined,
-      steps: steps.length,
-      tools: toolCount,
-      thinking: reasoningItems.length,
-      git: gitVerbs.length > 0 ? gitVerbs.length : undefined,
-      gitDetail: gitDetail !== '' ? gitDetail : undefined,
-    }
-  }, [showCard, reasoningItems.length, steps.length, timing, toolCount, gitVerbs, gitDetail])
   const labels = useMemo(() => markdownLabelsFrom(t), [t])
 
   const OfficialComp = getOfficialAssistantNodeView()
@@ -409,7 +371,7 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
       <div className="dtt__assistant-body">
         {chip}
         {shown.length > 0 && (variant !== undefined
-          ? <FlowCard variant={variant} meta={cardMeta} interrupted={interrupted}>{shown}{gallery}</FlowCard>
+          ? <FlowCard variant={variant} interrupted={interrupted}>{shown}{gallery}</FlowCard>
           : <>{shown}{gallery}</>)}
         {shown.length === 0 && gallery}
         {interrupted && <span className="dtt__stopped">{t('message.stopped')}</span>}

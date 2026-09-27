@@ -432,13 +432,19 @@ const CSS = `
   min-height: 0;
   overflow-y: auto;
   padding: 16px 18px 22px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--dsw-alias-scrollbar-bg-l2, rgba(127,127,127,.4)) transparent;
+  /*
+   * 这里**刻意不写** scrollbar-width / scrollbar-color：Blink 121 起只要同作用域
+   * 出现这两个标准属性（非 auto），下面的 ::-webkit-scrollbar-* 伪元素就会被
+   * 整体忽略，于是「4px 圆角」那条规则从未生效，屏幕上一直是 Windows 原生
+   * 滚动条。两套写法只能选一套，Chromium 侧要自定义就必须走伪元素。
+   * Firefox 侧兜在 kr-chat/styles.ts 的 @supports not selector(::-webkit-scrollbar)
+   * 之外由本文件同名单独补一份（见文件末尾）。
+   */
 }
 
 .dts__modal-scroll::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
 }
 
 .dts__modal-scroll::-webkit-scrollbar-track {
@@ -446,12 +452,26 @@ const CSS = `
 }
 
 .dts__modal-scroll::-webkit-scrollbar-thumb {
-  background: var(--dsw-alias-scrollbar-bg-l2, rgba(127,127,127,.4));
-  border-radius: 2px;
+  background-color: color-mix(in srgb, var(--dsw-alias-scrollbar-bg-l2, rgba(127,127,127,.4)) 52%, transparent);
+  border-radius: 999px;
+  transition: background-color .18s ease;
 }
 
 .dts__modal-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--dsw-alias-scrollbar-hover-l2, rgba(127,127,127,.6));
+  background-color: color-mix(in srgb, var(--dsw-alias-scrollbar-bg-l2, rgba(127,127,127,.4)) 82%, transparent);
+}
+
+.dts__modal-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox 兜底：Gecko 不认伪元素，且必须包在 @supports 里，否则 Blink 侧会被
+   「写了标准属性就废掉伪元素」反向命中。 */
+@supports not selector(::-webkit-scrollbar) {
+  .dts__modal-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--dsw-alias-scrollbar-bg-l2, rgba(127,127,127,.4)) 52%, transparent) transparent;
+  }
 }
 
 /* ---- 两个分区：思考 / 工具 ---- */

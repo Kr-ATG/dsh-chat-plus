@@ -188,12 +188,12 @@ body[data-dsh-kr-chat="true"],
    * 简约滚动条（大盘内所有滚动区共用）。
    *
    * 基底沿用 --dsw-alias-scrollbar-bg-l2（大盘原本就在用它，token 确实存在），
-   * 再用 color-mix 压到 55% 不透明：滚动条的角色是「找得到就行」，静止时不该
-   * 跟卡片标题抢注意力；指针移上去才提到全不透明，并给 180ms 过渡，让它有
-   * 「被唤起」的手感而不是突然变色。
+   * 常态压到 52% 不透明：白底上约 #E4E4E4，一根淡灰细线，不跟卡片标题抢
+   * 注意力。指针移上去提到 82%（而不是全不透明）——全不透明在 6px 宽的条上
+   * 会一下子变成一根黑线，跳变太猛；82% 只够「看清能拖」，且带 180ms 过渡。
    */
-  --kr-scrollbar-thumb: color-mix(in srgb, var(--dsw-alias-scrollbar-bg-l2, rgba(127, 127, 127, .4)) 55%, transparent);
-  --kr-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-bg-l2, rgba(127, 127, 127, .55));
+  --kr-scrollbar-thumb: color-mix(in srgb, var(--dsw-alias-scrollbar-bg-l2, rgba(127, 127, 127, .4)) 52%, transparent);
+  --kr-scrollbar-thumb-hover: color-mix(in srgb, var(--dsw-alias-scrollbar-bg-l2, rgba(127, 127, 127, .4)) 82%, transparent);
 }
 
 /* 深色主题：底色透出主对话区后，卡片(layer-1)与底色只差几级亮度，
@@ -206,8 +206,9 @@ body[data-ds-dark-theme] .kr-split__side {
   --kr-card-shadow-hover: 0 2px 6px rgba(0, 0, 0, .5), 0 14px 24px -14px rgba(0, 0, 0, .85);
   /* 浮层卡在深色下靠描边 + 更黑的落影分层，不能沿用浅色的暖灰阴影。 */
   --kr-float-shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 10px 28px -18px rgba(0, 0, 0, .78);
-  /* 深色底上滚动条要更实一点才看得见（浅色那套 55% 在黑底上等于没有）。 */
-  --kr-scrollbar-thumb: color-mix(in srgb, var(--dsw-alias-scrollbar-bg-l2, rgba(127, 127, 127, .4)) 68%, transparent);
+  /* 深色底上滚动条要更实一点才看得见（浅色那套 52% 在黑底上等于没有）。 */
+  --kr-scrollbar-thumb: color-mix(in srgb, var(--dsw-alias-scrollbar-bg-l2, rgba(127, 127, 127, .4)) 66%, transparent);
+  --kr-scrollbar-thumb-hover: color-mix(in srgb, var(--dsw-alias-scrollbar-bg-l2, rgba(127, 127, 127, .4)) 92%, transparent);
 }
 
 .kr-split {
@@ -1469,18 +1470,36 @@ body[data-kr-resizing="true"] * {
    计时器），要么靠 scroll-driven animation（Chromium 支持面还不够）。半透明
    常驻 + hover 提亮是同等克制、零 JS 的做法。 */
 
-/* Firefox：scrollbar-* 是标准属性，一条就够 */
-.kr-panel__scroll,
-.kr-reasoning-view,
-.kr-plain-list,
-.kr-memory__list,
-.kr-plain-step__tech {
-  scrollbar-width: thin;
-  scrollbar-color: var(--kr-scrollbar-thumb) transparent;
-}
+/* ══ 大盘统一简约滚动条 ══════════════════════════════════════════════════
+   目标形态：白底上一根淡灰细长圆头条，没有轨道、没有端帽、没有方块底。
 
-/* Chromium / Safari：::-webkit-scrollbar 是另一套语法，必须显式覆盖，
-   否则走系统默认（宽槽 + 端帽 + 方块轨道）。 */
+   ── 为什么上一版「统一了却还是丑」────────────────────────────────────
+   上一版把 scrollbar-width / scrollbar-color 和 ::-webkit-scrollbar 写在了
+   同一批选择器上，以为「两条路径各服务各的浏览器」。**这是错的**：Blink 121
+   起实现了标准滚动条属性，只要 scrollbar-width / scrollbar-color 取值不是
+   auto，同作用域下的 ::-webkit-scrollbar-* 伪元素就被**整体忽略**。
+
+   也就是说那份 6px 圆角规则一条都没生效，屏幕上是 Windows 原生滚动条
+   （宽、带轨道端帽）——正是用户嫌丑的那根。四个滚动区虽然各自写法不同，
+   却都踩了同一个坑，所以「统一」统一到了不生效的同一条路上。
+
+   ── 正确的做法：两边只能选一条路 ────────────────────────────────────
+   · Chromium / WebKit：**只写** ::-webkit-scrollbar，一个标准属性都不碰，
+     宽度、圆角、颜色完全可控；
+   · Firefox：用 @supports not selector(::-webkit-scrollbar) 单独兜。
+     Gecko 不认伪元素，而这条 @supports 在 Blink 里恒为假，所以不会反过来
+     踩到上面那条「写了标准属性就废掉伪元素」的规则。
+
+   ── 形态 ────────────────────────────────────────────────────────────
+   6px 槽、槽本身就是滑块宽度，border-radius 999px 出半圆端头（半径 3px
+   正好等于半个槽宽）；轨道与 corner 全透明——画出来的方块轨道是系统默认
+   样式里最吵的部分。常态淡、指针移上去才提亮并给 180ms 过渡。
+
+   刻意不做「滚动时才显形」：那要么给每个滚动区挂一份 scroll 计时器，要么
+   依赖 scroll-driven animation（支持面还不够）。淡色常驻 + hover 提亮是同等
+   克制、零 JS 的做法。 */
+
+/* Chromium / WebKit */
 .kr-panel__scroll::-webkit-scrollbar,
 .kr-reasoning-view::-webkit-scrollbar,
 .kr-plain-list::-webkit-scrollbar,
@@ -1504,10 +1523,12 @@ body[data-kr-resizing="true"] * {
 .kr-memory__list::-webkit-scrollbar-thumb,
 .kr-plain-step__tech::-webkit-scrollbar-thumb {
   background-color: var(--kr-scrollbar-thumb);
-  /* 2px 透明边框把 6px 槽收成 2px 滑块：background-clip 让滑块只落在内容盒里，
-     于是槽两侧各空 2px，视觉上是一根悬浮的细线而不是一条贴边的粗条。 */
-  border: 2px solid transparent;
-  background-clip: content-box;
+  /*
+   * 这里**不能**再叠 border + background-clip: content-box 去「把 6px 槽收成
+   * 2px 细线」：滚动条的绘制走浏览器内部路径，不吃普通盒模型的 border 与
+   * background-clip，写了也不生效，只留下「注释说细线、实际是 6px 方条」的
+   * 落差。想要更细就直接把上面的 width 调小。
+   */
   border-radius: 999px;
   transition: background-color .18s ease;
 }
@@ -1523,8 +1544,27 @@ body[data-kr-resizing="true"] * {
 .kr-panel__scroll::-webkit-scrollbar-corner,
 .kr-reasoning-view::-webkit-scrollbar-corner,
 .kr-plain-list::-webkit-scrollbar-corner,
-.kr-memory__list::-webkit-scrollbar-corner {
+.kr-memory__list::-webkit-scrollbar-corner,
+.kr-plain-step__tech::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/*
+ * Firefox 单独兜：Gecko 不认伪元素，只能用标准属性。
+ *
+ * 必须包在 @supports not selector(::-webkit-scrollbar) 里——Blink 121+ 一旦在
+ * 同作用域看到 scrollbar-width / scrollbar-color（非 auto）就会反过来忽略
+ * 伪元素，两条路同时写等于两条都不生效。
+ */
+@supports not selector(::-webkit-scrollbar) {
+  .kr-panel__scroll,
+  .kr-reasoning-view,
+  .kr-plain-list,
+  .kr-memory__list,
+  .kr-plain-step__tech {
+    scrollbar-width: thin;
+    scrollbar-color: var(--kr-scrollbar-thumb) transparent;
+  }
 }
 
 /* Windows 高对比度：color-mix 派生的半透明滑块会被系统接管成不可见，
