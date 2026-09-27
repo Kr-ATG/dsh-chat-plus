@@ -1683,7 +1683,13 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
    */
   justify-self: start;
   width: min(500px, 100%);
-  min-height: 50px;
+  /*
+   * 高度也锁死，不写 min-height：min-height 会被内容顶高，长动作名或放大字号就能
+   * 把卡片撑高一格——那正是「卡片一直变」的另一半。定高 + overflow hidden 让它
+   * 永远就是 50px，文字多长都在里面裁掉。
+   */
+  height: 50px;
+  overflow: hidden;
   padding: 7px 14px 7px 7px;
   border: 1px solid var(--kr-card-border);
   border-radius: 14px;
@@ -1699,9 +1705,14 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   outline-offset: 2px;
 }
 
-.kr-agent-mini-card:hover {
-  border-color: color-mix(in srgb, var(--kr-accent) 24%, var(--kr-card-border));
-}
+/*
+ * 刻意没有 :hover 规则。
+ *
+ * 这张卡在对话流里长时间停留，任何随指针变化的视觉（边框变色、底色、阴影）
+ * 都会被读成「卡片一直在变」。它已经是一个 cursor: pointer 的可点区域，
+ * 指针本身就是反馈，键盘可达性由上面的 :focus-visible 兜住。
+ * 要变的只有里面的文字——动作名与那道扫过去的灰光。
+ */
 
 .kr-agent-mini-chevron {
   display: grid;
@@ -1722,9 +1733,12 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   transform: rotate(180deg);
 }
 
+/*
+ * 收口态只降透明度，不位移：位移会让整张卡在对话流里滑动，是「卡片在变」最
+ * 刺眼的一种。透明度是这条生命周期里唯一保留的反馈。
+ */
 .kr-agent-mini-shell[data-closing="true"]:not([data-committed="true"]) .kr-agent-mini-card {
   opacity: .42;
-  transform: translateY(-3px);
 }
 
 .kr-agent-mini-shell[data-closing="true"][data-committed="true"] {
