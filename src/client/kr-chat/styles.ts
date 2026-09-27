@@ -1635,35 +1635,22 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
 }
 
 /*
- * 两张卡共享同一列（minmax(0, max-content)），而不是各自写死 440px：
- *
- *  - 短内容（一句动作 + 一条判断）→ 列宽收成 max-content，卡片贴着文字走，
- *    不再留一大片空白把内容挤在左上角；
- *  - 长内容 → max-content 被容器宽度封顶，文字照常换行，不会横向溢出；
- *  - 两张卡永远同宽、右边缘齐平（网格同一列的必然结果）。
- *
- * 上界用 max-content 而非 fit-content 是有意的：卡片内部已经给 label 留了
- * word-break + 换行，让它由 max-content 撑到容器宽度、由文字自己决定行数，
- * 才是真正「按内容自适应」；fit-content 会先按 max-content 定宽再按容器压缩，
- * 结果与写死 440px 无异。
+ * 两张卡都在下面写死 500px，这一列用 minmax(0, auto) 只是让它们共享同一列、
+ * 右边缘永远齐平；曾用 max-content 让列跟着内容宽度走，那正是「宽度一直变」的
+ * 来源——同一轮里内容一长一短，宽度就一路往右跳，文字行长也跟着变。
  */
 .kr-agent-mini-shell {
   position: relative;
   display: grid;
   grid-template-rows: 1fr;
-  grid-template-columns: minmax(0, max-content);
+  grid-template-columns: minmax(0, auto);
   justify-content: start;
   width: 100%;
   min-width: 0;
-  /*
-   * 880px 是行长上限，不是固定宽度：短内容照样收窄到文字宽度，只有当模型
-   * 某一行特别长（max-content 撑到上千 px）才在这里封顶。中文正文一行 75 字
-   * 上下最好读，再宽就成了「一行 150 字」的长条，反而比 440px 固定宽更难扫。
-   */
-  max-width: min(100%, 880px);
-  /* 展开态 = 状态卡 50px + 间隔 12px + 进度卡（头 34 + 二十行单行判断约 335），
+  max-width: min(100%, 500px);
+  /* 展开态 = 状态卡 50px + 间隔 12px + 进度卡（头 34 + 步骤区 360），
      给到 490px 让长文本按内容撑开时也完整可读，不必靠裁切收口。
-     高度预算跟着字号缩放走，否则「特大」档的行高会把 20 行顶出可视区。 */
+     高度预算跟着字号缩放走，否则「特大」档的行高会把步骤区顶出可视区。 */
   max-height: calc(490px * var(--kr-text-scale, 1));
   margin: -4px 0;
   overflow: visible;
@@ -1798,8 +1785,14 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
 .kr-agent-workflow-card {
   position: relative;
   box-sizing: border-box;
-  /* 与上方状态卡同列同宽：短进度贴文字，长进度由容器封顶后换行铺开。 */
-  width: 100%;
+  /*
+   * 固定 500px，与上方状态卡同宽。
+   *
+   * 原来是 min(max-content, 880px) 自适应：内容短就窄、内容长就宽到 880px，
+   * 同一轮里宽度会一路往右跳，文字行长也跟着变。这里改成定值，两张卡永远同宽，
+   * 只有窄容器才由 min() 兜底。
+   */
+  width: min(500px, 100%);
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--kr-card-border);
