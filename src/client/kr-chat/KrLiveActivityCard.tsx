@@ -15,7 +15,7 @@ import type { ChatNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import { callName, isRunning } from '../tool-summary/tool-stats.ts'
-import { useMotionAllowed } from '../motion-utils.ts'
+import { useCrossfadeText, useMotionAllowed } from '../motion-utils.ts'
 
 const EXIT_MS = 980
 const AVATAR_STORAGE_KEY = 'dsh.kr_chat.agent_avatar.v1'
@@ -193,6 +193,8 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
       : thinking
         ? 'Agent 正在思考'
         : active ? 'Agent 正在分析' : 'Agent 正在整理结果'
+  // 动作名换成交叉淡入淡出：旧层保留着淡出，新层同时淡入。
+  const actionLayers = useCrossfadeText(action, motion)
 
   useEffect(() => {
     const onStorage = (event: StorageEvent): void => {
@@ -331,11 +333,22 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
 
         <div className="kr-agent-mini-copy" data-running={active && !closing ? 'true' : undefined}>
           {/*
-           * key 用 action 本身：动作一变元素重建，.kr-agent-mini-action 上那次
-           * 220ms 的显影动画就自动重播一次——「有新动作了」这个信号由变化本身
-           * 驱动，不需要另开一条常驻动画去表达。
+           * 动作名的每一层都占 stack 的同一格（CSS grid 叠放），所以旧层淡出的
+           * 过程中新层已经淡进来，中间不会出现空白帧——这就是「平滑」。退场层标
+           * aria-hidden，避免读屏把同一句话念两遍。
            */}
-          <span key={action} className="kr-agent-mini-action">{action}</span>
+          <span className="kr-agent-mini-action-stack">
+            {actionLayers.map((layer) => (
+              <span
+                key={layer.id}
+                className="kr-agent-mini-action"
+                data-phase={layer.exiting ? 'out' : 'in'}
+                aria-hidden={layer.exiting || undefined}
+              >
+                {layer.text}
+              </span>
+            ))}
+          </span>
           {/*
            * 末尾三点：模型停下来等的那段时间里，动作名不再变化，上面那次显影
            * 也就不会再播——这三点就是"还活着，但暂时没新动作"的持续信号。

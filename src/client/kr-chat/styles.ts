@@ -1807,11 +1807,12 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
 /*
  * 状态卡动作文字的运行信号，拆成互不重叠的两层：
  *
- *   1. **内容变化时显影一次**（kr-agent-action-in，无条件）
- *      元素 key 就是 action，动作一变 React 重建节点、动画自然重播一次。
- *      220ms 的淡入 + 1px 上浮，只动 opacity/transform。静置时完全不动 ——
- *      这是"有新动作发生了"的准确信号，因为它本来就由变化驱动。
- *      此前是一道 background-clip: text 的光带扫过整行，那条路必须 paint：
+ *   1. **换字时交叉淡入淡出**（kr-agent-action-in / -out）
+ *      动作名一变，旧层保留着向上淡出、新层同时向下淡入，两层叠在同一个 grid
+ *      格里，任何一帧都有字——这就是「平滑」。此前是靠 key={action} 重建节点 +
+ *      一次性入场动画，那条路做不到平滑：旧节点先被卸载（瞬间消失），新节点再
+ *      淡入，中间必然空一帧，读起来是「闪了一下」。
+ *      早先更早一版是 background-clip: text 的光带扫过整行，那条路必须 paint：
  *      background-position 走不了合成器，每一帧都要真重绘一行文字。
  *
  *   2. **等待时末尾三点加载器**（kr-agent-dots，只在 data-running 时）
@@ -1823,11 +1824,28 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
  * 两层都只提交合成器属性，不碰文字栅格化；页面隐藏时插件的全局节流会全部暂停。
  * 要彻底不要常驻动效的话，删掉第 2 层即可，第 1 层不依赖它。
  */
+
+/*
+ * 叠放容器。grid 而不是绝对定位：绝对定位的退场层会脱离布局、交叠期容器宽度
+ * 只由新层决定，退场中的长文字会被新层的窄宽度裁出一道断口。grid 下各层共同
+ * 参与固有宽度计算，容器取最宽的一层，交叉期间谁都完整。
+ *
+ * flex item 给 0 1 auto：按内容收缩（右侧不留空），空间不足时可压缩。
+ */
+.kr-agent-mini-action-stack {
+  display: inline-grid;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  flex: 0 1 auto;
+}
+
 .kr-agent-mini-action {
   font-family: var(--kr-card-font);
-  display: block;
+  /* 所有层占同一格，才是叠放而不是排列。 */
+  grid-area: 1 / 1;
   /*
-   * flex item 默认 min-width:auto，会拒绝收缩到内容宽度以下，长动作名把三点挤出
+   * grid item 默认 min-width:auto，会拒绝收缩到内容宽度以下，长动作名把三点挤出
    * 容器。这里给 min-width:0 + overflow:hidden，让文字在需要时正常裁掉，
    * 三点始终留在可见范围内——它才是"还在跑"的信号，不能被长文本挤没。
    */
@@ -1842,13 +1860,32 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   font-weight: 500;
   line-height: calc(20px * var(--kr-text-scale, 1));
   white-space: nowrap;
-  animation: kr-agent-action-in .22s cubic-bezier(.16, 1, .3, 1) both;
 }
 
-/* 变化驱动的显影：一次，不循环。位移只走 2px，够读出"新内容落位"又不晃眼。 */
+/*
+ * 进场：新字从下 2px 升上来并淡入，延迟 70ms 才开始——让旧字先走一点，两段
+ * 交叠，中间不空。位移只走 2px，够读出「新内容落位」又不晃眼。
+ */
+.kr-agent-mini-action[data-phase="in"] {
+  animation: kr-agent-action-in 180ms cubic-bezier(.22, 1, .36, 1) 70ms both;
+}
+
+/* 出场：旧字往上 2px 淡出，交给 JS 在 250ms 时卸载。 */
+.kr-agent-mini-action[data-phase="out"] {
+  animation: kr-agent-action-out 200ms cubic-bezier(.4, 0, .2, 1) both;
+  /* 退场层不接收指针，也不该被复制/选中。 */
+  pointer-events: none;
+  user-select: none;
+}
+
 @keyframes kr-agent-action-in {
   from { opacity: 0; transform: translateY(2px); }
   to { opacity: 1; transform: none; }
+}
+
+@keyframes kr-agent-action-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(-2px); }
 }
 
 /*
@@ -2137,6 +2174,15 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
    * 三点不跳就保持常态不透明度，而不是整组 display: none —— 三个静止的灰点仍然
    * 说明"这里有活动"，和头像右下角那个状态点同属一套语汇；整个抹掉反而丢信息。
    */
+  /*
+   * 退场层直接不画。正常路径下 useCrossfadeText 在减少动态效果时只产出一层，
+   * 根本不会有退场层；但如果用户在交叉过渡进行到一半时才切系统偏好，动画被
+   * 上面那条 none 掐掉后，退场层会永远停在 opacity 1，和新层叠成两行重影。
+   * 这条是那个时间窗的兜底。
+   */
+  .kr-agent-mini-action[data-phase="out"] {
+    display: none;
+  }
 }
 
 /* ══ 隐藏原生 DSH 任务列表/Plan卡片（KR模式下收敛至右侧大盘） ═══════════════ */

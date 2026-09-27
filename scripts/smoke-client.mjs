@@ -349,28 +349,38 @@ if (!code.includes('avatarMenuPosition') || !code.includes('.kr-agent-avatar-men
 } else {
   pass('Agent avatar menu is body-portaled with fixed positioning')
 }
-// 状态卡动作文字的运行信号必须拆成两层：内容变化时显影一次（由 key 重建驱动），
-// 等待时末尾三点加载器。两者都只动 opacity/transform，走合成器。
-// 三点必须真的是三个独立元素（断言产物里有 <i> 组成的 kr-agent-dots 容器）：
-// 靠伪元素只能凑两颗，且 opacity 打在同一个元素上时三颗会一起亮、错峰就没了。
-// 注意产物是 JSX 编译后的 jsx() 调用，字面量是 'kr-agent-dots' 单引号形式。
+// 状态卡动作文字的运行信号必须拆成两层：换字时交叉淡入淡出、等待时末尾三点。
+// 两层都只动 opacity/transform，走合成器。
+//
+// 交叉淡入淡出的必要条件是「两层同时在 DOM 里」：useCrossfadeText 保留退场层，
+// 两层由 .kr-agent-mini-action-stack 叠在同一 grid 格。退回 key={action} 重建节点
+// 就等于退回「旧字瞬间消失 + 新字淡入」的闪一下，所以必须断言存在退场层这条路径
+// （data-phase="out"）和叠放容器。
+//
+// 三点必须真的是三个独立元素：靠伪元素只能凑两颗，且 opacity 打在同一个元素上
+// 时三颗会一起亮、错峰就没了。产物是 JSX 编译后的 jsx() 调用。
+//
 // 被否掉的方案不要复活：整行遮罩扫光（kr-agent-text-sweep）每帧都要重绘文字，
 // 终端光标（kr-agent-caret）与单点呼吸（kr-agent-dot）都被嫌丑，
 // 逐字延时（kr-agent-mini-char-in）则光带宽度≈动画时长、窄了就必然快。
 // 注意：不能全 bundle 禁 background-clip —— tool-summary 的 .dts__process 忙碌
 // 微光（本插件自己的旧折叠行，KR 模式下不显示）本来就用它，不在本次范围内。
-if (!code.includes('kr-agent-action-in')
+if (!code.includes('useCrossfadeText')
+  || !code.includes('kr-agent-mini-action-stack')
+  || !code.includes('kr-agent-action-in')
+  || !code.includes('kr-agent-action-out')
+  || !/"data-phase": \w+\.exiting \? "out" : "in"/.test(code)
   || !code.includes('kr-agent-dots')
-  // 三颗 <i> 必须真在产物里：JSX 编译后是 jsx("span", { className: "kr-agent-dots" ... })
+  // 三颗 <i> 必须真在产物里：jsx("span", { className: "kr-agent-dots", ... children: [ jsx("i", {}) ...
   || !/className: "kr-agent-dots"[^)]*children: \[\s*\/\* @__PURE__ \*\/ \(0, \w+\.jsx\)\("i", \{\}\)/.test(code)
   || code.includes('kr-agent-text-sweep')
   || code.includes('kr-agent-caret')
   || code.includes('kr-agent-mini-dot')
   || code.includes('kr-agent-mini-char-in')
   || code.includes('kr-agent-mini-color-flow')) {
-  fail('KR Agent action must use compositor-only motion: reveal-on-change + three-dot loader')
+  fail('KR Agent action must use compositor-only motion: crossfade + three-dot loader')
 } else {
-  pass('KR Agent action uses compositor-only motion (reveal on change + three-dot loader)')
+  pass('KR Agent action uses compositor-only motion (crossfade on change + three-dot loader)')
 }
 
 if (styleIds.length === expectedStyles.length) {

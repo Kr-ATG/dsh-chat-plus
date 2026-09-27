@@ -26,6 +26,21 @@ export const MOTION_EASING = 'cubic-bezier(.22,1,.36,1)'
 /** 260ms 展开/收起（上游 ProcessFragment 同值）。 */
 export const EXPAND_MS = 260
 
+/**
+ * 文本交叉淡入淡出（crossfade）节拍。
+ *
+ * 进场比出场快 20ms：新字先稳，旧字才彻底走，读起来是「换过去了」而不是
+ * 「闪了一下」。`OVERLAP` 是两层的交叠段——出场层在淡出的同时，进场层已经
+ * 开始淡入，中间任何一帧都不出现空白，这就是「平滑」的来源。
+ */
+export const TEXT_FADE_IN_MS = 180
+export const TEXT_FADE_OUT_MS = 200
+export const TEXT_FADE_OVERLAP_MS = 70
+/** 出场层在整段动画走完后卸载；期间它在交叠区就已不可见，卸载不产生跳变。 */
+export const TEXT_FADE_EXIT_MS = TEXT_FADE_OVERLAP_MS + TEXT_FADE_IN_MS
+/** 极快连续切换时的层数上限：超出就把最老的出场层直接丢掉，不留残影。 */
+const TEXT_FADE_MAX_LAYERS = 3
+
 /** 插件总开关与系统偏好都允许时才做动效。 */
 export function useMotionAllowed(enabled: boolean): boolean {
   const [reduced, setReduced] = useState(() => {
@@ -46,6 +61,57 @@ export function useMotionAllowed(enabled: boolean): boolean {
     }
   }, [])
   return enabled && !reduced
+}
+
+/** 交叉淡入淡出中的一层。`exiting` 为真表示正在退场、到点后被卸载。 */
+export interface TextLayer {
+  readonly id: number
+  readonly text: string
+  readonly exiting: boolean
+}
+
+/**
+ * 文本替换的交叉淡入淡出：旧层淡出与新层淡入**重叠**进行。
+ *
+ * 之前是靠 `key={text}` 重建节点 + 一次性入场动画实现的，那条路做不到平滑：
+ * 旧节点先被卸载（瞬间消失），新节点再淡入，中间必然有一帧空白，读起来是
+ * 「闪了一下」。这里改成保留旧层、让它淡出，新层同时淡入，两层叠在同一格里，
+ * 任何一帧都有字。
+ *
+ * 退场层在 `TEXT_FADE_EXIT_MS` 后卸载，且它在那之前已不可见，卸载不产生跳变。
+ * 卸载用定时器而不是 `onAnimationEnd`：系统开了「减少动态效果」时动画根本不会
+ * 触发，挂在 `onAnimationEnd` 上清理就永远不会执行，层会一直堆着。
+ *
+ * `motion` 为假（系统偏好）时退化成单层直接替换，不产生任何层。
+ */
+export function useCrossfadeText(text: string, motion: boolean): readonly TextLayer[] {
+  const [layers, setLayers] = useState<readonly TextLayer[]>(() => [{ id: 0, text, exiting: false }])
+  const seqRef = useRef(0)
+
+  useEffect(() => {
+    const id = (seqRef.current += 1)
+    setLayers((prev) => {
+      const top = prev[prev.length - 1]
+      // 挂载后的首次 effect、或最新一层就是这段文字：没有任何变化要做。
+      if (top !== undefined && !top.exiting && top.text === text) return prev
+      if (!motion) return [{ id, text, exiting: false }]
+      const next: TextLayer[] = [...prev.map((layer) => ({ ...layer, exiting: true })), { id, text, exiting: false }]
+      return next.length > TEXT_FADE_MAX_LAYERS ? next.slice(next.length - TEXT_FADE_MAX_LAYERS) : next
+    })
+  }, [text, motion])
+
+  useEffect(() => {
+    if (!layers.some((layer) => layer.exiting)) return undefined
+    const timer = window.setTimeout(() => {
+      setLayers((prev) => {
+        const kept = prev.filter((layer) => !layer.exiting)
+        return kept.length === prev.length ? prev : kept
+      })
+    }, TEXT_FADE_EXIT_MS)
+    return () => { window.clearTimeout(timer) }
+  }, [layers])
+
+  return layers
 }
 
 /**
