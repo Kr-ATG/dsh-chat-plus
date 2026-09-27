@@ -24,7 +24,7 @@ import {
   resolveChromePath, type ChromeRuntime,
 } from '../browser/chrome.ts'
 import { MERMAID_FILE, MERMAID_HOOK } from './card.ts'
-import { stitchPng, type PngTile } from './stitch.ts'
+import { stitchPng, MAX_STITCH_PIXELS, type PngTile } from './stitch.ts'
 
 /**
  * 随包分发的 mermaid 引擎（预压缩，与前端 /dyn-assets/vendor 同一份资源）。
@@ -425,6 +425,20 @@ async function renderOnce(target: Engine, input: RenderInput): Promise<string> {
     } else {
       // 自适应模式：宽度为基准宽度，高度贴合内容长图
       cssHeight = Math.min(contentHeight, maxCssHeight)
+    }
+
+    /*
+     * 长图整图输出预算。
+     *
+     * 前面几个上限管的是**单段**（Chromium 合成表面 / WebSocket 报文），整图拼
+     * 接阶段没人管：4K 档 + 超长会话会排出 1.15 亿像素，拼接的峰值内存逼近 1GB，
+     * Node 扛不住就是被 OOM 直接带崩。这里把整图钳到预算内——宁可长图被截断
+     * （前端已能通过 aspectLocked=false 知道画幅没守住），也不让整个 DSH 消失。
+     */
+    const outWidth = Math.round(cssWidth * scale)
+    const maxOutHeight = Math.max(600, Math.floor(MAX_STITCH_PIXELS / Math.max(1, outWidth)))
+    if (Math.round(cssHeight * scale) > maxOutHeight) {
+      cssHeight = Math.min(cssHeight, Math.floor(maxOutHeight / scale))
     }
 
     const deviceWidth = Math.round(cssWidth * scale)

@@ -151,9 +151,19 @@ body[data-dsh-kr-chat="true"],
 .kr-split,
 .kr-split__side {
   --kr-accent: var(--dsw-alias-state-business-primary, #4176e6);
-  --kr-success: #10b981;
-  --kr-warning: #f59e0b;
-  --kr-error: #ef4444;
+  /*
+   * 三个状态色都走 DSH 的 state-* token，不再写死。
+   *
+   * 写死有两个问题：一是深色主题下不跟随（深底上该用更亮的绿/红，写死值在
+   * 两套主题里都是同一档，亮色主题够亮的那一档到深色就偏暗）；二是对比度不再
+   * 由主题系统兜底 —— #10b981 压在 #fff 上约 2.4:1，状态点作为图形没过 AA 的 3:1。
+   * 走 token 后这两件事都由 DSH 主题负责，我们只给 fallback。
+   * （对话流里那张状态卡早就是 var(--dsw-alias-state-success-primary, #22c55e)，
+   * 这里只是对齐同一口径。）
+   */
+  --kr-success: var(--dsw-alias-state-success-primary, #22c55e);
+  --kr-warning: var(--dsw-alias-state-warning-primary, #f59e0b);
+  --kr-error: var(--dsw-alias-state-error-primary, #ef4444);
   /*
    * 表面策略：**大盘不铺底色，卡片常态投影浮起**。
    *
@@ -1203,6 +1213,9 @@ body[data-kr-resizing="true"] * {
 }
 
 .kr-plain-intent__text {
+  /* flex:1 1 auto —— 只给 min-width:0 的话，flex-basis 仍是内容宽度，窄栏下
+     整段话会被压到「最后一个字单独换行」的程度。 */
+  flex: 1 1 auto;
   min-width: 0;
   font-size: 12px;
   line-height: 1.5;
@@ -1220,6 +1233,9 @@ body[data-kr-resizing="true"] * {
   --kr-plain-row-h: 22px;
   max-height: calc(var(--kr-plain-rows, 6) * var(--kr-plain-row-h) + 6px);
   overflow-y: auto;
+  /* 纵向可滚、横向钳死：卡片里没有任何需要横向滚动的内容，出现横条只可能是
+     某个子项把宽度顶破了（窄栏最易发生），那属于 bug 而不是功能。 */
+  overflow-x: hidden;
   overscroll-behavior: contain;
   /* 滚动条走大盘统一那套（见文件末尾「大盘统一简约滚动条」）。 */
   padding-right: 2px;
@@ -1292,6 +1308,9 @@ body[data-kr-resizing="true"] * {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
+  /* 窄栏下 flex 子项默认的 min-width:auto 会让长标题把整行顶宽，列表随即冒出
+     一条横向滚动条；置 0 后标题上已有的 text-overflow 才真正生效。 */
+  min-width: 0;
   min-height: 22px;
   padding: 2px 2px 2px 0;
   font-size: 12px;
@@ -1425,10 +1444,17 @@ body[data-kr-resizing="true"] * {
 }
 
 .kr-plain-subs {
-  flex: 1 0 100%;
+  /*
+   * basis 用 calc(100% - 15px) 而不是 100%：100% 加上 margin-left:15px 就超出
+   * 容器宽度了，窄栏（右栏拉到 300px 下限）时 flex 换行判定失败——子智能体区块
+   * 被挤在标题右侧剩下来的那条窄缝里，文字竖排截断，还顺带把列表撑出一条
+   * 横向滚动条。减掉缩进量才是"占满一整行再往右缩进"的真实意图。
+   */
+  flex: 1 0 calc(100% - 15px);
   margin: 4px 0 2px 15px;
   padding: 2px 0 2px 10px;
   border-left: 1.5px solid color-mix(in srgb, var(--kr-accent) 22%, transparent);
+  min-width: 0;
   font-size: 11.5px;
   color: var(--dsw-alias-label-tertiary);
   animation: kr-plain-subs-in .3s cubic-bezier(.16, 1, .3, 1) both;
