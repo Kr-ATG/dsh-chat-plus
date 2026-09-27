@@ -336,7 +336,7 @@ if (typeof activityColor === 'function') {
 
 // ── 人话行动流：工具调用 → 中文人话 + 时间线组装 ────────────────────────
 const {
-  toPlainStep, plainToolName, siteOf, isMetaTool, buildPlainTimeline, extractIntent,
+  toPlainStep, plainToolName, siteOf, isMetaTool, spawnsSubagents, buildPlainTimeline, extractIntent,
 } = mod
 
 if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function' || typeof extractIntent !== 'function') {
@@ -366,6 +366,50 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   const typed = toPlainStep({ toolName: 'browser_type', args: { ref: 'e12', text: '北京' }, status: 'done' })
   if (typed.verb !== '在输入框里填写' || typed.detail !== '北京') fail(`browser_type must show the typed text, got ${typed.verb} · ${typed.detail}`)
   else pass('browser_type shows the typed value')
+
+  // 英文枚举不许露到卡片上。
+  const scrolled = toPlainStep({ toolName: 'browser_scroll', args: { direction: 'down' }, status: 'done' })
+  if (scrolled.detail !== '向下') fail(`browser_scroll direction must be translated, got ${scrolled.detail}`)
+  else pass('browser_scroll direction is humanised')
+
+  // 重定向：请求 URL 与落地 URL 不一致时必须说出来，否则用户会以为搜索成功了。
+  // 这条来自真机实验：携程的 /online/list/oneway-ctrip?dcity=bjs&acity=sha
+  // 会被打回 /online/channel 首页，两边都识别成「携程 · 机票」。
+  const ctripSearch = 'https://flights.ctrip.com/online/list/oneway-ctrip?ddate=2026-10-05&dcity=bjs&acity=sha'
+  const bounced = toPlainStep({
+    toolName: 'mcp__playwright-mcp__browser_navigate',
+    args: { url: ctripSearch },
+    status: 'done',
+    resultText: '### Page\n- Page URL: https://flights.ctrip.com/online/channel',
+  })
+  const landedOk = toPlainStep({
+    toolName: 'browser_navigate', args: { url: ctripSearch }, status: 'done',
+    resultText: '### Page\n- Page URL: ' + ctripSearch,
+  })
+  const jumpedAway = toPlainStep({
+    toolName: 'browser_navigate', args: { url: ctripSearch }, status: 'done',
+    resultText: '### Page\n- Page URL: https://www.qunar.com/flightsearch/',
+  })
+  if (!/被重定向/.test(bounced.detail ?? '')) {
+    fail(`a bounced navigation must say so, got ${bounced.detail}`)
+  } else if (landedOk.detail !== '携程 · 机票') {
+    fail(`a clean landing must stay a plain site name, got ${landedOk.detail}`)
+  } else if (jumpedAway.detail !== '携程 · 机票 → 去哪儿') {
+    // qunar 的 /flightsearch 是通用搜索页，URL 里没有机票特征词，识别成「去哪儿」
+    // 就够了；补「· 机票」反而是在替站点做判断。
+    fail(`a cross-site jump must name both sites, got ${jumpedAway.detail}`)
+  } else {
+    pass('navigation reports redirects and cross-site jumps')
+  }
+
+  // 畸形入参不许把整张卡带崩：plainToolName 收到 undefined 时必须当空名处理。
+  if (toPlainStep({ toolName: undefined, args: {}, status: 'done' }).verb !== '执行操作') {
+    fail('a malformed tool name must fall back to 执行操作, not throw')
+  } else if (typeof spawnsSubagents !== 'function' || spawnsSubagents(undefined) !== false) {
+    fail('spawnsSubagents must tolerate a missing tool name')
+  } else {
+    pass('malformed tool names degrade instead of throwing')
+  }
 
   const clicked = toPlainStep({ toolName: 'browser_click', args: { ref: 'e9', element: '出发地' }, status: 'done' })
   if (clicked.verb !== '点击网页' || clicked.detail !== '出发地') fail(`browser_click must show the element label, got ${clicked.verb} · ${clicked.detail}`)

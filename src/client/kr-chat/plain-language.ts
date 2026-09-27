@@ -44,6 +44,12 @@ export interface PlainStepInput {
   readonly args?: Record<string, unknown>
   /** 原始入参 JSON（技术细节用）。流式未成形时可能为空串。 */
   readonly argsRaw?: string
+  /**
+   * 工具返回文本（可选）。只为一条规则服务：浏览器导航要靠它认出「被重定向到
+   * 别处了」——请求 URL 和落地 URL 不一致时，用户看到「打开 A → 落到 B」才知道
+   * 事情没成。没有它就退化成只显示请求站点，功能不残。
+   */
+  readonly resultText?: string
   readonly status: PlainStatus
   readonly durationMs?: number
   readonly errorText?: string
@@ -167,8 +173,15 @@ export function siteOf(url: string | undefined): string | undefined {
  * `mcp__playwright-mcp__browser_click` → `browser_click`
  * `cua_driver_native__click` → `click`
  * 命名空间前缀由服务注册时决定，规则表不该跟着它变。
+ *
+ * 入参防御：非字符串一律按空名处理。这不是洁癖——`callName()` 的「无 kind」
+ * 分支返回的是 `block.name`，块缺这个字段时就是 undefined，于是
+ * `isMetaTool()` → `plainToolName()` 会在一个畸形节点上抛 TypeError，
+ * 整条人话时间线一起消失。宁可把它显示成「执行操作」，也不能因为一条脏数据
+ * 让整张卡空白。
  */
-export function plainToolName(toolName: string): string {
+export function plainToolName(toolName: string | undefined | null): string {
+  if (typeof toolName !== 'string') return ''
   const name = toolName.trim()
   if (name === '') return ''
   const parts = name.split('__')
@@ -177,11 +190,66 @@ export function plainToolName(toolName: string): string {
 
 /* ── 规则表 ───────────────────────────────────────────────────────────── */
 
+/** 滚动方向：工具给的是英文枚举，卡片上不该出现「down」。 */
+const SCROLL_DIRECTION: Readonly<Record<string, string>> = {
+  down: '向下', up: '向上', left: '向左', right: '向右',
+  top: '到顶部', bottom: '到底部',
+}
+
+/**
+ * 工具结果里的**最终落地 URL**。
+ *
+ * 浏览器工具的返回文本会带一行 `Page URL: …`，那是导航真正落到的地址，不是模型
+ * 请求的那个。两者不一致 = 发生了重定向，而这恰恰是「我要的东西拿到了吗」最
+ * 关键的一条事实：实测 `https://flights.ctrip.com/online/list/oneway-ctrip?dcity=bjs&acity=sha`
+ * 会被携程打回 `/online/channel` 首页 —— 只显示「打开网页 · 携程 · 机票」的话，
+ * 用户会以为搜索已经成功，实际上页面根本没进去。
+ *
+ * 抓不到就返回 undefined：没有这行、或换了别的工具格式，都不该让正常展示退化。
+ */
+function landedUrlOf(resultText: string | undefined): string | undefined {
+  if (resultText === undefined) return undefined
+  const match = /Page URL:\s*(https?:\/\/[^\s\n]+)/.exec(resultText)
+  return match?.[1]
+}
+
+/**
+ * 打开网页的细节：站点友好名 + （发生跳转时）跳到哪。
+ *
+ * 三种说法，按信息量选：
+ *  · 落在同一页 → `携程 · 机票`
+ *  · 跳去了**别的站** → `携程 · 机票 → 去哪儿 · 机票`（站点名已经不同，再补
+ *    路径只是噪音）
+ *  · 跳去了**同一个站**的别处 → `携程 · 机票 · 被重定向`。
+ *    这一支是实测里最常撞上的：`/online/list/oneway-ctrip?dcity=bjs&acity=sha`
+ *    会被携程打回 `/online/channel` 首页，两边都识别成「携程 · 机票」，写成
+ *    `携程 · 机票 → 携程 · 机票` 等于什么都没说。
+ */
+function navigateDetail(args: Record<string, unknown>, resultText?: string): string | undefined {
+  const requested = str(args, 'url')
+  const site = siteOf(requested) ?? (requested === undefined ? undefined : clip(requested, MAX_SHORT))
+  const landed = landedUrlOf(resultText)
+  if (landed === undefined || requested === undefined) return site
+  if (normalizeUrl(landed) === normalizeUrl(requested)) return site
+  const landedSite = siteOf(landed)
+  if (landedSite !== undefined && site !== undefined && landedSite !== site) return `${site} → ${landedSite}`
+  return site === undefined ? undefined : `${site} · 被重定向`
+}
+
+function normalizeUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    return `${parsed.origin}${parsed.pathname}`
+  } catch {
+    return url
+  }
+}
+
 /** 归一名 → { 动词, 图标, 取细节 }。 */
 interface Rule {
   readonly verb: string
   readonly icon: PlainIconKey
-  readonly detail?: (args: Record<string, unknown>) => string | undefined
+  readonly detail?: (args: Record<string, unknown>, resultText?: string) => string | undefined
 }
 
 /**
@@ -190,8 +258,8 @@ interface Rule {
  */
 const EXACT: Readonly<Record<string, Rule>> = {
   // ── 浏览器控制 ──────────────────────────────────────────────────────
-  browser_navigate: { verb: '打开网页', icon: 'globe', detail: (a) => siteOf(str(a, 'url')) ?? clip(str(a, 'url') ?? '', MAX_SHORT) },
-  browser_open: { verb: '打开网页', icon: 'globe', detail: (a) => siteOf(str(a, 'url')) ?? clip(str(a, 'url') ?? '', MAX_SHORT) },
+  browser_navigate: { verb: '打开网页', icon: 'globe', detail: navigateDetail },
+  browser_open: { verb: '打开网页', icon: 'globe', detail: navigateDetail },
   browser_click: { verb: '点击网页', icon: 'cursor', detail: (a) => clip(str(a, 'element', 'description', 'text') ?? str(a, 'ref') ?? '', MAX_DETAIL) },
   click: { verb: '点击网页', icon: 'cursor', detail: (a) => clip(str(a, 'element', 'description', 'text') ?? str(a, 'ref') ?? '', MAX_DETAIL) },
   browser_type: { verb: '在输入框里填写', icon: 'keyboard', detail: (a) => clip(str(a, 'text', 'value') ?? '', MAX_DETAIL) },
@@ -202,7 +270,7 @@ const EXACT: Readonly<Record<string, Rule>> = {
   browser_snapshot: { verb: '查看当前页面', icon: 'eye' },
   get_browser_state: { verb: '查看当前页面', icon: 'eye' },
   browser_find: { verb: '在页面上查找', icon: 'search', detail: (a) => clip(str(a, 'text', 'query') ?? '', MAX_SHORT) },
-  browser_scroll: { verb: '滚动页面', icon: 'scroll', detail: (a) => str(a, 'direction') },
+  browser_scroll: { verb: '滚动页面', icon: 'scroll', detail: (a) => SCROLL_DIRECTION[str(a, 'direction') ?? ''] },
   browser_back: { verb: '返回上一页', icon: 'arrow' },
   browser_forward: { verb: '前进一页', icon: 'arrow' },
   browser_download: { verb: '下载文件', icon: 'download' },
@@ -306,7 +374,7 @@ export function toPlainStep(input: PlainStepInput): PlainStep {
   const verb = rule?.verb ?? (name === '' ? '执行操作' : `执行 ${name}`)
   const icon: PlainIconKey = rule?.icon ?? 'bolt'
 
-  let detail = rule?.detail?.(args)
+  let detail = rule?.detail?.(args, input.resultText)
   if (detail === undefined || detail.trim() === '') {
     if (name === '') detail = undefined
     else {

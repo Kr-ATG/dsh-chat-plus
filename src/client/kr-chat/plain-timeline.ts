@@ -16,8 +16,8 @@ import type { ChatNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 // Type-only：激活 ui-chat / ui-tool 的 SlotMap 增强，让 ChatNode 解析到宿主类型。
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
-import { callDurationMs, callName } from '../tool-summary/tool-stats.ts'
-import { argFields, toolArgsRaw, viewPhase } from '../tool-summary/activity-view-model.ts'
+import { callDurationMs, callName, isRunning } from '../tool-summary/tool-stats.ts'
+import { argFields, resultParagraphs, toolArgsRaw, viewPhase } from '../tool-summary/activity-view-model.ts'
 import { isMetaTool, toPlainStep, type PlainStep } from './plain-language.ts'
 
 /** 预告行最长 60 字：超过多半是模型把整段思考写进来了，截掉更利落。 */
@@ -126,7 +126,11 @@ function safeTodoList(node: ChatNode<'tool-call'>): ReadonlyArray<{ status?: unk
   }
 }
 
-export function buildPlainTimeline(input: PlainTimelineInput): PlainTimeline {  const main: PlainStep[] = []
+/** 降级提示只报一次，避免每帧刷屏。 */
+let warnedDegrade = false
+
+export function buildPlainTimeline(input: PlainTimelineInput): PlainTimeline {
+  const main: PlainStep[] = []
   /*
    * 任务清单维护（todo_write）**按时间原位出现一次**，不再甩到末尾。
    *
@@ -168,12 +172,24 @@ export function buildPlainTimeline(input: PlainTimelineInput): PlainTimeline {  
         toolName: name,
         args: argFields(toolArgsRaw(root)),
         argsRaw: toolArgsRaw(root),
+        // 结果文本只为「落地 URL 与请求不一致」服务（见 plain-language 的
+        // landedUrlOf）；只有已结束、且有文本时才去拼，避免运行中反复 join。
+        ...(isRunning(root) ? {} : { resultText: resultParagraphs(root) }),
         status: statusOf(root),
         ...(durationMs !== undefined ? { durationMs } : {}),
         ...(errorText !== undefined ? { errorText } : {}),
       })
-    } catch {
+    } catch (error) {
       // 未知节点形状不该让整条时间线消失：给一条最小可显示的兜底。
+      //
+      // 但必须留一条 warn：这份兜底**会把代码级错误也一起吞掉**（一次漏 import
+      // 的 `isRunning` 变成 ReferenceError → 整条时间线全是「执行操作」，界面
+      // 上看着只是"翻译得不好"，没有任何线索指向真正的错误）。去重后每个进程
+      // 最多报一次，既能定位又不刷屏。
+      if (!warnedDegrade) {
+        warnedDegrade = true
+        console.warn('[kr-plain-timeline] 有工具调用无法翻译，已降级为「执行操作」：', error)
+      }
       step = toPlainStep({ id: `plain-fallback-${index}`, toolName: '', status: 'done' })
     }
     main.push(step)
