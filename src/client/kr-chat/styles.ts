@@ -2225,30 +2225,43 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
 /* ══ 流式文本的平滑显影 ═══════════════════════════════════════════════════
  *
  * 思考流是按块到达的，一整行字常在同一次更新里凭空出现。KrFreshText 把文本
- * 切成「已稳定前缀 + 本次新增段」，只让新增段里的字逐个淡入（相邻 12ms 错峰），
- * 旧内容不重播。纯 opacity、零位移——带位移的逐字显影会被读成「一跳一跳」。
+ * 切成「已稳定前缀 + 本次新增段」，只让新增段显影一次，旧内容不重播。
+ *
+ * 新增段是**一个** span 配一道自左向右的擦除 mask，不逐字拆 span：逐字 span 会
+ * 把每个字符切成独立文本 run，中文的标点挤压 / 字距调整 / 连字全被边界打断，
+ * 「，」「。」后面拖出一截全角空隙，整段读起来字体很别扭。节点数也同时从几千
+ * 降到 2。
  */
 .kr-fresh-run {
   display: inline;
+  animation: kr-fresh-wipe .38s cubic-bezier(.33, .66, .36, 1) both;
 }
 
-.kr-fresh {
-  display: inline;
-  animation: kr-fresh-fade .3s ease-out both;
+/*
+ * 注册成 <percentage> 才能在关键帧里平滑插值——未注册的普通自定义属性只会
+ * 离散跳变，擦除会变成一跳一跳的阶梯。
+ */
+@property --kr-wipe {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
 }
 
-/* 大段新内容（超过 maxStaggerChars）整段一次淡入，不逐字拆 span。 */
-.kr-fresh--bulk {
-  animation-duration: .34s;
+@keyframes kr-fresh-wipe {
+  from {
+    --kr-wipe: 0%;
+    -webkit-mask-image: linear-gradient(90deg, #000 0 calc(var(--kr-wipe) - 4%), transparent var(--kr-wipe));
+    mask-image: linear-gradient(90deg, #000 0 calc(var(--kr-wipe) - 4%), transparent var(--kr-wipe));
+  }
+  to {
+    --kr-wipe: 100%;
+    -webkit-mask-image: linear-gradient(90deg, #000 0 calc(var(--kr-wipe) - 4%), transparent var(--kr-wipe));
+    mask-image: linear-gradient(90deg, #000 0 calc(var(--kr-wipe) - 4%), transparent var(--kr-wipe));
+  }
 }
 
 .kr-fresh-stable {
   display: inline;
-}
-
-@keyframes kr-fresh-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 /*
@@ -2455,8 +2468,7 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
 @media (prefers-reduced-motion: reduce) {
   .kr-agent-mini-card,
   .kr-agent-mini-action,
-  .kr-fresh,
-  .kr-fresh--bulk,
+  .kr-fresh-run,
   .kr-agent-workflow-card__expandChevron,
   .kr-agent-mini-shell[data-closing="true"][data-committed="true"],
   .kr-agent-avatar-menu,
