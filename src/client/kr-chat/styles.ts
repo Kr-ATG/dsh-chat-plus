@@ -616,36 +616,17 @@ body[data-kr-resizing="true"] * {
 }
 
 /*
- * 展开/收起箭头：**常态隐藏，hover（键盘聚焦同样）才淡入**。
+ * 展开/收起箭头（.kr-card__chevron）已整块删除：DOM 节点与其样式一起不再渲染。
  *
- * 原来它常驻在每张卡标题行的最右端，五张卡一列下来就是一排同样的灰 V —— 它们
- * 传达的信息是「这行能点」，而这个信息在鼠标已经悬上来之前并不需要；等指针移到
- * 卡片上，整卡上浮 + 阴影加深 + 指针变手型三个反馈同时出现，箭头反而是多余的。
+ * 它常驻在每张卡标题行的最右端，五张卡一列下来就是一排同样的灰 V；而它传达的
+ * 信息只有「这行能点」，等指针落到卡片上，整卡上浮 1px + 阴影加深 + 指针变手型
+ * 三个反馈已经同时出现。先试过「常态隐藏、hover 才淡入」，仍被嫌碍眼 —— 索性连
+ * 元素一起删干净，标题行只剩内容本身。
  *
- * 淡入而不是硬删：键盘用户 Tab 进标题时仍会出现（:focus-within），不丢可发现性。
- * 折叠态的 180° 旋转照旧，只是也跟着一起淡入。
+ * 折叠 / 展开能力一点没少：点击热区从来都是整行 .kr-card__header（cursor: pointer
+ * + onClick 切换），箭头只是装饰。记忆卡与工具调用卡另有文字提示（「N 条」徽标、
+ * 「展开 N 次调用」），其余卡片靠整卡上浮提示可点。
  */
-.kr-card__chevron {
-  flex: none;
-  color: var(--dsw-alias-label-caption);
-  opacity: 0;
-  transition: opacity 0.16s ease, transform 0.2s ease;
-}
-
-.kr-card:hover .kr-card__chevron,
-.kr-card:focus-within .kr-card__chevron {
-  opacity: 1;
-}
-
-.kr-card__chevron[data-collapsed="true"] {
-  transform: rotate(180deg);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .kr-card__chevron {
-    transition: opacity .15s linear;
-  }
-}
 
 /* ══ 任务概览卡片（单卡片原生极简设计）═════════════════════════════════════ */
 /* 任务概览：内距与 .kr-card 对齐即可，这条曾经单开 12px 14px，

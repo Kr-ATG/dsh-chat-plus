@@ -63,11 +63,6 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
         <span className={`kr-card__badge ${isRunning || activeCount > 0 ? 'kr-card__badge--running' : 'kr-card__badge--done'}`}>
           {progressText}
         </span>
-        <span className="kr-card__chevron" data-collapsed={collapsed ? 'true' : 'false'}>
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M2.5 4.5 6 8 9.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
       </div>
 
       {/*

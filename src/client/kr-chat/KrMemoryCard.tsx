@@ -619,11 +619,6 @@ export const KrMemoryCard = memo(function KrMemoryCard({
             徽标带单位（「3 条」而不是光一个 3）：卡片常态是折叠的，这行字是折叠
             状态下唯一的正文，写清楚「几条」比让人数数字更省一步理解。 */}
         <span className="kr-card__badge kr-card__badge--count">{newEntryCount} 条</span>
-        <span className="kr-card__chevron" data-collapsed={collapsed ? 'true' : 'false'}>
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <path d="M2.5 4.5 6 8 9.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
       </div>
 
       {/* 到这里必有本会话新增（否则组件早已 return null），所以只剩两种分区

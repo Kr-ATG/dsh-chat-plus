@@ -94,11 +94,6 @@ export const KrReasoningCard = memo(function KrReasoningCard({
             {following ? '跟随中' : '已暂停'}
           </span>
         )}
-        <span className="kr-card__chevron" data-collapsed={collapsed ? 'true' : 'false'}>
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <path d="M2.5 4.5 6 8 9.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
       </div>
 
       {!collapsed && (

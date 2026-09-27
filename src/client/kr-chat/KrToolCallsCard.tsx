@@ -129,11 +129,6 @@ export const KrToolCallsCard = memo(function KrToolCallsCard({
         {!showAllTools && tools.length > TOOL_LIST_PREVIEW_COUNT && (
           <span className="kr-tools-expand-hint">展开 {tools.length} 次调用</span>
         )}
-        <span className="kr-card__chevron" data-collapsed={!showAllTools ? 'true' : 'false'}>
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <path d="M2.5 4.5 6 8 9.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
       </div>
 
       {showAllTools && (
