@@ -375,6 +375,24 @@ if (krEnabled) {
     pass('记忆卡默认折叠，折叠态带「N 条」徽标')
   }
 }
+
+// footer 用时细行：渲染在记忆卡之前，且只在有真实测量值时出现。
+if (krEnabled) {
+  const panelSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8')
+  const timerIdx = panelSrc.indexOf('<KrTurnTimer')
+  const memoryIdx = panelSrc.indexOf('<KrMemoryCard')
+  if (timerIdx < 0) {
+    fail('KrAgentPanel 未渲染 <KrTurnTimer>（记忆卡上方的用时细行）')
+  } else if (memoryIdx < 0 || timerIdx > memoryIdx) {
+    fail('用时细行必须渲染在记忆卡**上方**（当前顺序相反）')
+  } else if (!panelSrc.includes('elapsedMeasured')) {
+    fail('用时细行必须受 elapsedMeasured 约束：拿不到真实测量值就不渲染')
+  } else if (!code.includes('.kr-turn-timer__value') || !code.includes('.kr-turn-timer__dot')) {
+    fail('client bundle is missing the turn-timer styles')
+  } else {
+    pass('footer 用时细行在记忆卡上方，且只在真实测量时显示')
+  }
+}
 // 头像菜单不能留在 turn-process 固定高度 / overflow:hidden 的子树里；必须 portal 到 body。
 if (!code.includes('avatarMenuPosition') || !code.includes('.kr-agent-avatar-menu {\n  position: fixed;')) {
   fail('client bundle is missing the body-portaled Agent avatar menu')

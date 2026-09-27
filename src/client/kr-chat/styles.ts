@@ -1667,6 +1667,69 @@ body[data-kr-resizing="true"] * {
   display: none;
 }
 
+/* 用时细行（footer 顶部，记忆卡上方）
+   刻意做成**无框细行**而不是一张卡：它是读数，不是内容。记忆卡是一张有投影的
+   卡片，用时行紧贴在它上面，再套一层卡会变成「卡上又一张卡」。
+
+   高度只有 22px，对右栏挤压的影响可以忽略；而它一存在 footer 就不再是 :empty，
+   于是 footer 恒驻——这是有意的：用时跟记忆无关，记忆卡 return null 时它照旧在。 */
+.kr-turn-timer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 2px 6px;
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.kr-turn-timer__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--dsw-alias-label-caption);
+}
+
+.kr-turn-timer__label {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/*
+ * 数字不做显影动画：用时是持续变化的读数，不是「新内容到达」——每秒播一次
+ * 淡入/擦除等于每秒提醒一次「变了」，比不动更躁。等宽数字保证位数变化时宽度
+ * 不跳（1m 9s → 1m 10s 不会把右边的呼吸点顶走），这已经是全部需要的动效。
+ */
+.kr-turn-timer__value {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .01em;
+  color: var(--dsw-alias-label-secondary);
+  transition: color .2s ease;
+}
+
+.kr-turn-timer[data-running="true"] .kr-turn-timer__value {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}
+
+/* 运行中：标签右侧一颗呼吸点。回合结束它随整行一起熄灭、字色转三级，
+   一眼能分清这行是活的还是已定格。 */
+.kr-turn-timer__dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--kr-accent);
+  animation: kr-pulse 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-turn-timer__dot {
+    animation: none;
+  }
+}
+
 .kr-memory__body {
   display: flex;
   flex-direction: column;

@@ -13,6 +13,7 @@ import { KrTaskOverviewCard, type DshTaskItem } from './KrTaskOverviewCard.tsx'
 import { KrReasoningCard, REASONING_MAX_ROWS } from './KrReasoningCard.tsx'
 import { KrToolCallsCard, type ToolCallItemView } from './KrToolCallsCard.tsx'
 import { KrMemoryCard } from './KrMemoryCard.tsx'
+import { KrTurnTimer } from './KrTurnTimer.tsx'
 import { useAdaptiveReasoningRows } from './use-adaptive-rows.ts'
 import { ShotPanel } from '../shot/Panel.tsx'
 import { collectMessages, deriveCurrentDialogueTitle, type ShotRange, type ShotMessage } from '../shot/collect.ts'
@@ -131,6 +132,14 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   const turnStart = turnData?.turnStart
   const turnEnd = turnData?.turnEnd
   let elapsedMs: number
+  /**
+   * 这个用时有没有真实来源。
+   *
+   * 下面的兜底分支会拿「工具数 × 800ms + 1500ms」硬凑一个数——那对副标题
+   * （一句统计说明）无所谓，但 footer 的「用时」是要一直挂在用户眼前的读数，
+   * 凑出来的假数字会被当成真的看。拿不到真实起点就整行不渲染。
+   */
+  let elapsedMeasured = true
 
   if (currentRunning && turnStart) {
     elapsedMs = Math.max(0, now - turnStart)
@@ -148,8 +157,8 @@ export const KrAgentPanel = memo(function KrAgentPanel({
       } catch {}
     }
     elapsedMs = toolsDuration > 0 ? toolsDuration : (tools.length * 800 + 1500)
+    elapsedMeasured = toolsDuration > 0
   }
-  const elapsedSec = elapsedMs / 1000
   const durationText = formatDuration(elapsedMs)
 
   // 工具列表构建
@@ -546,13 +555,21 @@ export const KrAgentPanel = memo(function KrAgentPanel({
       {/* 记忆卡停靠区：滚动区之下的独立 flex footer（.kr-panel__memory-dock）。
           不再放滚动容器内部——sticky 只能在「内容溢出且滚动」时贴底，内容少时
           卡片会悬在中间；独立 footer 才能做到「永远钉在右栏最下方」。分「工作区
-          记忆 / 全局记忆」两个分区，支持多选批量删除。 */}
-      {KR_MEMORY_CARD_VISIBLE && (
+          记忆 / 全局记忆」两个分区，支持多选批量删除。
+
+          footer 现在恒不为空：用时细行常驻在上方，即使记忆卡因「本会话没有新增」
+          而 return null，这一行也照旧在（它跟记忆无关）。 */}
+      {(KR_MEMORY_CARD_VISIBLE || elapsedMeasured) && (
         <div className="kr-panel__memory-dock">
-          <KrMemoryCard
-            squeezed={reasoningRows < REASONING_MAX_ROWS}
-            onContentChange={handleMemoryContentChange}
-          />
+          {elapsedMeasured && (
+            <KrTurnTimer text={durationText} running={currentRunning && !isViewingHistory} />
+          )}
+          {KR_MEMORY_CARD_VISIBLE && (
+            <KrMemoryCard
+              squeezed={reasoningRows < REASONING_MAX_ROWS}
+              onContentChange={handleMemoryContentChange}
+            />
+          )}
         </div>
       )}
 
