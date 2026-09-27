@@ -256,12 +256,15 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   }, [running, listRef])
 
   const empty = timeline.steps.length === 0
-  // 徽标只说「规模」，不带失败数以外的解释；「N 失败」留在 tooltip 里。
-  const badge = timeline.activeCount > 0
-    ? '进行中'
-    : empty
-      ? '待开始'
-      : `${timeline.steps.length} 步`
+  /*
+   * 徽标只报规模，不报状态。
+   *
+   * 原来运行中会变成「进行中」，那是标题行右边和「技术细节」并排的第二枚状态
+   * 提示，而此刻标题行中间那句「正在派出子任务」已经把"现在在干什么"说完了——
+   * 两句话讲同一件事，右侧还因此挤了一枚。运行态由那句话承载（它随动作实时
+   * 变化），徽标回到它该干的活：这一轮一共几步。
+   */
+  const badge = empty ? '待开始' : `${timeline.steps.length} 步`
   const maxRows = squeezed ? LIST_MAX_ROWS_SQUEEZED : LIST_MAX_ROWS
 
   return (
