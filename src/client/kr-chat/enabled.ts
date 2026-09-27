@@ -29,7 +29,7 @@ export const KR_CHAT_ENABLED = true
  * 那一套样式（头像/标题行/副标题/按钮）全部原样保留，改回 true 重新 build 即完整
  * 恢复顶栏。
  *
- * false（默认）= 右栏只剩「任务 / 思考 / 工具调用」三张卡（用户明确要的形态）。
+ * false（默认）= 右栏只剩「任务 / 思考 / 操作面板」三张卡（用户明确要的形态）。
  * 功能零损失，因为两个入口都另有归属：
  *  1. 收起/展开大盘 —— 顶部标签行最右端常驻的「Agent 轨迹大盘」开关
  *     （#kr-panel-toggle-btn，见 kr-chat-controller.tsx 的 syncKrPanelToggle）；
@@ -39,7 +39,7 @@ export const KR_CHAT_ENABLED = true
 export const KR_PANEL_HEADER_VISIBLE = false
 
 /**
- * KR 右侧大盘「记忆」卡片显隐开关（位于工具调用卡片下方）。
+ * KR 右侧大盘「记忆」卡片显隐开关（钉在右栏最下方）。
  *
  * 卡片常驻右栏底部：工作区记忆 + 全局记忆两个分区，支持多选批量删除。
  * 它一常驻就必然与其它卡片争高度，因此同时触发「思考卡行数挤压自适应」
@@ -49,13 +49,13 @@ export const KR_PANEL_HEADER_VISIBLE = false
  * 那一套 `.kr-card--memory` / `.kr-memory__*` 样式全部原样保留，改回 true
  * 重新 build 即完整恢复。
  *
- * false 时右栏回到「任务 / 思考 / 工具调用」三张卡，思考卡固定默认行数
+ * false 时右栏回到「任务 / 思考 / 操作面板」三张卡，思考卡固定默认行数
  * （REASONING_MAX_ROWS），不再有挤压自适应。
  */
 export const KR_MEMORY_CARD_VISIBLE = true
 
 /**
- * KR 右侧大盘「操作面板」卡显隐开关（位于工具调用卡片下方，第 4 张）。
+ * KR 右侧大盘「操作面板」卡显隐开关（滚动区的最后一张卡）。
  *
  * 这张卡把本轮的工具调用翻译成**中文人话时间线**（「打开携程 · 机票」而不是
  * `browser_navigate(url)`），并显示模型自己播报的「接下来准备做什么」。它的读者
@@ -68,7 +68,7 @@ export const KR_MEMORY_CARD_VISIBLE = true
  * ⚠ 同样是**隐藏开关，不是删除**：组件与 `.kr-card--plain` / `.kr-plain-*` 那一套
  * 样式全部原样保留，改回 true 重新 build 即完整恢复。
  *
- * false 时右栏回到「任务 / 思考 / 工具调用」三张卡 + 记忆卡，行为与开关打开前
+ * false 时右栏回到「任务 / 思考」两张卡 + 记忆卡，行为与开关打开前
  * 完全一致。
  */
 export const KR_PLAIN_TIMELINE_CARD_VISIBLE = true

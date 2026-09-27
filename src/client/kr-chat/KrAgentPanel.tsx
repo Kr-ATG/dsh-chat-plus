@@ -5,13 +5,12 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import type { ChatNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { activityStore } from '../tool-summary/activity-drawer.tsx'
 import { latestChatSnapshot, latestChatSessionId, collectTurnNodes, subscribeLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
-import { callDurationMs, callName, computeStats, formatDuration, isRunning } from '../tool-summary/tool-stats.ts'
-import { rowTitle, toolArgsRaw, argFields, resultParagraphs, rawResultJson, executionFacts } from '../tool-summary/activity-view-model.ts'
+import { callDurationMs, formatDuration, isRunning } from '../tool-summary/tool-stats.ts'
+import { toolArgsRaw } from '../tool-summary/activity-view-model.ts'
 import { useNow } from '../tool-summary/use-now.ts'
 import { getKrChatStore, PANEL_WIDTH_MAX, PANEL_WIDTH_MIN } from './kr-chat-store.ts'
 import { KrTaskOverviewCard, type DshTaskItem } from './KrTaskOverviewCard.tsx'
 import { KrReasoningCard, REASONING_MAX_ROWS } from './KrReasoningCard.tsx'
-import { KrToolCallsCard, type ToolCallItemView } from './KrToolCallsCard.tsx'
 import { KrMemoryCard } from './KrMemoryCard.tsx'
 import { KrTurnTimer } from './KrTurnTimer.tsx'
 import { useAdaptiveReasoningRows } from './use-adaptive-rows.ts'
@@ -205,77 +204,6 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     elapsedMeasured = toolsDuration > 0
   }
   const durationText = formatDuration(elapsedMs)
-
-  /*
-   * 工具列表构建。
-   *
-   * 必须 memo：这段映射里有 `rawResultJson(root)` —— 它对**每一条**工具调用做
-   * 一次 JSON.stringify(…, null, 2)，把完整返回内容重新序列化成带缩进的字符串。
-   * 一次 read 返回两千行文件就是几十到几百 KB，而这只在该条工具的「原始数据」
-   * 页签被展开时才用到（KrToolCallsCard 里 tab === 'raw'）。写在渲染体里意味着
-   * 每个 tick（useNow 1Hz）+ 每个流式快照都要白扔一遍，而且每次给下游
-   * memo 的 KrToolCallsCard 都是全新数组 + 全新元素，卡片自己的 memo 必然失效。
-   */
-  const toolViews = useMemo<readonly ToolCallItemView[]>(() => tools.map((node, index) => {
-    let name = 'tool'
-    let title = '执行工具操作'
-    let duration = '20ms'
-    let status: 'success' | 'running' | 'failed' = 'success'
-    let errorMsg: string | undefined
-    let callId: string | undefined
-    let argsRaw: string | undefined
-    let args: Record<string, unknown> | undefined
-    let resultText: string | undefined
-    let rawJson: string | undefined
-    let exitCode: number | undefined
-    let signal: string | undefined
-
-    try {
-      const root = node.data.root
-      callId = ('callId' in root ? (root as any).callId : undefined) || node.key
-      name = callName(root)
-      title = rowTitle(root)
-      argsRaw = toolArgsRaw(root)
-      args = argFields(argsRaw)
-      resultText = resultParagraphs(root)
-      rawJson = rawResultJson(root)
-      const facts = executionFacts(root)
-      exitCode = facts.exitCode
-      signal = facts.signal
-
-      const ms = callDurationMs(root, now)
-      duration = ms !== undefined ? `${Math.round(ms)}ms` : '10ms'
-      if (isRunning(root)) {
-        status = 'running'
-      } else {
-        // 检查退出码或错误
-        const r = root.result
-        const isErr = root.isError || (r && (r.error || (typeof r.exitCode === 'number' && r.exitCode !== 0))) || (exitCode !== undefined && exitCode !== 0)
-        if (isErr) {
-          status = 'failed'
-          errorMsg = typeof r?.error === 'string' ? r.error : (typeof (root as any).error === 'string' ? (root as any).error : ((root as any).error?.message || '工具执行返回非零状态或异常'))
-        }
-      }
-    } catch {
-      title = `工具调用 #${index + 1}`
-    }
-
-    return {
-      id: node.key || `tool-${index}`,
-      callId,
-      name,
-      description: title,
-      durationText: duration,
-      status,
-      errorMessage: errorMsg,
-      argsRaw,
-      args,
-      resultText,
-      rawResultJson: rawJson,
-      exitCode,
-      signal,
-    }
-  }), [tools, now])
 
   // 任务数据源提取：优先使用本轮已记录的 todo_write / submitted-plan，当前未结轮次可回退到 live todos
   const tasks = useMemo<readonly DshTaskItem[]>(() => {
@@ -601,7 +529,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
               </svg>
             </div>
             <div className="kr-panel__empty-title">等待本次对话开始</div>
-            <div className="kr-panel__empty-desc">发送消息后，任务、思考与工具调用会实时显示在这里</div>
+            <div className="kr-panel__empty-desc">发送消息后，任务、思考与操作进展会实时显示在这里</div>
           </div>
         )}
 
@@ -623,13 +551,10 @@ export const KrAgentPanel = memo(function KrAgentPanel({
           maxRows={reasoningRows}
         />
 
-        {/* 人话行动流。给不懂技术的用户看的一张：「已经做了什么」来自工具调用
-            事实（工具调用卡那一份，只是翻成了人话），「准备做什么」来自模型自己
-            播报的预告。
-
-            工具调用卡原先就挂在它上面，现在挪到 footer 去了 —— 两张卡讲的是同一
-            批事件，参数与原始返回在「技术细节」里也都给全了，工具卡留在思考下面
-            纯属碍眼。 */}
+        {/* 人话行动流（「操作面板」卡）。给不懂技术的用户看的一张：「已经做了什么」
+            来自工具调用事实，「准备做什么」来自模型自己播报的预告。原先下面还挂
+            着一张技术视角的「工具调用」卡，两张卡讲的是同一批事件，现已按用户
+            要求整块移除，工具细节统一收进本卡每条末尾的「技术细节」折叠。 */}
         {KR_PLAIN_TIMELINE_CARD_VISIBLE && (
           <KrPlainTimelineCard
             timeline={plainTimeline}
@@ -645,36 +570,23 @@ export const KrAgentPanel = memo(function KrAgentPanel({
         不放滚动容器内部——sticky 只能在「内容溢出且滚动」时贴底，内容少时卡片会
         悬在中间；独立 footer 才能做到「永远钉在右栏最下方」。
 
-        自上而下三块：
+        自上而下两块：
           用时        —— 本轮耗时，逐秒走
-          工具调用    —— 技术视角，**默认整块折叠**（标题行只留「工具调用 (N)」与
-                        「展开 N 次调用」）。从思考卡下面挪到这里：它和人话行动
-                        流讲的是同一批事件，留在思考下面纯属碍眼；挪到最底部
-                        后不打断「任务 → 思考 → 操作面板」的阅读主线，需要
-                        翻参数、退出码、轨迹定位时往下翻即可。它仍保有两样
-                        人话卡没有的东西：执行结果/入参/原始数据三个页签，以及
-                        「轨迹定位」跳官方轨迹视图。
           记忆        —— 保持钉在最后，维持用户已有的空间习惯；分「工作区记忆 /
                         全局记忆」两个分区，支持多选批量删除。
 
+        工具调用卡已按用户要求整块移除：它讲的是同一批事件，而「操作面板」卡用
+        中文人话讲得更清楚（且每条末尾仍留「技术细节」折叠）。移除后本批事件的
+        入口只剩对话流里官方的工具折叠行，那条在 KR 模式下仍然渲染。
+
         footer 因而不再有 :empty：用时细行常驻，即使记忆卡因「本会话没有新增」
-        而 return null，上面的用时与工具调用也照旧在（它们与记忆无关）。
+        而 return null，用时也照旧在（它与记忆无关）。
       */}
-      {(KR_MEMORY_CARD_VISIBLE || elapsedMeasured || toolViews.length > 0) && (
+      {(KR_MEMORY_CARD_VISIBLE || elapsedMeasured) && (
         <div className="kr-panel__memory-dock">
           {elapsedMeasured && (
             <KrTurnTimer text={durationText} running={currentRunning && !isViewingHistory} />
           )}
-          <KrToolCallsCard
-            tools={toolViews}
-            onInspectCall={(callId) => {
-              try {
-                actStore.handlers().inspectCall(callId)
-              } catch (err) {
-                console.warn('[kr-agent-panel] inspectCall error', err)
-              }
-            }}
-          />
           {KR_MEMORY_CARD_VISIBLE && (
             <KrMemoryCard
               squeezed={reasoningRows < REASONING_MAX_ROWS}

@@ -588,10 +588,14 @@ if (krEnabled) {
     // 大盘：turnData 必须做引用稳定化，否则下游 memo 全被击穿、每帧重扫全轮思考。
   } else if (!/fingerprintTurnData/.test(agentSrc)) {
     fail('KrAgentPanel 缺少 turnData 引用稳定化（memo 会被每帧击穿）')
-  } else if (!/const toolViews = useMemo/.test(agentSrc)) {
-    fail('KrAgentPanel 的 toolViews 必须 memo（含每条一次的 rawResultJson 序列化）')
+  } else if (!/const toolViews = useMemo/.test(agentSrc) && /KrToolCallsCard/.test(agentSrc)) {
+    fail('KrAgentPanel 若仍挂着工具调用卡，其 toolViews 必须 memo（含每条一次的 rawResultJson 序列化）')
+  } else if (existsSync(resolve(ROOT, 'src/client/kr-chat/KrToolCallsCard.tsx'))) {
+    fail('工具调用卡已按要求整块移除，KrToolCallsCard.tsx 不该还在')
+  } else if (/KrToolCallsCard|kr-tool-|kr-tools-/.test(agentSrc) || /kr-tool-|kr-tools-/.test(code)) {
+    fail('工具调用卡已整块移除，大盘与样式表里不该再留 kr-tool* 残留')
   } else {
-    pass('hook 顺序 / busy 收口 / 大盘 memo 三处修复在位')
+    pass('hook 顺序 / busy 收口 / 大盘 memo 三处修复在位；工具调用卡无残留')
   }
 
   // 子智能体区块：样式族 + 会话 id 传递。缺任何一样都会让 workflow 底下

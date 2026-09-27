@@ -570,15 +570,6 @@ body[data-kr-resizing="true"] * {
   white-space: nowrap;
 }
 
-/* 工具调用卡标题行右端的「展开 N 次调用」提示：与标题同在一行，
-   次要色弱化（展开动作的主角是整行头部点击区）。 */
-.kr-tools-expand-hint {
-  flex: none;
-  font-size: 11px;
-  color: var(--dsw-alias-label-tertiary);
-  white-space: nowrap;
-}
-
 .kr-card__badge {
   padding: 2px 8px;
   border-radius: 12px;
@@ -624,8 +615,8 @@ body[data-kr-resizing="true"] * {
  * 元素一起删干净，标题行只剩内容本身。
  *
  * 折叠 / 展开能力一点没少：点击热区从来都是整行 .kr-card__header（cursor: pointer
- * + onClick 切换），箭头只是装饰。记忆卡与工具调用卡另有文字提示（「N 条」徽标、
- * 「展开 N 次调用」），其余卡片靠整卡上浮提示可点。
+ * + onClick 切换），箭头只是装饰。记忆卡另有文字提示（「N 条」徽标），
+ * 其余卡片靠整卡上浮提示可点。
  */
 
 /* ══ 任务概览卡片（单卡片原生极简设计）═════════════════════════════════════ */
@@ -812,316 +803,6 @@ body[data-kr-resizing="true"] * {
   word-break: break-word;
 }
 
-.kr-tools-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 2px;
-}
-
-.kr-tool-card-item {
-  border-radius: 6px;
-  background: transparent;
-  border: 1px solid transparent;
-  overflow: hidden;
-  transition: all 0.15s ease;
-}
-
-.kr-tool-card-item:hover {
-  background: var(--kr-hover-bg);
-}
-
-.kr-tool-card-item--expanded {
-  background: var(--kr-surface-bg);
-  border: 1px solid var(--kr-card-border);
-  /* 展开态是卡片内部的一块高亮区，用描边区分即可；
-     再投一层阴影就会在卡片里叠出第三层「悬浮」。 */
-  box-shadow: none;
-  margin: 2px 0;
-  border-radius: 8px;
-}
-
-.kr-tool-card-item--failed {
-  border-color: rgba(239, 68, 68, 0.25);
-}
-
-/* 概览行：整体可点击 */
-.kr-tool-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 8px;
-  font-size: 12px;
-  color: var(--dsw-alias-label-primary);
-  cursor: pointer;
-  user-select: none;
-  border-radius: 6px;
-  transition: background-color 0.15s ease;
-}
-
-.kr-tool-icon {
-  width: 16px;
-  height: 16px;
-  color: var(--dsw-alias-label-tertiary);
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.kr-tool-name {
-  font-weight: 500;
-  font-family: var(--ds-font-family-code, monospace);
-  font-size: 11.5px;
-  color: var(--dsw-alias-label-primary);
-  flex: none;
-}
-
-.kr-tool-detail {
-  flex: 1;
-  color: var(--dsw-alias-label-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.kr-tool-time {
-  font-size: 11px;
-  color: var(--dsw-alias-label-caption);
-  font-variant-numeric: tabular-nums;
-  flex: none;
-}
-
-.kr-tool-status {
-  width: 14px;
-  height: 14px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.kr-tool-status--done {
-  color: var(--dsw-alias-label-secondary);
-}
-
-.kr-tool-status--fail {
-  color: var(--dsw-alias-label-primary);
-}
-
-/*
- * 单条工具调用行末尾的展开箭头（.kr-tool-row__chevron）已连同 DOM 一起删除。
- *
- * 它与卡片级那个是同一类东西：N 行调用就是 N 个同样的 V，而展开能力从来不靠它
- * ——点击热区是整行 .kr-tool-row（role=button + onClick 切换），行首的状态点
- * （对勾 / 转圈 / 叉）已经把"这条处于什么状态"说清楚了，右侧再挂一个方向箭头
- * 只是把同一件事讲两遍。
- */
-
-/* 展开的详情面板 */
-.kr-tool-detail-panel {
-  padding: 10px 12px;
-  border-top: 1px solid var(--kr-card-border);
-  background: var(--dsw-alias-bg-module-platform, rgba(0, 0, 0, 0.1));
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  animation: kr-fade-in 0.2s ease-out;
-}
-
-/* 台账信息标签 */
-.kr-tool-detail__ledger {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-}
-
-.kr-tool-detail__badge {
-  padding: 2px 7px;
-  border-radius: 5px;
-  background: var(--kr-surface-bg);
-  border: 1px solid var(--kr-card-border);
-  color: var(--dsw-alias-label-secondary);
-}
-
-.kr-tool-detail__badge--err {
-  background: var(--kr-hover-bg);
-  border-color: var(--kr-card-border);
-  color: var(--dsw-alias-label-primary);
-  font-weight: 500;
-}
-
-/* 页签栏 */
-.kr-tool-detail__tabs {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  border-bottom: 1px solid var(--kr-card-border);
-  padding-bottom: 4px;
-}
-
-.kr-tool-detail__tab {
-  background: transparent;
-  border: none;
-  border-radius: 5px;
-  padding: 3px 8px;
-  font-size: 11.5px;
-  color: var(--dsw-alias-label-tertiary);
-  cursor: pointer;
-  font-weight: 500;
-  transition: all 0.15s ease;
-}
-
-.kr-tool-detail__tab:hover {
-  color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.1));
-}
-
-.kr-tool-detail__tab--active {
-  color: var(--dsw-alias-label-primary) !important;
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.14)) !important;
-}
-
-/* 页签内容 */
-.kr-tool-detail__content {
-  display: flex;
-  flex-direction: column;
-}
-
-.kr-tool-detail__section {
-  display: flex;
-  flex-direction: column;
-}
-
-/* 代码/文本框 */
-.kr-tool-code-box {
-  border-radius: 7px;
-  border: 1px solid var(--kr-card-border);
-  background: var(--dsw-alias-bg-layer-1, rgba(0, 0, 0, 0.2));
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.kr-tool-code-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 8px;
-  background: var(--kr-hover-bg);
-  border-bottom: 1px solid var(--kr-card-border);
-  font-size: 11px;
-  color: var(--dsw-alias-label-caption);
-}
-
-.kr-tool-copy-btn {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  cursor: pointer;
-  padding: 1px 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: all 0.15s;
-}
-
-.kr-tool-copy-btn:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.15));
-  color: var(--dsw-alias-label-primary);
-  border-color: var(--kr-card-border);
-}
-
-.kr-tool-code-pre {
-  margin: 0;
-  padding: 8px 10px;
-  font-size: 11.5px;
-  line-height: 1.5;
-  font-family: var(--ds-font-family-code, monospace);
-  color: var(--dsw-alias-label-secondary);
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 220px;
-  overflow-y: auto;
-}
-
-.kr-tool-path-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-  font-size: 11.5px;
-}
-
-.kr-tool-path-label {
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.kr-tool-path-code {
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--kr-surface-bg);
-  border: 1px solid var(--kr-card-border);
-  color: var(--dsw-alias-label-primary);
-  font-family: var(--ds-font-family-code, monospace);
-  font-size: 11px;
-  word-break: break-all;
-}
-
-.kr-tool-empty-note {
-  padding: 8px;
-  font-size: 11.5px;
-  color: var(--dsw-alias-label-tertiary);
-  text-align: center;
-}
-
-/* 底部操作条 */
-.kr-tool-detail__footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: 4px;
-  border-top: 1px solid color-mix(in srgb, var(--kr-card-border) 60%, transparent);
-}
-
-.kr-tool-footer-btn {
-  background: var(--kr-surface-bg);
-  border: 1px solid var(--kr-card-border);
-  color: var(--dsw-alias-label-secondary);
-  border-radius: 5px;
-  padding: 3px 8px;
-  font-size: 11px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: all 0.15s ease;
-}
-
-.kr-tool-footer-btn:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.15));
-  color: var(--dsw-alias-label-primary);
-  border-color: var(--kr-card-hover);
-}
-
-.kr-tool-footer-btn--link {
-  color: var(--dsw-alias-label-secondary);
-  border-color: var(--kr-card-border);
-  background: var(--kr-surface-bg);
-}
-
-.kr-tool-footer-btn--link:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.15));
-  color: var(--dsw-alias-label-primary);
-  border-color: var(--kr-card-hover);
-}
-
 /* 失败提示条（只陈述失败原因，不提供重试动作） */
 .kr-fail-card {
   padding: 10px 12px;
@@ -1146,7 +827,7 @@ body[data-kr-resizing="true"] * {
    以为还有一张结果卡。 */
 
 /* ══ 「操作面板」卡（人话行动时间线）═════════════════════════════════
-   大盘第 4 张卡，挂在工具调用卡下方。读者是**不会编程的普通用户**：整张卡
+   大盘的操作面板卡，读者是**不会编程的普通用户**：整张卡
    不出现工具函数名、参数名、原始命令行、完整路径，只出现「打开携程 · 机票」
    这类中文人话。技术细节压在每条末尾的「技术细节」折叠里，需要的人自己点。 */
 
@@ -1796,31 +1477,18 @@ body[data-kr-resizing="true"] * {
    记忆卡不再是 .kr-panel__scroll 的子节点，而是滚动区之下的独立 flex footer：
    滚动区（flex:1 1 0）高度自动让位，记忆卡永远钉在右栏最下方——无论内容
    多少、无论滚动位置。旧方案是滚动区内的 sticky bottom:0，内容少时卡片
-   跟在三张卡后面悬在中间，做不到「永远在下方」，已废弃。 */
+   跟在其它卡后面悬在中间，做不到「永远在下方」，已废弃。 */
 .kr-panel__memory-dock {
   flex: none;
   padding: 0 12px 12px;
-  /* 同样透明：footer 只是把「用时 / 工具调用 / 记忆」钉在下方，不该自己带一块底色。 */
+  /* 同样透明：footer 只是把「用时 / 记忆」钉在下方，不该自己带一块底色。 */
   background: var(--kr-canvas-bg);
   display: flex;
   flex-direction: column;
-  /* 三块之间留呼吸。用时行原有的 padding-bottom 相应收到 0，避免双重间距。 */
+  /* 两块之间留呼吸。用时行原有的 padding-bottom 相应收到 0，避免双重间距。 */
   gap: 8px;
 }
 
-/*
- * 工具调用卡挪进 footer 之后的必要封顶。
- *
- * 滚动区是 flex:1 + overflow-y:auto，内容多长都由它吸收；**footer 不是滚动
- * 容器**。工具调用卡展开后每个调用都会铺开结果/入参/原始数据三页签 + 台账，
- * 在 footer 里没有任何约束，展开一次就能把右栏下半截全顶走、把思考卡挤没。
- * 这里给明细列表封顶 + 内部滚动，footer 的膨胀就有了上限。
- */
-.kr-panel__memory-dock .kr-tools-list {
-  max-height: 40vh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
 
 /* 记忆卡「没有本会话新增就整卡不渲染」时，dock 里一个子节点都不剩。
    用 :empty 收掉 footer 的 padding —— 不必让父级再存一份「记忆卡可见吗」的
@@ -2237,7 +1905,7 @@ body[data-kr-resizing="true"] * {
    * 这里曾经写死微软雅黑（"Microsoft YaHei UI" 优先），理由是 11–13px 下笔画更
    * 均匀。代价是这两张卡被从正文里割了出去：正文栈在 Windows 上第一命中是
    * Segoe UI（只覆盖西文/数字/半角标点，中文才回落到微软雅黑），于是同一屏里
-   * 英文缩写、数字、年份括号出现两种字形，右栏大盘四张卡也因为没声明而吃正文栈
+   * 英文缩写、数字、年份括号出现两种字形，右栏大盘几张卡也因为没声明而吃正文栈
    * ——同一功能里三套字体，割裂感比"笔画粗细不均"明显得多。
    *
    * 统一到 var(--dsw-font-family) 后：卡片、左栏正文、右栏大盘全走同一个栈，
