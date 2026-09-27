@@ -619,18 +619,19 @@ if (krEnabled) {
       pass('技术细节收成卡片级开关 + 列表渐隐 + 收口回顶')
     }
 
-    // 子智能体：清单未拉到 ≠ 没有子智能体。两者混为一谈会对着明明派了子智能体的
-    // 步骤说「这次没有派生独立的子智能体」——既自相矛盾（同一行右侧还有子智能体
-    // 徽标）又是假的。
+    // 子智能体：主数据源必须是 items（实时投影），subagentsByParent 只作兜底。
+    // 后者只在父会话的目录被打开过时才存在，要靠 refreshSubagents 主动拉、依赖
+    // host 的 remote 子服务能不能通；而顶栏「N 个子智能体」读的是 items 里的投影
+    // 条目——那条路零 RPC 且一定有数据。
     const catSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/subagent-catalog.ts'), 'utf8')
-    if (!/state: 'unloaded'/.test(catSrc) || !/parentAvailable/.test(catSrc)) {
+    if (!/rowsFromItems/.test(catSrc) || !/'origin'/.test(catSrc)) {
+      fail('子智能体目录必须先从 items（origin==subagent 的条目）读实时投影')
+    } else if (!/state: 'unloaded'/.test(catSrc) || !/parentAvailable/.test(catSrc)) {
       fail('子智能体目录必须区分「未加载」与「确实为空」（靠 parentAvailable 判定）')
-    } else if (!/refreshSubagents/.test(catSrc)) {
-      fail('必须主动调 sessions.refreshSubagents：subagentsByParent 只在父会话目录被打开过时才存在')
     } else if (!/state === 'unloaded'/.test(cardSrc) || !/子智能体清单未加载/.test(cardSrc)) {
       fail('未加载态必须有独立文案，不能复用「这次没有派生独立的子智能体」')
     } else {
-      pass('子智能体目录：主动拉取 + 未加载/为空分层')
+      pass('子智能体目录：items 实时投影为主 + 未加载/为空分层')
     }
   }
 }

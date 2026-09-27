@@ -87,16 +87,49 @@ function clipLabel(label: string): string {
   return clean.length > 34 ? `${clean.slice(0, 33)}…` : clean
 }
 
+/** 从 `items`（会话列表条目）里读出某个父会话的子智能体。 */
+function rowsFromItems(snapshot: unknown, parentSessionId: string): SubagentRow[] {
+  const items = pick(snapshot, 'items')
+  if (!Array.isArray(items)) return []
+  const read = (entry: unknown, ...keys: string[]): unknown => {
+    if (typeof entry !== 'object' || entry === null) return undefined
+    return pick(entry, ...keys)
+  }
+  const rows: SubagentRow[] = []
+  for (const entry of items) {
+    if (read(entry, 'parentSessionId') !== parentSessionId) continue
+    if (read(entry, 'origin') !== 'subagent') continue
+    const id = read(entry, 'sessionId', 'id')
+    if (typeof id !== 'string' || id === '') continue
+    const title = read(entry, 'title', 'displayTitle', 'label')
+    const id2 = id
+    rows.push({
+      id: id2,
+      label: typeof title === 'string' && title.trim() !== '' ? clipLabel(title) : id2.slice(0, 8),
+      running: read(entry, 'running') === true,
+      hasChildren: items.some((other) => read(other, 'parentSessionId') === id2),
+      mode: 'one-shot',
+    })
+  }
+  return rows
+}
+
 /**
- * 纯函数：从任意形状的 list 快照里找出某个父会话的子智能体清单。
+ * 纯函数：找出某个父会话下的子智能体清单。
  *
- * **「没读过」和「读过是空」必须分开**。`subagentsByParent` 是
- * *durable catalogs keyed by their selected parent address* —— 只有父会话的子
- * 智能体目录被打开过（manager 里的 openCatalogs）才会去拉，所以刚进会话时这个
- * 键**根本不存在**。把「键不存在」当成「没有子智能体」就会对着一个明明派出了子
- * 智能体的步骤说「这次没有派生独立的子智能体」——自相矛盾且是假的。
+ * **主数据源是 `items`（会话列表条目），不是 `subagentsByParent`。**
  *
- * 两者靠 `parentAvailable` 区分：它在「首次成功读取」之前是 undefined。
+ * 后者是 *durable catalogs keyed by their selected parent address* —— 只有父会话的
+ * 子智能体目录被打开过才存在（SessionManager 的 openCatalogs），得主动调
+ * `refreshSubagents` 才有，而那条路依赖 host 的 remote 子服务能不能通。
+ *
+ * `items` 走的是另一条完全不同的通道：host 把每个会话的投影（含 parentSessionId /
+ * origin / running / title）实时推给 client，SessionManager.buildListSnapshot 把它
+ * 原样挂在每条 entry 上。官方顶栏那个「N 个子智能体」就是数它——所以它一定有数据，
+ * 且不需要任何额外拉取。
+ *
+ * 保留 `subagentsByParent` 作兜底：那条路上还有 `hasChildren` 之外的细节，且旧版
+ * host 的列表条目形状可能不同。
  */
 export function readSubagentCatalog(
   snapshot: unknown,
@@ -105,6 +138,12 @@ export function readSubagentCatalog(
   const empty: SubagentCatalogView = { rows: [], runningCount: 0, doneCount: 0, state: 'empty' }
   if (snapshot === null || snapshot === undefined || parentSessionId === null || parentSessionId === '') {
     return { ...empty, state: 'unloaded' }
+  }
+
+  const fromItems = rowsFromItems(snapshot, parentSessionId)
+  if (fromItems.length > 0) {
+    const runningCount = fromItems.filter((row) => row.running).length
+    return { rows: fromItems, runningCount, doneCount: fromItems.length - runningCount, state: 'ready' }
   }
 
   const byParent = pick(snapshot, 'subagentsByParent')
@@ -230,6 +269,6 @@ export function useSubagentCatalog(parentSessionId: string | null, pollMs = 1500
       return { rows: [], runningCount: 0, doneCount: 0, state: 'unloaded' } as SubagentCatalogView
     }
     // tick 是唯一的刷新触发：快照本身是外部可变对象，不进依赖。
-    return readSubagentCatalog(snapshotOf(sessionsService()), parentSessionId)
+    const view = readSubagentCatalog(snapshotOf(sessionsService()), parentSessionId)
   }, [parentSessionId, tick])
 }
