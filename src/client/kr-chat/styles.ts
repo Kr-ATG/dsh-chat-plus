@@ -976,20 +976,28 @@ body[data-kr-resizing="true"] * {
    showTech 状态与 kr-plain-step__tech 渲染点同样删除。这张卡从此只讲人话，
    技术视角完全交给对话流里官方那条工具折叠行。 */
 
-/* ── 单条步骤 ─────────────────────────────────────────────────────────── */
+/* ── 单条步骤 ───────────────────────────────────────────────────────────
+   行内间距、圆角、悬停底色与 .kr-task-item 对齐：右栏这两张卡是同一份信息的两面
+   （任务 = 打算做什么，步骤 = 已经做了什么），行长得不一样时上下扫过去像两个产品。 */
 .kr-plain-step {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   /* 窄栏下 flex 子项默认的 min-width:auto 会让长标题把整行顶宽，列表随即冒出
      一条横向滚动条；置 0 后标题上已有的 text-overflow 才真正生效。 */
   min-width: 0;
   min-height: 22px;
-  padding: 2px 2px 2px 0;
+  padding: 4px 8px;
+  border-radius: 6px;
   font-size: 12px;
   color: var(--dsw-alias-label-secondary);
   animation: kr-plain-step-in .26s cubic-bezier(.16, 1, .3, 1) both;
+  transition: background-color .12s ease;
+}
+
+.kr-plain-step:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.07));
 }
 
 @keyframes kr-plain-step-in {
@@ -997,7 +1005,8 @@ body[data-kr-resizing="true"] * {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.kr-plain-step__dot {
+/* 状态圆圈的槽位：14px，图标在组件内（StatusIcon，与任务概览共用）。 */
+.kr-plain-step__status {
   flex: none;
   display: grid;
   place-items: center;
@@ -1005,44 +1014,23 @@ body[data-kr-resizing="true"] * {
   height: 14px;
 }
 
-.kr-plain-dot {
-  display: grid;
-  place-items: center;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.kr-plain-dot--running {
-  color: var(--kr-accent);
-  animation: kr-spin 1.2s linear infinite;
-}
-
-.kr-plain-dot--done {
-  color: var(--kr-success);
-}
-
-/* 对勾描边画出：完成的那一刻给一个可感知的「落定」。 */
-.kr-plain-dot--done path {
-  stroke-dasharray: 14;
-  stroke-dashoffset: 14;
-  animation: kr-plain-draw .4s ease forwards;
-}
-
-@keyframes kr-plain-draw {
-  to { stroke-dashoffset: 0; }
-}
-
-.kr-plain-dot--failed {
-  color: var(--kr-error);
-}
-
+/*
+ * 类别图标：与状态圆圈同大（14px），线宽 1.3，颜色跟着状态走。
+ * 一行两枚图标分工明确：左边圆圈说「到哪一步了」，这枚说「是哪类动作」。
+ */
 .kr-plain-step__icon {
   flex: none;
   display: grid;
   place-items: center;
   color: var(--dsw-alias-label-tertiary);
+}
+
+.kr-plain-step[data-status="running"] .kr-plain-step__icon {
+  color: var(--dsw-alias-state-business-primary, #4176e6);
+}
+
+.kr-plain-step[data-status="failed"] .kr-plain-step__icon {
+  color: var(--dsw-alias-state-error-primary, #ef4444);
 }
 
 .kr-plain-step__title {
@@ -1199,15 +1187,10 @@ body[data-kr-resizing="true"] * {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* .kr-plain-dot--* 相关的三条规则随之删除：状态圆圈改由 StatusIcon 组件渲染
+     （SVG 内联 animation 属性），统一在组件里处理减弱动效。 */
   .kr-plain-step,
-  .kr-plain-now__layer,
-  .kr-plain-dot--done path {
-    animation: none;
-  }
-  .kr-plain-dot--done path {
-    stroke-dashoffset: 0;
-  }
-  .kr-plain-dot--running {
+  .kr-plain-now__layer {
     animation: none;
   }
 }

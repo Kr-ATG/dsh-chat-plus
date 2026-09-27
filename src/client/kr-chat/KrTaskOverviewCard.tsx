@@ -7,6 +7,7 @@
  * 「卡片什么时候出现」。
  */
 import { memo, useState } from 'react'
+import { StatusIcon } from './StatusIcon.tsx'
 
 export interface DshTaskItem {
   readonly id: string
@@ -99,23 +100,10 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
                 style={{ animationDelay: `${Math.min(index, 8) * 34}ms` }}
               >
                 <span className="kr-task-item__icon">
-                  {isCompleted ? (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                      <circle cx="7" cy="7" r="6.2" stroke="currentColor" strokeWidth="1.2" />
-                      <path
-                        d="M10.963 5.714L7.702 8.976c-.222.221-.424.425-.61.574-.194.157-.429.303-.728.35a1.29 1.29 0 0 1-.479 0c-.3-.047-.534-.193-.729-.35-.185-.149-.387-.353-.61-.574L3.035 7.464l.928-.928 1.512 1.512c.242.242.387.386.504.48.107.086.13.079.111.076.045.007.091.007.136 0-.019.003.004-.004.111-.076.117-.094.262-.238.504-.48l3.262-3.262.928.928z"
-                        fill="currentColor"
-                      />
-                    </svg>
-                  ) : isInProgress ? (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ animation: 'kr-spin 1.2s linear infinite' }}>
-                      <circle cx="7" cy="7" r="6.2" stroke="currentColor" strokeWidth="1.2" strokeDasharray="7 7" />
-                    </svg>
-                  ) : (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <circle cx="7" cy="7" r="6.2" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2.4 2.4" />
-                    </svg>
-                  )}
+                  {/* 状态图标与操作面板共用同一份实现（StatusIcon）：两张卡的圆圈
+                      形状、线宽、旋转节奏必须完全一致，否则右栏上下两张卡并排时
+                      像是两个产品做的。 */}
+                  <StatusIcon state={isCompleted ? 'done' : isInProgress ? 'running' : 'pending'} />
                 </span>
 
                 <div className="kr-task-item__content">

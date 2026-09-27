@@ -23,6 +23,7 @@ import { formatDuration } from '../tool-summary/tool-stats.ts'
 import type { PlainIconKey, PlainStep } from './plain-language.ts'
 import type { PlainTimeline } from './plain-timeline.ts'
 import { useSubagentCatalog, type SubagentCatalogView } from './subagent-catalog.ts'
+import { StatusIcon } from './StatusIcon.tsx'
 
 /** 列表视口最大行数：6 → 8（比上一版多约 40px，用户按实际观感定的档）。 */
 const LIST_MAX_ROWS = 8
@@ -38,77 +39,57 @@ export interface KrPlainTimelineCardProps {
   readonly sessionId?: string | null
 }
 
-/** 类别图标：单色描边、13px，与既有工具行图标同一套视觉语言。 */
+/**
+ * 类别图标：单色描边、14px（与状态圆圈同大），线宽 1.3。
+ *
+ * 这一枚图标负责「做了什么」（终端 / 地球 / 放大镜 / 文件夹…），所以行里的文字
+ * 不再重复"在线缆执行命令""在浏览器里操作"这类动词前缀——前缀是把图标说的话
+ * 又用文字抄一遍，扫一列下来全是重复句。文字只留动作的具体对象（「查看视频底层
+ * 组件详情」），没有对象时才退回动词本身。
+ */
 function Icon({ name }: { readonly name: PlainIconKey }): ReactElement {
   const common = {
-    width: 13, height: 13, viewBox: '0 0 16 16', fill: 'none',
-    stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round',
+    width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none',
+    stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round',
   } as const
   switch (name) {
     case 'globe':
-      return <svg {...common}><circle cx="8" cy="8" r="6" /><path d="M2 8h12M8 2c1.8 2 1.8 10 0 12M8 2c-1.8 2-1.8 10 0 12" /></svg>
+      return <svg {...common}><circle cx="8" cy="8" r="5.9" /><path d="M2.2 8h11.6" /><path d="M8 2.1c1.7 2 1.7 9.8 0 11.8" /><path d="M8 2.1c-1.7 2-1.7 9.8 0 11.8" /></svg>
     case 'cursor':
-      return <svg {...common}><path d="m3 2 10 5-4.2 1.6L7 13z" /></svg>
+      return <svg {...common}><path d="M3.2 2.2 13 7.1 9 8.6l-1.5 3.9z" /></svg>
     case 'keyboard':
-      return <svg {...common}><rect x="1.5" y="4" width="13" height="8" rx="1.5" /><path d="M4 6.5h.01M7 6.5h.01M10 6.5h.01M5 9.5h6" /></svg>
+      return <svg {...common}><rect x="1.6" y="4" width="12.8" height="8" rx="1.6" /><path d="M4.2 6.6h.01M7 6.6h.01M9.8 6.6h.01M5 9.6h6" /></svg>
     case 'eye':
-      return <svg {...common}><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" /><circle cx="8" cy="8" r="2" /></svg>
+      return <svg {...common}><path d="M1.6 8S4.1 3.6 8 3.6 14.4 8 14.4 8 11.9 12.4 8 12.4 1.6 8 1.6 8Z" /><circle cx="8" cy="8" r="1.9" /></svg>
     case 'scroll':
-      return <svg {...common}><path d="M8 2v9M5 8.5 8 11.5l3-3M2.5 13.5h11" /></svg>
+      return <svg {...common}><path d="M8 2.2v8.4M5.2 8l2.8 2.8L10.8 8" /><path d="M2.8 13.4h10.4" /></svg>
     case 'arrow':
-      return <svg {...common}><path d="M13 8H3.5M7 4.5 3.5 8 7 11.5" /></svg>
+      return <svg {...common}><path d="M12.8 8H3.4M6.8 4.6 3.4 8l3.4 3.4" /></svg>
     case 'folder':
-      return <svg {...common}><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.2l1.3 1.6h5.5A1.5 1.5 0 0 1 14 6.1v5.4A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5z" /></svg>
+      return <svg {...common}><path d="M2.1 4.6A1.5 1.5 0 0 1 3.6 3.1h2.1l1.3 1.6h5.4a1.5 1.5 0 0 1 1.5 1.5v5.3a1.5 1.5 0 0 1-1.5 1.5H3.6a1.5 1.5 0 0 1-1.5-1.5z" /></svg>
     case 'search':
-      return <svg {...common}><circle cx="6.8" cy="6.8" r="4.3" /><path d="m10.2 10.2 3.3 3.3" /></svg>
+      return <svg {...common}><circle cx="7" cy="7" r="4.3" /><path d="m10.2 10.2 3.2 3.2" /></svg>
     case 'terminal':
-      return <svg {...common}><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" /><path d="m4.5 6 2 2-2 2M8.5 10.5H12" /></svg>
+      return <svg {...common}><rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6" /><path d="m4.6 6.2 2 1.9-2 1.9" /><path d="M8.6 10.4h3.4" /></svg>
     case 'image':
-      return <svg {...common}><rect x="1.5" y="3" width="13" height="10" rx="1.5" /><circle cx="5.6" cy="6.4" r="1.1" /><path d="m2.5 11.5 3.6-3.3 3 2.6 2-1.8 2.4 2.2" /></svg>
+      return <svg {...common}><rect x="1.6" y="3" width="12.8" height="10" rx="1.6" /><circle cx="5.7" cy="6.4" r="1.1" /><path d="m2.6 11.4 3.5-3.2 2.9 2.5 1.9-1.7 2.5 2.2" /></svg>
     case 'download':
-      return <svg {...common}><path d="M8 2v7.5M5 6.8 8 9.8l3-3M2.5 12.5h11" /></svg>
+      return <svg {...common}><path d="M8 2.4v7.2M5.2 6.9 8 9.7l2.8-2.8" /><path d="M2.8 12.6h10.4" /></svg>
     case 'cloud':
-      return <svg {...common}><path d="M4.5 12.5a3 3 0 0 1-.3-6 4 4 0 0 1 7.6-.6 2.9 2.9 0 0 1-.3 6.6z" /></svg>
+      return <svg {...common}><path d="M4.6 12.4a2.9 2.9 0 0 1-.3-5.8 4 4 0 0 1 7.5-.6 2.8 2.8 0 0 1-.3 6.4z" /></svg>
     case 'bolt':
-      return <svg {...common}><path d="M9 1.5 4 9h3.4l-.4 5.5L12 7H8.6z" /></svg>
+      return <svg {...common}><path d="M8.9 1.8 4.2 9.1h3.3l-.4 5.1 4.7-7.3H8.5z" /></svg>
     case 'task':
-      return <svg {...common}><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h7" /></svg>
+      return <svg {...common}><path d="M2.6 4.6h10.8M2.6 8h10.8M2.6 11.4h6.8" /></svg>
     case 'spark':
-      return <svg {...common}><path d="M8 1.8 9.4 6 13.6 7.4 9.4 8.8 8 13 6.6 8.8 2.4 7.4 6.6 6z" /></svg>
+      return <svg {...common}><path d="M8 2 9.3 6.1 13.4 7.4 9.3 8.7 8 12.8 6.7 8.7 2.6 7.4 6.7 6.1z" /></svg>
     case 'file':
     default:
-      return <svg {...common}><path d="M9 1.8H4.5A1.5 1.5 0 0 0 3 3.3v9.4a1.5 1.5 0 0 0 1.5 1.5h7a1.5 1.5 0 0 0 1.5-1.5V5.8z" /><path d="M9 1.8v4h4" /></svg>
+      return <svg {...common}><path d="M9.2 1.9H4.6A1.5 1.5 0 0 0 3.1 3.4v9.2a1.5 1.5 0 0 0 1.5 1.5h6.8a1.5 1.5 0 0 0 1.5-1.5V5.9z" /><path d="M9.2 1.9v4h4" /></svg>
   }
 }
 
-/** 状态点：进行中转圈脉冲 / 已完成对勾 / 失败叉。 */
-function StatusDot({ status }: { readonly status: PlainStep['status'] }): ReactElement {
-  if (status === 'running') {
-    return (
-      <span className="kr-plain-dot kr-plain-dot--running" aria-hidden>
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <circle cx="6" cy="6" r="4.2" strokeDasharray="3 3" />
-        </svg>
-      </span>
-    )
-  }
-  if (status === 'failed') {
-    return (
-      <span className="kr-plain-dot kr-plain-dot--failed" aria-hidden>
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <path d="M3 3l6 6M9 3l-6 6" strokeLinecap="round" />
-        </svg>
-      </span>
-    )
-  }
-  return (
-    <span className="kr-plain-dot kr-plain-dot--done" aria-hidden>
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.7">
-        <path d="M2.6 6.2 4.8 8.4 9.4 3.8" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </span>
-  )
-}
+/** 状态圆圈：与任务概览共用同一份（StatusIcon），不再自己画一套绿勾。 */
 
 /**
  * 子智能体区块：挂在一条「派生子任务」的步骤下面。
@@ -167,7 +148,14 @@ function StepRow({ step, index, catalog }: {
   /** 仅当 step.spawnsSubagents 为真时才有内容。 */
   readonly catalog: SubagentCatalogView | null
 }): ReactElement {
-  const title = step.detail === undefined ? step.verb : `${step.verb} · ${step.detail}`
+  /*
+   * 文字只留动作的**对象**，不把动词前缀再抄一遍。
+   *
+   * 原来是 `${verb} · ${detail}`：一列扫下来全是「在线缆执行命令 · …」「在浏览器
+   * 里操作 · …」，而前面那枚图标（终端 / 地球 / 光标）说的就是同一件事。文字
+   * 留下 detail（「查看视频底层组件详情」），detail 缺失时才退回动词本身。
+   */
+  const title = step.detail === undefined || step.detail === '' ? step.verb : step.detail
   return (
     <div
       className="kr-plain-step"
@@ -176,7 +164,9 @@ function StepRow({ step, index, catalog }: {
       // 错峰入场：只对靠后的若干条错开，卡片整体不拖出一段长尾。
       style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
     >
-      <span className="kr-plain-step__dot" aria-hidden><StatusDot status={step.status} /></span>
+      <span className="kr-plain-step__status">
+        <StatusIcon state={step.status} />
+      </span>
       <span className="kr-plain-step__icon" aria-hidden><Icon name={step.icon} /></span>
       <span className="kr-plain-step__title" title={title}>{title}</span>
       {step.durationMs !== undefined && step.durationMs > 40 && (
