@@ -361,8 +361,10 @@ if (krEnabled) {
     .exec(readFileSync(resolve(ROOT, 'src/client/kr-chat/enabled.ts'), 'utf8'))?.[1] === 'true'
   if (!plainCardVisible) {
     fail('KR_PLAIN_TIMELINE_CARD_VISIBLE must default to true (人话行动流卡默认展示)')
-  } else if (!code.includes('.kr-card--plain') || !code.includes('.kr-plain-intent') || !code.includes('kr-plain-step-in')) {
-    fail('client bundle is missing the plain-progress card styles (.kr-card--plain / .kr-plain-intent / kr-plain-step-in)')
+  } else if (!code.includes('.kr-card--plain') || !code.includes('kr-plain-step-in')) {
+    fail('client bundle is missing the plain-progress card styles (.kr-card--plain / kr-plain-step-in)')
+  } else if (/^\.kr-plain-intent/m.test(code)) {
+    fail('「接下来」预告行已整块删除，样式表里不该再有 .kr-plain-intent 规则')
   } else if (!/\\u64CD\\u4F5C\\u9762\\u677F/.test(code)) {
     // bundle 里中文被 esbuild 转成字面 \uXXXX（大写 hex），正则里要写双反斜杠。
     fail('client bundle is missing the plain-progress card title (操作面板)')

@@ -408,13 +408,19 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
           aria-hidden={!open}
           {...(!open ? { inert: '' } : {})}
         >
-          {/* 预告：模型自己写的「下一步：…」，没有就整行不出现。 */}
-          {timeline.intent !== undefined && (
-            <div className="kr-plain-intent" data-live={running ? 'true' : undefined}>
-              <span className="kr-plain-intent__label">接下来</span>
-              <span className="kr-plain-intent__text">{timeline.intent}</span>
-            </div>
-          )}
+          {/*
+           * 「接下来」预告行（模型自己播报的"下一步：…"）已整块删除。
+           *
+           * 它是**尚未发生**的事，而这张卡回答的是"已经做了什么"——一行还没兑现
+           * 的承诺混在事实流水里，用户读完只会更困惑（"这条到底做没做？"）。而且
+           * 80% 的情况下它与当前正在跑的那一行说的是同一件事（模型写"接下来查
+           * model-seats 目录"，同一时刻列表里也正有一行"查看文件"在扫光），白白
+           * 占掉一行高度。要看"现在在干什么"，进行中那行的扫光与右侧耗时已经说清。
+           *
+           * 模型侧的播报约定（PLAIN_PROGRESS_RULE）本身**保留**：它还喂 nowLabel
+           * 与"进行中"高光的措辞，只是不再单独占一行。相关样式 .kr-plain-intent*
+           * 一并从 styles.ts 移除。
+           */}
 
           {empty ? (
             <div className="kr-plain-empty">本轮还没有执行动作</div>

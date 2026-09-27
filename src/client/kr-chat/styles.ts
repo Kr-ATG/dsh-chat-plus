@@ -910,48 +910,10 @@ body[data-kr-resizing="true"] * {
   .kr-plain-view__btn svg { transition: none; }
 }
 
-/* ── 「接下来」预告行（模型自己播报的那句） ───────────────────────────── */
-.kr-plain-intent {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  padding: 6px 9px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--kr-accent) 7%, transparent);
-  border: 1px solid color-mix(in srgb, var(--kr-accent) 16%, transparent);
-}
-
-.kr-plain-intent__label {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: .02em;
-  color: var(--kr-accent);
-}
-
-/* 执行中时标签前那颗呼吸点：预告本身就在变化，不需要再跳。 */
-.kr-plain-intent[data-live="true"] .kr-plain-intent__label::before {
-  content: '';
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--kr-accent);
-  animation: kr-pulse 1.4s ease-in-out infinite;
-}
-
-.kr-plain-intent__text {
-  /* flex:1 1 auto —— 只给 min-width:0 的话，flex-basis 仍是内容宽度，窄栏下
-     整段话会被压到「最后一个字单独换行」的程度。 */
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--dsw-alias-label-primary);
-}
-
+/* 「接下来」预告行（.kr-plain-intent 整族）已删除：那张卡只讲"已经发生了什么"，
+   一行尚未兑现的承诺混在事实流水里只会让人分不清做没做；而且它八成与当前正在跑
+   的那一行说的是同一件事，白占一行高度。模型侧的播报约定仍在（喂 nowLabel 与
+   进行中行的措辞），只是不再单独占一行。 */
 .kr-plain-empty {
   font-size: 12px;
   color: var(--dsw-alias-label-tertiary);

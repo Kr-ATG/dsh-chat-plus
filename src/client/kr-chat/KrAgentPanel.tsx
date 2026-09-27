@@ -247,13 +247,14 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   // 绝不回落到 activityStore 里上一会话的缓存。
   // 回合已在执行（哪怕工具/思考尚未落盘）也算内容，避免空白新会话刚发起
   // 提问时错误地显示「等待本次对话开始」。
-  // 「操作面板」卡的预告行也算内容：模型可能还没调任何工具，但已经
-  // 开口说了「接下来要做什么」，那一刻就不该是空态。
+  //
+  // 「操作面板」卡的预告行原先也算内容（模型还没调任何工具但已经播报了
+  // "接下来要做什么"）——那行已整块删除，这个判据随之去掉：模型刚开口、
+  // 工具还没落盘时，思考卡通常也已经有内容了，不必再靠它兜底。
   const hasContent = currentRunning
     || tasks.length > 0
     || reasoningTexts.length > 0
     || tools.length > 0
-    || (KR_PLAIN_TIMELINE_CARD_VISIBLE && plainTimeline.intent !== undefined)
 
   // 大盘副标题
   const subtitle = useMemo(() => {
