@@ -21,13 +21,11 @@ import { KrFreshText } from './KrFreshText.tsx'
 /**
  * 视口最多显示的行数（超出在视口内滚动）。
  *
- * 从 25 降到 12：思考是本轮里最容易把右栏吃满的一块（十几轮对话轻松上千行），
- * 而它排在操作面板上面，用户读的是"这轮做了什么"。25 行视口近 480px，右栏里
- * 「任务 + 思考 + 操作面板」三张卡叠起来必然溢出，挤压自适应随后又要一档档降，
- * 于是用户看到的是"卡片自己在缩"。12 行（≈230px）足够看出本轮思路的走向，要
- * 读全文就滚——反正它本来就是有界视口 + 内部滚动，不丢内容。
+ * 12 → 16 行（≈307px，比上一版多 80px）：这是用户按实际观感定的档——12 行太
+ * 紧，读不出本轮思路的走向；16 行既读得到走向，操作面板与任务概览仍能同屏。
+ * 它排在操作面板上面，思考是背景，够看清即可。
  */
-export const REASONING_MAX_ROWS = 12
+export const REASONING_MAX_ROWS = 16
 
 export interface ReasoningCardProps {
   readonly reasoningTexts: readonly string[]

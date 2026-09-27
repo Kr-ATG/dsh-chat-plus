@@ -557,6 +557,19 @@ body[data-kr-resizing="true"] * {
   flex: 1;
 }
 
+/*
+ * 操作面板的标题不占满剩余宽度。
+ *
+ * .kr-card__title 的 flex:1 是为「标题 + 右侧徽标」两件东西准备的（徽标靠右
+ * 对齐）。这张卡标题行里还塞了「当前在做什么」与「技术细节」开关，标题再吃掉
+ * 弹性空间的话，后面两件只能被挤到换行或省略。改成 flex:0 后弹性交给紧随其后的
+ * nowLabel，其余卡的排布完全不变。
+ */
+.kr-card--plain .kr-card__title {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 /* 工具调用卡标题行右端的「展开 N 次调用」提示：与标题同在一行，
    次要色弱化（展开动作的主角是整行头部点击区）。 */
 .kr-tools-expand-hint {
@@ -1159,6 +1172,30 @@ body[data-kr-resizing="true"] * {
 .kr-plain-now {
   position: relative;
   min-height: 18px;
+}
+
+/*
+ * 与标题同行的那一份（操作面板表头）。
+ *
+ * 与正文的 .kr-plain-now 分开而不是复用同一套尺寸：标题行只有 ~18px 高，字号要
+ * 跟着降到 12px 才不显得压；宽度不足时**整段省略**而不是换行——换行会把标题
+ * 行撑成两行，省下的一行又还回去了。
+ */
+.kr-plain-now--inline {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kr-plain-now--inline .kr-plain-now__layer {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .kr-plain-now__stack {

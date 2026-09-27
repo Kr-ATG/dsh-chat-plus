@@ -34,10 +34,10 @@ interface ScrollContainerRef {
 /**
  * 行数档位表：索引越大行数越少。首档 = 思考卡默认行数（不挤压时保持原样）。
  *
- * 首档跟着 REASONING_MAX_ROWS 走（现 12），下面几档从它往下收；尾档留 4 行，
+ * 首档跟着 REASONING_MAX_ROWS 走（现 16），下面几档从它往下收；尾档留 6 行，
  * 极端挤压（右栏被记忆卡占满）时也要留住"正在想"的痕迹，而不是缩成一条缝。
  */
-export const REASONING_ROW_LADDER: readonly number[] = [REASONING_MAX_ROWS, 10, 8, 6, 4]
+export const REASONING_ROW_LADDER: readonly number[] = [REASONING_MAX_ROWS, 13, 10, 8, 6]
 
 /** 判定挤压的容差（px）。 */
 const OVERFLOW_EPS_PX = 1

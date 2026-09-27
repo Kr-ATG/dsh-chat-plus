@@ -24,10 +24,10 @@ import type { PlainIconKey, PlainStep } from './plain-language.ts'
 import type { PlainTimeline } from './plain-timeline.ts'
 import { useSubagentCatalog, type SubagentCatalogView } from './subagent-catalog.ts'
 
-/** 列表视口最大行数：再高就把思考卡和记忆卡挤出屏幕了。 */
-const LIST_MAX_ROWS = 6
+/** 列表视口最大行数：6 → 8（比上一版多约 40px，用户按实际观感定的档）。 */
+const LIST_MAX_ROWS = 8
 /** 被右栏挤压时（记忆卡常驻底部触发自适应降档）收一档。 */
-const LIST_MAX_ROWS_SQUEEZED = 3
+const LIST_MAX_ROWS_SQUEEZED = 5
 
 export interface KrPlainTimelineCardProps {
   readonly timeline: PlainTimeline
@@ -297,6 +297,29 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
           </svg>
         </span>
         <span className="kr-card__title">操作面板</span>
+        {/*
+         * 「当前在做什么」与标题同行，不再单独占正文一整行。
+         *
+         * 原来它是卡片正文的第一行（「正在放大查看局部」），标题行只有"操作面板"
+         * 四个字 + 徽标，中间空着一大片；把它提到标题右侧后，这张卡的表头本身就
+         * 回答了"此刻它在干什么"，正文从「接下来」或步骤列表直接开始，省下一整行。
+         *
+         * 宽度不够时整段 ellipsis（不是换行——换行会把标题行撑成两行，等于没省）。
+         */}
+        <span className="kr-plain-now kr-plain-now--inline" title={timeline.nowLabel}>
+          <span className="kr-plain-now__stack">
+            {nowLayers.map((layer) => (
+              <span
+                key={layer.id}
+                className="kr-plain-now__layer"
+                data-phase={layer.exiting ? 'out' : 'in'}
+                aria-hidden={layer.exiting || undefined}
+              >
+                {layer.text}
+              </span>
+            ))}
+          </span>
+        </span>
         <span className={`kr-card__badge ${running ? 'kr-card__badge--running' : 'kr-card__badge--done'}`}>
           {badge}
         </span>
@@ -326,21 +349,8 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
           aria-hidden={!open}
           {...(!open ? { inert: '' } : {})}
         >
-          {/* 当前动作：与左侧对话流那张瞬态卡同一句话，但这里带细节。 */}
-          <div className="kr-plain-now" data-running={running ? 'true' : undefined}>
-            <span className="kr-plain-now__stack">
-              {nowLayers.map((layer) => (
-                <span
-                  key={layer.id}
-                  className="kr-plain-now__layer"
-                  data-phase={layer.exiting ? 'out' : 'in'}
-                  aria-hidden={layer.exiting || undefined}
-                >
-                  {layer.text}
-                </span>
-              ))}
-            </span>
-          </div>
+          {/* 「当前在做什么」已提到标题行（见 header 里那段注释），正文从预告
+              或步骤列表直接开始。 */}
 
           {/* 预告：模型自己写的「下一步：…」，没有就整行不出现。 */}
           {timeline.intent !== undefined && (
