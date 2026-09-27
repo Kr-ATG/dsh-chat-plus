@@ -197,6 +197,21 @@ const SCROLL_DIRECTION: Readonly<Record<string, string>> = {
 }
 
 /**
+ * 表单填写内容：`browser_fill_form` 的 `fields: [{ text }, …]`。
+ * 只取每个字段的文本值 join 起来（「北京、上海」），字段名/ref 是技术标识，不上屏。
+ */
+function fillFormFields(args: Record<string, unknown>): string | undefined {
+  const fields = args.fields
+  if (!Array.isArray(fields)) return undefined
+  const texts = fields
+    .map((field) => (typeof field === 'object' && field !== null
+      ? str(field as Record<string, unknown>, 'text', 'value', 'label')
+      : undefined))
+    .filter((value): value is string => value !== undefined && value.trim() !== '')
+  return texts.length === 0 ? undefined : clip(texts.join('、'), MAX_DETAIL)
+}
+
+/**
  * 工具结果里的**最终落地 URL**。
  *
  * 浏览器工具的返回文本会带一行 `Page URL: …`，那是导航真正落到的地址，不是模型
@@ -213,17 +228,65 @@ function landedUrlOf(resultText: string | undefined): string | undefined {
   return match?.[1]
 }
 
+/** 归一化到 origin + path（query/hash 不参与「是不是同一页」的判断）。 */
+function normalizeUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    return `${parsed.origin}${parsed.pathname}`
+  } catch {
+    return url
+  }
+}
+
+/** 请求 URL 是否带了查询参数。 */
+function hasQuery(url: string): boolean {
+  try {
+    return new URL(url).search.length > 1
+  } catch {
+    return url.includes('?')
+  }
+}
+
 /**
- * 打开网页的细节：站点友好名 + （发生跳转时）跳到哪。
+ * 「目标信息被丢掉」：请求带了 query，落地却一个参数都没剩。
  *
- * 三种说法，按信息量选：
+ * 这是最该被说出来的一种——实测 `flights.ctrip.com/online/list/oneway-ctrip?dcity=bjs&acity=sha`
+ * 会被携程打回 `/online/channel`，目的地、日期全丢，页面停在首页。用户若只看到
+ * 「打开网页 · 携程 · 机票」，会以为北京→上海的搜索已经跑完了。
+ */
+function intentDropped(requested: string, landed: string): boolean {
+  if (!hasQuery(requested)) return false
+  try {
+    const wanted = [...new URL(requested).searchParams.keys()]
+    if (wanted.length === 0) return false
+    const got = new URL(landed).searchParams
+    return wanted.some((key) => !got.has(key))
+  } catch {
+    return false
+  }
+}
+
+/** 根路径跳到站内子路径 = 站点自己的默认落地，不算「没跳到要去的地方」。 */
+function isDefaultLanding(requested: string): boolean {
+  try {
+    const parsed = new URL(requested)
+    return parsed.pathname === '/' && parsed.search.length <= 1
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 打开网页的细节：站点友好名 + （跳转发生时）跳到哪。
+ *
+ * 四种说法，按信息量选：
  *  · 落在同一页 → `携程 · 机票`
- *  · 跳去了**别的站** → `携程 · 机票 → 去哪儿 · 机票`（站点名已经不同，再补
- *    路径只是噪音）
- *  · 跳去了**同一个站**的别处 → `携程 · 机票 · 被重定向`。
- *    这一支是实测里最常撞上的：`/online/list/oneway-ctrip?dcity=bjs&acity=sha`
- *    会被携程打回 `/online/channel` 首页，两边都识别成「携程 · 机票」，写成
- *    `携程 · 机票 → 携程 · 机票` 等于什么都没说。
+ *  · 跳去了**别的站** → `携程 · 机票 → 去哪儿`（站点名已不同，补路径是噪音）
+ *  · 跳去同站、但**请求里的查询参数被丢掉** → `携程 · 机票 · 目标信息已被忽略`
+ *  · 跳去同站别处（其余情况）→ `携程 · 机票 · 被重定向`
+ *
+ * 「根路径跳到站内子路径」不算跳转：携程首页就会自动落到 /online/channel/domestic，
+ * 那是站点自己的默认落地，把它报成「被重定向」等于天天误报。
  */
 function navigateDetail(args: Record<string, unknown>, resultText?: string): string | undefined {
   const requested = str(args, 'url')
@@ -233,16 +296,10 @@ function navigateDetail(args: Record<string, unknown>, resultText?: string): str
   if (normalizeUrl(landed) === normalizeUrl(requested)) return site
   const landedSite = siteOf(landed)
   if (landedSite !== undefined && site !== undefined && landedSite !== site) return `${site} → ${landedSite}`
-  return site === undefined ? undefined : `${site} · 被重定向`
-}
-
-function normalizeUrl(url: string): string {
-  try {
-    const parsed = new URL(url)
-    return `${parsed.origin}${parsed.pathname}`
-  } catch {
-    return url
-  }
+  if (site === undefined) return undefined
+  if (isDefaultLanding(requested)) return site
+  if (intentDropped(requested, landed)) return `${site} · 目标信息已被忽略`
+  return `${site} · 被重定向`
 }
 
 /** 归一名 → { 动词, 图标, 取细节 }。 */
@@ -260,6 +317,13 @@ const EXACT: Readonly<Record<string, Rule>> = {
   // ── 浏览器控制 ──────────────────────────────────────────────────────
   browser_navigate: { verb: '打开网页', icon: 'globe', detail: navigateDetail },
   browser_open: { verb: '打开网页', icon: 'globe', detail: navigateDetail },
+  /*
+   * playwright-mcp 的两个高频工具原先都掉进 /^browser_/ 兜底，只得到一句干巴巴的
+   * 「操作浏览器」——而它们恰恰是信息量最大的两个：fill_form 装着「这次要往哪些
+   * 字段里填什么」，evaluate 多半装着「在页面上做了什么 / 读到了什么」。
+   */
+  browser_fill_form: { verb: '填写表单', icon: 'keyboard', detail: (a) => fillFormFields(a) },
+  browser_evaluate: { verb: '操作页面', icon: 'cursor' },
   browser_click: { verb: '点击网页', icon: 'cursor', detail: (a) => clip(str(a, 'element', 'description', 'text') ?? str(a, 'ref') ?? '', MAX_DETAIL) },
   click: { verb: '点击网页', icon: 'cursor', detail: (a) => clip(str(a, 'element', 'description', 'text') ?? str(a, 'ref') ?? '', MAX_DETAIL) },
   browser_type: { verb: '在输入框里填写', icon: 'keyboard', detail: (a) => clip(str(a, 'text', 'value') ?? '', MAX_DETAIL) },

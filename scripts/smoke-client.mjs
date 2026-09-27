@@ -184,6 +184,13 @@ const sandbox = {
   fetch: async () => ({ ok: false, status: 599, json: async () => ({}) }),
   AbortController,
   localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+  // URL / URLSearchParams 是 Node 注入的宿主全局、不是 ECMAScript 内建，
+  // vm.createContext 造的新 context 里默认没有。不显式给就等于 undefined，
+  // bundle 里所有 `new URL(...)` 全走 catch 降级，而其中有些降级（站点名认不出
+  // 来、落地页判定恒为 false）**不会报错**，只会让断言测到一个浏览器里不存在的
+  // 行为。真实浏览器里这两个一直在，sandbox 必须还原。
+  URL,
+  URLSearchParams,
   matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }),
   requestAnimationFrame: (fn) => setTimeout(() => fn(Date.now()), 0),
   cancelAnimationFrame: (id) => clearTimeout(id),

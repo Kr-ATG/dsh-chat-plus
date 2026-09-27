@@ -156,6 +156,13 @@ const sandbox = {
     removeEventListener: () => {},
   },
   console,
+  // **URL 必须显式注入**：vm.createContext 造的是全新 V8 context，而 URL 是 Node
+  // 注入的宿主全局、不是 ECMAScript 内建，不给就等于 undefined。于是 bundle 里
+  // 所有 `new URL(...)` 都在走 catch 降级分支 —— siteOf 恰好有裸主机名兜底看不出
+  // 异样，但 navigateDetail 的「根路径默认落地」判定会静默变成 false，把首页
+  // 自动跳频道页误报成「被重定向」。真实浏览器里 URL 一直在，sandbox 必须还原。
+  URL,
+  URLSearchParams,
   // Timers are recorded but never scheduled: the nav-mount poller would
   // otherwise keep the event loop alive and hang the smoke run.
   setTimeout: (() => { let id = 0; return (fn, ms) => { void fn; void ms; return ++id } })(),
@@ -367,6 +374,37 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   if (typed.verb !== '在输入框里填写' || typed.detail !== '北京') fail(`browser_type must show the typed text, got ${typed.verb} · ${typed.detail}`)
   else pass('browser_type shows the typed value')
 
+  // playwright-mcp 的两个高频工具：信息量最大的两个，不能只给一句「操作浏览器」。
+  const filled = toPlainStep({
+    toolName: 'mcp__playwright-mcp__browser_fill_form',
+    args: { fields: [{ ref: 'e3', text: '北京' }, { ref: 'e4', text: '上海' }] },
+    status: 'done',
+  })
+  const evaluated = toPlainStep({ toolName: 'browser_evaluate', args: { function: '() => 1' }, status: 'done' })
+  if (filled.verb !== '填写表单' || filled.detail !== '北京、上海') {
+    fail(`browser_fill_form must name what was typed, got ${filled.verb} · ${filled.detail}`)
+  } else if (evaluated.verb === '操作浏览器') {
+    fail('browser_evaluate must not fall through to the generic browser label')
+  } else {
+    pass('fill_form / evaluate read as real actions, not generic ones')
+  }
+
+  // 导航落地的五种形态（全部来自携程真机实验）。
+  const cases = [
+    ['https://flights.ctrip.com/', 'https://flights.ctrip.com/online/channel/domestic', '携程 · 机票'],
+    ['https://flights.ctrip.com/online/list/oneway-ctrip?ddate=2026-10-05&dcity=bjs&acity=sha', 'https://flights.ctrip.com/online/channel', '携程 · 机票 · 目标信息已被忽略'],
+    ['https://flights.ctrip.com/online/list/oneway-ctrip?dcity=bjs', 'https://flights.ctrip.com/online/list/oneway-ctrip?dcity=bjs&from=search', '携程 · 机票'],
+    ['https://flights.ctrip.com/booking/BJS-SHA-day-1.html', 'https://flights.ctrip.com/online/list/round-szx-sha', '携程 · 机票 · 被重定向'],
+    ['https://flights.ctrip.com/', 'https://www.qunar.com/flightsearch/', '携程 · 机票 → 去哪儿 · 机票'],
+  ]
+  const navBad = cases.find(([req, land, want]) =>
+    toPlainStep({ toolName: 'browser_navigate', args: { url: req }, status: 'done', resultText: `### Page\n- Page URL: ${land}` }).detail !== want)
+  if (navBad !== undefined) {
+    fail(`navigation ${navBad[0]} → ${navBad[1]} must read as ${navBad[2]}, got ${toPlainStep({ toolName: 'browser_navigate', args: { url: navBad[0] }, status: 'done', resultText: `### Page\n- Page URL: ${navBad[1]}` }).detail}`)
+  } else {
+    pass('navigation covers all five landing shapes (default / intent dropped / clean / same-site / cross-site)')
+  }
+
   // 英文枚举不许露到卡片上。
   const scrolled = toPlainStep({ toolName: 'browser_scroll', args: { direction: 'down' }, status: 'done' })
   if (scrolled.detail !== '向下') fail(`browser_scroll direction must be translated, got ${scrolled.detail}`)
@@ -390,13 +428,15 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     toolName: 'browser_navigate', args: { url: ctripSearch }, status: 'done',
     resultText: '### Page\n- Page URL: https://www.qunar.com/flightsearch/',
   })
-  if (!/被重定向/.test(bounced.detail ?? '')) {
-    fail(`a bounced navigation must say so, got ${bounced.detail}`)
+  if (!/目标信息已被忽略/.test(bounced.detail ?? '')) {
+    // 这条 case 就是「请求带了搜索参数、落地一个不剩」——比普通跳转更严重，
+    // 措辞也必须更重：用户要知道自己搜的东西根本没送过去。
+    fail(`a bounced navigation must say its target was dropped, got ${bounced.detail}`)
   } else if (landedOk.detail !== '携程 · 机票') {
     fail(`a clean landing must stay a plain site name, got ${landedOk.detail}`)
-  } else if (jumpedAway.detail !== '携程 · 机票 → 去哪儿') {
-    // qunar 的 /flightsearch 是通用搜索页，URL 里没有机票特征词，识别成「去哪儿」
-    // 就够了；补「· 机票」反而是在替站点做判断。
+  } else if (jumpedAway.detail !== '携程 · 机票 → 去哪儿 · 机票') {
+    // 去哪儿这条 URL 里的 `/flightsearch` 确实命中机票特征词（它就是航班搜索），
+    // 两端都带「· 机票」才对；早先按"通用搜索页"判成不带机票是误判。
     fail(`a cross-site jump must name both sites, got ${jumpedAway.detail}`)
   } else {
     pass('navigation reports redirects and cross-site jumps')
@@ -513,3 +553,4 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
 console.log(`\n${process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED'} — ${CLIENT}`)
 // Explicit exit: stubbed modules may hold listeners/timers that keep node alive.
 process.exit(process.exitCode ?? 0)
+
