@@ -165,18 +165,18 @@ function StepRow({ step, index, catalog }: {
       style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
     >
       {/*
-       * 状态圆圈：**只标异常与进行中，完成态留空**。
+       * 状态圆圈：**只标失败**。
        *
-       * 这一列里的每一条都已经发生过了，"已完成"是这张列表的默认前提而不是
-       * 什么信息——每行前面再挂一枚对勾，等于给同一句话说八遍，还把行首压窄。
-       * 真正需要被看见的是反例：正在跑的（蓝色转圈）和失败的（红叉），它们因此
-       * 在一列灰色文字里凸出来。
+       * 这一列里的每一条都已经发生过了，「已完成」是列表的默认前提而不是信息；
+       * 「正在跑」也改由文字上那道从左往右扫过的高光说（见 styles.ts 的
+       * kr-plain-sweep），眼睛跟着光走就直接落在当前那件事上，不必再给一枚转圈
+       * 占着行首。真正需要被看见的反例只剩失败，于是红叉在一列灰字里一眼跳出。
        *
-       * 槽位本身永远保留（完成态是只留 14px 的空盒），否则完成行贴左、进行中
-       * 与失败行右移 14px，整列参差不齐。
+       * 槽位本身永远保留（其它态是只留 14px 的空盒），否则失败行贴左、其它行
+       * 右移 14px，整列参差不齐。
        */}
       <span className="kr-plain-step__status">
-        {step.status !== 'done' && <StatusIcon state={step.status} />}
+        {step.status === 'failed' && <StatusIcon state="failed" />}
       </span>
       <span className="kr-plain-step__icon" aria-hidden><Icon name={step.icon} /></span>
       <span className="kr-plain-step__title" title={title}>{title}</span>

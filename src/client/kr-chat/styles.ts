@@ -1016,17 +1016,15 @@ body[data-kr-resizing="true"] * {
 
 /*
  * 类别图标：与状态圆圈同大（14px），线宽 1.3，颜色跟着状态走。
- * 一行两枚图标分工明确：左边圆圈说「到哪一步了」，这枚说「是哪类动作」。
+ * 一行两枚图标分工明确：左边圆圈说「哪一行出了问题」，这枚说「是哪类动作」。
+ * 进行中的行不画状态圆点（那道扫过的高光已经在说"正在跑"），图标回到中性灰，
+ * 免得整行除了文字还多一处蓝。
  */
 .kr-plain-step__icon {
   flex: none;
   display: grid;
   place-items: center;
   color: var(--dsw-alias-label-tertiary);
-}
-
-.kr-plain-step[data-status="running"] .kr-plain-step__icon {
-  color: var(--dsw-alias-state-business-primary, #4176e6);
 }
 
 .kr-plain-step[data-status="failed"] .kr-plain-step__icon {
@@ -1042,9 +1040,46 @@ body[data-kr-resizing="true"] * {
   color: var(--dsw-alias-label-secondary);
 }
 
+/*
+ * 进行中：文字自带一道从左往右扫过的高光，取代原来那枚转圈圆点。
+ *
+ * 转圈的毛病是它只在说「还在跑」，却把「跑的是什么」留在一旁的静态灰字上；
+ * 让文字本身扫过去，读者的眼睛跟着那道光走，直接落在当前那件事上。形状不变
+ * （仍是灰字变亮），只是亮的部分在移动。
+ *
+ * 代价说清楚：background-position 不走合成器，每一帧都要真重绘这一行文字。
+ * 但全列表**同时只有一行在跑**，重绘范围是一行 ~30 字，代价可以接受。
+ *（早先更早一版也给已完成的行上过同一道光带，十几行同时重绘就被换掉了。）
+ *
+ * background-size 220% > 100%：渐变本身比文字宽，高光带才有「从左边进来、
+ * 从右边出去」的位移空间；停在 -40% → 160% 是让光带完全走完一个来回。
+ */
 .kr-plain-step[data-status="running"] .kr-plain-step__title {
-  color: var(--dsw-alias-label-primary);
+  /*
+   * 暗端 tertiary / 亮端 primary，中间 16% 是一条窄高光带。
+   *
+   * 早先试过"两端都取 secondary"：光带扫出文字范围时整行恒定，扫到时才亮。
+   * 看着稳，但那道光就没什么存在感了——扫过与没扫过差得太远。改成暗端略暗
+   * 之后，光带经过的 16% 宽度是明显的一次"提亮"，在余下的时间里这一行比
+   * 邻居稍暗，读作"它还在走"。
+   */
+  background-image: linear-gradient(90deg,
+    var(--dsw-alias-label-tertiary) 0%,
+    var(--dsw-alias-label-primary) 42%,
+    var(--dsw-alias-label-primary) 58%,
+    var(--dsw-alias-label-tertiary) 100%);
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   font-weight: 500;
+  animation: kr-plain-sweep 2.2s cubic-bezier(.45, 0, .25, 1) infinite;
+}
+
+@keyframes kr-plain-sweep {
+  from { background-position: -40% 0; }
+  to { background-position: 160% 0; }
 }
 
 .kr-plain-step[data-status="failed"] .kr-plain-step__title {
@@ -1192,6 +1227,14 @@ body[data-kr-resizing="true"] * {
   .kr-plain-step,
   .kr-plain-now__layer {
     animation: none;
+  }
+
+  /* 流光关掉后必须把文字颜色还回来：它的常态是 color:transparent（颜色由渐变
+     裁切给出），没有渐变就等于整行隐形。 */
+  .kr-plain-step[data-status="running"] .kr-plain-step__title {
+    animation: none;
+    background: none;
+    color: var(--dsw-alias-label-primary);
   }
 }
 
