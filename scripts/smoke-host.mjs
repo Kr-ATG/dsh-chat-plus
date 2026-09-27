@@ -127,15 +127,19 @@ if (registeredTools.length !== 1 || registeredTools[0]?.name !== 'download') {
 if (!effectRan) fail('deferred webServer callback never ran')
 else pass('deferred webServer callback executed')
 
-if (registered.length !== 3) {
-  fail(`expected exactly 3 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
+// 4 条：generated-images(exact) + screenshot/download(prefix) + open-path(exact)。
+// open-path 是「用文件资源管理器打开」改道用的（windowsHide 会吞掉 Explorer）。
+if (registered.length !== 4) {
+  fail(`expected exactly 4 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
 } else {
-  const exact = registered.find(spec => spec?.kind === 'exact')
+  const exacts = registered.filter(spec => spec?.kind === 'exact')
   const prefix = registered.filter(spec => spec?.kind === 'prefix')
-  if (exact?.path !== '/api/chat-flow/generated-images') {
-    fail(`unexpected exact route spec: ${JSON.stringify(exact)}`)
+  if (!exacts.some(spec => spec?.path === '/api/chat-flow/generated-images')) {
+    fail(`unexpected exact route specs: ${JSON.stringify(exacts)}`)
+  } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/open-path')) {
+    fail('missing open-path route (exact /api/chat-flow/open-path)')
   } else {
-    pass('registered GET /api/chat-flow/generated-images (kind=exact)')
+    pass('registered GET /api/chat-flow/generated-images + /open-path (kind=exact)')
   }
   const downloadRoute = prefix.find(spec => spec?.path === '/api/chat-flow/download')
   if (downloadRoute === undefined) {

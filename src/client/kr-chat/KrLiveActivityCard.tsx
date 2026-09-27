@@ -192,7 +192,7 @@ function taskStatusLabel(status: KrActivityTask['status']): string {
 }
 
 function buildTaskWorkflow(tasks: readonly KrActivityTask[]): WorkflowView {
-  const visible = tasks.slice(0, 6)
+  const visible = tasks
   const current = visible.find((task) => task.status === 'in_progress')
     ?? visible.find((task) => task.status === 'pending')
     ?? visible.at(-1)
@@ -266,40 +266,6 @@ function capSolo(text: string): string {
   return `（更早的 ${dropped} 字已折叠，完整思考见右侧「思考过程」）\n\n${text.slice(-SOLO_MAX_CHARS)}`
 }
 
-/** 进度卡可视窗口内最多平铺几行；超出的收成一行计数，不做纵向滚动。 */
-const STAGE_WINDOW = 4
-
-interface StageWindow {
-  readonly items: readonly WorkflowStage[]
-  readonly offset: number
-  readonly before: number
-  readonly after: number
-}
-
-/**
- * 以当前节点为锚开窗：当前行必留，前面留一行已完成作来路，后面顺延。
- * 序号用 offset 补回真实位次，折叠掉的行不丢上下文。
- */
-function windowStages(stages: readonly WorkflowStage[]): StageWindow {
-  const total = stages.length
-  if (total <= STAGE_WINDOW) return { items: stages, offset: 0, before: 0, after: 0 }
-  const anchor = stages.findIndex((stage) => stage.status === 'current')
-  const offset = Math.max(0, Math.min(anchor < 0 ? 0 : anchor - 1, total - STAGE_WINDOW))
-  return {
-    items: stages.slice(offset, offset + STAGE_WINDOW),
-    offset,
-    before: offset,
-    after: total - offset - STAGE_WINDOW,
-  }
-}
-
-function stageWindowSummary({ before, after }: StageWindow): string | null {
-  const parts: string[] = []
-  if (before > 0) parts.push(`更早 ${before} 步`)
-  if (after > 0) parts.push(`后续 ${after} 步`)
-  return parts.length === 0 ? null : parts.join(' · ')
-}
-
 function defaultAvatar() {
   return (
     <span className="kr-agent-mini-avatar__default" aria-hidden>
@@ -358,12 +324,10 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
     () => buildWorkflow(reasoning, tasks, active, closing),
     [active, closing, reasoning, tasks],
   )
-  const stageWindow = useMemo(() => windowStages(workflow.stages), [workflow.stages])
   const doneCount = useMemo(
     () => workflow.stages.filter((stage) => stage.status === 'done').length,
     [workflow.stages],
   )
-  const stageSummary = stageWindowSummary(stageWindow)
   /*
    * 步骤区改成「固定高度 + 滚动」，与右栏思考过程同一套跟随手感
    * （useSteppedFollow）：内容增长自动贴底，上滚即停、滚回底部自动恢复，
@@ -373,7 +337,7 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
   const followActive = expanded && active && !closing
   const { ref: followRef, onScroll: onFollowScroll, onWheel: onFollowWheel, edges, overflow, following } =
     useSteppedFollow(
-      `${followActive ? '1' : '0'}:${stageWindow.items.map((stage) => stage.label).join(' ')}`,
+      `${followActive ? '1' : '0'}:${workflow.stages.map((stage) => stage.label).join(' ')}`,
       followActive,
       motion,
     )
@@ -641,7 +605,7 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
               aria-label="执行进度，可滚动阅读"
               tabIndex={overflow ? 0 : undefined}
             >
-              {stageWindow.items.map((stage) => (
+              {workflow.stages.map((stage) => (
                 <div className="kr-agent-workflow-step" data-status={stage.status} key={stage.key}>
                   {/* 节点只承担三态（✓ / 呼吸点 / 灰点），位次交给头部计数与底部汇总。 */}
                   <span className="kr-agent-workflow-step__index">
@@ -658,10 +622,7 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
                 </div>
               ))}
             </div>
-            {stageSummary !== null && (
-              <div className="kr-agent-workflow-card__more">{stageSummary}</div>
-            )}
-          </div>
+            </div>
         </div>
       </div>
     </div>
