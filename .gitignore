@@ -6,6 +6,9 @@ node_modules/
 # 本地，那是测试残留，绝不入库。
 .dsh-shot-engine/
 
+# 一次性排查用的探针 / 复现脚本（放插件目录里直接 node 跑，事后随任务一起删）。
+_tmp/
+
 # host 半身的 source map 不发布也不入库（Node 不带 --enable-source-maps 就不读，
 # 13.6MB 白占工作区和 git 历史）；client 的 map 保留给浏览器 DevTools。
 lib/index.js.map
