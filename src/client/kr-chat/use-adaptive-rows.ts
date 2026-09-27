@@ -42,6 +42,18 @@ export const REASONING_ROW_LADDER: readonly number[] = [REASONING_MAX_ROWS, 13, 
 /** 判定挤压的容差（px）。 */
 const OVERFLOW_EPS_PX = 1
 
+/**
+ * 档位抖动的抑制窗口（ms）。
+ *
+ * 展开 / 收起 footer 里的工具调用卡会让滚动区高度剧变，思考卡随之重排行，滚动
+ * 容器也跟着动。如果新高度恰好落在两档的分界上，档位就会在两档之间来回翻，
+ * 思考卡视口反复增减高度 —— 观感就是"上面的卡片一闪一闪"。
+ *
+ * 这里给一道保险：短时间内第二次改变档位就进入静默窗口，窗口内不再改档（内容
+ * 还在变，窗口结束后自然会重测收敛）。单次变化不受影响，正常响应不打折。
+ */
+const TIER_QUIET_MS = 260
+
 /** 思考卡视口的选择器（同一仓库内的私有契约，用于探针测量）。 */
 const REASONING_VIEW_SELECTOR = '.kr-reasoning-view'
 
@@ -91,10 +103,16 @@ export function useAdaptiveReasoningRows(
 ): number {
   const [tier, setTier] = useState(0)
   const tierRef = useRef(0)
+  /** 上一次定档的时刻；用于抖动抑制。 */
+  const lastChangeAtRef = useRef(0)
 
   /** 档位没变就绝不 setState——这是切断 RO 正反馈的唯一开关。 */
   const applyTier = useCallback((next: number) => {
     if (tierRef.current === next) return
+    const now = Date.now()
+    // 抖动保护：上一次定档刚发生过，这次多半是高度重排的余波，不是真实需求变化。
+    if (now - lastChangeAtRef.current < TIER_QUIET_MS) return
+    lastChangeAtRef.current = now
     tierRef.current = next
     setTier(next)
   }, [])

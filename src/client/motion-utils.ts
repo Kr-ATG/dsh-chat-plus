@@ -135,13 +135,27 @@ export function useSteppedFollow(text: string, running: boolean, _motion: boolea
   const [overflow, setOverflow] = useState(false)
   const [following, setFollowingState] = useState(true)
 
+  /*
+   * 边缘判定的滞回阈值（px）。
+   *
+   * 原来用 1px，等于「差一个像素就算到边」：只要 scrollTop 在阈值附近抖一下，
+   * edges 就在 none / top / bottom 之间翻，渐隐遮罩随之出现-消失-出现，读起来
+   * 就是「卡片在一闪一闪」。
+   *
+   * 触发链并不罕见 —— 展开/收起 footer 里的工具调用卡会改变 footer 高度 →
+   * 上方滚动区变矮 → 思考卡重排行 → 视口内列表的 ResizeObserver 反复回调 →
+   * 每次都重测。4px 的吸附区让 ±2px 的重排噪声不再翻转状态，而真的滚到边
+   * （超过 4px）时判定照常。
+   */
+  const EDGE_EPS_PX = 4
+
   const measure = (): void => {
     const el = ref.current
     if (el === null) return
     const max = Math.max(0, el.scrollHeight - el.clientHeight)
-    setOverflow(el.scrollHeight > el.clientHeight + 1)
-    const top = el.scrollTop > 1
-    const bottom = max - el.scrollTop > 1
+    setOverflow(el.scrollHeight > el.clientHeight + EDGE_EPS_PX)
+    const top = el.scrollTop > EDGE_EPS_PX
+    const bottom = max - el.scrollTop > EDGE_EPS_PX
     setEdges(top ? (bottom ? 'both' : 'top') : (bottom ? 'bottom' : 'none'))
   }
 
