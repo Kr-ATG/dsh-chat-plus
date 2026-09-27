@@ -376,6 +376,8 @@ interface KrActivityProjection {
   readonly tools: readonly ChatNode<'tool-call'>[]
   readonly tasks: readonly TurnTaskItem[]
   readonly steps: readonly KrActivityStepState[]
+  /** 本轮真实起点（毫秒时间戳），供活动卡的用时读数使用；取不到时为 undefined。 */
+  readonly turnStart?: number | undefined
 }
 
 const EMPTY_KR_ACTIVITY_PROJECTION: KrActivityProjection = {
@@ -383,6 +385,7 @@ const EMPTY_KR_ACTIVITY_PROJECTION: KrActivityProjection = {
   tools: [],
   tasks: [],
   steps: [],
+  turnStart: undefined,
 }
 
 /**
@@ -503,11 +506,26 @@ function collectKrActivityProjection(snapshot: any, turn: number, includeHidden 
     })
   }
 
+  /*
+   * 本轮真实起点。活动卡里那枚用时读数只认它——拿不到就不渲染读数，绝不用
+   * 「工具数 × 800ms」那种兜底猜数去冒充用户看到的时长。
+   */
+  let turnStart: number | undefined
+  try {
+    const turnsMap = snapshot?.timeline?.turns
+    const t = turnsMap?.get ? turnsMap.get(turn) : turnsMap?.[turn]
+    if (typeof t?.start?.time === 'number') turnStart = t.start.time
+  } catch { /* 取不到就交给下面的 legacy 兜底 */ }
+  if (turnStart === undefined) {
+    try { turnStart = snapshot?.legacy?.turnTimings?.get?.(turn)?.startTime } catch { /* 仍无起点 */ }
+  }
+
   return {
     reasoning,
     tools: [...tools.values()].sort((a, b) => a.anchorSeq - b.anchorSeq),
     tasks: [...tasks.values()],
     steps: stepStates,
+    turnStart,
   }
 }
 
@@ -518,6 +536,7 @@ function sameKrActivityProjection(left: KrActivityProjection, right: KrActivityP
     || left.tools.length !== right.tools.length
     || left.tasks.length !== right.tasks.length
     || left.steps.length !== right.steps.length
+    || left.turnStart !== right.turnStart
   ) return false
   for (let index = 0; index < left.reasoning.length; index += 1) {
     const a = left.reasoning[index]
@@ -685,6 +704,7 @@ export const TurnProcessShadowView = memo(function TurnProcessShadowView(props: 
         turn={turn}
         reasoning={krProjection.reasoning}
         tools={krProjection.tools}
+        turnStart={krProjection.turnStart}
         active={krActive}
         closing={krClosing}
         committed={krCommitted}

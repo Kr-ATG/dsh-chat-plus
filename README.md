@@ -12,7 +12,7 @@
   （JSON → SVG）· 生图画廊条 · 重试行影子
 - **界面与工具**：会话头部「对话 / 轨迹」标签上移到右上角 · 桌面壳窗口控制留位与主题同步 ·
   对话截图（无头浏览器出图，可内嵌本地 HTML）· download 下载工具（wire 工具 + 实时进度条）
-- **KR 对话双栏大盘**：右栏是**任务 / 思考 / 操作面板**三张卡的滚动区 + **用时 / 记忆**两块的钉底 footer。顶栏（机器人头像
+- **KR 对话双栏大盘**：右栏是**任务 / 思考 / 操作面板**三张卡的滚动区 + 记忆卡钉底 footer。顶栏（机器人头像
   + 标题 + 统计副标题 + 截图 / 收起按钮）默认隐藏，由 `KR_PANEL_HEADER_VISIBLE` 单独门控；
   技术视角的「工具调用」卡已整块移除（工具细节只留在操作面板每条的「技术细节」折叠里）；
   **「操作面板」卡**把本轮工具调用翻成
@@ -38,7 +38,7 @@
 | **可交互卡片** | 正文里的 proto-tabs 围栏渲染成可点击的 Tab 卡片（信息分层 pill / 可展开卡片 / AI 流光三种形态，缺省 pill）；解析失败自动回退原文，绝不崩卡 |
 | **对话截图** | assistant 消息操作栏相机按钮 → 截图面板（范围本条回复/这一轮/整段会话 × 版式电脑/手机 × 画质 1080P/2K/4K × 画幅 × 五套主题（浅/深/玻璃/玻璃深/阅读版）；标题/徽章可编辑；预览后保存/复制/下载/打开目录；「元素删除」编辑模式点击页面删元素再重新生成）。正文里提到的本地 HTML 会自动内嵌进截图（走 file:// iframe，同目录样式图片照常加载，只嵌页面本身，最多 3 张）；host 端常驻无头浏览器渲染卡片（markdown-it + shiki + mermaid 真图），保存目录 `~/.dsh/storages/dsh-chat-flow-screenshot` |
 | **会话头部视图标签** | 官方把「对话 / 轨迹」两个视图标签独占标题下方一整行（header 76px）；本插件把 header 改成单行 flex，标签钉到右上角与标题同行（header 收回 45px，省下的 31px 还给正文），下划线贴字、hover 从中心展开、选中常驻蓝条。纯 CSS 注入，选择器只用 `header` / `role=tablist` / CSS Module 的 `_titleRow`、`_tab` 后缀，不依赖构建 hash 前缀；单视图（无 tablist）时 `:has` 不匹配，零影响。桌面壳（Electron 无边框窗口）右上角自绘 最小化/最大化·还原/关闭：与壳走 `dsh:shell-hello` → `dsh:shell-chrome` 能力握手，收到应答才给 `<html>` 挂 `dsh-in-shell`（旧壳不应答 = 行为不变，不留空档），header 右 padding 28px→128px，右侧控制簇（工作区按钮/更多/侧栏展开/对话·轨迹）整体左移 100px 留位；同时监听 `<body data-ds-dark-theme>` 把主题以 `dsh:theme` postMessage 给壳，壳按钮颜色随界面深浅同步。浏览器直开两者零影响 |
-| **KR 对话双栏大盘** | 左栏官方 ChatView 原样保留（只有一行状态卡，明细全在右栏），右栏是全高执行大盘，分**滚动区**与**钉底 footer**两段。滚动区自上而下：**任务**（来自本轮 `todo_write` / 官方 todos 实时投影，有真实任务才出现）→ **思考**（有界视口 + 实时跟随滚动，**完整保留不摘要**，默认 25 行封顶）→ **操作面板**（人话行动流，见下条）。footer 钉底自上而下：**用时**细行（本轮耗时，逐秒走）→ **记忆**（默认折叠，见下条）。技术视角的**「工具调用」卡已按用户要求整块移除**（组件 `KrToolCallsCard.tsx` 与整套 `kr-tool*` 样式一并删除，smoke-client 留了断言防复活）：它和操作面板讲的是同一批事件，工具名、参数、退出码、原始返回现在只出现在操作面板每条末尾的「技术细节」折叠里。开关都在 `src/client/kr-chat/enabled.ts`：`KR_CHAT_ENABLED`（整套 KR 视图）、`KR_PANEL_HEADER_VISIBLE`（顶栏，默认 false）、`KR_PLAIN_TIMELINE_CARD_VISIBLE`（操作面板卡，默认 true）、`KR_MEMORY_CARD_VISIBLE`（记忆卡，默认 true）——全是**隐藏而非删除**，改回 true 即恢复。顶栏隐藏后能力不丢：收起 / 展开走标签行最右端的「Agent 轨迹大盘」开关（`#kr-panel-toggle-btn`），截图走 assistant 消息操作栏相机按钮。**挤压自适应**：`use-adaptive-rows.ts` 用 ResizeObserver 监视 `.kr-panel__scroll`，溢出时把思考卡视口行数逐档下调（25→18→12→8→5），空间恢复即回升，只在档位真正变化时 setState（不进 ResizeObserver 自激循环） |
+| **KR 对话双栏大盘** | 左栏官方 ChatView 原样保留（只有一行状态卡，明细全在右栏），右栏是全高执行大盘，分**滚动区**与**钉底 footer**两段。滚动区自上而下：**任务**（来自本轮 `todo_write` / 官方 todos 实时投影，有真实任务才出现）→ **思考**（有界视口 + 实时跟随滚动，**完整保留不摘要**，默认 25 行封顶）→ **操作面板**（人话行动流，见下条）。footer 钉底只剩**记忆**（默认折叠，见下条）；**用时已搬去左栏那张「Agent 正在…」活动卡**（裸数字跟在三点后，见下段）。技术视角的**「工具调用」卡已按用户要求整块移除**（组件 `KrToolCallsCard.tsx` 与整套 `kr-tool*` 样式一并删除，smoke-client 留了断言防复活）：它和操作面板讲的是同一批事件，工具名、参数、退出码、原始返回现在只出现在操作面板每条末尾的「技术细节」折叠里。开关都在 `src/client/kr-chat/enabled.ts`：`KR_CHAT_ENABLED`（整套 KR 视图）、`KR_PANEL_HEADER_VISIBLE`（顶栏，默认 false）、`KR_PLAIN_TIMELINE_CARD_VISIBLE`（操作面板卡，默认 true）、`KR_MEMORY_CARD_VISIBLE`（记忆卡，默认 true）——全是**隐藏而非删除**，改回 true 即恢复。顶栏隐藏后能力不丢：收起 / 展开走标签行最右端的「Agent 轨迹大盘」开关（`#kr-panel-toggle-btn`），截图走 assistant 消息操作栏相机按钮。**挤压自适应**：`use-adaptive-rows.ts` 用 ResizeObserver 监视 `.kr-panel__scroll`，溢出时把思考卡视口行数逐档下调（25→18→12→8→5），空间恢复即回升，只在档位真正变化时 setState（不进 ResizeObserver 自激循环） |
 | **「操作面板」卡（人话行动流）** | 滚动区第三张，读者定位是**不会编程的普通用户**；卡片头是「一串按时间发生的动作」图标（竖线 + 三个节点 + 递减短线，与任务清单/灯泡/扳手/大脑都不撞形）。三块纯逻辑：`src/client/kr-chat/plain-language.ts`（工具名 → `{图标, 动词, 细节}`）、`plain-timeline.ts`（思考播报 + 工具事实 → 时间线）、`KrPlainTimelineCard.tsx`（呈现）。**「已经做了什么」**来自工具调用事实：先剥命名空间前缀（`mcp__playwright-mcp__browser_click` → `browser_click`，provider 前缀由注册决定，规则表不跟着它变），再走规则表 + 站点友好名表（携程/淘宝/GitHub…，携程机票页给「携程 · 机票」），`read` 只出文件名、`pwsh` 只出 description，**命令原文 / 完整路径 / 参数名一律不上屏**——压在卡片头部那枚「技术细节」总开关下面统一展开（tool 名 + 原始入参 JSON + 错误原文），需要的人自己点。未知工具 / 未知 MCP 统一兜底「执行 X」，不崩不空；CUA 桌面控制（`cua_driver_native__*` 剥掉前缀后只剩 `get_window_state` 这类通用短名，匹配不上任何前缀兜底）另有 20 来条专门规则，否则整屏都是「执行 get_window_state」。细节里的 `\uXXXX` 转义统一解回字符（工具描述是 JSON 编出来的，原样透上去就是一串机器码），但路径里的 `\\` 保持原样。**「准备做什么」**来自新增的第 4 条内置注入通道 `PLAIN_PROGRESS_RULE`（`src/triad/memory/engine/inject.ts`）：约定模型每次动手前在**思考里**单起一行写「下一步：<不超过 30 字的中文说明>」，客户端 `extractIntent()` 取**最后一条**匹配（流式重述天然去重），行首严格匹配失败再退到行内匹配。选思考块而不是正文，是因为思考在 KR 模式下不流进对话流（由右栏思考卡承接），不会把正式回复搞脏。导航落地按信息量分四档：默认落地只报站点名、**查询参数被整个丢掉**时明说「目标信息已被忽略」（实测携程的 `/online/list/oneway-ctrip?dcity=bjs&acity=sha` 会被打回首页）、同站跳别处报「被重定向」、跨站报两个站名。**保留每一次调用**（browser_click 点 20 次就是 20 条，不聚合计数——「点了 20 次」本身就是事实），但 `todo_write` 整轮只出**一行汇总**并钉在它**首次出现**的位置（说清「改了几次 / 完成几项」）——模型每改一次任务状态就重写一次清单，按时间逐条排会得到「更新清单 → 做A → 更新清单 → 做B」这种反复穿插，而甩到最后又破坏了时间线的时间语义（模型列计划往往发生在**开头**）；任务状态本身已有上面那张「任务概览」卡实时显示，这里逐条重复纯属冗余；不算百分比，只给进行中 / 已完成 / 失败三个计数。列表有界滚动（默认 6 行，被挤压降到 3 行）并接进 `heightFingerprint`，新步骤贴底自动跟随、用户上滚即截停、收口回顶（内容定格后停在底部，开头几步反而看不见）。**派生子智能体的步骤**（`subagent` / `workflow` / `ralph`）下方挂一个缩进区块，列出子智能体的名字与运行状态 —— 子智能体在 DSH 里是**独立会话**、不是父调用的 `subCalls`（那条通道是 Code Dispatch「工具里再调工具」），父调用对它们内部在做什么一无所知，不挂这个区块就只剩一句干巴巴的「执行 workflow」。开关：composer 记忆注入悬浮卡里新增「过程播报」一行（`state.plainEnabled` / `config.plainInjectDefaultEnabled`，**默认开**——与 diagram 通道默认关相反，这条通道是「准备做什么」的唯一来源，关掉卡片不空但只剩一半） |
 | **记忆卡（KR 右栏）** | 数据面走 host 的 `/api/dsh-memory/*`（纯 fetch，无 typert）。**常态折叠**：钉在右栏最下方，但**默认收起**，标题行留一枚「N 条」徽标说清这次对话记了几条，要看由用户点开——默认展开时模型每记一条右栏就自己长高一截、把用户正在读的思考卡顶走一截，而位置还是他没动过的，观感上就是「界面在抖」；顺带让 footer 常态只占一行，思考卡多拿回几行视口。切会话**不重置**折叠态：用户手动点过一次就说明他想看。**口径 = 本会话新增，有新增才显示**：分区只列**这个会话写下 / 更新过**的条目——按条目溯源 `provenance.sessionId` 等值判定（host 在自动提取、memory_remember / memory_revise 写入时落盘），**不按时间**：时钟偏差、刷新、切会话都不影响结果；本会话更新过的记忆（upsert 撞已有条目）同样刷新溯源算本会话。没有新增的分区**整个不渲染**（无占位行），两个分区都无新增时卡体收成一行头部；不再提供「全部 N」历史逃生口（全量历史走侧边栏记忆工作台）。工作区分区再叠加当前 cwd → projectHash 限定（path 匹配，不自己复刻 sha1）。**删除**：点行尾垃圾桶 → 行内「删除？确认 取消」，`POST /delete-batch`，乐观摘除、失败整份回滚。记忆模块不可用时整卡降级成一行「记忆模块未就绪」，不崩其余卡片 |
 | **四工作台（原 dsh-triad）** | 2026-09-24 融合：`dsh-triad` 的 host / client 两半身整体搬进 `src/triad/` 与 `src/client/triad/`（host 45 文件 + client 74 文件，SHA256 逐一比对零差异），`dsh-triad` 从 profile bundles 摘除。**侧边栏四入口**：自动化（首行）/ 记忆 / 能力 / 用量。**8 组路由前缀**与工具名一字未改：`/api/dsh-memory/*`（面板数据 + 裁决操作）、`/api/triad-automation/*`、`/api/usage-stats/*`、`/api/skill-manager/*`、`/api/skill-toggles/*`、`/api/skill-health`、`/api/mcp-recommended`、`/api/triad/mcp-status|mcp-config`；工具 `memory_search` / `memory_remember` / `memory_pin` / `memory_tag` / `memory_forget` / `memory_revise` / `memory_retire` / `memory_consolidate` 与 `automation` 照旧。**记忆引擎**仍挂 `agent/pre-step` 注入（prepend，绝不写 system prompt）与 `session/event` 的 turn/end 捕获 → LLM 提取 → ticker 增量编译。装配按「每模块一个 try/catch」，一个工作台挂不起来不影响其他三个，也不影响上面的对话增强 |
@@ -127,12 +127,9 @@ variant 可选 pill / expand / glow，缺省 pill（方案A）。未闭合围栏
 │                                    │ ┌ 任务 ────────────────────┐ │
 │   [user]  …                        │ │ todo_write / 官方 todos  │ │
 │   [assistant] …                    │ └──────────────────────────┘ │
-│   (Agent 正在读取文件) ···         │ ┌ 思考 ────────────────────┐ │
+│   (Agent 正在读取文件 ··· 12s)      │ ┌ 思考 ────────────────────┐ │
 │   …（左栏只有这一行状态卡）          │ │ 完整文本，25 行封顶      │ │
 │                                    │ │ 挤压时逐档缩到 5 行      │ │
-│                                    │ └──────────────────────────┘ │
-│                                    │ ┌ 工具调用 ───────────────┐ │
-│                                    │ │ 默认折叠，只留展开入口  │ │
 │                                    │ └──────────────────────────┘ │
 │                                    │ ┌ 操作面板 ─────────────┐ │
 │                                    │ │ 人话行动流，默认展开    │ │
@@ -143,14 +140,21 @@ variant 可选 pill / expand / glow，缺省 pill（方案A）。未闭合围栏
 │                                    │ │ 默认折叠，只留「N 条」  │ │
 │                                    │ │ 展开后只列本会话新增    │ │
 │                                    │ └──────────────────────────┘ │
-│                                    │ 🕐 用时 1m 23s ●             │
 └────────────────────────────────────┴──────────────────────────────┘
 ```
 
-> footer 里的「用时」细行在**记忆卡上方**，运行中逐秒走（数值右侧有呼吸点），
-> 回合结束定格、点熄灭。它只显示**真实测到**的用时：拿不到轮次生命周期起点就
-> 整行不渲染，绝不用「工具数 × 800ms」那种兜底猜测冒充——那是对用户一直挂在
-> 眼前的读数，凑出来的假数字会被当成真的看。
+> **用时挂在左栏那张「Agent 正在…」活动卡上**（`KrLiveActivityCard.tsx` 的
+> `.kr-elapsed`），跟在动作名与三点之后，就是一行裸数字：`··· 1m 23s`。
+> 它换过两个位置都不对：原先在大盘 footer 顶部（记忆卡正上方）被读成记忆卡的
+> 副标题，试过大盘滚动区顶部 sticky 又变成右栏里一块没来由的常驻条——右栏讲的是
+> 「这一轮做了什么」，用时讲的是「这一轮跑了多久」，两件事挤在同一栏里，读数必然
+> 被当成某张卡的附属说明。跟着动作走，所见即所测。
+> 形制上只留数字：胶囊底色与时钟图标都试过，被判定不好看。数字等宽（tabular-nums）
+> 且不做显影动画——每秒播一次淡入等于每秒喊一次「变了」；运行中只把字色提一档
+> （0.2s 过渡），回合结束定格。窄卡片时动作名可以省略，用时读数 `flex: none` 永远
+> 完整。它只显示**真实测到**的用时：拿不到轮次生命周期起点（`turnStart`）就整枚不
+> 渲染，绝不用「工具数 × 800ms」那种兜底猜测冒充。同时 `aria-hidden`——整张活动卡
+> 是 `aria-live="polite"` 的 live region，读数每秒变，留在里面就是每秒播报一次时长。
 
 四个开关（`src/client/kr-chat/enabled.ts`）都是**隐藏而非删除**：
 
@@ -453,16 +457,16 @@ src/
         ├── icons.tsx                — kind 徽标 SVG 字形
         ├── use-now.ts               — 走秒时钟
         └── styles.ts                — 工具聚合样式（dts__ 命名空间）
-    └── kr-chat/                     — KR 对话双栏大盘（右栏三张卡 + 用时细行 + 记忆卡）
+    └── kr-chat/                     — KR 对话双栏大盘（右栏三张卡 + 底部记忆卡）
         ├── enabled.ts               — 四个「隐藏不删除」开关（KR / PANEL_HEADER / PLAIN_TIMELINE_CARD / MEMORY_CARD）
-        ├── KrAgentPanel.tsx         — 右栏容器：卡片编排 + 用时计算 + 自适应行数下发
+        ├── KrAgentPanel.tsx         — 右栏容器：卡片编排 + 用时计算（副标题统计用）+ 自适应行数下发
         ├── KrTaskOverviewCard.tsx   — 任务卡（todo_write / 官方 todos 投影）
         ├── KrReasoningCard.tsx      — 思考卡（有界视口 + 实时跟随滚动 + maxRows 自适应）
         ├── plain-language.ts        — 工具名 → 中文人话（站点友好名 / 只出文件名 / 命令行不上屏 / spawnsSubagents 标记）
         ├── plain-timeline.ts        — 思考播报 + 工具事实 → 人话行动时间线（纯函数，todo 折叠成一行）
         ├── subagent-catalog.ts      — 子智能体清单（ctx.sessions 的 subagentsByParent，零 RPC）
         ├── KrPlainTimelineCard.tsx  — 「操作面板」卡（人话行动流，默认展开，含子智能体区块）
-        ├── KrTurnTimer.tsx          — footer「用时」细行（记忆卡上方，只显示真实测量值）
+        ├── KrLiveActivityCard.tsx   — 左栏「Agent 正在…」活动卡（动作名交叉淡入 + 三点 + **用时读数**）
         ├── KrMemoryCard.tsx         — 记忆卡（本会话口径、默认折叠、无新增整卡不渲染）
         ├── memory-api.ts            — /api/dsh-memory/* 最小 fetch 客户端（零依赖）
         ├── use-adaptive-rows.ts     — 挤压自适应 hook（ResizeObserver + 档位刹车）

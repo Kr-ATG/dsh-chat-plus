@@ -1477,88 +1477,24 @@ body[data-kr-resizing="true"] * {
    记忆卡不再是 .kr-panel__scroll 的子节点，而是滚动区之下的独立 flex footer：
    滚动区（flex:1 1 0）高度自动让位，记忆卡永远钉在右栏最下方——无论内容
    多少、无论滚动位置。旧方案是滚动区内的 sticky bottom:0，内容少时卡片
-   跟在其它卡后面悬在中间，做不到「永远在下方」，已废弃。 */
+   跟在其它卡后面悬在中间，做不到「永远在下方」，已废弃。
+
+   footer 现在只服务记忆卡一块（用时已搬去对话流里那张「Agent 正在…」活动卡，
+   工具调用卡整块移除），所以它与滚动区是「内容 / 常驻区」的分工。 */
 .kr-panel__memory-dock {
   flex: none;
   padding: 0 12px 12px;
-  /* 同样透明：footer 只是把「用时 / 记忆」钉在下方，不该自己带一块底色。 */
+  /* 同样透明：footer 只是把记忆卡钉在下方，不该自己带一块底色。 */
   background: var(--kr-canvas-bg);
   display: flex;
   flex-direction: column;
-  /* 两块之间留呼吸。用时行原有的 padding-bottom 相应收到 0，避免双重间距。 */
-  gap: 8px;
 }
-
 
 /* 记忆卡「没有本会话新增就整卡不渲染」时，dock 里一个子节点都不剩。
    用 :empty 收掉 footer 的 padding —— 不必让父级再存一份「记忆卡可见吗」的
    状态来回同步（那会让父级成为子组件的镜像，早一帧晚一帧都闪）。 */
 .kr-panel__memory-dock:empty {
   display: none;
-}
-
-/* 用时细行（footer 顶部，记忆卡上方）
-   刻意做成**无框细行**而不是一张卡：它是读数，不是内容。记忆卡是一张有投影的
-   卡片，用时行紧贴在它上面，再套一层卡会变成「卡上又一张卡」。
-
-   高度只有 22px，对右栏挤压的影响可以忽略；而它一存在 footer 就不再是 :empty，
-   于是 footer 恒驻——这是有意的：用时跟记忆无关，记忆卡 return null 时它照旧在。 */
-.kr-turn-timer {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 22px;
-  /* 下内边距交给 .kr-panel__memory-dock 的 gap，这里保持 0 免得两处叠出双重间距。 */
-  padding: 0 2px;
-  font-size: 11.5px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.kr-turn-timer__icon {
-  display: grid;
-  place-items: center;
-  flex: none;
-  color: var(--dsw-alias-label-caption);
-}
-
-.kr-turn-timer__label {
-  flex: none;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-/*
- * 数字不做显影动画：用时是持续变化的读数，不是「新内容到达」——每秒播一次
- * 淡入/擦除等于每秒提醒一次「变了」，比不动更躁。等宽数字保证位数变化时宽度
- * 不跳（1m 9s → 1m 10s 不会把右边的呼吸点顶走），这已经是全部需要的动效。
- */
-.kr-turn-timer__value {
-  flex: none;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: .01em;
-  color: var(--dsw-alias-label-secondary);
-  transition: color .2s ease;
-}
-
-.kr-turn-timer[data-running="true"] .kr-turn-timer__value {
-  color: var(--dsw-alias-label-primary);
-  font-weight: 500;
-}
-
-/* 运行中：标签右侧一颗呼吸点。回合结束它随整行一起熄灭、字色转三级，
-   一眼能分清这行是活的还是已定格。 */
-.kr-turn-timer__dot {
-  flex: none;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--kr-accent);
-  animation: kr-pulse 1.4s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .kr-turn-timer__dot {
-    animation: none;
-  }
 }
 
 .kr-memory__body {
@@ -2224,6 +2160,44 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
 @keyframes kr-agent-dots {
   0%, 100% { opacity: .3; }
   50% { opacity: 1; }
+}
+
+/*
+ * 本轮用时读数：跟在动作名与三点之后，是这张卡上唯一的一枚「读数」。
+ *
+ * 之前它住在右栏大盘（footer 顶部、滚动区顶部都试过），两处都不对：它讲的是
+ * 「这一轮跑了多久」，而右栏讲的是「这一轮做了什么」，挤在同一栏里必然被当成
+ * 某张卡的附属说明。跟着「Agent 正在…」这张卡走，所见即所测。
+ *
+ * 形制上只留数字：胶囊底色与时钟图标都试过，被判定为"不好看"——这行文字本来
+ * 就在讲「Agent 正在分析」，再给它套一枚底色等于把读数抬成第二主角。裸数字
+ * 挂在三点后面，动作名照旧是这行唯一的主角。
+ *
+ * 三条克制：
+ *  1. **只显示真实测到的值**：turnStart 拿不到就整枚不渲染，绝不猜。
+ *  2. **数字不动画**：每帧显影等于每秒喊一次「变了」；等宽数字（tabular-nums）
+ *     保证 1m 9s → 1m 10s 宽度不跳，后面的元素不会被顶走。
+ *  3. **flex: none**。卡片变窄时可以让动作名省略，用时读数必须完整——它是这条
+ *     线上唯一不能被截断的信息。
+ *
+ * 运行中与结束的差别只给字色一档（0.2s 过渡，不闪烁）。数值每秒变，呼吸点走
+ * 另一套节奏，两者互不干扰。
+ */
+.kr-elapsed {
+  flex: none;
+  /* 与三点之间留一道呼吸：挨太近会被读成动作名的一部分（「正在分析1m23s」）。 */
+  margin-left: .62em;
+  font-family: var(--kr-card-font);
+  font-size: calc(11.5px * var(--kr-text-scale, 1));
+  line-height: calc(18px * var(--kr-text-scale, 1));
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .01em;
+  color: var(--dsw-alias-label-tertiary);
+  transition: color 0.2s ease;
+}
+
+.kr-elapsed[data-running="true"] {
+  color: var(--dsw-alias-label-secondary);
 }
 
 /* ══ 流式文本的平滑显影 ═══════════════════════════════════════════════════

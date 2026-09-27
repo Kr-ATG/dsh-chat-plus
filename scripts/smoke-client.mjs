@@ -391,21 +391,23 @@ if (krEnabled) {
   }
 }
 
-// footer 用时细行：渲染在记忆卡之前，且只在有真实测量值时出现。
+// 用时读数：挂在对话流那张「Agent 正在…」活动卡里（右栏大盘里不再有）。
 if (krEnabled) {
+  const cardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrLiveActivityCard.tsx'), 'utf8')
+  const shadowSrc = readFileSync(resolve(ROOT, 'src/client/tool-summary/TurnProcessShadowView.tsx'), 'utf8')
   const panelSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8')
-  const timerIdx = panelSrc.indexOf('<KrTurnTimer')
-  const memoryIdx = panelSrc.indexOf('<KrMemoryCard')
-  if (timerIdx < 0) {
-    fail('KrAgentPanel 未渲染 <KrTurnTimer>（记忆卡上方的用时细行）')
-  } else if (memoryIdx < 0 || timerIdx > memoryIdx) {
-    fail('用时细行必须渲染在记忆卡**上方**（当前顺序相反）')
-  } else if (!panelSrc.includes('elapsedMeasured')) {
-    fail('用时细行必须受 elapsedMeasured 约束：拿不到真实测量值就不渲染')
-  } else if (!code.includes('.kr-turn-timer__value') || !code.includes('.kr-turn-timer__dot')) {
-    fail('client bundle is missing the turn-timer styles')
+  if (!/className="kr-elapsed"/.test(cardSrc)) {
+    fail('活动卡必须渲染用时读数 .kr-elapsed')
+  } else if (!/typeof turnStart === 'number'/.test(cardSrc)) {
+    fail('用时读数只认真实起点：turnStart 拿不到就不渲染（不许猜数）')
+  } else if (!/turnStart=\{krProjection\.turnStart\}/.test(shadowSrc)) {
+    fail('turnStart 必须从 KrActivityProjection 透传到活动卡（投影要含本轮真实起点）')
+  } else if (panelSrc.includes('KrTurnTimer') || /kr-turn-strip/.test(code)) {
+    fail('用时已搬去活动卡，右栏大盘不该再留着 kr-turn-strip / KrTurnTimer')
+  } else if (!code.includes('.kr-elapsed')) {
+    fail('client bundle is missing the elapsed readout styles')
   } else {
-    pass('footer 用时细行在记忆卡上方，且只在真实测量时显示')
+    pass('用时读数挂在活动卡上（真实起点、无大盘残留）')
   }
 }
 // 头像菜单不能留在 turn-process 固定高度 / overflow:hidden 的子树里；必须 portal 到 body。
@@ -549,25 +551,26 @@ if (!existsSync(resolve(ROOT, 'src/client/kr-chat/plain-language.ts'))) {
   pass('死代码已清理（KrChatView / KrExecutionResultCard / step-parser / default-view）')
 }
 
-// 无障碍：用时细行与思考视口都**不能**用 aria-live。
-// 两处的文本都随时间/流式高频变化，polite 会让屏幕阅读器不停播报（用时每秒
-// 念一次时长、思考每秒念一段新内容），把读屏变成噪音。
-const timerSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrTurnTimer.tsx'), 'utf8')
+// 无障碍：活动卡上的用时读数与思考视口都不能被 live region 反复播报。
+// 两处的文本都随时间/流式高频变化：活动卡整块是 aria-live=polite（动作名换字
+// 要播报），用时读数每秒变一次，留在 live 树里就是每秒念一次时长；思考视口
+// 则会每秒念一段新内容。两者都会把读屏变成噪音。
+const cardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrLiveActivityCard.tsx'), 'utf8')
 const reasoningSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrReasoningCard.tsx'), 'utf8')
-// 断言要打在**代码**上：这两个文件的注释里会解释「为什么不给 role="status"」，
+// 断言要打在**代码**上：这几个文件的注释里会解释「为什么不给 role="status"」，
 // 直接正则匹配整份源码会被注释里的字面量误伤。
-const timerCode = timerSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+const cardCode = cardSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
 const reasoningCode = reasoningSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
-if (/role="status"/.test(timerCode)) {
-  fail('用时细行不得用 role="status"（隐含 aria-live=polite，会每秒播报一次时长）')
-} else if (!/aria-live="off"/.test(timerCode)) {
-  fail('用时细行必须显式 aria-live="off"')
+if (!/className="kr-elapsed"[\s\S]{0,400}aria-hidden="true"/.test(cardCode)) {
+  fail('活动卡的用时读数必须 aria-hidden（整卡是 aria-live=polite，读数每秒变会被每秒播报）')
+} else if (/aria-live=\{[^}]*elapsed/i.test(cardCode)) {
+  fail('用时读数不得单独开 aria-live')
 } else if (/aria-live=\{running \? 'polite'/.test(reasoningCode)) {
   fail('思考视口不得在流式期间开 aria-live=polite（会持续打断读屏用户）')
 } else if (!/aria-live="off"/.test(reasoningCode)) {
   fail('思考视口必须显式 aria-live="off"')
 } else {
-  pass('用时细行与思考视口均关闭 aria-live（高频文本不轰炸读屏）')
+  pass('用时读数与思考视口都不在 live 播报面上（高频文本不轰炸读屏）')
 }
 
 // 三条这轮修掉的 P1：规则形状不能回退。
