@@ -16,7 +16,7 @@
  * 底部自动恢复。与思考过程卡同一套手感。
  */
 
-import { memo, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import { useCrossfadeText, useHeightAnimation, useMotionAllowed, useSteppedFollow } from '../motion-utils.ts'
 import { formatDuration } from '../tool-summary/tool-stats.ts'
@@ -152,11 +152,11 @@ function SubagentBlock({ catalog }: { readonly catalog: SubagentCatalogView }): 
   )
 }
 
-function StepRow({ step, index, techOpen, onToggleTech, catalog }: {
+function StepRow({ step, index, showTech, catalog }: {
   readonly step: PlainStep
   readonly index: number
-  readonly techOpen: boolean
-  readonly onToggleTech: (id: string) => void
+  /** 卡片级的「技术细节」总开关：开则本行展开，关闭时这一行干干净净。 */
+  readonly showTech: boolean
   /** 仅当 step.spawnsSubagents 为真时才有内容。 */
   readonly catalog: SubagentCatalogView | null
 }): ReactElement {
@@ -169,6 +169,7 @@ function StepRow({ step, index, techOpen, onToggleTech, catalog }: {
       className="kr-plain-step"
       data-status={step.status}
       data-nested={step.spawnsSubagents === true ? 'true' : undefined}
+      data-tech={showTech && techText !== '' ? 'open' : undefined}
       // 错峰入场：只对靠后的若干条错开，卡片整体不拖出一段长尾。
       style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
     >
@@ -183,17 +184,7 @@ function StepRow({ step, index, techOpen, onToggleTech, catalog }: {
           {catalog.state === 'ready' ? `${catalog.rows.length} 个子智能体` : '子智能体'}
         </span>
       )}
-      {techText !== '' && (
-        <button
-          type="button"
-          className="kr-plain-step__tech-toggle"
-          aria-expanded={techOpen}
-          onClick={() => { onToggleTech(step.id) }}
-        >
-          {techOpen ? '收起技术细节' : '技术细节'}
-        </button>
-      )}
-      {techOpen && techText !== '' && <pre className="kr-plain-step__tech">{techText}</pre>}
+      {showTech && techText !== '' && <pre className="kr-plain-step__tech">{techText}</pre>}
       {step.spawnsSubagents === true && catalog !== null && <SubagentBlock catalog={catalog} />}
     </div>
   )
@@ -207,7 +198,15 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
 }: KrPlainTimelineCardProps) {
   // 默认展开：这张卡挂在滚动区最末尾，收起等于把它藏到视线之外。
   const [open, setOpen] = useState(true)
-  const [techOpen, setTechOpen] = useState<ReadonlySet<string>>(new Set())
+  /**
+   * 「技术细节」改成**卡片级**总开关。
+   *
+   * 原来每行挂一枚「技术细节」按钮：一轮 15 步就是 15 枚一模一样的按钮并排
+   * 在右边，横向噪声比内容还大，还把每行标题的可用宽度压掉一截。现在收成
+   * 头部一枚开关，开了每行下方统一展开——看全部技术细节本来就是一个整体意图，
+   * 不该让人逐条点十五次。
+   */
+  const [showTech, setShowTech] = useState(false)
   const motion = useMotionAllowed(true)
   const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(open, motion)
   const nowLayers = useCrossfadeText(timeline.nowLabel, motion)
@@ -223,30 +222,46 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   )
   const subagentCatalog = useSubagentCatalog(hasSpawning ? sessionId : null)
 
-  const toggleTech = (id: string): void => {
-    setTechOpen((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
+  /** 本轮是否有任何一条带技术信息（决定头部那枚开关渲不渲染）。 */
+  const hasTech = useMemo(
+    () => timeline.steps.some((step) => step.tech !== undefined
+      && [step.tech.name, step.tech.args, step.tech.error].some((part) => part !== undefined && part !== '')),
+    [timeline.steps],
+  )
 
   // 跟随探针：条目数 / 当前动作 / 预告任一变化都重新贴底。
   const probe = useMemo(
     () => `${timeline.steps.length}:${timeline.nowLabel}:${timeline.intent ?? ''}`,
     [timeline.steps.length, timeline.nowLabel, timeline.intent],
   )
-  const { ref: listRef, onScroll, onWheel, overflow, following } = useSteppedFollow(probe, running && open, motion)
+  const { ref: listRef, onScroll, onWheel, overflow, following, edges } = useSteppedFollow(probe, running && open, motion)
+
+  /*
+   * 收口时把列表拉回顶部。
+   *
+   * 运行中列表一直贴底跟随（用户在追最新动作），轮次一结束内容就定格了——这时
+   * 停在底部反而把开头那几步挡在视口外，而「这一轮一共做了什么」正是收口后用户
+   * 最想看的东西。留着跟随时的滚动位置还会与后来的内容变化错位，顶部被硬切出
+   * 半行（没有渐隐遮罩时尤其明显，见 styles.ts 的 kr-plain-list）。
+   */
+  const wasRunningRef = useRef(running)
+  useEffect(() => {
+    const was = wasRunningRef.current
+    wasRunningRef.current = running
+    if (!was || running) return
+    const el = listRef.current
+    if (el === null) return
+    el.scrollTop = 0
+    el.dispatchEvent(new Event('scroll'))
+  }, [running, listRef])
 
   const empty = timeline.steps.length === 0
+  // 徽标只说「规模」，不带失败数以外的解释；「N 失败」留在 tooltip 里。
   const badge = timeline.activeCount > 0
     ? '进行中'
     : empty
       ? '待开始'
-      : timeline.failedCount > 0
-        ? `${timeline.doneCount} 步 · ${timeline.failedCount} 失败`
-        : `${timeline.doneCount} 步`
+      : `${timeline.steps.length} 步`
   const maxRows = squeezed ? LIST_MAX_ROWS_SQUEEZED : LIST_MAX_ROWS
 
   return (
@@ -274,6 +289,17 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
         <span className={`kr-card__badge ${running ? 'kr-card__badge--running' : 'kr-card__badge--done'}`}>
           {badge}
         </span>
+        {hasTech && (
+          <button
+            type="button"
+            className="kr-plain-tech-toggle"
+            data-on={showTech ? 'true' : undefined}
+            aria-pressed={showTech}
+            onClick={(event) => { event.stopPropagation(); setShowTech((value) => !value) }}
+          >
+            技术细节
+          </button>
+        )}
         <span className="kr-card__chevron" data-collapsed={!open ? 'true' : 'false'}>
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6">
             <path d="M2.5 4.5 6 8 9.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -331,6 +357,7 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
                */
               tabIndex={overflow ? 0 : undefined}
               data-following={running && open && following ? 'true' : undefined}
+              data-edges={edges}
               style={{ '--kr-plain-rows': maxRows } as CSSProperties}
             >
               {timeline.steps.map((step, index) => (
@@ -338,8 +365,7 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
                   key={step.id}
                   step={step}
                   index={index}
-                  techOpen={techOpen.has(step.id)}
-                  onToggleTech={toggleTech}
+                  showTech={showTech}
                   catalog={step.spawnsSubagents === true ? subagentCatalog : null}
                 />
               ))}

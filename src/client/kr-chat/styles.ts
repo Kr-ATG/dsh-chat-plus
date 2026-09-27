@@ -1221,10 +1221,69 @@ body[data-kr-resizing="true"] * {
   max-height: calc(var(--kr-plain-rows, 6) * var(--kr-plain-row-h) + 6px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  /* 滚动条走大盘统一那套（见文件末尾「大盘统一简约滚动条」）。
-     不再单独写 thumb 色：此前这里用的是 --kr-card-border（发丝级描边，
-     浅色下 4% 黑、深色下 7% 白），滑块画出来跟没画一样。 */
+  /* 滚动条走大盘统一那套（见文件末尾「大盘统一简约滚动条」）。 */
   padding-right: 2px;
+}
+
+/*
+ * 上下缘按滚动位置渐隐。
+ *
+ * 之前这张列表是**硬切**的：内容超出 max-height 就被矩形裁掉，顶部留下一行被
+ * 切掉上半截的字（用户截图里就是这么个效果）。思考卡早就处理过这个问题，名单
+ * 独漏了。渐隐让「上面还有内容」变成一种柔和的暗示，而不是一道生硬的切口。
+ */
+.kr-plain-list[data-edges="both"] {
+  -webkit-mask-image: linear-gradient(transparent 0, black 16px, black calc(100% - 16px), transparent 100%);
+  mask-image: linear-gradient(transparent 0, black 16px, black calc(100% - 16px), transparent 100%);
+}
+
+.kr-plain-list[data-edges="top"] {
+  -webkit-mask-image: linear-gradient(transparent 0, black 16px, black 100%);
+  mask-image: linear-gradient(transparent 0, black 16px, black 100%);
+}
+
+.kr-plain-list[data-edges="bottom"] {
+  -webkit-mask-image: linear-gradient(black 0, black calc(100% - 16px), transparent 100%);
+  mask-image: linear-gradient(black 0, black calc(100% - 16px), transparent 100%);
+}
+
+@media (forced-colors: active) {
+  .kr-plain-list { -webkit-mask-image: none !important; mask-image: none !important; }
+}
+
+/* 卡片级「技术细节」开关（头部）。
+   原来这枚按钮挂在每一行上：一轮 15 步就是 15 枚一模一样的按钮并排右侧，
+   横向噪声压过内容本身，还把标题的可用宽度吃掉一截。收成一枚之后每行只剩
+   「状态点 + 图标 + 标题 + 耗时」，该有的呼吸感回来了。 */
+.kr-plain-tech-toggle {
+  flex: none;
+  padding: 1px 7px;
+  border: 1px solid var(--kr-card-border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 15px;
+  cursor: pointer;
+  transition: color .16s ease, border-color .16s ease, background-color .16s ease;
+}
+
+.kr-plain-tech-toggle:hover {
+  color: var(--dsw-alias-label-secondary);
+  border-color: var(--kr-card-hover);
+  background: var(--kr-hover-bg);
+}
+
+.kr-plain-tech-toggle[data-on="true"] {
+  color: var(--kr-accent);
+  border-color: color-mix(in srgb, var(--kr-accent) 34%, transparent);
+  background: color-mix(in srgb, var(--kr-accent) 11%, transparent);
+}
+
+.kr-plain-tech-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--kr-accent) 52%, transparent);
+  outline-offset: 1px;
 }
 
 /* ── 单条步骤 ─────────────────────────────────────────────────────────── */
@@ -1318,29 +1377,9 @@ body[data-kr-resizing="true"] * {
   font-variant-numeric: tabular-nums;
 }
 
-.kr-plain-step__tech-toggle {
-  flex: none;
-  padding: 1px 6px;
-  border: 1px solid var(--kr-card-border);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 10.5px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: color .16s ease, border-color .16s ease, background-color .16s ease;
-}
-
-.kr-plain-step__tech-toggle:hover {
-  color: var(--dsw-alias-label-secondary);
-  border-color: var(--kr-card-hover);
-  background: var(--kr-hover-bg);
-}
-
-.kr-plain-step__tech-toggle:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--kr-accent) 52%, transparent);
-  outline-offset: 1px;
-}
+/* 行内那枚「技术细节」按钮的样式已删：收成卡片级开关（.kr-plain-tech-toggle，
+   挂在卡片头部）之后，行内只剩「状态点 + 图标 + 标题 + 耗时」，标题终于能
+   占满整行宽度。 */
 
 /* 展开的技术明细独占一行：flex-basis 100% 让它从当前行折下去。 */
 .kr-plain-step__tech {
@@ -1357,6 +1396,12 @@ body[data-kr-resizing="true"] * {
   white-space: pre-wrap;
   word-break: break-all;
   color: var(--dsw-alias-label-tertiary);
+  animation: kr-plain-tech-in .22s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+@keyframes kr-plain-tech-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
 }
 
 /* ── 子智能体区块（挂在「派生子任务」那一步下面） ───────────────────────

@@ -593,6 +593,20 @@ if (krEnabled) {
     } else {
       pass('子智能体区块样式与父会话 id 传递在位')
     }
+
+    // 「正在做什么」卡的三个布局修复：行内技术细节按钮必须收成卡片级（15 行挂
+    // 15 枚按钮是横向噪声）、列表必须有上下渐隐（否则顶部被硬切出半行）、
+    // 收口时必须回顶（内容定格后停在底部会把开头几步挡在视口外）。
+    const cardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrPlainTimelineCard.tsx'), 'utf8')
+    if (/kr-plain-step__tech-toggle/.test(cardSrc)) {
+      fail('行内「技术细节」按钮已废弃，必须收成卡片级总开关（.kr-plain-tech-toggle）')
+    } else if (!code.includes('.kr-plain-list[data-edges="both"]')) {
+      fail('时间线列表缺少上下渐隐遮罩（顶部会被硬切出半行）')
+    } else if (!/wasRunningRef/.test(cardSrc)) {
+      fail('轮次收口时必须把时间线列表拉回顶部')
+    } else {
+      pass('技术细节收成卡片级开关 + 列表渐隐 + 收口回顶')
+    }
   }
 }
 
