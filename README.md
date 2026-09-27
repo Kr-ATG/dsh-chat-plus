@@ -36,7 +36,7 @@
 | **可交互卡片** | 正文里的 proto-tabs 围栏渲染成可点击的 Tab 卡片（信息分层 pill / 可展开卡片 / AI 流光三种形态，缺省 pill）；解析失败自动回退原文，绝不崩卡 |
 | **对话截图** | assistant 消息操作栏相机按钮 → 截图面板（范围本条回复/这一轮/整段会话 × 版式电脑/手机 × 画质 1080P/2K/4K × 画幅 × 五套主题（浅/深/玻璃/玻璃深/阅读版）；标题/徽章可编辑；预览后保存/复制/下载/打开目录；「元素删除」编辑模式点击页面删元素再重新生成）。正文里提到的本地 HTML 会自动内嵌进截图（走 file:// iframe，同目录样式图片照常加载，只嵌页面本身，最多 3 张）；host 端常驻无头浏览器渲染卡片（markdown-it + shiki + mermaid 真图），保存目录 `~/.dsh/storages/dsh-chat-flow-screenshot` |
 | **会话头部视图标签** | 官方把「对话 / 轨迹」两个视图标签独占标题下方一整行（header 76px）；本插件把 header 改成单行 flex，标签钉到右上角与标题同行（header 收回 45px，省下的 31px 还给正文），下划线贴字、hover 从中心展开、选中常驻蓝条。纯 CSS 注入，选择器只用 `header` / `role=tablist` / CSS Module 的 `_titleRow`、`_tab` 后缀，不依赖构建 hash 前缀；单视图（无 tablist）时 `:has` 不匹配，零影响。桌面壳（Electron 无边框窗口）右上角自绘 最小化/最大化·还原/关闭：与壳走 `dsh:shell-hello` → `dsh:shell-chrome` 能力握手，收到应答才给 `<html>` 挂 `dsh-in-shell`（旧壳不应答 = 行为不变，不留空档），header 右 padding 28px→128px，右侧控制簇（工作区按钮/更多/侧栏展开/对话·轨迹）整体左移 100px 留位；同时监听 `<body data-ds-dark-theme>` 把主题以 `dsh:theme` postMessage 给壳，壳按钮颜色随界面深浅同步。浏览器直开两者零影响 |
-| **KR 对话双栏大盘** | 左栏官方 ChatView 原样保留，右栏是全高执行大盘。四张卡自上而下：**任务**（来自本轮 `todo_write` / 官方 todos 实时投影，有真实任务才出现）→ **思考**（有界视口 + 实时跟随滚动，默认 25 行封顶）→ **工具调用**（**默认整块折叠、一条不预展**，标题行只留「展开 N 次调用」入口，展开后是全量台账与结果 / 输入 / 原始数据页签）→ **记忆**（sticky 常驻底部，见下条）。四个开关都在 `src/client/kr-chat/enabled.ts`：`KR_CHAT_ENABLED`（整套 KR 视图）、`KR_PANEL_HEADER_VISIBLE`（顶栏，默认 false）、`KR_MEMORY_CARD_VISIBLE`（记忆卡，默认 true）——全是**隐藏而非删除**，改回 true 即恢复。顶栏隐藏后能力不丢：收起 / 展开走标签行最右端的「Agent 轨迹大盘」开关（`#kr-panel-toggle-btn`），截图走 assistant 消息操作栏相机按钮。**挤压自适应**：`use-adaptive-rows.ts` 用 ResizeObserver 监视 `.kr-panel__scroll`，溢出时把思考卡视口行数逐档下调（25→18→12→8→5），空间恢复即回升，只在档位真正变化时 setState（不进 ResizeObserver 自激循环） |
+| **KR 对话双栏大盘** | 左栏官方 ChatView 原样保留（只有一行状态卡，明细全在右栏），右栏是全高执行大盘。四张卡自上而下：**任务**（来自本轮 `todo_write` / 官方 todos 实时投影，有真实任务才出现）→ **思考**（有界视口 + 实时跟随滚动，**完整保留不摘要**，默认 25 行封顶）→ **工具调用**（**默认整块折叠、一条不预展**，标题行只留「展开 N 次调用」入口，展开后是全量台账与结果 / 输入 / 原始数据页签）→ **记忆**（sticky 常驻底部，见下条）。四个开关都在 `src/client/kr-chat/enabled.ts`：`KR_CHAT_ENABLED`（整套 KR 视图）、`KR_PANEL_HEADER_VISIBLE`（顶栏，默认 false）、`KR_MEMORY_CARD_VISIBLE`（记忆卡，默认 true）——全是**隐藏而非删除**，改回 true 即恢复。顶栏隐藏后能力不丢：收起 / 展开走标签行最右端的「Agent 轨迹大盘」开关（`#kr-panel-toggle-btn`），截图走 assistant 消息操作栏相机按钮。**挤压自适应**：`use-adaptive-rows.ts` 用 ResizeObserver 监视 `.kr-panel__scroll`，溢出时把思考卡视口行数逐档下调（25→18→12→8→5），空间恢复即回升，只在档位真正变化时 setState（不进 ResizeObserver 自激循环） |
 | **记忆卡（KR 右栏）** | 数据面走 host 的 `/api/dsh-memory/*`（纯 fetch，无 typert）。**口径 = 本会话新增，有新增才显示**：分区只列**这个会话写下 / 更新过**的条目——按条目溯源 `provenance.sessionId` 等值判定（host 在自动提取、memory_remember / memory_revise 写入时落盘），**不按时间**：时钟偏差、刷新、切会话都不影响结果；本会话更新过的记忆（upsert 撞已有条目）同样刷新溯源算本会话。没有新增的分区**整个不渲染**（无占位行），两个分区都无新增时卡体收成一行头部；不再提供「全部 N」历史逃生口（全量历史走侧边栏记忆工作台）。工作区分区再叠加当前 cwd → projectHash 限定（path 匹配，不自己复刻 sha1）。**删除**：分区标题行「选择」进多选态 → 勾若干条 →「删除」→ 行内「确认删除 N 条？」→ `POST /delete-batch`，乐观摘除、失败整份回滚。记忆模块不可用时整卡降级成一行「记忆模块未就绪」，不崩其余卡片 |
 | **四工作台（原 dsh-triad）** | 2026-09-24 融合：`dsh-triad` 的 host / client 两半身整体搬进 `src/triad/` 与 `src/client/triad/`（host 45 文件 + client 74 文件，SHA256 逐一比对零差异），`dsh-triad` 从 profile bundles 摘除。**侧边栏四入口**：自动化（首行）/ 记忆 / 能力 / 用量。**8 组路由前缀**与工具名一字未改：`/api/dsh-memory/*`（面板数据 + 裁决操作）、`/api/triad-automation/*`、`/api/usage-stats/*`、`/api/skill-manager/*`、`/api/skill-toggles/*`、`/api/skill-health`、`/api/mcp-recommended`、`/api/triad/mcp-status|mcp-config`；工具 `memory_search` / `memory_remember` / `memory_pin` / `memory_tag` / `memory_forget` / `memory_revise` / `memory_retire` / `memory_consolidate` 与 `automation` 照旧。**记忆引擎**仍挂 `agent/pre-step` 注入（prepend，绝不写 system prompt）与 `session/event` 的 turn/end 捕获 → LLM 提取 → ticker 增量编译。装配按「每模块一个 try/catch」，一个工作台挂不起来不影响其他三个，也不影响上面的对话增强 |
 
@@ -114,13 +114,18 @@ variant 可选 pill / expand / glow，缺省 pill（方案A）。未闭合围栏
 底层仍是官方 ChatView（多轮历史、虚拟滚动、Markdown 渲染、底部输入框全部保留），
 右侧多一栏全高执行大盘：
 
+> **分工口径**：左栏对话流只留**一行**状态卡（头像 + 「Agent 正在…」+ 末尾三点），
+> 任务 / 思考 / 工具调用三项明细**只由右栏大盘承担**。曾经左栏还挂一张可展开的
+> 「执行进度」卡，与右栏「任务概览」是同一份内容的两个副本，已删除——同一件事在
+> 两处各抄一份只会让人读到两遍。明细要看就去右栏，左栏保持干净。
+
 ```
 ┌─ 左栏（官方 ChatView，100% 原生）──┬─ 右栏 KrAgentPanel ──────────┐
 │                                    │ ┌ 任务 ────────────────────┐ │
 │   [user]  …                        │ │ todo_write / 官方 todos  │ │
 │   [assistant] …                    │ └──────────────────────────┘ │
-│   …                                │ ┌ 思考 ────────────────────┐ │
-│                                    │ │ 有界视口，25 行封顶      │ │
+│   (Agent 正在读取文件) ···         │ ┌ 思考 ────────────────────┐ │
+│   …（左栏只有这一行状态卡）          │ │ 完整文本，25 行封顶      │ │
 │                                    │ │ 挤压时逐档缩到 5 行      │ │
 │                                    │ └──────────────────────────┘ │
 │                                    │ ┌ 工具调用 ───────────────┐ │
@@ -142,6 +147,23 @@ variant 可选 pill / expand / glow，缺省 pill（方案A）。未闭合围栏
 | `KR_MEMORY_CARD_VISIBLE` | true | 「记忆」卡片 |
 
 改回 true 重新 build（client 半身刷新页面即可）就恢复。
+
+### 状态卡：字体、层级与动效
+
+左栏状态卡是全屏唯一带自定义排版的 chrome，三件事刻意收在同一条基线上：
+
+| 面 | 做法 | 为什么 |
+|---|---|---|
+| **字体** | `--kr-card-font: var(--dsw-font-family)` | 曾写死微软雅黑栈，结果正文（Windows 上西文归 Segoe UI）与卡片（西文归雅黑）出现两种西文字形，右栏大盘四张卡又因无声明而吃正文栈——同一功能三套字体。改跟随正文后全屏一套，且 DSH 调整正文字体时自动跟上 |
+| **层级** | current 步骤 `label-secondary` + 500；状态卡动作名 500 | 曾是 `label-primary` + 600 / 550，是全屏最黑最粗的字，而它承载的只是「当前在干什么」这种辅助信息，压过了主内容。550 还是非标准字重，Segoe UI 与雅黑都没有对应字面，跨字体栈时浏览器只能合成或就近取整 |
+| **动效** | 动作名变化时 220ms 显影一次 + 等待时末尾三点 | **只动 `opacity` / `transform`**，合成器属性、零 paint。原先是 `background-clip: text` 的光带扫过整行——`background-position` 走不了合成器，每一帧都要真重绘一行文字。点数选三点而非单点：语义最通用（Notion / Ant Design / Apple 一套），且不贴字尾像漏了个标点 |
+
+三层各司其职：显影由内容变化驱动（`key={action}`，动作一变节点重建、动画自动重播），
+静置时零开销；三点只在 `data-running` 时挂动画，停下来的卡上不留任何动画；
+`prefers-reduced-motion` 下三点保持静止灰点而不整组抹掉——静止的点仍说明「这里有活动」。
+
+`scripts/smoke-client.mjs` 对这套有断言，并明确禁止已被否掉的方案
+（`kr-agent-text-sweep` 扫光、`kr-agent-caret` 光标、`kr-agent-mini-dot` 单点）复活。
 
 ### 记忆卡的本会话口径
 
