@@ -215,6 +215,10 @@ export const css = {
   injectCardOn: 'dsh-memory-inject-card-on',
   injectHead: 'dsh-memory-inject-head',
   injectTitle: 'dsh-memory-inject-title',
+  injectTag: 'dsh-memory-inject-tag',
+  injectTagOn: 'dsh-memory-inject-tag-on',
+  injectTagOff: 'dsh-memory-inject-tag-off',
+  builtinCard: 'dsh-memory-builtin-card',
   injectRow: 'dsh-memory-inject-row',
   injectRowLead: 'dsh-memory-inject-row-lead',
   injectMain: 'dsh-memory-inject-main',
@@ -587,10 +591,12 @@ const SHEET = `
 
 /* ── 注入开关（composer 工具行）：iconButton 规格 ─────────────────── */
 /* wrap 包住按钮与卡片：卡片是其 DOM 后代，按钮↔卡片间移动不丢 hover。 */
+/* composer 上的两枚注入按钮：中性黑白，与它们各自的卡片同一套色阶。
+   开 = 主文字色（主题深浅自动反色），关 = 三级字色。 */
 .dsh-memory-toggle-wrap{position:relative;display:inline-flex}
-.dsh-memory-toggle{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;border-radius:6px;padding:0;background:transparent;cursor:pointer;color:var(--dsw-alias-label-tertiary,#9ca3af);box-sizing:border-box}
+.dsh-memory-toggle{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;border-radius:6px;padding:0;background:transparent;cursor:pointer;color:var(--dsw-alias-label-tertiary,#9ca3af);box-sizing:border-box;transition:background .15s ease,color .15s ease}
 .dsh-memory-toggle:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(65,118,230,.07))}
-.dsh-memory-toggle-on,.dsh-memory-toggle-on:hover{color:var(--dsw-alias-state-business-primary,#4176e6)}
+.dsh-memory-toggle-on{color:var(--dsw-alias-label-primary,#1f2329)}
 .dsh-memory-toggle-off{color:var(--dsw-alias-label-tertiary,#9ca3af);opacity:.55}
 
 /* ── focus 规范 ───────────────────────────────────────────────────── */
@@ -627,6 +633,14 @@ html[data-dsh-glass] .dsh-memory-inject-card{background:var(--dsw-static-neutral
 body[data-ds-dark-theme] .dsh-memory-inject-card{background:var(--dsw-static-neutral-bluish-1000,#16181d);--m-card-bg:var(--dsw-static-neutral-bluish-1000,#16181d)}
 .dsh-memory-inject-head{display:flex;align-items:center;gap:6px;padding-bottom:7px;border-bottom:1px solid var(--m-border)}
 .dsh-memory-inject-title{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:var(--m-text-2)}
+/* 记忆注入的状态标签：中性灰阶。开=二级字色 + 淡底，关=三级字色 + 更淡的底。
+   （原先用主题蓝，整张卡被染成蓝色调，已按要求去掉。） */
+.dsh-memory-inject-tag{margin-left:auto;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:600;line-height:16px}
+.dsh-memory-inject-tag-on{background:color-mix(in srgb,var(--m-text) 9%,transparent);color:var(--m-text-2)}
+.dsh-memory-inject-tag-off{background:color-mix(in srgb,var(--m-text-3) 14%,transparent);color:var(--m-text-3)}
+/* 内置提示词通道卡：只有三行，比记忆卡窄一档，两张卡挨在一起时宽度差本身就是
+   一条无声的分组线。 */
+.dsh-memory-builtin-card{width:238px}
 .dsh-memory-inject-row{display:flex;align-items:center;gap:10px;padding:9px 0;transition:background .15s ease}
 /* 悬停：极淡的底，让"这一行能点"被看见，又不与开态的底色混淆（开态更深一档）。 */
 .dsh-memory-inject-row:hover{background:color-mix(in srgb,var(--m-text-3) 7%,transparent);border-radius:7px}

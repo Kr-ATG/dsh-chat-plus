@@ -1,24 +1,26 @@
 /**
- * dsh-memory 注入开关（composer 输入框工具行左端）。
+ * dsh-memory 注入相关开关（composer 输入框工具行左端，共两枚按钮两张卡）。
  *
- * 悬停大脑按钮弹出小卡片（与 AI 浏览器 gate 同款交互）：
+ * 两枚按钮挨在一起，**各管各的**，卡片互不混装：
+ *
+ *  - 大脑按钮 → **记忆注入**卡：本会话注入（host state.json 里的显式覆盖）、
+ *    默认开启（config.injectDefaultEnabled，决定新会话与未单独设置过的会话）。
+ *    已单独设置过时显示「已单独设置」角标，可一键「跟随默认」清除覆盖。
+ *  - 提示符按钮 → **内置提示词通道**卡：中文优先 / 对话内流程图 / 过程播报。
+ *    三条硬编码在插件内、无卸载入口（回包恒带 builtin），全局单值，不做会话级，
+ *    也不受记忆注入的任何一道闸门约束——语言契约必须跨会话恒定，否则同一用户
+ *    会得到互相矛盾的回答语言。
+ *
+ * 两张卡曾经挤在一张里（「注入与记忆」）：那是把「提示词注入」与「记忆注入」两种
+ * 不同的事塞给一个按钮，标题总有一半对不上，读者也要在无关的行之间来回跳。
+ *
+ * 两枚按钮的浮层交互完全同款（与 AI 浏览器 gate 一致）：
  *  - hover 进入立即展开，移出延迟 120ms 收起（跨按钮↔卡片间隙不闪）；
  *  - 悬停打开后点击 = 钉住（移开鼠标不收），再点或外点/Esc = 收起；
  *  - 卡片常驻 DOM，显隐走 CSS visibility 过渡（160ms 位移+淡入）。
  *
- * 卡片分两组，因为里面装的是两类东西：
- *  - **内置提示词通道**（中文优先 / 对话内流程图 / 过程播报）：硬编码在插件内、
- *    无卸载入口（回包恒带 builtin），全局单值，不做会话级，也不受记忆注入的
- *    任何一道闸门约束——语言契约必须跨会话恒定，否则同一用户会得到互相矛盾的
- *    回答语言。
- *  - **记忆注入**（本会话注入 / 默认开启）：本会话是 host state.json 里的显式
- *    覆盖，默认开启是 config.injectDefaultEnabled，决定新会话与未单独设置过的
- *    会话。已单独设置过时显示「已单独设置」角标，并可一键「跟随默认」清除覆盖。
- *    状态全在 host，重启保留。
- *
- * 整张卡原先顶着「记忆注入」的名字，前三条与标题对不上；现由两个组标题说清
- * 归属。原先前三条是「每行一只圆角盒子」、后两行是裸行，同卡两套排版，现已
- * 统一成一套行。
+ * 状态全在 host，重启保留。写入一律乐观更新 + 失败回读：host 半身未重启时新
+ * 路由不存在、写入会失败，UI 必须诚实地弹回真实状态，而不是挂一个假的「已开启」。
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -37,53 +39,9 @@ export type MemoryToggleProps =
 /** 悬停移出后的延迟收起（毫秒）：给鼠标跨过按钮↔卡片间隙留时间。 */
 const HIDE_DELAY_MS = 120
 
-/**
- * 卡片里的一行开关：标签（可带角标 / 副说明）+ 右侧开关。
- *
- * 五行（中文优先 / 对话内流程图 / 过程播报 / 本会话注入 / 默认开启）共用它，
- * 避免每行各写一遍几乎一样的 JSX。`lead` 标出该组第一行——它上方已经有组标题，
- * 不再叠一条虚线。
- */
-function SwitchRow({
-  label,
-  on,
-  busy,
-  onToggle,
-  lead = false,
-  tag,
-  hint,
-}: {
-  readonly label: string
-  readonly on: boolean
-  readonly busy: boolean
-  readonly onToggle: () => void
-  readonly lead?: boolean
-  readonly tag?: string | undefined
-  readonly hint?: string | undefined
-}): JSX.Element {
-  const classes = [css.injectRow]
-  if (lead) classes.push(css.injectRowLead)
-  if (on) classes.push(css.injectRowOn)
-  return (
-    <div className={classes.join(' ')}>
-      <span className={css.injectMain}>
-        <span className={css.injectLabel}>
-          {label}
-          {tag !== undefined && <span className={css.injectBadge}>{tag}</span>}
-        </span>
-        {hint !== undefined && <span className={css.injectHint}>{hint}</span>}
-      </span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        aria-label={label}
-        disabled={busy}
-        className={css.switch}
-        onClick={onToggle}
-      />
-    </div>
-  )
+/** host 缺字段时的兜底形状：中文通道默认开（内置能力），另两条默认关。 */
+const FALLBACK_STATE: InjectStateView = {
+  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false, plainEnabled: true,
 }
 
 /** 把 host 回包收敛成本地状态形状（缺字段按默认处理）。 */
@@ -103,32 +61,53 @@ function toState(res: InjectStateView): InjectStateView {
   }
 }
 
-/** 渲染注入开关按钮 + 悬浮卡片。 */
-export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.Element {
-  ensureStyles()
-  // inject 每次渲染返回新 api 对象；固定引用，否则 effect 依赖 api 每次变化
-  // 都会重发 /inject-state —— 实测一分钟 498 次请求（请求风暴，composer 每渲染
-  // 一次就触发一轮）。与 Panel/Notify 的 apiRef 同款处理。
+/**
+ * 两枚按钮共用的状态与写操作。
+ *
+ * `api` 每次渲染都是新对象，先固定引用再用：否则 effect 依赖 api 每帧变化，
+ * 会重发 /inject-state（实测一分钟 498 次请求的请求风暴）。
+ */
+function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
   const apiRef = useRef(api)
   apiRef.current = api
-  const wrapRef = useRef<HTMLDivElement | null>(null)
-  const hideTimer = useRef<number | null>(null)
-  const [state, setState] = useState<InjectStateView>({ enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false, plainEnabled: true })
-  const [open, setOpen] = useState(false)
-  // 钉住（点击后悬停移出也不收）。pinnedRef 供 120ms 收起计时器闭包读取，
-  // 避免计时器读到调度时的过期值。
-  const [pinned, setPinned] = useState(false)
-  const pinnedRef = useRef(false)
-  pinnedRef.current = pinned
+  const [state, setState] = useState<InjectStateView>(FALLBACK_STATE)
   const [busy, setBusy] = useState(false)
 
   const reload = useCallback((): void => {
     void apiRef.current.getInjectState(sessionId)
       .then(res => { setState(toState(res)) })
-      .catch(() => { setState({ enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false, plainEnabled: true }) })
+      .catch(() => { setState(FALLBACK_STATE) })
   }, [sessionId])
 
   useEffect(() => { reload() }, [reload])
+
+  /**
+   * 写单个内置通道（全局单值）。三者的形状完全同构，只有 setter 不同。
+   *
+   * 失败时回读而不是回滚：旧 host 静默丢弃写入时，回滚会让 UI 显示一个它并不
+   * 具备的能力；回读拿到的是真实状态。
+   */
+  const pushChannel = useCallback((
+    key: 'zhEnabled' | 'diagramEnabled' | 'plainEnabled',
+    next: boolean,
+  ): void => {
+    setBusy(true)
+    setState(prev => ({ ...prev, [key]: next }))
+    const write = key === 'zhEnabled'
+      ? apiRef.current.setZhInjectState(next)
+      : key === 'diagramEnabled'
+        ? apiRef.current.setDiagramInjectState(next)
+        : apiRef.current.setPlainInjectState(next)
+    void write
+      .then(res => {
+        // 中文通道缺字段按开兜底（内置能力），另两条缺字段按关兜底（旧 host 根本
+        // 没有这个能力，显示「开」是假阳性）——与 toState 的口径一致。
+        const enabled = key === 'zhEnabled' ? res.enabled !== false : res.enabled === true
+        setState(prev => ({ ...prev, [key]: enabled }))
+      })
+      .catch(reload)
+      .finally(() => { setBusy(false) })
+  }, [reload])
 
   /** 写会话级开关（null = 清除覆盖，回到默认）。 */
   const pushSession = useCallback((next: boolean | null): void => {
@@ -177,62 +156,33 @@ export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.E
       .finally(() => { setBusy(false) })
   }, [sessionId])
 
-  /**
-   * 写中文记忆内置通道开关（全局单值，与上面两个开关零联动）。
-   *
-   * 乐观更新 + 失败回读，与 pushDefault 同款：host 半数未重启时新路由不存在，
-   * 写入会失败，此时 UI 应当诚实地弹回真实状态，而不是显示一个假的「已开启」。
-   */
-  const pushZh = useCallback((next: boolean): void => {
-    setBusy(true)
-    setState(prev => ({ ...prev, zhEnabled: next }))
-    void apiRef.current.setZhInjectState(next)
-      .then(res => { setState(prev => ({ ...prev, zhEnabled: res.enabled !== false })) })
-      .catch(reload)
-      .finally(() => { setBusy(false) })
-  }, [reload])
+  return { state, busy, reload, pushChannel, pushSession, pushDefault }
+}
 
-  /**
-   * 写对话内流程图规范通道开关（全局单值，与上面三个开关零联动）。
-   *
-   * 乐观更新 + 失败回读，与 pushZh 同款：host 半身未重启时新路由不存在，
-   * 写入会失败，此时 UI 必须诚实地弹回真实状态，而不是挂一个假的「已开启」。
-   */
-  const pushDiagram = useCallback((next: boolean): void => {
-    setBusy(true)
-    setState(prev => ({ ...prev, diagramEnabled: next }))
-    void apiRef.current.setDiagramInjectState(next)
-      .then(res => { setState(prev => ({ ...prev, diagramEnabled: res.enabled === true })) })
-      .catch(reload)
-      .finally(() => { setBusy(false) })
-  }, [reload])
+/**
+ * 悬停浮层：展开 / 钉住 / 延迟收起 / 外点与 Esc 关闭。
+ *
+ * 两枚按钮共用。`onShow` 在每次展开时刷新一次状态，展开看到的一定是最新值。
+ */
+function useHoverCard(onShow: () => void) {
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const hideTimer = useRef<number | null>(null)
+  const [open, setOpen] = useState(false)
+  // 钉住（点击后悬停移出也不收）。pinnedRef 供 120ms 收起计时器闭包读取，
+  // 避免计时器读到调度时的过期值。
+  const [pinned, setPinned] = useState(false)
+  const pinnedRef = useRef(false)
+  pinnedRef.current = pinned
 
-  /**
-   * 写执行过程播报通道开关（全局单值，与上面四个开关零联动）。
-   *
-   * 与 pushDiagram 完全同款：乐观更新 + 失败回读。host 半身未重启时新路由
-   * 不存在、写入会失败，UI 必须诚实地弹回真实状态，而不是挂一个假的「已开启」。
-   */
-  const pushPlain = useCallback((next: boolean): void => {
-    setBusy(true)
-    setState(prev => ({ ...prev, plainEnabled: next }))
-    void apiRef.current.setPlainInjectState(next)
-      .then(res => { setState(prev => ({ ...prev, plainEnabled: res.enabled === true })) })
-      .catch(reload)
-      .finally(() => { setBusy(false) })
-  }, [reload])
-
-  /** hover 进入按钮/卡片：立即展开并取消收起计时，顺带刷新最新开关状态。 */
   const showCard = useCallback((): void => {
     if (hideTimer.current !== null) {
       window.clearTimeout(hideTimer.current)
       hideTimer.current = null
     }
     setOpen(true)
-    reload()
-  }, [reload])
+    onShow()
+  }, [onShow])
 
-  /** hover 移出：延迟 0.12 秒再收起，给鼠标跨过按钮↔卡片间隙留时间。 */
   const scheduleCardHide = useCallback((): void => {
     if (hideTimer.current !== null) window.clearTimeout(hideTimer.current)
     hideTimer.current = window.setTimeout(() => {
@@ -275,24 +225,113 @@ export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.E
     }
   }, [])
 
+  return { wrapRef, open, showCard, scheduleCardHide, togglePin }
+}
+
+/**
+ * 卡片里的一行开关：标签（可带角标 / 副说明）+ 右侧开关。
+ *
+ * 两张卡共用它，避免每行各写一遍几乎一样的 JSX。`lead` 标出该组第一行——
+ * 它上方已经有分隔线时不再叠一条。
+ */
+function SwitchRow({
+  label,
+  on,
+  busy,
+  onToggle,
+  lead = false,
+  tag,
+  hint,
+}: {
+  readonly label: string
+  readonly on: boolean
+  readonly busy: boolean
+  readonly onToggle: () => void
+  readonly lead?: boolean
+  readonly tag?: string | undefined
+  readonly hint?: string | undefined
+}): JSX.Element {
+  const classes = [css.injectRow]
+  if (lead) classes.push(css.injectRowLead)
+  if (on) classes.push(css.injectRowOn)
+  return (
+    <div className={classes.join(' ')}>
+      <span className={css.injectMain}>
+        <span className={css.injectLabel}>
+          {label}
+          {tag !== undefined && <span className={css.injectBadge}>{tag}</span>}
+        </span>
+        {hint !== undefined && <span className={css.injectHint}>{hint}</span>}
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        aria-label={label}
+        disabled={busy}
+        className={css.switch}
+        onClick={onToggle}
+      />
+    </div>
+  )
+}
+
+/** 注入开关的按钮本体（两枚共用）：中性黑白，主题自适应。 */
+function ToggleButton({
+  on,
+  open,
+  onClick,
+  label,
+  icon,
+}: {
+  readonly on: boolean
+  readonly open: boolean
+  readonly onClick: () => void
+  readonly label: string
+  readonly icon: JSX.Element
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      className={on ? `${css.toggle} ${css.toggleOn}` : `${css.toggle} ${css.toggleOff}`}
+      aria-label={label}
+      aria-pressed={on}
+      aria-expanded={open}
+      onClick={onClick}
+    >
+      {icon}
+    </button>
+  )
+}
+
+/** 提示符图标：内置提示词通道。 */
+function PromptIcon({ size = 14 }: { readonly size?: number }): JSX.Element {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="2.4" />
+      <path d="M4.4 6.2 6.5 8.2 4.4 10.2" />
+      <path d="M8.6 10.4h3" />
+    </svg>
+  )
+}
+
+/** 渲染「记忆注入」开关按钮 + 悬浮卡片。 */
+export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.Element {
+  ensureStyles()
+  const { state, busy, reload, pushSession, pushDefault } = useInjectState(api, sessionId)
+  const { wrapRef, open, showCard, scheduleCardHide, togglePin } = useHoverCard(reload)
+
   const isOn = state.enabled !== false
   const isDefaultOn = state.defaultEnabled !== false
   const explicit = state.explicit === true
-  // 中文通道独立于上面三个，纯读自己的字段。
-  const zhOn = state.zhEnabled !== false
-  const diagramOn = state.diagramEnabled === true
-  const plainOn = state.plainEnabled !== false
   const button = (
-    <button
-      type="button"
-      className={isOn ? `${css.toggle} ${css.toggleOn}` : `${css.toggle} ${css.toggleOff}`}
-      aria-label={isOn ? t('injectOn') : t('injectOff')}
-      aria-pressed={isOn}
-      aria-expanded={open}
+    <ToggleButton
+      on={isOn}
+      open={open}
       onClick={togglePin}
-    >
-      <BrainIcon size={14} />
-    </button>
+      label={isOn ? t('injectOn') : t('injectOff')}
+      icon={<BrainIcon size={14} />}
+    />
   )
   return (
     // 权限卡片展开期间不渲染 Tooltip：避免提示文字叠在卡片上（remount 无状态无感）。
@@ -306,42 +345,7 @@ export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.E
       >
         <div className={css.injectHead}>
           <span className={css.injectTitle}><BrainIcon size={13} />{t('injectCardTitle')}</span>
-        </div>
-        {/*
-         * 卡片分两组，因为里面装的是两类东西：三条内置提示词通道（语言契约 /
-         * 图表规范 / 过程播报，全局单值）与记忆注入本身（可按会话覆盖）。原先整张
-         * 卡顶着「记忆注入」的名字，前三条与标题对不上；现在归属由组标题说清。
-         *
-         * 五行共用同一个行组件：裸行 + 虚线分隔 + 右侧开关。开态只加一层极淡的
-         * 主色底（injectRowOn），描边/辉光/竖条一律不要——开关的蓝灰已经说清了
-         * 开合，再套盒子只会把 272px 的卡切成一摞小卡片。
-         */}
-        <div className={css.injectGroup}>
-          <span className={css.injectGroupTitle}>{t('injectGroupBuiltin')}</span>
-          <span className={css.injectGroupHint}>{t('injectGroupBuiltinHint')}</span>
-        </div>
-        <SwitchRow
-          lead
-          on={zhOn}
-          busy={busy}
-          label={t('zhInjectLabel')}
-          onToggle={() => { pushZh(!zhOn) }}
-        />
-        <SwitchRow
-          on={diagramOn}
-          busy={busy}
-          label={t('diagramInjectLabel')}
-          onToggle={() => { pushDiagram(!diagramOn) }}
-        />
-        <SwitchRow
-          on={plainOn}
-          busy={busy}
-          label={t('plainInjectLabel')}
-          onToggle={() => { pushPlain(!plainOn) }}
-        />
-        <div className={css.injectGroup}>
-          <span className={css.injectGroupTitle}>{t('injectGroupMemory')}</span>
-          <span className={css.injectGroupHint}>
+          <span className={isOn ? `${css.injectTag} ${css.injectTagOn}` : `${css.injectTag} ${css.injectTagOff}`}>
             {isOn ? t('injectStateOn') : t('injectStateOff')}
           </span>
         </div>
@@ -366,6 +370,64 @@ export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.E
           </button>
         )}
         <p className={css.injectFoot}>{t('injectCardFoot')}</p>
+      </div>
+    </div>
+  )
+}
+
+/** 渲染「内置提示词通道」开关按钮 + 悬浮卡片。 */
+export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.Element {
+  ensureStyles()
+  const { state, busy, reload, pushChannel } = useInjectState(api, sessionId)
+  const { wrapRef, open, showCard, scheduleCardHide, togglePin } = useHoverCard(reload)
+
+  const zhOn = state.zhEnabled !== false
+  const diagramOn = state.diagramEnabled === true
+  const plainOn = state.plainEnabled === true
+  // 按钮状态取「三条里有没有开的」——全关才算关，半开按开显示（它是能力入口，
+  // 不是记忆那种一刀切的开关）。
+  const anyOn = zhOn || diagramOn || plainOn
+  const button = (
+    <ToggleButton
+      on={anyOn}
+      open={open}
+      onClick={togglePin}
+      label={anyOn ? t('builtinToggleOn') : t('builtinToggleOff')}
+      icon={<PromptIcon />}
+    />
+  )
+  return (
+    <div ref={wrapRef} className={css.toggleWrap} onMouseEnter={showCard} onMouseLeave={scheduleCardHide}>
+      {open ? button : <Tooltip label={anyOn ? t('builtinToggleOn') : t('builtinToggleOff')} side="top" delayMs={500}>{button}</Tooltip>}
+      <div
+        className={open ? `${css.injectCard} ${css.builtinCard} ${css.injectCardOn}` : `${css.injectCard} ${css.builtinCard}`}
+        role="dialog"
+        aria-label={t('builtinCardTitle')}
+        aria-hidden={!open}
+      >
+        <div className={css.injectHead}>
+          <span className={css.injectTitle}><PromptIcon size={13} />{t('builtinCardTitle')}</span>
+        </div>
+        <SwitchRow
+          lead
+          on={zhOn}
+          busy={busy}
+          label={t('zhInjectLabel')}
+          onToggle={() => { pushChannel('zhEnabled', !zhOn) }}
+        />
+        <SwitchRow
+          on={diagramOn}
+          busy={busy}
+          label={t('diagramInjectLabel')}
+          onToggle={() => { pushChannel('diagramEnabled', !diagramOn) }}
+        />
+        <SwitchRow
+          on={plainOn}
+          busy={busy}
+          label={t('plainInjectLabel')}
+          onToggle={() => { pushChannel('plainEnabled', !plainOn) }}
+        />
+        <p className={css.injectFoot}>{t('builtinCardFoot')}</p>
       </div>
     </div>
   )

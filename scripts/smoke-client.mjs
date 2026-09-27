@@ -464,14 +464,15 @@ if (!code.includes('data-dsh-anim-paused') || !code.includes('animation-play-sta
   pass('global animation throttle pauses all CSS animations when the page is hidden')
 }
 
-// 八枚槽位：对话增强五枚（turn-process / assistant-step keyed / 截图按钮 /
-// download toolview / kr-todo-bridge）+ 融合工作台三枚（automation-notifier、
-// dsh-memory-inject-toggle、skill toolview）。座位 id/order/locale 全部原样保留。
+// 九枚槽位：对话增强五枚（turn-process / assistant-step keyed / 截图按钮 /
+// download toolview / kr-todo-bridge）+ 融合工作台四枚（automation-notifier、
+// dsh-memory-builtin-toggle、dsh-memory-inject-toggle、skill toolview）。
+// 座位 id/order/locale 全部原样保留。
 const cell = (key) => registeredSlots.find((s) => s?.slot === 'conversation.chat.node' && s?.key === key)
-if (registeredSlots.length !== 8) {
-  fail(`expected 8 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
+if (registeredSlots.length !== 9) {
+  fail(`expected 9 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
 } else {
-  pass('registered 8 seats (5 chat-plus + 3 triad: automation-notifier / memory toggle / skill toolview)')
+  pass('registered 9 seats (5 chat-plus + 4 triad: automation-notifier / builtin+memory toggles / skill toolview)')
 }
 
 const downloadSeat = registeredSlots.find((s) => s?.slot === 'tool.call.toolview' && s?.key === 'download')
@@ -486,6 +487,13 @@ const memoryToggle = registeredSlots.find((s) => s?.slot === 'conversation.input
 if (memoryToggle === undefined) fail('missing triad seat conversation.input.left / dsh-memory-inject-toggle')
 else if (memoryToggle.order !== 99) fail(`memory toggle order = ${memoryToggle.order}, expected 99`)
 else pass('seat conversation.input.left / dsh-memory-inject-toggle @ order 99 (triad)')
+
+// 内置提示词通道单独一枚按钮：两种不同的东西不挤一张卡里。
+const builtinToggle = registeredSlots.find((s) => s?.slot === 'conversation.input.left' && s?.id === 'dsh-memory-builtin-toggle')
+if (builtinToggle === undefined) fail('missing triad seat conversation.input.left / dsh-memory-builtin-toggle')
+else if (builtinToggle.order !== 98) fail(`builtin toggle order = ${builtinToggle.order}, expected 98`)
+else if (builtinToggle.order >= memoryToggle.order) fail('内置通道按钮必须排在记忆按钮左侧（order 更小）')
+else pass('seat conversation.input.left / dsh-memory-builtin-toggle @ order 98 (triad)')
 
 const notifier = registeredSlots.find((s) => s?.slot === 'shell.overlay' && s?.id === 'automation-notifier')
 if (notifier === undefined) fail('missing triad seat shell.overlay / automation-notifier')

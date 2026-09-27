@@ -46,13 +46,9 @@ export const zh = {
   sensitiveConfirm: '内容包含疑似敏感信息（token/密钥等）。仍要保存吗？保存后注入上下文可能被模型读取，风险自担。',
   injectOn: '记忆注入：开',
   injectOff: '记忆注入：关',
-  // 卡片里装的是两类东西：三条内置提示词通道（中文优先 / 对话内流程图 /
-  // 过程播报）与记忆注入本身。标题继续叫「记忆注入」只对后两条成立，所以改成
-  // 中性名，具体归属交给卡片内两个分组标题。
-  injectCardTitle: '注入与记忆',
-  injectGroupBuiltin: '内置提示词通道',
-  injectGroupBuiltinHint: '全局单值，跨会话恒定',
-  injectGroupMemory: '记忆注入',
+  // 「记忆注入」卡只管记忆：内置提示词通道（中文优先 / 对话内流程图 / 过程播报）
+  // 已拆到 composer 工具行的另一枚按钮，归属由那张卡的标题说。
+  injectCardTitle: '记忆注入',
   injectThisSession: '本会话注入',
   injectDefaultOn: '默认开启',
   injectDefaultHint: '作用于新会话与未单独设置的会话',
@@ -73,6 +69,10 @@ export const zh = {
   plainInjectOff: '执行过程播报：关',
   plainInjectLabel: '过程播报',
   plainInjectBuiltin: '内置',
+  builtinToggleOn: '内置提示词通道：开',
+  builtinToggleOff: '内置提示词通道：关',
+  builtinCardTitle: '内置提示词通道',
+  builtinCardFoot: '硬编码在插件内、无卸载入口；全局单值，不受记忆注入开关影响。',
   diffOld: '旧',
   diffNew: '新',
   clearProject: '清空该项目全部记忆',
@@ -330,6 +330,10 @@ export const en = {
   plainInjectOff: 'Plain progress updates: off',
   plainInjectLabel: 'Plain progress',
   plainInjectBuiltin: 'Built-in',
+  builtinToggleOn: 'Built-in prompt channels: on',
+  builtinToggleOff: 'Built-in prompt channels: off',
+  builtinCardTitle: 'Built-in prompt channels',
+  builtinCardFoot: 'Hard-coded in the plugin with no removal path; a single global value, unaffected by the memory injection switch.',
   diffOld: 'Old',
   diffNew: 'New',
   clearProject: 'Clear all memories in this project',
