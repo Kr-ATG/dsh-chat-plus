@@ -55,7 +55,7 @@ export const KR_PANEL_HEADER_VISIBLE = false
 export const KR_MEMORY_CARD_VISIBLE = true
 
 /**
- * KR 右侧大盘「正在做什么」卡显隐开关（位于工具调用卡片下方，第 4 张）。
+ * KR 右侧大盘「操作面板」卡显隐开关（位于工具调用卡片下方，第 4 张）。
  *
  * 这张卡把本轮的工具调用翻译成**中文人话时间线**（「打开携程 · 机票」而不是
  * `browser_navigate(url)`），并显示模型自己播报的「接下来准备做什么」。它的读者

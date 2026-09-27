@@ -1,5 +1,5 @@
 /**
- * dsh-chat-plus — 「正在做什么」卡（右栏大盘第 4 张，挂在工具调用卡下方）。
+ * dsh-chat-plus — 「操作面板」卡（右栏大盘第 4 张，挂在工具调用卡下方）。
  *
  * 读者是**不会编程的普通用户**。这张卡只回答两件事：
  *   · **已经做了什么** —— 来自工具调用事实，由 plain-language 翻成中文人话；
@@ -280,12 +280,23 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
         }}
       >
         <span className="kr-card__icon">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.5 3.5l1.1 1.1M11.4 11.4l1.1 1.1M3.5 12.5l1.1-1.1M11.4 4.6l1.1-1.1" />
-            <circle cx="8" cy="8" r="2.6" />
+          {/*
+           * 「一串按时间发生的动作」：左侧竖线 + 三个节点 + 右侧递减的短线。
+           *
+           * 换掉原来的八向光芒（那是从"思考/灵感"那儿借来的，与这张卡讲的事
+           * 无关），也刻意避开和另外几张卡撞形：任务概览是横向清单、思考过程是
+           * 灯泡、工具调用是扳手、记忆是大脑。这张卡讲的是「模型按顺序做了哪几
+           * 件事」，时间线/序列是唯一诚实的图形语言。
+           */}
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M4.2 3v10" />
+            <circle cx="4.2" cy="4.6" r="1.35" />
+            <circle cx="4.2" cy="8" r="1.35" />
+            <circle cx="4.2" cy="11.4" r="1.35" />
+            <path d="M8.4 4.6h4.4M8.4 8h3.4M8.4 11.4h2.2" />
           </svg>
         </span>
-        <span className="kr-card__title">正在做什么</span>
+        <span className="kr-card__title">操作面板</span>
         <span className={`kr-card__badge ${running ? 'kr-card__badge--running' : 'kr-card__badge--done'}`}>
           {badge}
         </span>

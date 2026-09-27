@@ -431,6 +431,17 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   if (scrolled.detail !== '向下') fail(`browser_scroll direction must be translated, got ${scrolled.detail}`)
   else pass('browser_scroll direction is humanised')
 
+  // 工具描述里常带 JSON 转义（注入词条、schema 描述都是 JSON 编出来的），
+  // 原样透到卡片上就是一串 \uXXXX，用户看到的是机器码不是内容。
+  const escaped = toPlainStep({ toolName: 'grep', args: { pattern: '\\u6B63\\u5728\\u505A\\u4EC0\\u4E48' }, status: 'done' })
+  if (escaped.detail !== '正在做什么') {
+    fail(`\\uXXXX in a tool description must be decoded, got ${escaped.detail}`)
+  } else if (/\\u[0-9a-fA-F]{4}/.test(toPlainStep({ toolName: 'read', args: { file_path: 'C:\\work\\a.ts' }, status: 'done' }).detail ?? 'x')) {
+    fail('path separators must NOT be unescaped (\\w would eat real backslashes)')
+  } else {
+    pass('JSON unicode escapes in descriptions are decoded, paths left intact')
+  }
+
   // 重定向：请求 URL 与落地 URL 不一致时必须说出来，否则用户会以为搜索成功了。
   // 这条来自真机实验：携程的 /online/list/oneway-ctrip?dcity=bjs&acity=sha
   // 会被打回 /online/channel 首页，两边都识别成「携程 · 机票」。

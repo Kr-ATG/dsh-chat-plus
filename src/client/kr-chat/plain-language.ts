@@ -4,7 +4,7 @@
  * 目标读者是**不会编程的普通用户**：他们要看的不是 `browser_navigate(url)`、
  * `browser_click(ref=e12)`、`read(file_path=D:\a\b.ts)`，而是「打开携程」「点击出发地」
  * 「查看文件 KrAgentPanel.tsx」。本模块把一次工具调用（名字 + 参数 + 状态）翻成
- * `{ 图标, 动词, 细节 }` 三元组，供右栏「正在做什么」卡渲染。
+ * `{ 图标, 动词, 细节 }` 三元组，供右栏「操作面板」卡渲染。
  *
  * 三条硬纪律：
  *  1. **主文案绝不出现技术标识符**：函数名、参数名、完整文件路径、原始命令行
@@ -93,6 +93,21 @@ function fileNameOf(path: string | undefined): string | undefined {
   const tail = path.split(/[/\\、]/).filter(Boolean).at(-1)
   const name = tail ?? path
   return name.trim() === '' ? undefined : clip(name, MAX_DETAIL)
+}
+
+/**
+ * 把 JSON 里的 \uXXXX 转义还原成字符。
+ *
+ * 工具的 description / 参数里经常带转义序列（注入词条、schema 描述都是
+ * JSON 编出来的），原样透到卡片上就成了「搜索内容 · 正在做什么（\u66e3）」——
+ * 用户看到的是一串机器码，不是内容。只解 \uXXXX 一种，别的转义原样保留
+ * （路径里的 `\\` 就该保持原样）。
+ */
+function unescapeUnicode(text: string): string {
+  return text.replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex: string) => {
+    const code = Number.parseInt(hex, 16)
+    return Number.isFinite(code) && code > 0 ? String.fromCharCode(code) : _match
+  })
 }
 
 /* ── 站点友好名 ───────────────────────────────────────────────────────── */
@@ -480,6 +495,9 @@ export function toPlainStep(input: PlainStepInput): PlainStep {
       detail = picked === undefined ? undefined : clip(picked, MAX_SHORT)
     }
   }
+  // 收尾统一解一遍 JSON 转义：规则的 detail 与兜底取值都可能来自工具描述
+  // （那是 JSON 编出来的），漏网的话卡片上会出现一串 \uXXXX。
+  if (detail !== undefined) detail = unescapeUnicode(detail)
 
   // 技术细节 = 工具名 + 原始入参。原始入参是「想看细节的人」唯一的凭据：
   // 主文案刻意抹掉了命令原文、完整路径与参数名，抹掉的东西得在这里还回去。

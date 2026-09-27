@@ -354,7 +354,7 @@ if (!code.includes('kr-agent-mini-card') || !code.includes('kr-agent-mini-exit')
 } else {
   pass('client bundle contains KR minimal activity card and exit motion')
 }
-// 「正在做什么」卡（人话行动时间线）：默认开着，样式与组件都必须在 bundle 里。
+// 「操作面板」卡（人话行动时间线）：默认开着，样式与组件都必须在 bundle 里。
 // 断言样式族而非组件名——组件名可能因打包混淆消失，.kr-card--plain 是契约。
 if (krEnabled) {
   const plainCardVisible = /export const KR_PLAIN_TIMELINE_CARD_VISIBLE = (true|false)/
@@ -363,11 +363,15 @@ if (krEnabled) {
     fail('KR_PLAIN_TIMELINE_CARD_VISIBLE must default to true (人话行动流卡默认展示)')
   } else if (!code.includes('.kr-card--plain') || !code.includes('.kr-plain-intent') || !code.includes('kr-plain-step-in')) {
     fail('client bundle is missing the plain-progress card styles (.kr-card--plain / .kr-plain-intent / kr-plain-step-in)')
-  } else if (!/\\u6[Bb]63\\u5728\\u505[Aa]\\u4[Ee][Cc]0\\u4[Ee]48/.test(code)) {
+  } else if (!/\\u64CD\\u4F5C\\u9762\\u677F/.test(code)) {
     // bundle 里中文被 esbuild 转成字面 \uXXXX（大写 hex），正则里要写双反斜杠。
-    fail('client bundle is missing the plain-progress card title (正在做什么)')
+    fail('client bundle is missing the plain-progress card title (操作面板)')
+  } else if (!/kr-card__title[^)]*?\\u64CD\\u4F5C\\u9762\\u677F/.test(code)) {
+    // 只认标题那一处：源码注释里「正在做什么」作为旧名还会出现若干处，那是描述性
+    // 文字，不该让断言失败；真正要锁的是卡片头部渲染出来的那一行。
+    fail('plain-progress card header must render the title 操作面板')
   } else {
-    pass('plain-progress card (人话行动流) present with its styles')
+    pass('plain-progress card (操作面板) present with its styles')
   }
 }
 
@@ -601,7 +605,7 @@ if (krEnabled) {
       pass('子智能体区块样式与父会话 id 传递在位')
     }
 
-    // 「正在做什么」卡的三个布局修复：行内技术细节按钮必须收成卡片级（15 行挂
+    // 「操作面板」卡的三个布局修复：行内技术细节按钮必须收成卡片级（15 行挂
     // 15 枚按钮是横向噪声）、列表必须有上下渐隐（否则顶部被硬切出半行）、
     // 收口时必须回顶（内容定格后停在底部会把开头几步挡在视口外）。
     const cardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrPlainTimelineCard.tsx'), 'utf8')
