@@ -17,10 +17,18 @@
 
 export type PlainStatus = 'running' | 'done' | 'failed'
 
-/** 单色描边图标键（由组件映射成 SVG，与既有工具行图标同一风格）。 */
+/**
+ * 单色描边图标键（由组件映射成 SVG，与既有工具行图标同一风格）。
+ *
+ * 文件族刻意拆成四枚而不是共用一个「文档」：这张卡的读者靠图标一眼分辨**在看 /
+ * 在改 / 在建 / 在删**，四者共用一枚图标时，一列扫下来全是同一个形状，等于
+ * 什么也没说。四枚共用同一份文件轮廓（缩到左侧、右下角让出位置），叠不同的
+ * 动作符号——既在视觉上成一家，又不撞形。
+ */
 export type PlainIconKey =
   | 'globe' | 'cursor' | 'keyboard' | 'eye' | 'scroll' | 'arrow'
-  | 'file' | 'folder' | 'search' | 'terminal' | 'image' | 'download'
+  | 'file' | 'fileView' | 'fileEdit' | 'fileNew' | 'trash'
+  | 'folder' | 'search' | 'terminal' | 'image' | 'download'
   | 'cloud' | 'bolt' | 'task' | 'spark'
 
 export interface PlainStep {
@@ -400,14 +408,17 @@ const EXACT: Readonly<Record<string, Rule>> = {
   vision_describe: { verb: '查看图片内容', icon: 'image' },
 
   // ── 文件 ───────────────────────────────────────────────────────────
-  read: { verb: '查看文件', icon: 'file', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
-  read_file: { verb: '查看文件', icon: 'file', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
-  view: { verb: '查看文件', icon: 'file', detail: (a) => fileNameOf(str(a, 'file_path', 'path')) },
-  open_file: { verb: '打开文件', icon: 'file', detail: (a) => fileNameOf(str(a, 'file_path', 'path')) },
-  write: { verb: '新建文件', icon: 'file', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
-  edit: { verb: '修改文件', icon: 'file', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
-  apply_patch: { verb: '修改文件', icon: 'file' },
-  str_replace_editor: { verb: '修改文件', icon: 'file' },
+  // 读 / 写 / 改 / 删各有自己的图标：读者是靠形状扫列的，四条都画成「文档」时
+  // 一列扫过去完全分不出在干什么，而这三件事恰恰是这一列里最需要被一眼认出的。
+  read: { verb: '查看文件', icon: 'fileView', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
+  read_file: { verb: '查看文件', icon: 'fileView', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
+  view: { verb: '查看文件', icon: 'fileView', detail: (a) => fileNameOf(str(a, 'file_path', 'path')) },
+  open_file: { verb: '打开文件', icon: 'fileView', detail: (a) => fileNameOf(str(a, 'file_path', 'path')) },
+  write: { verb: '新建文件', icon: 'fileNew', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
+  edit: { verb: '修改文件', icon: 'fileEdit', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
+  apply_patch: { verb: '修改文件', icon: 'fileEdit' },
+  str_replace_editor: { verb: '修改文件', icon: 'fileEdit' },
+  delete_file: { verb: '删除文件', icon: 'trash', detail: (a) => fileNameOf(str(a, 'file_path', 'path')) },
   glob: { verb: '查找文件', icon: 'folder', detail: (a) => clip(str(a, 'pattern') ?? '', MAX_DETAIL) },
   find: { verb: '查找文件', icon: 'folder', detail: (a) => clip(str(a, 'pattern', 'query') ?? '', MAX_DETAIL) },
   grep: { verb: '搜索内容', icon: 'search', detail: (a) => clip(str(a, 'pattern', 'query') ?? '', MAX_DETAIL) },
@@ -458,8 +469,9 @@ const PATTERNS: ReadonlyArray<readonly [RegExp, Rule]> = [
   // 剥掉命名空间后剩下的通用短名：按特征词兜一层，免得只得到「执行 X」。
   [/window|cursor|screen|clipboard|desktop/, { verb: '操作电脑', icon: 'cursor' }],
   [/app$|^app_|launch|kill_/, { verb: '操作应用', icon: 'folder' }],
-  [/read|view|inspect/, { verb: '查看文件', icon: 'file' }],
-  [/write|edit|patch|replace/, { verb: '修改文件', icon: 'file' }],
+  [/read|view|inspect/, { verb: '查看文件', icon: 'fileView' }],
+  [/write|edit|patch|replace/, { verb: '修改文件', icon: 'fileEdit' }],
+  [/delete|remove|unlink|rm$/, { verb: '删除文件', icon: 'trash' }],
   [/search|grep|find|query/, { verb: '搜索', icon: 'search' }],
   [/shell|bash|exec|command|pwsh|run_code/, { verb: '在终端执行命令', icon: 'terminal' }],
   [/download|fetch|curl|wget/, { verb: '下载文件', icon: 'download' }],

@@ -18,12 +18,11 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
-import { useCrossfadeText, useHeightAnimation, useMotionAllowed, useSteppedFollow } from '../motion-utils.ts'
+import { useHeightAnimation, useMotionAllowed, useSteppedFollow } from '../motion-utils.ts'
 import { formatDuration } from '../tool-summary/tool-stats.ts'
 import type { PlainIconKey, PlainStep } from './plain-language.ts'
 import type { PlainTimeline } from './plain-timeline.ts'
 import { useSubagentCatalog, type SubagentCatalogView } from './subagent-catalog.ts'
-import { StatusIcon } from './StatusIcon.tsx'
 
 /** 列表视口最大行数：6 → 8（比上一版多约 40px，用户按实际观感定的档）。 */
 const LIST_MAX_ROWS = 8
@@ -86,10 +85,27 @@ function Icon({ name }: { readonly name: PlainIconKey }): ReactElement {
     case 'file':
     default:
       return <svg {...common}><path d="M9.2 1.9H4.6A1.5 1.5 0 0 0 3.1 3.4v9.2a1.5 1.5 0 0 0 1.5 1.5h6.8a1.5 1.5 0 0 0 1.5-1.5V5.9z" /><path d="M9.2 1.9v4h4" /></svg>
+    /*
+     * 文件族四枚（看 / 改 / 建 / 删）。
+     *
+     * 拆开的原因是形状本身要能说话：这一列里最需要被一眼认出的就是「在读 / 在改
+     * / 在建 / 在删」，四者都画成同一枚文档时扫一列等于什么都没说——尤其一个
+     * 「修改」和一个「查看」紧挨着时，用户根本分不出模型刚动过哪个文件。
+     *
+     * 14px 下细线会糊成一团，所以文件族单独用 1.5 的线宽（其余类别图标仍 1.3），
+     * 文件轮廓缩到左侧 2/3，右下角让给动作符号；四枚共用同一份轮廓保证仍看得出
+     * 是一家人（都是文件），符号不同保证不撞形。
+     */
+    case 'fileView':
+      return <svg {...common} strokeWidth={1.5}><path d="M7.2 2.4H4.4A1.4 1.4 0 0 0 3 3.8v8.4a1.4 1.4 0 0 0 1.4 1.4h.8" /><path d="M7.2 2.4v3.1h3.1" /><circle cx="10.4" cy="10.4" r="3" /><path d="m12.7 12.7 1.9 1.9" /></svg>
+    case 'fileEdit':
+      return <svg {...common} strokeWidth={1.5}><path d="M7.2 2.4H4.4A1.4 1.4 0 0 0 3 3.8v8.4a1.4 1.4 0 0 0 1.4 1.4h.8" /><path d="M7.2 2.4v3.1h3.1" /><path d="m8.6 13 .6-2 3.9-3.9 1.4 1.4-3.9 3.9z" /><path d="m12.1 7.6 1.4 1.4" /></svg>
+    case 'fileNew':
+      return <svg {...common} strokeWidth={1.5}><path d="M7.2 2.4H4.4A1.4 1.4 0 0 0 3 3.8v8.4a1.4 1.4 0 0 0 1.4 1.4h.8" /><path d="M7.2 2.4v3.1h3.1" /><path d="M11.7 7.2v6.2M8.6 10.3h6.2" /></svg>
+    case 'trash':
+      return <svg {...common} strokeWidth={1.5}><path d="M2.4 4.2h11.2" /><path d="M6 4.2V2.9a1.1 1.1 0 0 1 1.1-1.1h1.8A1.1 1.1 0 0 1 10 2.9v1.3" /><path d="M3.8 4.2l.6 8.3a1.5 1.5 0 0 0 1.5 1.4h4.2a1.5 1.5 0 0 0 1.5-1.4l.6-8.3" /><path d="M6.7 6.9v3.9M9.3 6.9v3.9" /></svg>
   }
 }
-
-/** 状态圆圈：与任务概览共用同一份（StatusIcon），不再自己画一套绿勾。 */
 
 /**
  * 子智能体区块：挂在一条「派生子任务」的步骤下面。
@@ -156,6 +172,7 @@ function StepRow({ step, index, catalog }: {
    * 留下 detail（「查看视频底层组件详情」），detail 缺失时才退回动词本身。
    */
   const title = step.detail === undefined || step.detail === '' ? step.verb : step.detail
+  const failed = step.status === 'failed'
   return (
     <div
       className="kr-plain-step"
@@ -165,20 +182,16 @@ function StepRow({ step, index, catalog }: {
       style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
     >
       {/*
-       * 状态圆圈：**只标失败**。
+       * 行首只有**一枚**图标：类别图标说「是哪类动作」，失败时它自己变红。
        *
-       * 这一列里的每一条都已经发生过了，「已完成」是列表的默认前提而不是信息；
-       * 「正在跑」也改由文字上那道从左往右扫过的高光说（见 styles.ts 的
-       * kr-plain-sweep），眼睛跟着光走就直接落在当前那件事上，不必再给一枚转圈
-       * 占着行首。真正需要被看见的反例只剩失败，于是红叉在一列灰字里一眼跳出。
-       *
-       * 槽位本身永远保留（其它态是只留 14px 的空盒），否则失败行贴左、其它行
-       * 右移 14px，整列参差不齐。
+       * 原来行首是「状态槽 + 类别图标」两列，而状态槽 99% 的行是空盒——一整列
+       * 14px 空白只为等那一条红叉，代价与收益完全不成比例。改为让失败直接由
+       * 类别图标右上角那枚小红叉角标承担（见下方 .kr-plain-step__icon::after），
+       * 正常态不占任何额外宽度，整列左边界因此齐到贴边。
        */}
-      <span className="kr-plain-step__status">
-        {step.status === 'failed' && <StatusIcon state="failed" />}
+      <span className="kr-plain-step__icon" data-failed={failed ? 'true' : undefined} aria-hidden>
+        <Icon name={step.icon} />
       </span>
-      <span className="kr-plain-step__icon" aria-hidden><Icon name={step.icon} /></span>
       <span className="kr-plain-step__title" title={title}>{title}</span>
       {step.durationMs !== undefined && step.durationMs > 40 && (
         <span className="kr-plain-step__time">{formatDuration(step.durationMs)}</span>
@@ -203,7 +216,6 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   const [open, setOpen] = useState(true)
   const motion = useMotionAllowed(true)
   const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(open, motion)
-  const nowLayers = useCrossfadeText(timeline.nowLabel, motion)
 
   /*
    * 子智能体清单只在**本轮真的派生了子智能体**时才去订阅。
@@ -279,33 +291,15 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
         </span>
         <span className="kr-card__title">操作面板</span>
         {/*
-         * 「当前在做什么」与标题同行，不再单独占正文一整行。
-         *
-         * 原来它是卡片正文的第一行（「正在放大查看局部」），标题行只有"操作面板"
-         * 四个字 + 徽标，中间空着一大片；把它提到标题右侧后，这张卡的表头本身就
-         * 回答了"此刻它在干什么"，正文从「接下来」或步骤列表直接开始，省下一整行。
-         *
-         * 宽度不够时整段 ellipsis（不是换行——换行会把标题行撑成两行，等于没省）。
-         *
-         * 标题行右侧原先还有两样东西，都按用户要求删了：「N 步」徽标（一枚带底色
-         * 的胶囊，而表头中间这句已经说清此刻在做什么，步数是可数的东西）与
-         * 「技术细节」总开关（一枚常驻按钮 + 打开时的蓝底）。现在标题行只有
-         * 标题与这句人话，其余信息一律留给列表正文。
+         * 标题行右侧原先有三样东西，已按用户要求全部删掉，标题行现在只剩标题本身：
+         *  1. **「当前在做什么」**（模型播报的那句「正在查 model-seats 目录…」）：
+         *     它与正文里那张蓝底的「接下来」预告说的是同一件事，只是旧版靠
+         *     crossfade 叠在标题右侧，两处并排时用户要读两遍同一句话；而且标题
+         *     行只有 ~18px，句子一长就被省略号截断，等于只留一个说不全的半句。
+         *     「此刻在干什么」由预告行与步骤列表（进行中那行自带扫光）承担。
+         *  2. 「N 步」徽标 —— 可数的东西，且步数在列表里数得出来。
+         *  3. 「技术细节」总开关 —— 技术视角已整块移除，这张卡只讲人话。
          */}
-        <span className="kr-plain-now kr-plain-now--inline" title={timeline.nowLabel}>
-          <span className="kr-plain-now__stack">
-            {nowLayers.map((layer) => (
-              <span
-                key={layer.id}
-                className="kr-plain-now__layer"
-                data-phase={layer.exiting ? 'out' : 'in'}
-                aria-hidden={layer.exiting || undefined}
-              >
-                {layer.text}
-              </span>
-            ))}
-          </span>
-        </span>
       </div>
 
       {bodyPresent && (
@@ -316,9 +310,6 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
           aria-hidden={!open}
           {...(!open ? { inert: '' } : {})}
         >
-          {/* 「当前在做什么」已提到标题行（见 header 里那段注释），正文从预告
-              或步骤列表直接开始。 */}
-
           {/* 预告：模型自己写的「下一步：…」，没有就整行不出现。 */}
           {timeline.intent !== undefined && (
             <div className="kr-plain-intent" data-live={running ? 'true' : undefined}>

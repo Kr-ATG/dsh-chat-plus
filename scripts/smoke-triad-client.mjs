@@ -493,6 +493,18 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   else if (read.detail.includes('D:\\')) fail('read must never surface a full path')
   else pass('read shows the file name only')
 
+  // 文件族四枚图标必须互不相同：读者靠形状一眼分「在看 / 在改 / 在建 / 在删」，
+  // 四者共用一枚「文档」等于这一列什么也没说（尤其「修改」与「查看」紧挨着时）。
+  const fileIcons = ['read', 'edit', 'write', 'delete_file'].map((name) =>
+    toPlainStep({ toolName: name, args: { file_path: 'a.ts' }, status: 'done' }).icon)
+  if (new Set(fileIcons).size !== 4) {
+    fail(`read/edit/write/delete must map to four distinct icons, got ${fileIcons.join(',')}`)
+  } else if (fileIcons[0] !== 'fileView' || fileIcons[1] !== 'fileEdit' || fileIcons[2] !== 'fileNew' || fileIcons[3] !== 'trash') {
+    fail(`unexpected file family icons: ${fileIcons.join(',')}`)
+  } else {
+    pass('文件族四枚图标互不相同（看 / 改 / 建 / 删）')
+  }
+
   // 原始命令行绝不上屏：只进 tech。
   const sh = toPlainStep({ toolName: 'pwsh', args: { command: 'Get-ChildItem -Recurse C:\\secret', description: '列出目录' }, argsRaw: '{"command":"Get-ChildItem -Recurse C:\\\\secret","description":"列出目录"}', status: 'done' })
   if (sh.verb !== '在终端执行命令' || sh.detail !== '列出目录') fail(`pwsh must use the description, got ${sh.verb} · ${sh.detail}`)

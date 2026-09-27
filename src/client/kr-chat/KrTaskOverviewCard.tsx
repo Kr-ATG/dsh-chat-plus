@@ -100,9 +100,8 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
                 style={{ animationDelay: `${Math.min(index, 8) * 34}ms` }}
               >
                 <span className="kr-task-item__icon">
-                  {/* 状态图标与操作面板共用同一份实现（StatusIcon）：两张卡的圆圈
-                      形状、线宽、旋转节奏必须完全一致，否则右栏上下两张卡并排时
-                      像是两个产品做的。 */}
+                  {/* 状态圆圈：14px 实心对勾 / 蓝色转圈 / 点线，与右栏另一张卡
+                      的行首图标同尺寸同色系（那枚是类别图标，本卡是三态圆圈）。 */}
                   <StatusIcon state={isCompleted ? 'done' : isInProgress ? 'running' : 'pending'} />
                 </span>
 

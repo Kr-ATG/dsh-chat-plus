@@ -558,16 +558,14 @@ body[data-kr-resizing="true"] * {
 }
 
 /*
- * 操作面板的标题不占满剩余宽度。
+ * 操作面板的标题不再需要「不占满剩余宽度」这条覆盖（已删）。
  *
- * .kr-card__title 的 flex:1 是为「标题 + 右侧那件东西」准备的。这张卡标题行里
- * 还塞了「当前在做什么」，标题再吃掉弹性空间的话，它只能被挤到换行或省略。
- * 改成 flex:0 后弹性交给紧随其后的 nowLabel，其余卡的排布完全不变。
+ * 原来 .kr-card__title 的 flex:1 是为「标题 + 右侧那件东西」准备的：标题行右边
+ * 跟着 nowLabel（「正在查 model-seats 目录…」），标题要是不让出弹性空间，那句话
+ * 只能被挤到换行或省略。标题行右侧的内容（那句人话、「N 步」徽标、「技术细节」
+ * 开关）现已全部删除，标题独占一行，flex:1 与其余卡片完全一致——这条覆盖连同
+ * 它的理由一起删干净，留着只会让人以为这里还有右侧元素。
  */
-.kr-card--plain .kr-card__title {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
 
 /*
  * 标题行右侧的补充说明（任务概览的进度、记忆卡的条数）：**纯文字**，无底色。
@@ -834,56 +832,6 @@ body[data-kr-resizing="true"] * {
   min-width: 0;
 }
 
-/* ── 当前动作一行 ─────────────────────────────────────────────────────── */
-.kr-plain-now {
-  position: relative;
-  min-height: 18px;
-}
-
-/*
- * 与标题同行的那一份（操作面板表头）。
- *
- * 与正文的 .kr-plain-now 分开而不是复用同一套尺寸：标题行只有 ~18px 高，字号要
- * 跟着降到 12px 才不显得压；宽度不足时**整段省略**而不是换行——换行会把标题
- * 行撑成两行，省下的一行又还回去了。
- */
-.kr-plain-now--inline {
-  display: block;
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.kr-plain-now--inline .kr-plain-now__layer {
-  font-size: 12px;
-  line-height: 18px;
-  font-weight: 400;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.kr-plain-now__stack {
-  display: grid;
-}
-
-.kr-plain-now__layer {
-  grid-area: 1 / 1;
-  font-size: 12.5px;
-  line-height: 18px;
-  font-weight: 500;
-  color: var(--dsw-alias-label-primary);
-}
-
-.kr-plain-now__layer[data-phase="in"] {
-  animation: kr-agent-action-in .26s cubic-bezier(.16, 1, .3, 1) both;
-}
-
-.kr-plain-now__layer[data-phase="out"] {
-  animation: kr-agent-action-out .2s ease both;
-}
-
 /* ── 「接下来」预告行（模型自己播报的那句） ───────────────────────────── */
 .kr-plain-intent {
   display: flex;
@@ -983,7 +931,9 @@ body[data-kr-resizing="true"] * {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  /* 9px 与 .kr-task-item 的 gap 一致：两张卡现在行首都是「一枚 14px 图标 + 文字」，
+     gap 不对齐的话两卡的文字起点会差 1px，竖着扫过去像两张不同的表。 */
+  gap: 9px;
   /* 窄栏下 flex 子项默认的 min-width:auto 会让长标题把整行顶宽，列表随即冒出
      一条横向滚动条；置 0 后标题上已有的 text-overflow 才真正生效。 */
   min-width: 0;
@@ -1005,22 +955,17 @@ body[data-kr-resizing="true"] * {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* 状态圆圈的槽位：14px，图标在组件内（StatusIcon，与任务概览共用）。 */
-.kr-plain-step__status {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 14px;
-  height: 14px;
-}
-
 /*
- * 类别图标：与状态圆圈同大（14px），线宽 1.3，颜色跟着状态走。
- * 一行两枚图标分工明确：左边圆圈说「哪一行出了问题」，这枚说「是哪类动作」。
- * 进行中的行不画状态圆点（那道扫过的高光已经在说"正在跑"），图标回到中性灰，
- * 免得整行除了文字还多一处蓝。
+ * 类别图标：14px 单色描边，线宽 1.3，颜色跟着状态走。
+ *
+ * 行首**只有这一枚**。原先左边还有一列 14px 的状态槽（.kr-plain-step__status），
+ * 而「已经做了什么」这一列里 99% 的行都是空盒——整列空白只为等那一条红叉，
+ * 白占掉一列缩进还会让文字起点比卡片边缘低一截。现在失败由这枚图标自己说：
+ *  常态：灰色类别图标（看 / 改 / 建 / 删各自不同，见 Icon 的注释）；
+ *  失败：图标转红 + 右上角叠一枚小红叉角标（不占额外布局宽度）。
  */
 .kr-plain-step__icon {
+  position: relative;
   flex: none;
   display: grid;
   place-items: center;
@@ -1029,6 +974,31 @@ body[data-kr-resizing="true"] * {
 
 .kr-plain-step[data-status="failed"] .kr-plain-step__icon {
   color: var(--dsw-alias-state-error-primary, #ef4444);
+}
+
+/*
+ * 失败角标：6px 红点压在图标右上角外沿，是这一列里唯一的反例信号。
+ *
+ * 用绝对定位而不是另起一列：它只在失败时出现，正常行宽度完全不变，整列左边界
+ * 因此齐整。入场给一点弹性缩放（红点从 0 长出来），失败这件事才被"看见"发生
+ * 了，而不只是列表里静态多了一颗点。
+ */
+.kr-plain-step__icon[data-failed="true"]::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-error-primary, #ef4444);
+  box-shadow: 0 0 0 1.5px var(--kr-card-bg);
+  animation: kr-plain-bad-pop .34s cubic-bezier(.34, 1.56, .64, 1) both;
+}
+
+@keyframes kr-plain-bad-pop {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
 }
 
 .kr-plain-step__title {
@@ -1117,13 +1087,17 @@ body[data-kr-resizing="true"] * {
 
 .kr-plain-subs {
   /*
-   * basis 用 calc(100% - 15px) 而不是 100%：100% 加上 margin-left:15px 就超出
+   * 缩进 23px = 14px 图标 + 9px gap，与**父行文字**的左边界对齐（原先是对齐
+   * 那枚已删的 14px 状态槽）。子块挂在父行文字之下，读作"这一行说的这件事底下
+   * 派生的东西"，而不是与父行平级的另一个动作。
+   *
+   * basis 用 calc(100% - 23px) 而不是 100%：100% 加上 margin-left:23px 就超出
    * 容器宽度了，窄栏（右栏拉到 300px 下限）时 flex 换行判定失败——子智能体区块
    * 被挤在标题右侧剩下来的那条窄缝里，文字竖排截断，还顺带把列表撑出一条
    * 横向滚动条。减掉缩进量才是"占满一整行再往右缩进"的真实意图。
    */
-  flex: 1 0 calc(100% - 15px);
-  margin: 4px 0 2px 15px;
+  flex: 1 0 calc(100% - 23px);
+  margin: 4px 0 2px 23px;
   padding: 2px 0 2px 10px;
   border-left: 1.5px solid color-mix(in srgb, var(--kr-accent) 22%, transparent);
   min-width: 0;
@@ -1224,8 +1198,12 @@ body[data-kr-resizing="true"] * {
 @media (prefers-reduced-motion: reduce) {
   /* .kr-plain-dot--* 相关的三条规则随之删除：状态圆圈改由 StatusIcon 组件渲染
      （SVG 内联 animation 属性），统一在组件里处理减弱动效。 */
-  .kr-plain-step,
-  .kr-plain-now__layer {
+  .kr-plain-step {
+    animation: none;
+  }
+
+  /* 失败角标的弹性缩放一并关掉。 */
+  .kr-plain-step__icon[data-failed="true"]::after {
     animation: none;
   }
 

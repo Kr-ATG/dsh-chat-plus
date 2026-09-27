@@ -648,6 +648,20 @@ if (krEnabled) {
       pass('操作面板只留人话（无徽标 / 无技术细节）+ 列表渐隐 + 收口回顶')
     }
 
+    // 行首布局：只剩一枚类别图标（那列 14px 空槽只为等一条红叉，已删）；
+    // 标题行右侧也只剩标题本身（「当前在做什么」那行与它的样式一并删除）。
+    if (/className="kr-plain-step__status"/.test(cardSrc) || code.includes('.kr-plain-step__status {')) {
+      fail('行首的 14px 空状态槽已删除，失败改由类别图标角标承担')
+    } else if (!code.includes('.kr-plain-step__icon[data-failed="true"]::after')) {
+      fail('失败行必须在类别图标右上角挂红点角标（否则整列失去唯一的反例信号）')
+    } else if (/className="kr-plain-now/.test(cardSrc) || /useCrossfadeText/.test(cardSrc)) {
+      fail('标题行右侧的「当前在做什么」已删除，卡片里不该再有 now 渲染点')
+    } else if (code.includes('.kr-plain-now')) {
+      fail('.kr-plain-now 整套样式已随标题行那行文字删除，样式表里不该再有残留')
+    } else {
+      pass('行首无空槽 + 标题行只剩标题（失败由图标角标承担）')
+    }
+
     // 子智能体：主数据源必须是 items（实时投影），subagentsByParent 只作兜底。
     // 后者只在父会话的目录被打开过时才存在，要靠 refreshSubagents 主动拉、依赖
     // host 的 remote 子服务能不能通；而顶栏「N 个子智能体」读的是 items 里的投影
