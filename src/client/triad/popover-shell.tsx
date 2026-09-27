@@ -15,7 +15,7 @@
  * DOM 顺序取胜浮于本壳之上。
  */
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { MODAL_ANIM_MS, modalDrawerAnimClass } from './triad-modal-animation.js'
 
@@ -227,6 +227,35 @@ export function PopoverShell({
     return () => { document.removeEventListener('keydown', onKey) }
   }, [closing, onClose])
 
+  /*
+   * 焦点：打开时移进卡片，关闭时还给触发它的元素。
+   *
+   * 卡片 portal 到 body 末尾，Tab 顺序排在整个应用 UI 之后。不做这一步的话，
+   * 键盘用户点开面板后按 Tab，焦点会先跑遍侧边栏、主区、composer，绕一圈才
+   * 进得去面板——面板等于键盘不可达。focus 记在 ref 里（不用模块级变量），
+   * 多个面板同时存在也不会串。
+   */
+  const cardRef = useRef<HTMLDivElement | null>(null)
+  const returnFocusRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (closing) return undefined
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const card = cardRef.current
+    if (card !== null) {
+      // 优先落在标了 data-autofocus 的控件上，其次是首个可聚焦元素，
+      // 都没有就把焦点给卡片本身（tabIndex=-1，至少让读屏从这里开始念）。
+      const target = card.querySelector<HTMLElement>('[data-autofocus]')
+        ?? card.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      if (target !== null) target.focus()
+      else card.focus()
+    }
+    return () => {
+      const back = returnFocusRef.current
+      if (back !== null && back.isConnected) back.focus()
+      returnFocusRef.current = null
+    }
+  }, [closing])
+
   // portal 到 body：卡片不能留在入口所在的 DOM 子树里。
   // 入口是 portal 进侧边栏导航槽的，而槽位宿主是我们手工插进 DSH 自有
   // React 树的裸节点——弹层一旦留在里面，侧边栏任何一次重渲染都可能连带
@@ -238,13 +267,21 @@ export function PopoverShell({
         <div className="psh-mask" data-plain={compact || undefined} data-anim={anim} aria-hidden="true" onClick={onClose} />
       )}
       <div
+        ref={cardRef}
+        tabIndex={-1}
         className={`psh-card ${compact ? '' : modalDrawerAnimClass(closing)}`}
         data-anim={anim}
         data-mode={mode}
         data-solid={solid ? '' : undefined}
         style={style}
         role="dialog"
-        aria-modal="true"
+        /*
+         * aria-modal 只在**真的有遮罩**时才是对的（narrow || compact）。
+         * drawer 形态（桌面默认）不渲染遮罩，页面其余部分仍可交互、侧栏也仍
+         * 可点，却对辅助技术声明「背景已惰性化」——读屏会被告知背景不可达，
+         * 实际并没有。标错比不标更糟。
+         */
+        aria-modal={narrow || compact ? true : undefined}
         aria-label={ariaLabel}
         onMouseEnter={onCardMouseEnter}
         onMouseLeave={onCardMouseLeave}

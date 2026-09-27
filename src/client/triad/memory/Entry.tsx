@@ -57,6 +57,15 @@ export function MemoryNavApp(): JSX.Element | null {
         badgeTitle={t('unreadChanges', { n: badgeCount })}
         onClick={e => {
           e.stopPropagation()
+          // 已打开（哪怕正在退场）时再点同一行 = 收起，与「自动化 / 用量 / 能力」
+          // 三个入口一致。少了这个分支：sidebar-nav 的自动关闭刻意把导航行排除
+          // 在「点外面关闭」之外（那是为 toggle 语义准备的），于是 openPanel
+          // 打在已打开的状态上毫无变化、又不会被自动关闭接手 —— 四个外观完全
+          // 相同的并排入口里只有自动化会响应第二次点击。
+          //
+          // 同时把 markRead 挪进「真的要打开」的分支：否则「面板已经开着还去点
+          // 这一行」会在收起的同时静默清掉未读角标。
+          if (open || closing) { requestClose(); return }
           setAnchor(navAnchorFrom(e.currentTarget))
           openPanel(unread.count > 0 ? 'changes' : 'home')
         }}

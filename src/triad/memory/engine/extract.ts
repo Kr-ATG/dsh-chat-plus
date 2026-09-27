@@ -218,12 +218,6 @@ export function textOfContent(content: unknown): string {
   }
   return parts.join('\n').trim()
 }
-
-/** 变更流摘要（供 change 记录）。 */
-export function candidateSummary(candidate: ExtractCandidate): string {
-  return summarize(candidate.content)
-}
-
 /** 语义去重阈值：候选与已有条目 n-gram 相似度 ≥ 该值视为重复，跳过入库（降 churn）。 */
 const DUP_SIMILARITY_THRESHOLD = 0.75
 

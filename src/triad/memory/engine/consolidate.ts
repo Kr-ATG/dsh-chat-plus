@@ -255,6 +255,15 @@ function applyOps(
         // 合并结果与库中既有条目撞 id 时不再新增（否则出现重复 id 条目），
         // 仍然删除源条目——目标内容已经在库里。
         const clash = byId.get(merged.id)
+        // 撞上的正是 sources 里某一条：LLM 把合并内容写成了源条目 A 的逐字副本。
+        // 这是最常见的输出（A 已经覆盖 B 时直接照抄 A 最省事），也正是原来
+        // 最危险的分支——下面两个条件都不成立，merged 既不入库、A 又被加进
+        // removeIds，末尾 filter 把它一并滤掉：**两条记忆凭空消失**，变更流
+        // 只留下一条指向不存在条目的「合并为」记录。
+        // 正确处理：让 merged 进 additions。源条目会先被 filter 掉，末尾的
+        // 「additions 按 seen 补回」再把同 id 的 merged 放回原位——内容不变，
+        // 只是换成了合并后的元信息。
+        const clashIsSource = clash !== undefined && sources.some(source => source.id === clash.id)
         if (clash !== undefined && clash.deprecated === true) {
           // 撞上的是被软废弃的同内容条目：复活它（内容回到活跃生命周期）。
           clash.deprecated = undefined
@@ -263,7 +272,7 @@ function applyOps(
           clash.supersededBy = undefined
           clash.updatedAt = nowIso()
           clash.version += 1
-        } else if (clash === undefined || removeIds.has(merged.id)) {
+        } else if (clash === undefined || removeIds.has(merged.id) || clashIsSource) {
           additions.push(merged)
         }
         for (const source of sources) {

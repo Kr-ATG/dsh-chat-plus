@@ -120,7 +120,16 @@ export function applyMemory(ctx: Context, input: Partial<MemoryConfig> | undefin
   })
 
   // 退出前回刷内存态到磁盘（节流窗口内的写不丢）。
-  ctx.effect(() => () => { void store.flush() }, 'dsh-memory: flush on dispose')
+  //
+  // 必须显式 catch：flush 走的是 mkdir/writeFile/rename 三个可抛的 fs 调用
+  // （Windows 上 rename 覆盖被占用文件会 EPERM/EBUSY），任何一条失败都会以
+  // 未处理 rejection 冒泡，而 Node 24 对此的默认行为是终止进程——插件卸载
+  // 路径反而成了崩溃点，与上面 103-104 行自己定的规矩相悖。退出路径上的落盘
+  // 失败只该记一条日志，不该升级成进程级故障。
+  ctx.effect(
+    () => () => { void store.flush().catch(error => logError('flush on dispose', error)) },
+    'dsh-memory: flush on dispose',
+  )
 
   ctx.logger?.info?.('[dsh-memory] memory engine mounted')
 }
@@ -154,10 +163,18 @@ async function extractTurn(
   if ((sessionState?.extractFailStreak ?? 0) >= 3 && turnNumber % 10 !== 1) return
 
   // 提取诊断：开始/结束都落盘，据此确认提取是否卡死（LLM 流不结束）或未被调用。
+  //
+  // 两处都必须显式 catch：appendExtractLog 内部有 mkdir / appendFile 两个可抛的
+  // fs 调用（EACCES / ENOSPC / Windows 上被别的进程占住导致的 EBUSY），漏接的
+  // 后果是「诊断日志写不进去」这种无害故障直接把整个 DSH 带走（未处理 rejection
+  // 会终止进程）。每轮对话都会走到这两行。
   const startedAt = Date.now()
-  void store.appendExtractLog(`turn=${turnNumber} chars=${transcript.length} route=${agent.options.provider ?? 'default'} start`)
+  const logLine = (line: string): void => {
+    void store.appendExtractLog(line).catch(() => { /* 诊断日志写不进去就当没有 */ })
+  }
+  logLine(`turn=${turnNumber} chars=${transcript.length} route=${agent.options.provider ?? 'default'} start`)
   const candidates = await extractCandidates(ctx, agent, transcript, config)
-  void store.appendExtractLog(`turn=${turnNumber} done ${Date.now() - startedAt}ms candidates=${candidates.length}`)
+  logLine(`turn=${turnNumber} done ${Date.now() - startedAt}ms candidates=${candidates.length}`)
   ctx.logger?.debug?.(`[dsh-memory] extract turn=${turnNumber} chars=${transcript.length} candidates=${candidates.length} route=${agent.options.provider ?? 'default'}`)
   if (candidates.length === 0) {
     // 更新失败计数（退避状态）。

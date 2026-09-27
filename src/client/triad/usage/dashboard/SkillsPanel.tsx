@@ -830,15 +830,6 @@ function McpLogoIcon({ kind }: { kind: 'db' | 'globe' | 'github' | 'slack' }): J
   )
 }
 
-/** 外部链接小图标。 */
-function McpExtIcon({ size = 12 }: { size?: number }): JSX.Element {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...catStroke()}>
-      <path d="M14 5h5v5M19 5l-8 8M10 6.5H6.5v11h11V14" />
-    </svg>
-  )
-}
-
 /** 铃铛小图标。 */
 function McpBellIcon({ size = 17 }: { size?: number }): JSX.Element {
   return (
@@ -2815,13 +2806,6 @@ function renderSkillMarkdown(text: string): string {
 
 /** 「全部 Agent」虚拟预设的哨兵 id（不会与真实 preset id 冲突：真实 id 不含 *）。 */
 const ALL_PRESETS = '*'
-
-/** 球内文字：中文取首字，拉丁取首字母。 */
-function ballInitial(label: string): string {
-  const trimmed = label.trim()
-  if (trimmed === '') return '?'
-  return [...trimmed][0] ?? '?'
-}
 
 /** 一个预设圆球（无底色，仅描边轮廓；有单独设置时右下角点亮小圆点）。 */
 const VIEWER_FONT_SIZES = [13.5, 15, 17]

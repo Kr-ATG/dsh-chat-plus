@@ -34,10 +34,6 @@ export interface LiveThinkingItem {
   readonly running: boolean
 }
 
-/** 兼容保留：视口大致容纳的段数（现仅用于回收时长估算）。 */
-export const LIVE_STACK_MAX = 2
-/** 兼容保留：旧的整卡挤出消散已删除（单视口滚动上顶替代），仅防外部引用报错。 */
-export const LIVE_LEAVE_MS = 560
 /**
  * 收口滑出时长基线（与 CSS dtt-rail-scroll-out 对齐，实际时长按段数浮动，
  * 见 reclaimTiming：段越多滑得越久，保证每行都有露脸时间）。
@@ -45,8 +41,6 @@ export const LIVE_LEAVE_MS = 560
 export const LIVE_RECLAIM_MS = 1100
 /** 收口第二阶段：空盒高度合拢时长（与 CSS 槽位 collapse 对齐）。 */
 export const LIVE_RECLAIM_COLLAPSE_MS = 350
-/** 兼容保留：单轨一次回收，不再 stagger（调用方卸载等待仍复用该值）。 */
-export const LIVE_RECLAIM_STAGGER = 280
 /** 内联行被 control 接管 / 悬浮锚点清除后，保留挂载播完回收的总时长 + 余量。 */
 export const LIVE_RECLAIM_UNMOUNT_MS =
   LIVE_RECLAIM_MS + LIVE_RECLAIM_COLLAPSE_MS + 220

@@ -162,5 +162,85 @@ if (registered.length !== 4) {
   else fail('route registration did not return an unregister disposer')
 }
 
+// ── 数据安全与注入面（读源码断言，锁住这轮修掉的 P0/P1）──────────────────
+// 断言读源码而不是 bundle：这些契约全都在源码的字面写法上（清 dirty 的先后、
+// tmp 名是否唯一、有没有接 catch），从压缩后的产物里反而看不出来。
+
+const srcOf = (rel) => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '..', rel), 'utf8')
+const stripComments = (s) => s
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+
+const storeSrc = stripComments(srcOf('src/triad/memory/engine/store.ts'))
+if (/\n\s*const temp = `\$\{file\}\.tmp`/.test(storeSrc)) {
+  fail('atomicWriteText 的临时名必须唯一（固定 ${file}.tmp 会让并发写互相截断 / rename ENOENT）')
+} else if (!/const temp = `\$\{file\}\.\$\{process\.pid\}/.test(storeSrc)) {
+  fail('atomicWriteText 缺少 pid/随机段的唯一临时名')
+} else {
+  pass('atomicWriteText 使用唯一临时名（并发写不再互相截断）')
+}
+
+// dirty 必须在写盘成功之后才清：先清的话，写失败时这批增量只留内存，
+// 而 dispose 的 flush 会撞上 `if (!this.dirty) return` 空转 —— 数据随进程退出蒸发。
+const flushNow = /private async flushNow[\s\S]*?\n  }/.exec(storeSrc)?.[0] ?? ''
+if (/this\.dirty = false[\s\S]*?await atomicWriteJson/.test(flushNow)) {
+  fail('flushNow 必须先 await 写盘再清 dirty（当前顺序会丢数据且无法补救）')
+} else if (/await atomicWriteJson[\s\S]*?this\.dirty = false/.test(flushNow)) {
+  pass('flushNow 写盘成功后才清 dirty（失败可重试，dispose 兜底有效）')
+} else {
+  fail('flushNow 的 dirty 清除位置无法判定，请人工确认')
+}
+
+const memIndexSrc = stripComments(srcOf('src/triad/memory/index.ts'))
+if (/void store\.appendExtractLog\([^)]*\)\s*(?!\.catch)/.test(memIndexSrc)) {
+  fail('appendExtractLog 的 fire-and-forget 必须显式接 .catch（未处理 rejection 会终止进程）')
+} else if (/void store\.flush\(\)\s*(?!\.catch)/.test(memIndexSrc)) {
+  fail('dispose 里的 store.flush() 必须显式接 .catch')
+} else {
+  pass('记忆引擎的 fire-and-forget 全部接了 .catch（磁盘故障不再拖垮进程）')
+}
+
+// 截图卡片：iframe 的 src/title 与 mermaid 的 data-lang 都是属性上下文，
+// 走 escapeAttr（转义引号）而不是只转义 & < > 的 escapeHtml —— 卡片页是用
+// --disable-web-security 的无头 Chrome 打开的，属性逃逸等于任意本地文件读取。
+const cardSrc = stripComments(srcOf('src/shot/card.ts'))
+const mdSrc = stripComments(srcOf('src/shot/markdown.ts'))
+if (/src="\$\{embed\.fileUrl\}"/.test(cardSrc) || /title="\$\{escapeHtml\(name\)\}"/.test(cardSrc)) {
+  fail('figureOf 的 iframe src/title 必须走 escapeAttr（文件名可含引号 → 属性逃逸）')
+} else if (/data-lang="\$\{escapeHtml\(/.test(mdSrc)) {
+  fail('mermaid 的 data-lang 属性必须走 escapeAttr（info string 由模型控制）')
+} else {
+  pass('截图卡片的属性上下文全部用 escapeAttr（属性逃逸面已封）')
+}
+
+// 净化器：HARDENED_PAIR_TAGS 里有 void 元素（base/link/meta/embed/source）与
+// 自闭合元素（svg/math/template）。压栈前不判自闭合，它们永远弹不出来，
+// 同一 html_block 之后的内容会被整段静默吞掉。
+const sanitizeSrc = stripComments(srcOf('src/shared/sanitize-html.ts'))
+const hardenedPush = /if \(HARDENED_PAIR_TAGS\.has\(tagName\)\) \{ dropStack\.push\(tagName\); continue \}/.test(sanitizeSrc)
+if (hardenedPush) {
+  fail('HARDENED_PAIR_TAGS 分支未判自闭合/void：void 标签压栈后永不弹出，后续内容被整段吞掉')
+} else {
+  pass('净化器在压栈前判自闭合/void（void 标签不再吞掉后续内容）')
+}
+
+// 合并记忆：当 LLM 把合并结果写成某条源条目的逐字副本时，merged 撞上自己的
+// 源 id，既不入库又随源条目一起被删 —— 两条记忆凭空消失。
+const consolidateSrc = stripComments(srcOf('src/triad/memory/engine/consolidate.ts'))
+if (!/clashIsSource/.test(consolidateSrc)) {
+  fail('merge 分支必须处理「合并结果撞上自己源条目」的情况（否则两条记忆一起消失）')
+} else {
+  pass('consolidate 的 merge 覆盖了「撞上源条目」分支（记忆不再凭空消失）')
+}
+
+// 自动化：取消功能依赖 executing 里的 AbortController，按 id 无条件删会把
+// 新一轮执行的 controller 一起抹掉。
+const autoSrc = stripComments(srcOf('src/triad/automation/index.ts'))
+if (/executing\.delete\(job\.id\)\s*\n/.test(autoSrc) && !/executing\.get\(job\.id\) === ac/.test(autoSrc)) {
+  fail('executing 的清理必须比对实例（按 id 无条件删会让「取消」收不到 abort）')
+} else {
+  pass('automation 的 executing 按实例清理（取消功能不会失效）')
+}
+
 console.log(`\n${process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED'} — ${HOST}`)
 process.exit(process.exitCode ?? 0)

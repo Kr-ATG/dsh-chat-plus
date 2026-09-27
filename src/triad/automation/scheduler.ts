@@ -66,6 +66,34 @@ function formatTimeoutMs(ms: number): string {
   return `${ms}ms`
 }
 
+/**
+ * 执行记录与调度游标的写入守卫。
+ *
+ * 这些写入本来和执行体在同一个 try 里，于是**存储 I/O 一失败，整个执行就被
+ * catch 记成 error**：模型明明跑完了，用户看到「任务失败」并进入退避；如果
+ * 失败的是 logRun 之后的 onJobDone（事件推送），同一次执行会先写一条 success
+ * 再写一条 error，前端弹两个 toast，every/cron 游标还被二次 markRun 推快一个
+ * 周期。这里把「执行失败」和「记录失败」彻底分开：记录写不进去只丢一条控制台
+ * 警告，绝不改变这次执行的真实结论。
+ */
+function guardStore<T>(write: () => T, fallback: T): T {
+  try {
+    return write()
+  } catch (error) {
+    console.warn('[dsh-chat-plus] automation: 写执行记录失败（不影响本次执行结论）', error)
+    return fallback
+  }
+}
+
+/** 完成回调守卫：订阅方抛错不该反噬执行记录。 */
+function guardNotify(notify: () => void): void {
+  try {
+    notify()
+  } catch (error) {
+    console.warn('[dsh-chat-plus] automation: onJobDone 回调失败', error)
+  }
+}
+
 /** 创建 Cron 调度器。 */
 export function createCronScheduler({
   store,
@@ -120,7 +148,7 @@ export function createCronScheduler({
         const extra = isRecord(executionResult) ? executionResult : {}
         // 手动触发不动调度游标：用户点「立即运行」不该让下一次定时提前/推后。
         const cursorAdvanced = trigger === 'schedule'
-          ? store.markRun(job.id, { success: true, expectedConfigRevision: job.configRevision })
+          ? guardStore(() => store.markRun(job.id, { success: true, expectedConfigRevision: job.configRevision }), true)
           : true
         const record: Omit<RunRecord, 'timestamp'> = {
           ...extra,
@@ -130,22 +158,22 @@ export function createCronScheduler({
           trigger,
           ...(cursorAdvanced === false ? { staleConfigRevision: true } : {}),
         }
-        store.logRun(job.id, record)
+        guardStore(() => store.logRun(job.id, record), true)
         const result: Record<string, unknown> = { ...record }
-        onJobDone?.(job, result)
+        guardNotify(() => onJobDone?.(job, result))
         return result
       } catch (error) {
         const finishedAt = new Date().toISOString()
         const message = error instanceof Error ? error.message : String(error)
         if (isSkippedError(error)) {
           const record: Omit<RunRecord, 'timestamp'> = { status: 'skipped', startedAt, finishedAt, reason: message, trigger }
-          store.logRun(job.id, record)
+          guardStore(() => store.logRun(job.id, record), true)
           const result: Record<string, unknown> = { ...record }
-          onJobDone?.(job, result)
+          guardNotify(() => onJobDone?.(job, result))
           return result
         }
         const cursorAdvanced = trigger === 'schedule'
-          ? store.markRun(job.id, { success: false, expectedConfigRevision: job.configRevision })
+          ? guardStore(() => store.markRun(job.id, { success: false, expectedConfigRevision: job.configRevision }), true)
           : true
         const record: Omit<RunRecord, 'timestamp'> = {
           status: 'error',
@@ -155,9 +183,9 @@ export function createCronScheduler({
           trigger,
           ...(cursorAdvanced === false ? { staleConfigRevision: true } : {}),
         }
-        store.logRun(job.id, record)
+        guardStore(() => store.logRun(job.id, record), true)
         const result: Record<string, unknown> = { ...record }
-        onJobDone?.(job, result)
+        guardNotify(() => onJobDone?.(job, result))
         return result
       }
     })().finally(() => {
@@ -235,8 +263,16 @@ export function createCronScheduler({
       await checkPromise.catch(() => {})
       checkPromise = null
     }
-    // 排空在飞的执行（各自已 catch，这里只等结束）。
+    // 中止在飞的执行再排空。
+    //
+    // 只排空不中止的话，插件卸载 / 配置重载 / profile 切换时，正在跑的模型
+    // 调用会一路挂到 DEFAULT_CRON_EXECUTION_TIMEOUT_MS（20 分钟）才结束：
+    // HTTP 连接与超时定时器继续占着事件循环，进程退不干净。
+    for (const job of inflight.values()) {
+      try { abortJob?.(job) } catch { /* 中止失败也不能卡住卸载 */ }
+    }
     await Promise.allSettled([...inflight.values()])
+    inflight.clear()
   }
 
   /** 中止在飞的执行：执行体的 signal 被 abort，落一条 error 记录。 */

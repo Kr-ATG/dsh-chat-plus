@@ -11,6 +11,7 @@
  * 错误时占位保持源码文本，不吞内容。
  */
 import MarkdownIt from 'markdown-it'
+import { escapeAttr } from '../shared/sanitize-html.ts'
 // full 预设才带完整 emoji 短码表：light 只收录极少数条目，:rocket: 之类常见
 // 短码会原样输出（旧实现用的就是 light，短码渲染不出来）。
 import { full as markdownItEmoji } from 'markdown-it-emoji'
@@ -163,7 +164,11 @@ export async function renderMarkdown(md: string, theme: ShotTheme): Promise<stri
       // 替换成 SVG）。不能走 shiki —— 一旦被高亮成带 span 的 HTML，mermaid 读到
       // 的 textContent 虽仍是源码，但失败时留下的就是花花绿绿的半成品。
       if (DIAGRAM_LANGS.has(lang.trim().toLowerCase())) {
-        return `<pre class="mermaid" data-lang="${escapeHtml(lang.trim())}">${escapeHtml(code.trim())}</pre>`
+        // data-lang 走 escapeAttr 而不是 escapeHtml：info string 是模型可控的
+        // 围栏尾巴，```` ```diagr" onload="… ```` 这种写法在只转义 & < > 的
+        // escapeHtml 下会闭合属性并注入事件处理器，而卡片页正好在无头浏览器里
+        // 以 disable-web-security 打开。
+        return `<pre class="mermaid" data-lang="${escapeAttr(lang.trim())}">${escapeHtml(code.trim())}</pre>`
       }
       if (lang !== '') {
         try {

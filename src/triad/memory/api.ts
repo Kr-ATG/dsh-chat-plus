@@ -886,11 +886,5 @@ function requireString(value: unknown, name: string): string {
   }
   return value.trim()
 }
-
-/** 供其它模块使用的工具函数（变更时间）。 */
-export function apiNow(): string {
-  return nowIso()
-}
-
 /** mergeTags 复用导出（tools.ts 已用本地实现，此处仅为 API 一致性保留）。 */
 export { mergeTags }

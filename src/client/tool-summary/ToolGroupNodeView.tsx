@@ -608,8 +608,15 @@ const ToolEntry = memo(function ToolEntry({
 
 /** Shadows the built-in `tool-call` renderer: one chip per turn, drawer on click. */
 export const ToolGroupNodeView = memo(function ToolGroupNodeView(props: ChatNodeViewProps<'tool-call'>) {
+  // KR 门控的判定可以提前算，但**早退必须留在所有 hook 之后**。
+  // 原来这里 `if (isKrMode) return null` 写在两个 useChat 之前，于是 hook 数量
+  // 取决于一个渲染期从 body 属性读出的全局值：同一 fiber 在 KR 模式下渲染过
+  // （0 个 hook）之后，只要宿主再次渲染它而此时 data-dsh-kr-chat 已被
+  // controller 移除（切到「对话」标签就会 removeAttribute），React 会在
+  // renderWithHooks 抛 "Rendered more hooks than during the previous render"，
+  // 异常一路冒到聊天树的 ErrorBoundary。同文件的 ToolEntry 与
+  // ThinkingStepNodeView 都是无条件调用 useChat 的写法。
   const isKrMode = typeof document !== 'undefined' && document.body?.getAttribute('data-dsh-kr-chat') === 'true'
-  if (isKrMode) return null
 
   const { node, useChat, cwd, openFile, inspectCall, t, turnProcess } = props
   const turn = turnNumber(node)
@@ -625,6 +632,7 @@ export const ToolGroupNodeView = memo(function ToolGroupNodeView(props: ChatNode
     if (turn === undefined) return undefined
     return snapshot.legacy.turnTimings.get(turn)?.startTime
   })
+  if (isKrMode) return null
   if (nodes.length === 0) return null
   // Only the first node of the turn renders the chip; siblings render empty.
   if (node.key !== nodes[0]?.key) return null

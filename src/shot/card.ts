@@ -10,6 +10,7 @@
  * 目录），并把「渲染完成」暴露成 window.__shotMermaid 供渲染器等待。
  */
 import { escapeHtml, hasDiagramFence, renderMarkdown } from './markdown.ts'
+import { escapeAttr } from '../shared/sanitize-html.ts'
 import { buildCardCss, mermaidConfigJson, type ShotTheme } from './theme.ts'
 import { deriveTitle } from '../shared/title.ts'
 export { deriveTitle } from '../shared/title.ts'
@@ -137,10 +138,19 @@ export interface ShotCardOutput {
   needsMermaid: boolean
 }
 
-/** 一张内嵌预览的 figure（页面 + 底部一行文件名，不放对话里那套工具条）。 */
+/**
+ * 一张内嵌预览的 figure（页面 + 底部一行文件名，不放对话里那套工具条）。
+ *
+ * `src` 与 `title` 一律走 escapeAttr（转义引号/反引号），**不能**用只转义
+ * `& < >` 的 escapeHtml：本地 HTML 的路径与文件名都来自模型正文，POSIX 允许
+ * 文件名里带 `"`，一个裸引号就会闭合属性、把事件处理器注入进 <iframe> 标签。
+ * 而这张卡片页是用带 --disable-web-security --allow-file-access-from-files 的
+ * 无头 Chrome 打开的，注入的处理器有读本地文件的能力。
+ */
 function figureOf(embed: ShotEmbed): string {
   const name = embed.abs.split(/[\\/]+/).pop() ?? embed.abs
-  return `<figure class="htmlshot"><iframe src="${embed.fileUrl}" title="${escapeHtml(name)}" scrolling="no" loading="eager" style="height:${embed.height}px"></iframe><figcaption>${escapeHtml(name)} · 本地 HTML</figcaption></figure>`
+  const title = escapeAttr(name)
+  return `<figure class="htmlshot"><iframe src="${escapeAttr(embed.fileUrl)}" title="${title}" scrolling="no" loading="eager" style="height:${embed.height}px"></iframe><figcaption>${escapeHtml(name)} · 本地 HTML</figcaption></figure>`
 }
 
 /** 块级收尾标签（内嵌预览要插到它后面，而不是把句子劈开）。 */

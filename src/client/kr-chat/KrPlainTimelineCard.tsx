@@ -171,7 +171,7 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
     () => `${timeline.steps.length}:${timeline.nowLabel}:${timeline.intent ?? ''}`,
     [timeline.steps.length, timeline.nowLabel, timeline.intent],
   )
-  const { ref: listRef, onScroll, onWheel, following } = useSteppedFollow(probe, running && open, motion)
+  const { ref: listRef, onScroll, onWheel, overflow, following } = useSteppedFollow(probe, running && open, motion)
 
   const empty = timeline.steps.length === 0
   const badge = timeline.activeCount > 0
@@ -257,6 +257,13 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
               onWheel={onWheel}
               role="region"
               aria-label="人话行动时间线"
+              /*
+               * 溢出时才进焦点序。没有 tabIndex 的溢出容器不进 Tab 序，纯键盘
+               * 用户既聚焦不了也用方向键/PageDown 滚，只能读到前 6 行——同仓库
+               * 的思考卡对完全同构的视口就写了 tabIndex={overflow ? 0 : undefined}
+               * （KrReasoningCard.tsx），这里是漏抄。
+               */
+              tabIndex={overflow ? 0 : undefined}
               data-following={running && open && following ? 'true' : undefined}
               style={{ '--kr-plain-rows': maxRows } as CSSProperties}
             >

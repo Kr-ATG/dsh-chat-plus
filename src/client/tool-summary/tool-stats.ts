@@ -60,23 +60,6 @@ export function argsPath(argsRaw: string): string | undefined {
   }
 }
 
-/** Extract command string from tool args (run_command/bash/cmd/etc). */
-export function argsCommand(argsRaw: string): string | undefined {
-  if (argsRaw === '') return undefined
-  try {
-    const parsed: unknown = JSON.parse(argsRaw)
-    if (typeof parsed !== 'object' || parsed === null) return undefined
-    const record = parsed as Record<string, unknown>
-    for (const key of ['CommandLine', 'command_line', 'command', 'cmd', 'script']) {
-      const value = record[key]
-      if (typeof value === 'string' && value !== '') return value
-    }
-    return undefined
-  } catch {
-    return undefined
-  }
-}
-
 /** Flatten the text of one settled result's content blocks. */
 export function resultText(block: ToolCallBlock): string {
   if (!('kind' in block)) return ''
@@ -131,16 +114,6 @@ export function computeStats(blocks: readonly ToolCallBlock[]): ToolStats {
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
   return { total, running, errors, byTool, files: [...files], readOnly }
 }
-
-/** 该调用是否 git 相关（工具名含 git，或参数里出现 git <动词>）。 */
-export function gitVerbOf(block: ToolCallBlock): string | undefined {
-  if (callName(block).toLowerCase().includes('git')) return 'git'
-  const raw = 'kind' in block ? (block.call?.argsRaw ?? '') : block.argsRaw
-  if (typeof raw !== 'string' || raw === '') return undefined
-  const match = /\bgit\s+([a-z-]+)/i.exec(raw)
-  return match?.[1]?.toLowerCase()
-}
-
 /** Shorten a path against the session cwd (display only). */
 export function shortenPath(path: string, cwd: string | undefined): string {
   if (cwd !== undefined && cwd !== '') {
@@ -175,25 +148,6 @@ export function shortenEntry(entry: string, cwd: string | undefined): string {
     }
   }
   return shortenPath(entry, cwd)
-}
-
-/** One-line summary of a call for the generic fallback row. */
-export function callSummary(block: ToolCallBlock): string {
-  const name = callName(block)
-  const raw = 'kind' in block ? (block.call?.argsRaw ?? '') : block.argsRaw
-  if (raw === '') return name
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === null) return `${name} · ${raw}`
-    const record = parsed as Record<string, unknown>
-    for (const key of ['file_path', 'path', 'command', 'url', 'pattern']) {
-      const value = record[key]
-      if (typeof value === 'string' && value !== '') return value
-    }
-    return `${name} · ${raw.slice(0, 80)}`
-  } catch {
-    return `${name} · ${raw.slice(0, 80)}`
-  }
 }
 
 /** Format an elapsed millisecond duration for compact display. */

@@ -31,18 +31,8 @@ const ASPECT_RATIO: Record<Exclude<ShotAspect, 'auto'>, number> = {
   '3:4': 3 / 4,
 }
 
-/** 画幅中文名。 */
-export const ASPECT_LABEL: Record<ShotAspect, string> = {
-  auto: '自适应',
-  '16:9': '16:9',
-  '4:3': '4:3',
-  '1:1': '1:1',
-  '9:16': '9:16',
-  '3:4': '3:4',
-}
 
 /** 画幅档位顺序（UI 分段选择按此渲染）。 */
-export const SHOT_ASPECTS: readonly ShotAspect[] = ['auto', '16:9', '4:3', '1:1', '9:16', '3:4']
 
 /**
  * 解析画幅参数。
@@ -114,11 +104,6 @@ export function qualityScale(quality: ShotQuality, width: number): number {
   return isNarrow ? 3 : 2
 }
 
-/** 设备档中文名。 */
-export const DEVICE_LABEL: Record<ShotDevice, string> = {
-  desktop: '电脑版',
-  phone: '手机版',
-}
 
 /** 画质档中文名。 */
 export const QUALITY_LABEL: Record<ShotQuality, string> = {

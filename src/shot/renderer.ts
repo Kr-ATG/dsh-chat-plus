@@ -11,7 +11,7 @@
  */
 import { createGunzip } from 'node:zlib'
 import { createReadStream, createWriteStream, existsSync } from 'node:fs'
-import { mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdir, writeFile, rm, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
@@ -130,8 +130,33 @@ export async function shutdownRenderer(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 300))
   await rm(join(current.dir, 'page'), { recursive: true, force: true }).catch(() => {})
   await rm(current.profileDir, { recursive: true, force: true }).catch(() => {})
-  // 顺带清理可能残留的历史 profile 临时目录
-  await rm(join(current.dir, 'profile'), { recursive: true, force: true }).catch(() => {})
+  /*
+   * 顺带清理**崩溃残留**的历史 profile 目录。
+   *
+   * 原来这里清的是 `join(current.dir, 'profile')` —— 一个精确路径，现在的代码
+   * 根本不会生成它（launch 建的是 `profile-<时间戳>-<随机>`）。于是这段「历史
+   * 清理」从来没清到过任何东西：DSH 崩溃 / 被任务管理器强杀 / 渲染中进程被杀
+   * 时留下的完整 Chrome user-data-dir（Cache、GPUCache、Service Worker，
+   * 几十到数百 MB）没有任何回收路径，反复崩溃使用会无上限堆积。
+   * renderOnce 的 finally 同理只在进程活着时才清 page/shot-*.html。
+   */
+  await cleanupOrphanProfiles(current.dir, current.profileDir).catch(() => {})
+}
+
+/** 删除 dir 下除 keep 之外的所有 profile-* 目录（keep 传 undefined 表示全清）。 */
+async function cleanupOrphanProfiles(dir: string, keep?: string): Promise<void> {
+  let entries: string[]
+  try {
+    entries = await readdir(dir)
+  } catch {
+    return
+  }
+  for (const name of entries) {
+    if (!name.startsWith('profile-')) continue
+    const full = join(dir, name)
+    if (keep !== undefined && full === keep) continue
+    await rm(full, { recursive: true, force: true }).catch(() => {})
+  }
 }
 
 /** 取得可用实例：已存在且连接健康则复用，否则重建。
@@ -156,6 +181,9 @@ async function launch(): Promise<Engine> {
   const chromePath = pickChromeCandidate()
   const port = await findFreePort(9400)
   const dir = baseDirProvider()
+  // 启动前先收一遍上一批崩溃残留（见 cleanupOrphanProfiles 的说明）：这次
+  // 异常退出留下的目录正好是「没有 keep 的历史批次」，一次启动即可清空。
+  await cleanupOrphanProfiles(dir).catch(() => {})
   // 采用独立带时间戳的 profile 目录，彻底免疫 Windows 下进程残留引发的 SingletonLock 冲突
   const profileDir = join(dir, `profile-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`)
   await mkdir(profileDir, { recursive: true })

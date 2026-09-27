@@ -48,8 +48,16 @@ function safeUrl(value: string, context: 'href' | 'src'): string {
   }
 }
 
-/** 属性值转义（双引号包裹时使用；引号本身转义，不允许属性逃逸）。 */
-function escapeAttr(value: string): string {
+/**
+ * 属性值转义（双引号包裹时使用；引号本身转义，不允许属性逃逸）。
+ *
+ * **导出**给截图卡片的 HTML 组装复用：那边拼 `src="…"` / `title="…"` 时若用
+ * 只转义 `& < >` 的 escapeHtml，值里的一个 `"` 就会闭合属性、把事件处理器
+ * 注入进标签——而卡片页是用带 --disable-web-security 的无头 Chrome 打开的，
+ * 注入的处理器能读本地文件再外传。这不是理论风险：本地 HTML 预览的文件名
+ * 来自模型正文，POSIX 允许文件名里带引号。
+ */
+export function escapeAttr(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;').replaceAll("'", '&#39;').replaceAll('`', '&#96;')
 }
@@ -122,12 +130,22 @@ export function sanitizeHtmlFragment(html: string): string {
     const tagName = nameMatch[1].toLowerCase()
     // 危险树内：只处理闭合，栈顶匹配即出栈；其余内容全部丢弃。
     if (dropping()) {
+      // 同样要判自闭合/void：否则 `<meta …>` 这种无配对闭合标签会压进栈里
+      // 再也弹不出来，dropping() 从此恒为真，**同一 html_block 后续所有内容
+      // 被整段静默吞掉**（用户看到的截图里这段正文凭空消失）。下面普通树
+      // 分支同样漏了这个判断，两处一起修。
+      const selfClosing = raw.trimEnd().endsWith('/') || VOID_TAGS.has(tagName)
       if (isClosing && tagName === dropStack[dropStack.length - 1]) dropStack.pop()
-      else if (!isClosing && HARDENED_PAIR_TAGS.has(tagName)) dropStack.push(tagName)
+      else if (!isClosing && !selfClosing && HARDENED_PAIR_TAGS.has(tagName)) dropStack.push(tagName)
       continue
     }
-    // 普通树内遇到危险标签：入栈并整块丢弃。
-    if (HARDENED_PAIR_TAGS.has(tagName)) { dropStack.push(tagName); continue }
+    // 普通树内遇到危险标签：入栈并整块丢弃（void / 自闭合的只丢标签本身）。
+    const hardenedSelfClosing = raw.trimEnd().endsWith('/') || VOID_TAGS.has(tagName)
+    if (HARDENED_PAIR_TAGS.has(tagName) && !hardenedSelfClosing) {
+      dropStack.push(tagName)
+      continue
+    }
+    if (HARDENED_PAIR_TAGS.has(tagName)) { continue }
     // 软删标签：单标签直接丢；成对的（textarea/select 等）起止皆吞、内容保留。
     if (SOFT_STRIP_TAGS.has(tagName)) {
       const selfClosing = raw.trimEnd().endsWith('/') || VOID_TAGS.has(tagName)

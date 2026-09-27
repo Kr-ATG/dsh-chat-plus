@@ -46,6 +46,12 @@ function UsagePanelEntry(): JSX.Element {
         expanded={open}
         onClick={e => {
           e.stopPropagation()
+          // 已打开（哪怕正在退场）时再点同一行 = 收起，与「自动化」入口一致。
+          // 少了这个分支：sidebar-nav 的自动关闭刻意把导航行排除在「点外面
+          // 关闭」之外（那是为了配合 toggle 语义），于是 setOpen(true) 打在
+          // 已打开的状态上毫无变化、又不会被自动关闭接手 —— 四个外观完全相同
+          // 并排的入口里，只有自动化响应第二次点击，这三个像坏了。
+          if (open || closing) { requestClose(); return }
           setAnchor(anchorFromEvent(e))
           setOpen(true)
         }}
@@ -84,6 +90,8 @@ function SkillsEntry(): JSX.Element {
         expanded={open}
         onClick={e => {
           e.stopPropagation()
+          // 同 UsagePanelEntry：已打开时再点 = 收起。
+          if (open || closing) { requestClose(); return }
           setAnchor(anchorFromEvent(e))
           setOpen(true)
         }}

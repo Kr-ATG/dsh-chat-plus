@@ -328,6 +328,10 @@ const expectedStyles = [
   'dsh-chat-flow-proto-styles', 'dsh-chat-flow-diagram-styles',
   'dsh-chat-flow-download-styles',
   'dsh-triad-skill-source-styles',
+  // 四工作台的窄屏覆盖（src/client/triad/responsive.ts）。曾经定义了却没人
+  // 调用，整段样式被 tree-shake 掉、从未注入 —— 窄屏下设置面板与居中对话框
+  // 全是坏的。断言它必须在册，防止再次掉线。
+  'dsh-triad-responsive-styles',
   // 全局动画节流（页面不可见时暂停全页 CSS 动画），与 KR 开关无关，始终注入。
   'dsh-anim-pause',
   ...(krEnabled ? ['dsh-kr-chat-styles'] : []),
@@ -553,6 +557,31 @@ if (/role="status"/.test(timerCode)) {
   fail('思考视口必须显式 aria-live="off"')
 } else {
   pass('用时细行与思考视口均关闭 aria-live（高频文本不轰炸读屏）')
+}
+
+// 三条这轮修掉的 P1：规则形状不能回退。
+if (krEnabled) {
+  const toolViewSrc = readFileSync(resolve(ROOT, 'src/client/tool-summary/ToolGroupNodeView.tsx'), 'utf8')
+  const panelSrc = readFileSync(resolve(ROOT, 'src/client/shot/Panel.tsx'), 'utf8')
+  const agentSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8')
+
+  // hook 早退：isKrMode 的 return null 必须在两个 useChat 之后，否则切
+  // 对话标签（controller 会 removeAttribute）后同一 fiber 再次渲染会抛
+  // "Rendered more hooks than during the previous render"，异常冒到聊天树的 ErrorBoundary。
+  const earlyExit = /const isKrMode =[\s\S]{0,200}?if \(isKrMode\) return null[\s\S]{0,200}?useChat\(/.test(toolViewSrc)
+  if (earlyExit) {
+    fail('ToolGroupNodeView 不得在 useChat 之前 return null（违反 rules of hooks，切换视图会抛异常）')
+    // 截图面板：空消息分支必须复位 busy，否则面板永久卡在「正在渲染…」。
+  } else if (/if \(messages\.length === 0\) \{\s*setResult\(null\)/.test(panelSrc)) {
+    fail('截图面板的空消息分支必须先 setBusy(false)（否则 token 守卫让 busy 永远为 true，面板卡死）')
+    // 大盘：turnData 必须做引用稳定化，否则下游 memo 全被击穿、每帧重扫全轮思考。
+  } else if (!/fingerprintTurnData/.test(agentSrc)) {
+    fail('KrAgentPanel 缺少 turnData 引用稳定化（memo 会被每帧击穿）')
+  } else if (!/const toolViews = useMemo/.test(agentSrc)) {
+    fail('KrAgentPanel 的 toolViews 必须 memo（含每条一次的 rawResultJson 序列化）')
+  } else {
+    pass('hook 顺序 / busy 收口 / 大盘 memo 三处修复在位')
+  }
 }
 
 console.log(`\n${process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED'} — ${CLIENT}`)

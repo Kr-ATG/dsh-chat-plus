@@ -167,9 +167,3 @@ export function killChrome(runtime: ChromeRuntime | null, force = false): void {
     } catch { /* 已退出 */ }
   }
 }
-
-/** 根据 session 标识生成 profile 目录名 */
-export function profileDirFor(rootDir: string, key: string): string {
-  const safe = key.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48) || 'default'
-  return path.join(rootDir, safe)
-}

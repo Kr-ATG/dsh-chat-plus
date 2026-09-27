@@ -232,14 +232,3 @@ export function createTicker(
 
   return { onTurnEnd, enqueue, dispose }
 }
-
-/** 会话级 ticker 状态读取（供 inject 用，避免重复读文件）。 */
-export async function sessionTurnCount(store: MemoryStore, sessionId: string): Promise<number> {
-  const state = await store.readState()
-  return state.perSession[sessionId]?.turnCount ?? 0
-}
-
-/** 当前时间 ISO（供 change 记录）。 */
-export function tickerNow(): string {
-  return nowIso()
-}

@@ -21,6 +21,7 @@ import { applyMemoryClient } from './memory/index.js'
 import { apply as applyUsageEntries } from './usage/entry.js'
 import { applyAutomation } from './automation/index.js'
 import { apply as applySkillSource } from './skill-source/index.js'
+import { injectResponsiveStyles } from './responsive.js'
 import { buildActivityGrid, activityColor, ACTIVITY_COLUMNS } from './usage/dashboard/ActivityGrid.js'
 
 /** Run one module's apply, logging and swallowing any failure. */
@@ -32,8 +33,20 @@ function safe(label: string, run: (ctx: ClientContext) => void, ctx: ClientConte
   }
 }
 
-/** Apply the dsh-triad browser half (four isolated modules). */
+/** Apply the dsh-chat-plus browser half (four isolated modules). */
 export function applyTriadClient(ctx: ClientContext): void {
+  /*
+   * 响应式覆盖样式先于四个工作台注入。
+   *
+   * 这一行是补接线：injectResponsiveStyles 从四工作台融合那次引入起就**没有任何
+   * 调用方**，整段 SHEET 被 tree-shake 掉、从未注入，于是文件头承诺的三件事
+   * 一件都没发生——窄屏下官方设置面板仍是「188px 左导航 + 内容」两栏（内容列
+   * 被压到 ~140px，供应商页不可用）、居中对话框不强制全宽、安全区变量从未定义。
+   * useIsMobile 一直是活的（用量面板在用），所以死的只是注入这一条链。
+   *
+   * 幂等且返回移除函数，交给 ctx.effect 随插件卸载回收。
+   */
+  safe('responsive styles', (c) => { c.effect(injectResponsiveStyles, 'dsh-chat-plus: triad responsive styles') }, ctx)
   safe('automation', applyAutomation, ctx)
   safe('memory', applyMemoryClient, ctx)
   safe('usage', applyUsageEntries, ctx)

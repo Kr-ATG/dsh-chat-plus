@@ -8,7 +8,7 @@ import { latestChatSnapshot, latestChatSessionId, collectTurnNodes, subscribeLat
 import { callDurationMs, callName, computeStats, formatDuration, isRunning } from '../tool-summary/tool-stats.ts'
 import { rowTitle, toolArgsRaw, argFields, resultParagraphs, rawResultJson, executionFacts } from '../tool-summary/activity-view-model.ts'
 import { useNow } from '../tool-summary/use-now.ts'
-import { getKrChatStore } from './kr-chat-store.ts'
+import { getKrChatStore, PANEL_WIDTH_MAX, PANEL_WIDTH_MIN } from './kr-chat-store.ts'
 import { KrTaskOverviewCard, type DshTaskItem } from './KrTaskOverviewCard.tsx'
 import { KrReasoningCard, REASONING_MAX_ROWS } from './KrReasoningCard.tsx'
 import { KrToolCallsCard, type ToolCallItemView } from './KrToolCallsCard.tsx'
@@ -22,6 +22,44 @@ import { getLiveDshTodos, subscribeLiveDshTodos } from './kr-todo-bridge.ts'
 import { buildPlainTimeline, extractIntent } from './plain-timeline.ts'
 import { KrPlainTimelineCard } from './KrPlainTimelineCard.tsx'
 import { KR_MEMORY_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE } from './enabled.ts'
+
+/**
+ * 一轮的数据视图。
+ *
+ * 显式声明成 readonly 形状，而不是直接用 collectTurnNodes 的返回类型推断：
+ * 下面的稳定化层要先把 actStore.get() 的返回值规整成同一形状，才能对两条
+ * 数据源用同一套指纹。
+ */
+interface TurnDataView {
+  readonly tools: readonly ChatNode<'tool-call'>[]
+  readonly reasoning: readonly { readonly text: string }[]
+  readonly tasks: readonly { readonly id: string; readonly content: string; readonly status: string }[]
+  readonly turnStart?: number | undefined
+  readonly turnEnd?: number | undefined
+  readonly durationMs?: number | undefined
+}
+
+/**
+ * 内容指纹：判断「这一轮的数据真的变了没有」。
+ *
+ * 代价必须低到可以在每个 tick 上跑，所以只取**便宜且足够敏感**的几项：
+ * 工具节点的 key + 是否在跑 + 入参串长度；思考的每段长度序列；任务的 id/status。
+ * 代价是「内容变了但长度没变」这种改动会晚一拍被看见（最多到下一次 tick 触发
+ * 的其它变化），对流式场景完全够用——思考增长时长度必变。
+ */
+function fingerprintTurnData(data: TurnDataView): string {
+  const tools = data.tools.map(node => {
+    try {
+      const root = node.data.root
+      return `${node.key}:${isRunning(root) ? 1 : 0}:${toolArgsRaw(root).length}`
+    } catch {
+      return `${node.key}:x`
+    }
+  }).join('|')
+  const reasoning = data.reasoning.map(item => item.text.length).join(',')
+  const tasks = data.tasks.map(task => `${task.id}:${task.status}`).join(',')
+  return `${tools}#${reasoning}#${tasks}#${String(data.turnStart ?? 0)}#${String(data.turnEnd ?? 0)}#${String(data.durationMs ?? 0)}`
+}
 
 export interface KrAgentPanelProps {
   readonly latestTurn: number
@@ -85,25 +123,42 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     return subscribeLiveDshTodos(() => setTodoTick((t) => t + 1))
   }, [])
 
-  // 数据源：优先从 latestChatSnapshot 实时提取，回退到 actStore.get
-  const turnData = useMemo(() => {
-    const snap = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)
-    if (snap) {
-      try {
-        const collected = collectTurnNodes(snap, displayTurn)
-        return {
-          tools: collected.tools,
-          reasoning: collected.reasoning,
-          tasks: collected.tasks,
-          turnStart: collected.turnStart,
-          turnEnd: collected.turnEnd,
-          durationMs: collected.durationMs,
+  /*
+   * 数据源：优先从 latestChatSnapshot 实时提取，回退到 actStore.get。
+   *
+   * 外面套一层**引用稳定化**。原因：collectTurnNodes 每次都返回全新对象，于是
+   * 下游 reasoningTexts 的 memo 拿不到稳定引用 → 每帧被击穿 → extractIntent
+   * 每帧把整轮思考 join + 逐行正则重扫一遍，plainTimeline 的 steps 也整份重建。
+   * 而快照发布的频率在流式期很高（每个 delta 一次），不是每秒一次。
+   *
+   * 指纹不变就复用上一次的引用，下游整条 memo 链原样命中。
+   */
+  const turnDataCacheRef = useRef<{ sig: string; data: TurnDataView } | null>(null)
+  const turnData = useMemo<TurnDataView>(() => {
+    const raw = ((): TurnDataView => {
+      const snap = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)
+      if (snap) {
+        try {
+          const collected = collectTurnNodes(snap, displayTurn)
+          return {
+            tools: collected.tools,
+            reasoning: collected.reasoning,
+            tasks: collected.tasks,
+            turnStart: collected.turnStart,
+            turnEnd: collected.turnEnd,
+            durationMs: collected.durationMs,
+          }
+        } catch (err) {
+          console.warn('[kr-agent-panel] collectTurnNodes error', err)
         }
-      } catch (err) {
-        console.warn('[kr-agent-panel] collectTurnNodes error', err)
       }
-    }
-    return actStore.get(displayTurn)
+      return actStore.get(displayTurn)
+    })()
+    const sig = fingerprintTurnData(raw)
+    const cached = turnDataCacheRef.current
+    if (cached !== null && cached.sig === sig) return cached.data
+    turnDataCacheRef.current = { sig, data: raw }
+    return raw
   }, [displayTurn, actTick, snapTick])
 
   const now = useNow(isTurnRunning && !isViewingHistory)
@@ -151,8 +206,17 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   }
   const durationText = formatDuration(elapsedMs)
 
-  // 工具列表构建
-  const toolViews: ToolCallItemView[] = tools.map((node, index) => {
+  /*
+   * 工具列表构建。
+   *
+   * 必须 memo：这段映射里有 `rawResultJson(root)` —— 它对**每一条**工具调用做
+   * 一次 JSON.stringify(…, null, 2)，把完整返回内容重新序列化成带缩进的字符串。
+   * 一次 read 返回两千行文件就是几十到几百 KB，而这只在该条工具的「原始数据」
+   * 页签被展开时才用到（KrToolCallsCard 里 tab === 'raw'）。写在渲染体里意味着
+   * 每个 tick（useNow 1Hz）+ 每个流式快照都要白扔一遍，而且每次给下游
+   * memo 的 KrToolCallsCard 都是全新数组 + 全新元素，卡片自己的 memo 必然失效。
+   */
+  const toolViews = useMemo<readonly ToolCallItemView[]>(() => tools.map((node, index) => {
     let name = 'tool'
     let title = '执行工具操作'
     let duration = '20ms'
@@ -211,7 +275,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
       exitCode,
       signal,
     }
-  })
+  }), [tools, now])
 
   // 任务数据源提取：优先使用本轮已记录的 todo_write / submitted-plan，当前未结轮次可回退到 live todos
   const tasks = useMemo<readonly DshTaskItem[]>(() => {
@@ -415,14 +479,50 @@ export const KrAgentPanel = memo(function KrAgentPanel({
       data-dragging={dragging ? 'true' : undefined}
       style={krState.fullscreen ? undefined : { width, minWidth: width, maxWidth: width }}
     >
-      {/* 左边缘拖拽手柄：按住向左拖 = 加宽，向右拖 = 收窄；宽度持久化。 */}
+      {/*
+        左边缘拖拽手柄：按住向左拖 = 加宽，向右拖 = 收窄；宽度持久化。
+
+        键盘可达是必须的：全仓库只有这一处能调大盘宽度，store 里那个
+        resetPanelWidth() 至今没有任何 UI 调用它 —— 手柄不可聚焦、只能拖的话，
+        键盘用户完全无法调整（WCAG 2.1.1），读屏用户听到「拖拽调整大盘宽度，
+        分隔符」却什么也做不了。所以给它 tabIndex + aria-valuenow/min/max，
+        并接上 ←/→（Shift 加速）与 Home（回默认宽度）。
+      */}
       <div
         className="kr-panel__resize-handle"
         onPointerDown={handleDragStart}
         role="separator"
+        tabIndex={0}
         aria-orientation="vertical"
-        aria-label="拖拽调整大盘宽度"
-        title="拖拽调整大盘宽度"
+        aria-valuenow={width}
+        aria-valuemin={PANEL_WIDTH_MIN}
+        aria-valuemax={PANEL_WIDTH_MAX}
+        aria-label="调整大盘宽度"
+        title="拖拽调整大盘宽度；键盘 ←/→ 微调，Shift 加速，Home 恢复默认"
+        onKeyDown={(event) => {
+          const step = event.shiftKey ? 64 : 16
+          if (event.key === 'ArrowLeft') {
+            // 向左 = 面板变宽（与拖拽方向一致：宽度 = 视口右缘 - 指针 x）
+            event.preventDefault()
+            store.setPanelWidth(width + step)
+          } else if (event.key === 'ArrowRight') {
+            event.preventDefault()
+            store.setPanelWidth(width - step)
+          } else if (event.key === 'Home') {
+            event.preventDefault()
+            store.resetPanelWidth()
+          } else if (event.key === 'Enter') {
+            event.preventDefault()
+            store.resetPanelWidth()
+          }
+        }}
+        onKeyUp={(event) => {
+          // 键盘调完宽度也要落盘，行为与拖拽结束一致。
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight'
+            || event.key === 'Home' || event.key === 'Enter') {
+            store.commitPanelWidth()
+          }
+        }}
       />
       {/* 顶部 Header：头像 + 标题（当前对话提问）+ 副标题（任务/工具统计行）
           + 右侧「生成对话截图」「收起大盘 ×」两枚按钮。

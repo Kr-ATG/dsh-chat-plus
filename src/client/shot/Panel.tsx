@@ -144,8 +144,16 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
     const token = tokenRef.current + 1
     tokenRef.current = token
     if (messages.length === 0) {
+      // 收口必须完整：这条分支已经把 tokenRef 推进了，在途的那个旧请求在
+      // .finally 里必然因 token 不匹配而跳过 setBusy(false)。若这里也不置
+      // false，busy 就永久停在 true —— 面板一直转「正在渲染…」、error 被
+      // `!busy &&` 挡住看不见、保存/复制/重新渲染/下载全部 disabled，用户
+      // 只能关掉重开。触发路径：打开即自动渲染时点范围/宽度/画质，而新范围
+      // 的 collect() 返回空（纯 steering 轮次、reply 命中不到 tail 等）。
+      setBusy(false)
       setResult(null)
       setError('这个范围里没有可截图的文本内容')
+      setToast(null)
       return
     }
     setBusy(true)

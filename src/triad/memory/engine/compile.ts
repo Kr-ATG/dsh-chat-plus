@@ -255,12 +255,6 @@ export function selectInjectionEntries(entries: MemoryEntry[], threshold: number
     .filter(entry => isInjectionEligible(entry, threshold))
     .sort((a, b) => injectionRank(b) - injectionRank(a))
 }
-
-/** 项目记忆文本（面板/注入用）。 */
-export function projectMemoryText(entries: MemoryEntry[]): string {
-  return renderTimeline(entries)
-}
-
 /**
  * CJK 表意文字判定：基本区 + 扩展 A + 兼容表意文字。
  * 只认汉字，不认假名/谚文——「中文记忆」要的是中文写的那条，不是「含任一

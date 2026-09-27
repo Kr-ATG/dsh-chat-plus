@@ -49,12 +49,31 @@ export function nowIso(): string {
   return new Date().toISOString()
 }
 
-/** 原子写文本：tmp + rename（同一目录内）。 */
+/**
+ * 原子写文本：tmp + rename（同一目录内）。
+ *
+ * 临时名必须**每次唯一**。曾经这里写死 `${file}.tmp`，于是两个并发写同一文件时：
+ * A 写完 tmp → B 把 tmp 截断重写 → A rename(tmp, file) 成功（落盘的却是 B 的
+ * 内容）→ B rename(tmp, file) 抛 ENOENT。记忆库同一路径的并发写是常态
+ * （面板改一条记忆的 compileAll 与会话结束触发的 final compile 并不共享
+ * ticker 那条串行队列，两个 HTTP 请求在各 await 处随时交错），用户会看到
+ * 一句完全不知所云的「ENOENT: rename ... memory.md.tmp」——而记忆其实已经
+ * 进 entries.json 了，只是产物没编译出来。
+ *
+ * 拼上 pid + 随机段之后，同一路径的并发写互不干扰：各自的 tmp 独立，A 落盘
+ * 的是 A 的内容，B 落盘的是 B 的内容，最后一个 rename 的胜出即最新写入。
+ */
 export async function atomicWriteText(file: string, content: string): Promise<void> {
   await mkdir(join(file, '..'), { recursive: true })
-  const temp = `${file}.tmp`
-  await writeFile(temp, content, 'utf8')
-  await rename(temp, file)
+  const temp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`
+  try {
+    await writeFile(temp, content, 'utf8')
+    await rename(temp, file)
+  } catch (error) {
+    // 写一半失败时别把 tmp 留在盘上（下次启动会以为有历史残留）。
+    try { await unlink(temp) } catch { /* 已被 rename 走或从不存在 */ }
+    throw error
+  }
 }
 
 /** 原子写 JSON。 */
@@ -186,7 +205,19 @@ export class MemoryStore {
     }, MemoryStore.FLUSH_DEBOUNCE_MS)
   }
 
-  /** 立即落盘（幂等；dispose / 退出前调用）。 */
+  /**
+   * 立即落盘。
+   *
+   * dirty 的清除必须排在写盘**之后**：原来写成「先 dirty=false 再 await」，
+   * 于是写盘失败时这批增量只留在内存里，而唯一能兜底的 dispose → flush()
+   * 会撞上 flushNow 开头的 `if (!this.dirty) return` 直接空转——脏标记早就
+   * 没了，那批数据再也写不出去。用户在面板上刚记下的东西随进程退出蒸发，
+   * 且没有任何报错。
+   *
+   * 串行化：多个调用方（ticker 的节流 flush、手动 flush、dispose 的 flush）
+   * 可能同时进来，加一把 in-flight 锁让它们排队，避免后一次拿着旧的
+   * entries 快照把前一次刚落盘的新内容盖回去。
+   */
   async flush(): Promise<void> {
     if (this.flushTimer !== null) {
       clearTimeout(this.flushTimer)
@@ -195,10 +226,18 @@ export class MemoryStore {
     await this.flushNow()
   }
 
+  private flushInFlight: Promise<void> = Promise.resolve()
+
   private async flushNow(): Promise<void> {
     if (!this.dirty) return
-    this.dirty = false
-    await atomicWriteJson(this.entriesFile(), { version: 2, entries: this.entries })
+    const run = this.flushInFlight.then(async () => {
+      if (!this.dirty) return
+      await atomicWriteJson(this.entriesFile(), { version: 2, entries: this.entries })
+      this.dirty = false
+    })
+    // 无论成败都让队列继续，但错误要原样抛给调用方去记日志/重试。
+    this.flushInFlight = run.catch(() => undefined)
+    return run
   }
 
   /**

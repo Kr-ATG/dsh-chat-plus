@@ -12,16 +12,6 @@ export function decayImportance(importance: number, days: number, lambda: number
   const decayed = importance * Math.pow(1 - lambda, days)
   return Math.round(decayed * 100) / 100
 }
-
-/** 注入命中：加分并刷新 lastHitAt（衰减起点重置）。 */
-export function applyHit(entry: MemoryEntry, bonus: number): MemoryEntry {
-  return {
-    ...entry,
-    importance: Math.min(20, Math.round((entry.importance + bonus) * 100) / 100),
-    lastHitAt: nowIso(),
-  }
-}
-
 /** 距离某时间的天数（不足 1 天按 0）。 */
 export function daysSince(iso: string | null, from = new Date()): number {
   if (iso === null) return 0

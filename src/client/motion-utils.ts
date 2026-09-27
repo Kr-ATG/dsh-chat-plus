@@ -34,7 +34,6 @@ export const EXPAND_MS = 260
  * 开始淡入，中间任何一帧都不出现空白，这就是「平滑」的来源。
  */
 export const TEXT_FADE_IN_MS = 180
-export const TEXT_FADE_OUT_MS = 200
 export const TEXT_FADE_OVERLAP_MS = 70
 /** 出场层在整段动画走完后卸载；期间它在交叠区就已不可见，卸载不产生跳变。 */
 export const TEXT_FADE_EXIT_MS = TEXT_FADE_OVERLAP_MS + TEXT_FADE_IN_MS

@@ -215,19 +215,6 @@ export function classifyKind(block: ToolCallBlock): ActivityKind {
   return K.other
 }
 
-/** Distinct badges among a list of blocks, in first-seen order. */
-export function distinctKinds(blocks: readonly ToolCallBlock[]): ActivityKind[] {
-  const seen = new Set<string>()
-  const out: ActivityKind[] = []
-  for (const block of blocks) {
-    const badge = classifyKind(block)
-    if (seen.has(badge.key)) continue
-    seen.add(badge.key)
-    out.push(badge)
-  }
-  return out
-}
-
 /** Map each tool NAME appearing in the list to its most common badge (for summary chips). */
 export function kindByToolName(blocks: readonly ToolCallBlock[]): Map<string, ActivityKind> {
   const map = new Map<string, ActivityKind>()

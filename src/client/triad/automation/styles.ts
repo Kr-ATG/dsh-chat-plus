@@ -238,8 +238,3 @@ export function ensureAutomationStyles(): void {
   tag.textContent = SHEET
   document.head.appendChild(tag)
 }
-
-/** 移除样式（插件卸载时调用）。 */
-export function removeAutomationStyles(): void {
-  document.getElementById(STYLE_ID)?.remove()
-}

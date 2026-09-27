@@ -110,7 +110,18 @@ export function applyAutomationHost(ctx: Context): void {
         const ac = new AbortController()
         executing.set(job.id, ac)
         return runJob(ctx, llm, job, ac.signal).finally(() => {
-          executing.delete(job.id)
+          /*
+           * 只删**自己放进去的那一个**。
+           *
+           * scheduler 的 dispatch 是 Promise.race([executeJob, 超时])：超时后
+           * race 立即 reject 并把任务从 inflight 摘掉，但 executeJob 返回的那个
+           * promise 并没有结束（provider 没响应 abort 时它会一直挂着）。这期间
+           * 同一任务可以被再次派发，新一轮 executing.set(job.id, ac2)；等旧
+           * promise 终于 settle，按 id 无条件 delete 会把 ac2 一起抹掉。此后再
+           * abortJob 就永远拿到 undefined——「取消」路由照样回 200（它只看
+           * inflight），执行体却收不到 abort，只能干等到超时。
+           */
+          if (executing.get(job.id) === ac) executing.delete(job.id)
         })
       },
       abortJob: (job) => {
