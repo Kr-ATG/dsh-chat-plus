@@ -62,13 +62,15 @@ function fingerprintTurnData(data: TurnDataView): string {
 export interface KrAgentPanelProps {
   readonly latestTurn: number
   readonly isTurnRunning: boolean
-  readonly onCollapse: () => void
+  /**
+   * 大盘已是 KR 对话的常驻右栏，**没有收起态**：原先的 onCollapse（收起大盘 ×）
+   * 与标签行那枚「Agent 轨迹大盘」开关是一对，一起按用户要求删掉了。
+   */
 }
 
 export const KrAgentPanel = memo(function KrAgentPanel({
   latestTurn,
   isTurnRunning,
-  onCollapse,
 }: KrAgentPanelProps) {
   const store = getKrChatStore()
   const krState = useSyncExternalStore(
@@ -452,10 +454,11 @@ export const KrAgentPanel = memo(function KrAgentPanel({
         }}
       />
       {/* 顶部 Header：头像 + 标题（当前对话提问）+ 副标题（任务/工具统计行）
-          + 右侧「生成对话截图」「收起大盘 ×」两枚按钮。
+          + 右侧「生成对话截图」一枚按钮（原先还有一枚「收起大盘 ×」，与标签行
+          那枚开关是一对，已随大盘常驻化一起删除）。
           整块由 KR_PANEL_HEADER_VISIBLE 门控（默认隐藏，只隐藏不删除）：
-          收起入口在顶部标签行最右端的「Agent 轨迹大盘」开关，截图入口在
-          assistant 消息操作栏的相机按钮，因此隐藏顶栏不丢任何能力。 */}
+          截图入口另有归属 —— assistant 消息操作栏的相机按钮常驻（见
+          shot/index.tsx），走同一个 ShotPanel。 */}
       {KR_PANEL_HEADER_VISIBLE && (
       <div className="kr-panel__header">
         <div className="kr-panel__avatar">
@@ -498,17 +501,6 @@ export const KrAgentPanel = memo(function KrAgentPanel({
                 strokeLinejoin="round"
               />
               <circle cx="8" cy="9.25" r="2.25" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="kr-panel__action-btn"
-            onClick={onCollapse}
-            title="收起右侧大盘"
-            aria-label="收起右侧大盘"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="M2 2l10 10M12 2L2 12" strokeLinecap="round" />
             </svg>
           </button>
         </div>

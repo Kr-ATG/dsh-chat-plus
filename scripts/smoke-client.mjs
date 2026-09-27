@@ -621,6 +621,26 @@ if (krEnabled) {
     pass('hook 顺序 / busy 收口 / 大盘 memo 三处修复在位；工具调用卡无残留')
   }
 
+  // 大盘常驻化：标签行那枚「Agent 轨迹大盘」开关与 store.panelOpen 已整块删除。
+  // 一旦复活就说明右栏又能被收起，而那时若标签行按钮也被删掉，用户就再也回不来。
+  if (krEnabled) {
+    const ctrlSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/kr-chat-controller.tsx'), 'utf8')
+    const storeSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/kr-chat-store.ts'), 'utf8')
+    if (/function syncKrPanelToggle|getElementById\('kr-panel-toggle-btn'\)|const KR_PANEL_ICON/.test(ctrlSrc)) {
+      fail('大盘已改为 KR 对话常态常驻，标签行那枚「Agent 轨迹大盘」开关不该复活')
+    } else if (/readonly panelOpen|setPanelOpen\(|togglePanel\(|_panelOpen/.test(storeSrc)) {
+      fail('store 的 panelOpen 开合状态已整块删除（大盘常驻，没有收起态）')
+    } else if (/\.kr-panel-toggle\b/.test(code)) {
+      fail('.kr-panel-toggle 样式已随按钮一起删除，样式表里不该再有残留')
+    } else if (/readonly onCollapse/.test(agentSrc) || /onCollapse=/.test(ctrlSrc)) {
+      fail('顶栏的「收起大盘 ×」已随常驻化删除，KrAgentPanel 不该再有 onCollapse')
+    } else if (!/<KrAgentPanel/.test(ctrlSrc)) {
+      fail('KR 对话必须常驻渲染 KrAgentPanel')
+    } else {
+      pass('大盘在 KR 对话里常驻（无开关 / 无 panelOpen / 无收起入口）')
+    }
+  }
+
   // 子智能体区块：样式族 + 会话 id 传递。缺任何一样都会让 workflow 底下
   // 看不到子智能体清单（而子智能体是独立会话，父调用里根本没有这些信息）。
   if (krEnabled) {

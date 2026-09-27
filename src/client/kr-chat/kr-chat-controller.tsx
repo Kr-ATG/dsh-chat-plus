@@ -2,15 +2,13 @@
  * dsh-chat-plus — KR 对话系统控制器（kr-chat-controller）。
  *
  * 核心职能：
- * 1. 顶栏三标签：在 header [role="tablist"] 注入 [ KR对话 ]，与官方 [ 对话 ] [ 轨迹 ] 齐平；
+ * 1. 顶栏标签：在 header [role="tablist"] 注入 [ KR对话 ]，与官方 [ 对话 ] [ 轨迹 ] 齐平；
  * 2. 默认进入 KR 分类：开箱即为 KR 对话，保持官方底层 chat 视图，确保多轮历史与输入框完整；
- * 3. 双栏大盘：在 [data-conversation-content] 渲染右侧可收起的大盘 KrAgentPanel；
- * 4. 右侧收起/展开：标签行最右侧常驻「Agent 轨迹大盘」开关（与 KR对话/对话/轨迹
- *    同一行、同一基线，margin-left:auto 顶到该行最右端），点一下收起、再点展开。
- *    旧版是一枚 absolute + 阴影 + 毛玻璃的浮动胶囊，压在正文右上角；现已改为
- *    行内座位，不再悬浮。
- * 5. 视图联动：点击 [ 对话 ] 切回标准单栏；点击 [ 轨迹 ] 切到原生轨迹；点击 [ KR对话 ] 恢复双栏大盘。
- * 6. 空白新会话不占位：新对话刚打开、首条消息还没发出去时右栏整体不渲染
+ * 3. 双栏大盘：在 [data-conversation-content] 渲染右侧大盘 KrAgentPanel，
+ *    **在 KR 对话里常态常驻**（原先靠标签行最右端一枚「Agent 轨迹大盘」开关
+ *    收起/展开，该开关与 panelOpen 状态已按用户要求整块删除）；
+ * 4. 视图联动：点击 [ 对话 ] 切回标准单栏；点击 [ 轨迹 ] 切到原生轨迹；点击 [ KR对话 ] 恢复双栏大盘。
+ * 5. 空白新会话不占位：新对话刚打开、首条消息还没发出去时右栏整体不渲染
  *    （判据 hasConversationContent()，不看会话 id —— 空白 Hero 态也会登记 id）。
  */
 
@@ -100,7 +98,7 @@ function syncKrTab(tablist: HTMLElement): void {
   const isKr = store.snapshot.activeTab === 'kr'
   let btn = document.getElementById('kr-chat-tab-btn') as HTMLButtonElement | null
 
-  // 动态提取原生按钮的基础类名（如 wSkVaW_tab），保证 100% 继承官方排版基线
+  // 与官方原生按钮像素级对齐
   const chatBtn = Array.from(tablist.querySelectorAll<HTMLButtonElement>('button[role="tab"]')).find((b) => b.id !== 'kr-chat-tab-btn')
   const siblingClass = chatBtn?.className || ''
   const baseClass = siblingClass.split(' ').find((c) => c.includes('tab') && !c.includes('Active')) || 'wSkVaW_tab'
@@ -146,61 +144,14 @@ function syncKrTab(tablist: HTMLElement): void {
   // 接管，绝不直接去修改原生 chatBtn 的 classList 与 aria-selected，
   // 避免与官方 DSH React 虚拟 DOM 调和发生恶性竞争与闪烁。
 
-  // 标签行最右侧的「Agent 轨迹大盘」开关（与官方 tab 同排，随 KR 模式出现/消失）
-  syncKrPanelToggle(tablist, isKr)
+  // 标签行最右侧原有一枚「Agent 轨迹大盘」开合开关（#kr-panel-toggle-btn），
+  // 已按用户要求整块删除：大盘改为**在 KR 对话里常态化常驻**，标签行只剩三个
+  // 官方/KR 标签，一个常驻面板不需要再挂一个"要不要它"的开关——那枚按钮反而
+  // 让人以为右栏是可选的。收起/展开相关代码（syncKrPanelToggle、KR_PANEL_ICON、
+  // store.panelOpen 与 .kr-panel-toggle 样式）一并删干净。
 }
 
-/** 大盘开关的图标（机器人/仪表盘），与旧版浮动胶囊保持同一枚图形。 */
-const KR_PANEL_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">'
-  + '<path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.38-1 1.72V7h4a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-8a3 3 0 0 1 3-3h4V5.72A2 2 0 0 1 10 4a2 2 0 0 1 2-2zm-5 7a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1H7zm2 3a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z"/>'
-  + '</svg>'
-
-/**
- * 同步标签行最右侧的「Agent 轨迹大盘」开合开关（纯 DOM 级稳定注入）。
- *
- * 座位：header [role="tablist"] 的最后一个子节点，靠 CSS 的 margin-left:auto
- * 顶到该行最右端 —— 与 KR对话/对话/轨迹 同一行、同一基线，彻底取代旧版浮在
- * 正文右上角的 absolute 胶囊（会压住对话内容，且脱离信息层级）。
- *
- * 只在 KR 模式下可见：切到「对话 / 轨迹」时隐藏，不影响官方 tab 排版。
- */
-function syncKrPanelToggle(tablist: HTMLElement, isKr: boolean): void {
-  const store = getKrChatStore()
-  let btn = document.getElementById('kr-panel-toggle-btn') as HTMLButtonElement | null
-
-  if (!btn || !btn.isConnected || btn.parentElement !== tablist) {
-    if (btn) {
-      try { btn.remove() } catch {}
-    }
-    btn = document.createElement('button')
-    btn.type = 'button'
-    btn.id = 'kr-panel-toggle-btn'
-    btn.className = 'kr-panel-toggle'
-    btn.innerHTML = `${KR_PANEL_ICON}<span>Agent 轨迹大盘</span>`
-    btn.onclick = (e) => {
-      e.stopPropagation()
-      store.togglePanel()
-      syncKrPanelToggle(tablist, true)
-    }
-    tablist.appendChild(btn)
-  }
-
-  const expectedDisplay = isKr ? '' : 'none'
-  if (btn.style.display !== expectedDisplay) {
-    btn.style.display = expectedDisplay
-  }
-
-  if (isKr) {
-    const open = store.snapshot.panelOpen
-    const openStr = open ? 'true' : 'false'
-    const label = open ? '收起 Agent 实时轨迹大盘' : '展开 Agent 实时轨迹大盘'
-    setAttrIfDiff(btn, 'aria-expanded', openStr)
-    setAttrIfDiff(btn, 'aria-label', label)
-    if (btn.title !== label) btn.title = label
-  }
-}
-
-/** KR 对话右侧大盘与展开胶囊 React 根组件 */
+/** KR 对话右侧大盘 React 根组件 */
 export function KrPanelSystem() {
   const store = getKrChatStore()
   const krState = useSyncExternalStore(
@@ -240,19 +191,13 @@ export function KrPanelSystem() {
 
   const isRunning = isCurrentTurnRunning(latestTurn)
 
-  if (krState.panelOpen) {
-    return (
-      <KrAgentPanel
-        latestTurn={latestTurn}
-        isTurnRunning={isRunning}
-        onCollapse={() => store.setPanelOpen(false)}
-      />
-    )
-  }
-
-  // 收起态不再渲染浮动胶囊：重新展开的入口已固定在标签行最右侧
-  // （#kr-panel-toggle-btn，由 syncKrPanelToggle 注入）。
-  return null
+  // 大盘在 KR 对话里**常态常驻**：不再有收起态，也就没有"展开胶囊"那一支。
+  return (
+    <KrAgentPanel
+      latestTurn={latestTurn}
+      isTurnRunning={isRunning}
+    />
+  )
 }
 
 let mounted = false
@@ -336,7 +281,6 @@ export function mountKrChatController(): void {
     const turn = parseInt(rawTurn, 10)
     if (Number.isFinite(turn) && turn > 0) {
       store.setSelectedTurn(turn)
-      store.setPanelOpen(true)
     }
   }, true)
 

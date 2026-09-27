@@ -1343,56 +1343,11 @@ body[data-kr-resizing="true"] * {
 }
 
 /* ══ 标签行最右侧的「Agent 轨迹大盘」开关 ══════════════════════════════════
-   座位是 header [role="tablist"] 的最后一个子节点：margin-left:auto 把它顶到
-   KR对话 / 对话 / 轨迹 这一行的最右端，与三个 tab 同行、同基线。
-   （旧版 .kr-expand-capsule 是 position:absolute + 阴影 + backdrop-filter 的
-   浮动胶囊，浮在正文右上角压内容；这里改为行内座位，不再悬浮。）
-
-   常态一律中性灰、无底色：开/关不靠颜色区分（用户明确不要这里出现颜色），
-   大盘在不在屏幕上本身就是状态指示，开关只提供 hover 反馈与 tooltip 文案。 */
-.kr-panel-toggle {
-  margin-left: auto;
-  align-self: center;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-  outline: none;
-  user-select: none;
-  transition: color .18s ease, background-color .18s ease, border-color .18s ease;
-}
-
-.kr-panel-toggle svg {
-  width: 15px;
-  height: 15px;
-  flex: none;
-  color: currentColor;
-}
-
-.kr-panel-toggle:hover {
-  color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, .12));
-}
-
-.kr-panel-toggle:focus-visible {
-  border-color: var(--kr-accent);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .kr-panel-toggle { transition: none; }
-}
+   整块已删除：大盘改为在 KR 对话里常态常驻，不需要"要不要它"的开关。
+   （它此前是 header [role="tablist"] 的最后一个子节点，margin-left:auto 顶到
+   最右端；更早一版是 absolute + 阴影 + backdrop-filter 的浮动胶囊，压正文。）
+   连带删除的还有：store.panelOpen 状态、KrAgentPanel 顶栏的「收起大盘 ×」、
+   以及标签行右侧那块被 margin-left:auto 腾出来的空白。 */
 
 @keyframes kr-fade-in {
   from { opacity: 0; transform: translateY(-4px); }
