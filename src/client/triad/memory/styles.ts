@@ -540,10 +540,14 @@ const SHEET = `
 .dsh-memory-check input{accent-color:var(--m-primary);margin:0}
 .dsh-memory-edit-buttons{display:flex;align-items:center;justify-content:flex-end;gap:8px}
 .dsh-memory-switch-line{display:inline-flex;align-items:center;gap:8px}
-.dsh-memory-switch{position:relative;flex:none;width:40px;height:22px;border:none;border-radius:11px;padding:0;background:var(--dsw-alias-border-l2,rgba(255,255,255,.14));cursor:pointer;transition:background .16s cubic-bezier(.2,.8,.2,1);box-sizing:border-box}
-.dsh-memory-switch::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--dsw-alias-label-tertiary,#81858c);box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .16s cubic-bezier(.2,.8,.2,1),background .16s cubic-bezier(.2,.8,.2,1)}
-.dsh-memory-switch[aria-checked='true']{background:var(--m-primary)}
-.dsh-memory-switch[aria-checked='true']::after{transform:translateX(18px);background:#fff}
+/* 开关走**中性黑白**，不用主题蓝。
+   开 = 主文字色的实心轨道 + 反色圆点（浅色主题：黑轨白点；深色：白轨黑点），
+   关 = 一层淡灰轨道 + 三级字色圆点。开合靠明暗对比说清，与卡片里的文字同一套
+   色阶，不引入第二个强调色；--m-text / --m-bg 都在各主题下自动跟随。 */
+.dsh-memory-switch{position:relative;flex:none;width:40px;height:22px;border:none;border-radius:11px;padding:0;background:var(--dsw-alias-border-l2,rgba(0,0,0,.12));cursor:pointer;transition:background .16s cubic-bezier(.2,.8,.2,1);box-sizing:border-box}
+.dsh-memory-switch::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--m-text-3,var(--dsw-alias-label-tertiary,#81858c));box-shadow:0 1px 3px rgba(0,0,0,.28);transition:transform .16s cubic-bezier(.2,.8,.2,1),background .16s cubic-bezier(.2,.8,.2,1)}
+.dsh-memory-switch[aria-checked='true']{background:var(--m-text,var(--dsw-alias-label-primary,#1f2329))}
+.dsh-memory-switch[aria-checked='true']::after{transform:translateX(18px);background:var(--m-card-bg,var(--dsw-static-neutral-bluish-00,#fff))}
 .dsh-memory-switch:disabled{opacity:.5;cursor:default}
 .dsh-memory-switch-text{font-size:12.5px;line-height:19px;color:var(--m-text-2)}
 
@@ -606,6 +610,9 @@ const SHEET = `
   --m-text-2:var(--dsw-alias-label-secondary,#5b6068);
   --m-text-3:var(--dsw-alias-label-tertiary,#81858c);
   --m-border:var(--dsw-alias-border-l1,rgba(0,0,0,.08));
+  /* 卡片自身的底色：开关打开时圆点要用它，才能在深色主题下是"黑点白轨"而不是
+     一枚永远的白点（白点在深色轨道上会糊掉）。 */
+  --m-card-bg:var(--dsw-static-neutral-bluish-00,#fff);
   position:absolute;left:-4px;bottom:calc(100% + 10px);z-index:1150;width:272px;box-sizing:border-box;padding:10px 12px 9px;
   border:1px solid var(--m-border);border-radius:12px;
   background:var(--dsw-static-neutral-bluish-00,#fff);
@@ -617,7 +624,7 @@ const SHEET = `
   opacity:1;visibility:visible;transform:none;pointer-events:auto;
   transition:opacity .16s ease,transform .16s cubic-bezier(.2,.8,.2,1),visibility 0s}
 html[data-dsh-glass] .dsh-memory-inject-card{background:var(--dsw-static-neutral-bluish-00,#fff);backdrop-filter:none;-webkit-backdrop-filter:none}
-body[data-ds-dark-theme] .dsh-memory-inject-card{background:var(--dsw-static-neutral-bluish-1000,#16181d)}
+body[data-ds-dark-theme] .dsh-memory-inject-card{background:var(--dsw-static-neutral-bluish-1000,#16181d);--m-card-bg:var(--dsw-static-neutral-bluish-1000,#16181d)}
 .dsh-memory-inject-head{display:flex;align-items:center;gap:6px;padding-bottom:7px;border-bottom:1px solid var(--m-border)}
 .dsh-memory-inject-title{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:var(--m-text-2)}
 .dsh-memory-inject-row{display:flex;align-items:center;gap:10px;padding:9px 0;transition:background .15s ease}
@@ -631,7 +638,7 @@ body[data-ds-dark-theme] .dsh-memory-inject-card{background:var(--dsw-static-neu
 .dsh-memory-inject-hint{font-size:11px;line-height:15px;color:var(--m-text-3)}
 .dsh-memory-inject-badge{padding:0 5px;border-radius:4px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#e8a33d) 20%,transparent);color:var(--dsw-alias-state-warn-primary,#e8a33d);font-size:10px;font-weight:600;line-height:15px}
 .dsh-memory-inject-follow{display:block;width:100%;margin:2px 0 4px;padding:5px 8px;box-sizing:border-box;border:1px dashed var(--m-border);border-radius:8px;background:transparent;color:var(--m-text-2);font-family:inherit;font-size:11.5px;line-height:16px;cursor:pointer;transition:border-color .15s ease,color .15s ease,background .15s ease}
-.dsh-memory-inject-follow:hover{border-color:var(--m-primary);color:var(--m-primary);background:color-mix(in srgb,var(--m-primary) 7%,transparent)}
+.dsh-memory-inject-follow:hover{border-color:var(--m-text-3);color:var(--m-text);background:color-mix(in srgb,var(--m-text-3) 9%,transparent)}
 .dsh-memory-inject-foot{margin:2px 0 0;font-size:11px;line-height:15px;color:var(--m-text-3)}
 
 /* ── 行与分组（内置通道 / 记忆注入 统一一套行） ───────────────────────
@@ -647,7 +654,9 @@ body[data-ds-dark-theme] .dsh-memory-inject-card{background:var(--dsw-static-neu
 .dsh-memory-inject-group:first-of-type{margin-top:2px}
 .dsh-memory-inject-group-title{font-size:11px;font-weight:600;line-height:15px;letter-spacing:.03em;color:var(--m-text-3)}
 .dsh-memory-inject-group-hint{font-size:10.5px;line-height:15px;color:var(--m-text-3);opacity:.8}
-.dsh-memory-inject-row-on{background:color-mix(in srgb,var(--m-primary) 6%,transparent);border-radius:7px}
+/* 开态不再铺任何底色（原先是一层淡蓝，会把整列开关染成蓝色调）。
+   状态由开关本身承担：开 = 主文字色实心轨道 + 反色圆点，关 = 淡灰轨道。 */
+.dsh-memory-inject-row-on{background:transparent}
 @media (prefers-reduced-motion:reduce){.dsh-memory-inject-card,.dsh-memory-inject-card-on{transition:none}}
 .dsh-memory-switch:focus-visible,.dsh-memory-toggle:focus-visible{outline:none;box-shadow:0 0 0 2px rgba(65,118,230,.35)}
 
