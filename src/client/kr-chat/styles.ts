@@ -1617,6 +1617,25 @@ body[data-kr-resizing="true"] * {
   --kr-card-bg: var(--dsw-alias-bg-layer-1, #ffffff);
   --kr-card-border: var(--dsw-alias-border-l1, rgba(0, 0, 0, .06));
   --kr-hover-bg: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, .06));
+  /*
+   * 两张卡的文字跟随 DSH 正文字体栈，不另起炉灶。
+   *
+   * 这里曾经写死微软雅黑（"Microsoft YaHei UI" 优先），理由是 11–13px 下笔画更
+   * 均匀。代价是这两张卡被从正文里割了出去：正文栈在 Windows 上第一命中是
+   * Segoe UI（只覆盖西文/数字/半角标点，中文才回落到微软雅黑），于是同一屏里
+   * 英文缩写、数字、年份括号出现两种字形，右栏大盘四张卡也因为没声明而吃正文栈
+   * ——同一功能里三套字体，割裂感比"笔画粗细不均"明显得多。
+   *
+   * 统一到 var(--dsw-font-family) 后：卡片、左栏正文、右栏大盘全走同一个栈，
+   * 且 DSH 主题若调整正文字体，卡片自动跟随，不需要在这里二次维护。
+   *
+   * 变量本身保留、子节点仍各自声明一次（不再只靠继承），是为了跟 DSH 正文选择器
+   * 的具体度解耦——万一官方给 [data-chat-turn] 下的元素加过 font-family，
+   * 显式声明能保证卡片不被盖回去。
+   */
+  --kr-card-font: var(--dsw-font-family);
+  font-family: var(--kr-card-font);
+}
   /* 浮层卡在对话流里是唯一的「浮起」层，投影要真能把它从正文里托起来：
      贴地一层 0.5px 接触影 + 中层 6px 柔影 + 底层 28px 大范围落影，三层叠出高度。 */
   --kr-float-shadow:
@@ -1635,9 +1654,9 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
 }
 
 /*
- * 两张卡都在下面写死 500px，这一列用 minmax(0, auto) 只是让它们共享同一列、
- * 右边缘永远齐平；曾用 max-content 让列跟着内容宽度走，那正是「宽度一直变」的
- * 来源——同一轮里内容一长一短，宽度就一路往右跳，文字行长也跟着变。
+ * 只剩状态卡一张了，壳子退化成单列 grid：宽度仍锁 500px，justify-self 让卡片
+ * 贴左，不跟文字长度走。原来给「状态卡 + 展开进度卡」预留的 490px 高度预算
+ * 一并去掉——单行 50px 的卡永远碰不到它，留着只是误导下一个人。
  */
 .kr-agent-mini-shell {
   position: relative;
@@ -1648,10 +1667,6 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   width: 100%;
   min-width: 0;
   max-width: min(100%, 500px);
-  /* 展开态 = 状态卡 50px + 间隔 12px + 进度卡（头 34 + 步骤区 360），
-     给到 490px 让长文本按内容撑开时也完整可读，不必靠裁切收口。
-     高度预算跟着字号缩放走，否则「特大」档的行高会把步骤区顶出可视区。 */
-  max-height: calc(490px * var(--kr-text-scale, 1));
   margin: -4px 0;
   overflow: visible;
 }
@@ -1664,8 +1679,8 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   gap: 10px;
   min-width: 0;
   /*
-   * 状态卡恒定 500px：既不跟文字长度走，也不跟下方进度卡走，连字号档都不跟。
-   * 任何一处变化都会让它在对话流里抽一下，比宽度本身更难受。
+   * 状态卡恒定 500px：不跟文字长度走，也不跟字号档走。任何一处变化都会让它在
+   * 对话流里抽一下，比宽度本身更难受。
    * 只保留 min() 是为了窄容器（小于 500px 的分栏/手机宽度）不横向溢出。
    */
   justify-self: start;
@@ -1682,43 +1697,18 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   border-radius: 14px;
   background: var(--kr-card-bg);
   box-shadow: var(--kr-float-shadow);
-  cursor: pointer;
   transform-origin: 0 50%;
   animation: kr-agent-mini-in .38s cubic-bezier(.16, 1, .3, 1) both;
-}
-
-.kr-agent-mini-card:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--kr-accent) 48%, transparent);
-  outline-offset: 2px;
 }
 
 /*
  * 刻意没有 :hover 规则。
  *
  * 这张卡在对话流里长时间停留，任何随指针变化的视觉（边框变色、底色、阴影）
- * 都会被读成「卡片一直在变」。它已经是一个 cursor: pointer 的可点区域，
- * 指针本身就是反馈，键盘可达性由上面的 :focus-visible 兜住。
+ * 都会被读成「卡片一直在变」。它也不再是可点的：原先点击展开的那张执行进度卡
+ * 已经移除，内容全部由右栏大盘承接，展开交互连同 chevron 一起删干净。
  * 要变的只有里面的文字——动作名与那道扫过去的灰光。
  */
-
-.kr-agent-mini-chevron {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  flex: none;
-  color: var(--dsw-alias-label-tertiary);
-  transition: transform .22s cubic-bezier(.16, 1, .3, 1);
-}
-
-.kr-agent-mini-chevron svg {
-  width: 15px;
-  height: 15px;
-}
-
-.kr-agent-mini-chevron[data-open="true"] {
-  transform: rotate(180deg);
-}
 
 /*
  * 收口态只降透明度，不位移：位移会让整张卡在对话流里滑动，是「卡片在变」最
@@ -1736,350 +1726,6 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   pointer-events: none;
   animation: kr-agent-mini-exit 980ms cubic-bezier(.22, 1, .36, 1) both;
 }
-
-.kr-agent-mini-details {
-  display: grid;
-  grid-template-rows: 1fr;
-  min-height: 0;
-  opacity: 1;
-  transition: grid-template-rows .34s cubic-bezier(.16, 1, .3, 1), opacity .24s ease, margin .34s cubic-bezier(.16, 1, .3, 1);
-}
-
-/*
- * 这里不能写 overflow: hidden。
- *
- * inner 的高度正好等于进度卡的高度，hidden 会把它四周的投影整圈切掉——两张卡
- * 共用同一份 --kr-float-shadow、box-shadow 计算值完全一致，可状态卡在 shell 里
- * （overflow: visible）影子清清楚楚，进度卡却被裁成一张贴着对话流的平片。
- * hidden 当初只是为 0fr 折叠动画兜底，现在改由 visibility 承担：展开态放行让
- * 投影完整，折叠态等收拢动画跑完再隐藏，0fr 动画照常。
- */
-.kr-agent-mini-details > .kr-agent-mini-details__inner {
-  min-height: 0;
-  overflow: visible;
-  transition: visibility 0s linear 0s;
-}
-
-.kr-agent-mini-details:not([data-open="true"]) > .kr-agent-mini-details__inner {
-  visibility: hidden;
-  /* 与 .34s 的收拢动画同步：动画里内容原地淡出而不是被一刀切掉，收完再隐藏。 */
-  transition: visibility 0s linear .34s;
-}
-
-/*
- * 12px 不是随手取的：两张卡共用同一份 --kr-float-shadow，间距太小时上方状态卡
- * 的落影正好压在下方进度卡的顶部，两层阴影糊在一起，进度卡看着就像贴平在流里、
- * 「没有阴影」。拉开一点让各自的投影各归各位，浮起感才读得出来。
- */
-.kr-agent-mini-details[data-open="true"] {
-  margin-top: 12px;
-}
-
-.kr-agent-mini-details:not([data-open="true"]) {
-  grid-template-rows: 0fr;
-  margin-top: 0;
-  opacity: 0;
-}
-
-/* ══ 执行进度：与上方状态卡同宽同语言的竖向时间线 ═══════════════════════ */
-.kr-agent-workflow-card {
-  position: relative;
-  box-sizing: border-box;
-  /*
-   * 固定 500px，与上方状态卡同宽。
-   *
-   * 原来是 min(max-content, 880px) 自适应：内容短就窄、内容长就宽到 880px，
-   * 同一轮里宽度会一路往右跳，文字行长也跟着变。这里改成定值，两张卡永远同宽，
-   * 只有窄容器才由 min() 兜底。
-   */
-  width: min(500px, 100%);
-  min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--kr-card-border);
-  border-radius: 14px;
-  background: var(--kr-card-bg);
-  box-shadow: var(--kr-float-shadow);
-}
-
-/* 头部一行两端：左标题、右「模型任务 · 2/6」。不再单开一条分隔带压出报表感。 */
-.kr-agent-workflow-card__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 13px 6px;
-  font-size: calc(10.5px * var(--kr-text-scale, 1));
-  line-height: calc(16px * var(--kr-text-scale, 1));
-}
-
-.kr-agent-workflow-card__head > span:first-child {
-  color: var(--dsw-alias-label-secondary);
-  font-size: calc(11px * var(--kr-text-scale, 1));
-  font-weight: 600;
-}
-
-.kr-agent-workflow-card__meta {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: calc(10px * var(--kr-text-scale, 1));
-  white-space: nowrap;
-}
-
-.kr-agent-workflow-card__count {
-  font-variant-numeric: tabular-nums;
-}
-
-/*
- * 步骤区单列竖排轨道，每条独占一整行宽度。
- * 固定高度 + 纵向滚动：此前是「截断到 N 行 + 展开全部」，展开后整张卡会长到
- * 几千像素把对话流顶飞，收起又等于没写全。滚动把两者一次解决掉，跟随手感复用
- * 右栏思考过程那套 useSteppedFollow（自动贴底 / 上滚截停 / 滚回恢复）。
- */
-.kr-agent-workflow-card__steps {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  max-height: calc(360px * var(--kr-text-scale, 1));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 0 8px 9px;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--dsw-alias-label-tertiary) 26%, transparent) transparent;
-  /* 形态切换（思考文本 ↔ todo 列表）时 key 变、整块重建，这里接住那一次淡入。 */
-  animation: kr-agent-steps-in .3s cubic-bezier(.16, 1, .3, 1) both;
-}
-
-@keyframes kr-agent-steps-in {
-  from { opacity: 0; transform: translateY(3px); }
-  to { opacity: 1; transform: none; }
-}
-
-.kr-agent-workflow-card__steps::-webkit-scrollbar {
-  width: 6px;
-}
-
-.kr-agent-workflow-card__steps::-webkit-scrollbar-thumb {
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--dsw-alias-label-tertiary) 26%, transparent);
-}
-
-.kr-agent-workflow-card__steps::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.kr-agent-workflow-card__steps:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--kr-accent) 40%, transparent);
-  outline-offset: -2px;
-  border-radius: 8px;
-}
-
-.kr-agent-workflow-step {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  min-width: 0;
-  border-radius: 8px;
-  padding: 6px 5px;
-}
-
-/*
- * 节点记号：不去掉边框改用「点 + 光晕」的无边框记号。
- * 16px 圆圈里塞 9px 序号在深色下是个发灰的小铁环，视觉噪声大于信息量；
- * 竖向顺序本身就表达了位次，位次由头部计数与底部汇总承担，点只负责三态。
- *
- * 容器保持 14px 不透明圆底，作用是给轨道线断点 —— 线在 ::before（更底层），
- * 每个节点把它切断，读起来就是一条串起节点的时间轴。
- */
-.kr-agent-workflow-step__index {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  width: 14px;
-  height: 14px;
-  margin-top: 1px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--kr-card-bg);
-  color: var(--dsw-alias-label-tertiary);
-  font-size: calc(11px * var(--kr-text-scale, 1));
-  font-weight: 600;
-  line-height: 1;
-}
-
-/* 轨道竖线：贴边拉伸而非写死 height —— 任务名一行或两行时步高不同，
-   固定长度必然断线或穿到下一步节点上方。起止都落在节点圆心，线画在 ::before
-   （更底层），被节点那圈不透明圆底盖断 —— 读起来是一条串起节点的时间轴。 */
-.kr-agent-workflow-step:not(:last-child)::before {
-  content: '';
-  position: absolute;
-  top: 14px;
-  bottom: -15px;
-  left: 13px;
-  width: 1px;
-  background: color-mix(in srgb, var(--dsw-alias-label-tertiary) 24%, transparent);
-  transform: translateX(-.5px);
-}
-
-/* 待处理：一颗哑光灰点，不描边不填色。 */
-.kr-agent-workflow-step[data-status="pending"] .kr-agent-workflow-step__index {
-  font-size: 0;
-}
-
-.kr-agent-workflow-step[data-status="pending"] .kr-agent-workflow-step__index::before {
-  content: '';
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--dsw-alias-label-tertiary) 55%, transparent);
-}
-
-/* 已完成：一枚绿色对勾，和左侧状态卡头像状态点同一套语义色。 */
-.kr-agent-workflow-step[data-status="done"] .kr-agent-workflow-step__index {
-  color: var(--dsw-alias-state-success-primary, var(--kr-success, #10b981));
-}
-
-/*
- * 进行中（选定方案）：节点本身变成一枚 0.85s 的转圈。
- *
- * 全卡唯一在动的就是这个节点 —— 「正在跑」这件事直接由它自己表演，不需要再
- * 叠光晕、竖条或呼吸点去重复提示。
- *
- * 整张进度卡走纯中性灰阶：当前行不再染 accent 蓝，改用灰阶里最亮的一档
- * （label-primary / secondary）来表达层级。转圈本身就是明确的动态信号，不需要
- * 再靠颜色喊一遍「这里是当前」。全卡仅剩「已完成」的绿色对勾保留语义色。
- */
-.kr-agent-workflow-step[data-status="current"] {
-  z-index: 2;
-}
-
-.kr-agent-workflow-step[data-status="current"] .kr-agent-workflow-step__index {
-  width: 16px;
-  height: 16px;
-  margin-top: 0;
-  font-size: 0;
-}
-
-/* 转圈就是节点本身，内点与外圈都不再另起一层。 */
-.kr-agent-workflow-step[data-status="current"] .kr-agent-workflow-step__index::before {
-  display: none;
-}
-
-.kr-agent-workflow-step[data-status="current"] .kr-agent-workflow-step__index::after {
-  content: '';
-  position: absolute;
-  inset: 1px;
-  width: auto;
-  height: auto;
-  /* 伪元素不继承父元素的圆角，漏了这行就是一个方角在转。 */
-  border-radius: 50%;
-  border: 1.5px solid transparent;
-  border-top-color: var(--dsw-alias-label-secondary);
-  border-right-color: color-mix(in srgb, var(--dsw-alias-label-tertiary) 45%, transparent);
-  background: none;
-  animation: kr-agent-step-spin .85s linear infinite;
-}
-
-.kr-agent-workflow-step__copy {
-  display: flex;
-  flex: 1 1 auto;
-  min-width: 0;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.kr-agent-workflow-step__label {
-  display: -webkit-box;
-  flex: 1 1 auto;
-  min-width: 0;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  color: var(--dsw-alias-label-secondary);
-  font-size: calc(11.5px * var(--kr-text-scale, 1));
-  font-weight: 500;
-  line-height: 1.45;
-  word-break: break-word;
-}
-
-.kr-agent-workflow-step[data-status="current"] .kr-agent-workflow-step__label {
-  color: var(--dsw-alias-label-primary);
-  font-weight: 600;
-}
-
-.kr-agent-workflow-step[data-status="done"] .kr-agent-workflow-step__label {
-  color: var(--dsw-alias-label-tertiary);
-}
-
-/* 单行判断（无任务列表时的退化形态）整行就是一整句话，右侧没有状态词并排。
-   pre-wrap 是这里的关键：模型当前的判断本来就是它自己排好版的有序清单，
-   换行、空行、条目序号原样还原，分类感来自文本本身而不是我们替它断句。
-   JS 侧不裁长度、外层是可滚动视口，所以这里也不必再 clamp——完整文本一直
-   在，只是需要滚动才看得到。 */
-.kr-agent-workflow-step__copy[data-solo] {
-  align-items: flex-start;
-}
-
-.kr-agent-workflow-step__copy[data-solo] .kr-agent-workflow-step__label {
-  display: block;
-  -webkit-line-clamp: unset;
-  overflow: visible;
-  white-space: pre-wrap;
-  /* 每一行都是模型自己写的独立条目，行距给到 1.6 让它们读起来分行而不是
-     挤成一段；空行是模型的分段，照原样留着。 */
-  line-height: 1.6;
-}
-
-.kr-agent-workflow-step__detail {
-  flex: none;
-  align-self: flex-start;
-  margin-top: 1px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: calc(10px * var(--kr-text-scale, 1));
-  line-height: calc(16px * var(--kr-text-scale, 1));
-  white-space: nowrap;
-}
-
-.kr-agent-workflow-step[data-status="done"] .kr-agent-workflow-step__detail {
-  color: var(--dsw-alias-state-success-primary, var(--kr-success, #10b981));
-}
-
-.kr-agent-workflow-step[data-status="current"] .kr-agent-workflow-step__detail {
-  color: var(--dsw-alias-label-secondary);
-}
-
-/* 超出可视窗口的步骤不铺开，收成右对齐一行计数。 */
-.kr-agent-workflow-card__more {
-  padding: 0 13px 10px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: calc(10px * var(--kr-text-scale, 1));
-  line-height: calc(15px * var(--kr-text-scale, 1));
-  text-align: right;
-}
-
-/* ══ 内容动效：文本换新、展开落位都走淡入上浮，不硬切 ═════════════════ */
-
-/*
- * 行 key 里带了 label 文本，文本一变整行重建，动画自然重播一次；
- * 宽度改成内容自适应之后换行数会跟着变，淡入正好接住这次重排。
- */
-.kr-agent-workflow-step__label {
-  animation: kr-agent-step-in .34s cubic-bezier(.16, 1, .3, 1) both;
-}
-
-/* 进度卡展开时各行错峰 45ms 落位，读作「步骤逐条铺出来」而不是整块弹出。 */
-.kr-agent-mini-shell[data-expanded] .kr-agent-workflow-step {
-  animation: kr-agent-step-in .36s cubic-bezier(.16, 1, .3, 1) both;
-}
-
-.kr-agent-mini-shell[data-expanded] .kr-agent-workflow-step:nth-child(2) { animation-delay: 45ms; }
-.kr-agent-mini-shell[data-expanded] .kr-agent-workflow-step:nth-child(3) { animation-delay: 90ms; }
-.kr-agent-mini-shell[data-expanded] .kr-agent-workflow-step:nth-child(4) { animation-delay: 135ms; }
 
 .kr-agent-mini-avatar {
   position: relative;
@@ -2145,76 +1791,115 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   animation: kr-agent-mini-pulse 1.6s ease-in-out infinite;
 }
 
+/*
+ * 动作名与末尾三点同一行。必须 flex：动作名是 display:block + max-content，
+ * 块级盒会吃满整行宽度，三点就被挤到下一行去（overflow:hidden 再一裁，整组直接
+ * 看不见）。改成 flex row 后动作名按内容宽度收缩、三点跟在后面。
+ */
 .kr-agent-mini-copy {
+  display: flex;
+  align-items: center;
   min-width: 0;
   flex: 1 1 auto;
   overflow: hidden;
 }
 
 /*
- * 状态卡动作文字：一道窄光带自左向右推过去，扫到谁谁提亮一档灰，扫过去还原。
+ * 状态卡动作文字的运行信号，拆成互不重叠的两层：
  *
- * 用 background-clip: text 的整行遮罩，而不是逐字延时。逐字延时有个死结：
- * 光带宽度 ≈ 动画时长，想收窄就得缩短时长，一缩短就「扫得太快」，两个要求
- * 互相打架。遮罩把两件事解耦了——光带多宽由渐变色标决定（这里 4%，约文字宽
- * 的 1/6），推多快由 3s 的循环时长决定，可以又窄又慢。
+ *   1. **内容变化时显影一次**（kr-agent-action-in，无条件）
+ *      元素 key 就是 action，动作一变 React 重建节点、动画自然重播一次。
+ *      220ms 的淡入 + 1px 上浮，只动 opacity/transform。静置时完全不动 ——
+ *      这是"有新动作发生了"的准确信号，因为它本来就由变化驱动。
+ *      此前是一道 background-clip: text 的光带扫过整行，那条路必须 paint：
+ *      background-position 走不了合成器，每一帧都要真重绘一行文字。
  *
- * 底色与波峰都是灰：灰更像一层光膜掠过字面，accent 蓝在这张白卡上太抢眼。
- * 文字本身不参与动画（不位移、不闪断），光带走过去就还原，不是永久染色。
+ *   2. **等待时末尾三点加载器**（kr-agent-dots，只在 data-running 时）
+ *      三颗 3.5px 圆点依次亮起再依次暗下去，周期 1.2s，每颗错开 1/3 周期。
+ *      只动 opacity、合成器属性、零 paint；渐变往返而不是硬切（硬切是信号灯，
+ *      渐变才像"还在动"）。这是 Notion / Ant Design / Apple 那一套最通用的语汇，
+ *      语义直给——"还有内容要出来"。
+ *
+ * 两层都只提交合成器属性，不碰文字栅格化；页面隐藏时插件的全局节流会全部暂停。
+ * 要彻底不要常驻动效的话，删掉第 2 层即可，第 1 层不依赖它。
  */
 .kr-agent-mini-action {
+  font-family: var(--kr-card-font);
   display: block;
   /*
-   * max-content 而不是满宽：background-clip: text 的绘制区域就是这块盒子的
-   * 面积，满宽等于每次重绘都把整张卡片重画一遍（高刷屏上是 300 次/秒）。
-   * 收到文字实际宽度后，paint 区域小一个量级。
+   * flex item 默认 min-width:auto，会拒绝收缩到内容宽度以下，长动作名把三点挤出
+   * 容器。这里给 min-width:0 + overflow:hidden，让文字在需要时正常裁掉，
+   * 三点始终留在可见范围内——它才是"还在跑"的信号，不能被长文本挤没。
    */
-  width: max-content;
-  max-width: 100%;
   min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--dsw-alias-label-primary);
   font-size: calc(13px * var(--kr-text-scale, 1));
-  font-weight: 550;
+  /* 550 → 500：非标准字重在 Segoe UI / 雅黑 上没有对应字面，浏览器只能合成或
+     就近取整，跨字体栈时粗细还不一样（跟随正文栈后这条更明显）。落到 500 后
+     全卡与右栏大盘同一档粗细。 */
+  font-weight: 500;
   line-height: calc(20px * var(--kr-text-scale, 1));
   white-space: nowrap;
+  animation: kr-agent-action-in .22s cubic-bezier(.16, 1, .3, 1) both;
 }
 
-@supports ((-webkit-background-clip: text) or (background-clip: text)) {
-  .kr-agent-mini-copy[data-running="true"] .kr-agent-mini-action {
-    color: transparent;
-    /*
-     * 90deg（色变沿水平方向）而不是斜角：光带要 repeat-x 平移，渐变线必须与
-     * 平移方向垂直，否则平铺后接缝两侧颜色对不上，会在文字上留一条假接缝。
-     * 两端色标都是底色，所以无论平移到哪里，接缝都是隐形的。
-     */
-    background-image: linear-gradient(
-      90deg,
-      var(--dsw-alias-label-primary) 0%,
-      var(--dsw-alias-label-primary) 48.5%,
-      var(--dsw-alias-label-secondary) 50%,
-      var(--dsw-alias-label-primary) 51.5%,
-      var(--dsw-alias-label-primary) 100%
-    );
-    background-size: 400% 100%;
-    /*
-     * repeat-x 而不是 no-repeat：no-repeat 下背景一被推出容器，容器内就没有
-     * 任何背景像素，background-clip: text 会把那一片文字整个不渲染——表现为
-     * 状态卡文字凭空少一截。周期 400% 远大于文字宽度，容器里最多只有一条
-     * 光带，平铺不会变成多道。
-     */
-    background-repeat: repeat-x;
-    -webkit-background-clip: text;
-    background-clip: text;
-    /*
-     * 只扫一次，不循环。infinite 意味着这条动画在高刷屏上永远按 300Hz 重绘
-     * 文字（background-position 不能走合成器加速，每帧都是真 paint），页面静止
-     * 也在烧 CPU。扫一次就把「一道光掠过去」讲完了，之后彻底静止；动作文字
-     * 变化时元素重建（key={action}），自然会再扫一次。
-     */
-    animation: kr-agent-text-sweep 2.6s cubic-bezier(.4, 0, .2, 1) both;
-  }
+/* 变化驱动的显影：一次，不循环。位移只走 2px，够读出"新内容落位"又不晃眼。 */
+@keyframes kr-agent-action-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
 }
+
+/*
+ * 末尾三点。必须是三个独立元素：opacity 动画打在同一个元素上时三颗会一起亮，
+ * 错峰就没了。用 ::after 伪元素只能凑出两颗，所以这三颗由 TSX 显式渲染。
+ *
+ * 尺寸 3.5px、间距 .34em（约 1.2px）：三颗之间留得住缝才不会糊成一横，整体
+ * 又不超过一个汉字的宽度，不至于把动作名挤到换行。
+ *
+ * 整组只在 data-running 时挂动画：停下来的卡上不留任何动画，也就不存在
+ * "页面静止时还在空转"这件事。
+ */
+.kr-agent-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: .34em;
+  /* 文字与点之间留一道呼吸，比紧贴更像"后面还有"而不是"文字的一部分"。 */
+  margin-left: .38em;
+  flex: none;
+  transform: translateY(.08em);
+}
+
+.kr-agent-dots > i {
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-tertiary, currentColor);
+  will-change: opacity;
+}
+
+.kr-agent-mini-copy[data-running="true"] .kr-agent-dots > i {
+  animation: kr-agent-dots 1.2s ease-in-out infinite;
+}
+
+.kr-agent-mini-copy[data-running="true"] .kr-agent-dots > i:nth-child(2) { animation-delay: .4s; }
+.kr-agent-mini-copy[data-running="true"] .kr-agent-dots > i:nth-child(3) { animation-delay: .8s; }
+
+/*
+ * 三点共用一条关键帧，亮 → 暗 → 亮一轮 1.2s。
+ *
+ * opacity 区间压到 .3–1 而不是 0–1：到 0 会让点"消失"再"出现"，读起来是闪烁
+ * 而非呼吸；.3 保留存在感，低调又不抢动作名。三颗靠 0.4s（= 1/3 周期）错开，
+ * 形成一道波从左滚到右。
+ *
+ * 只动 opacity，合成器属性、零 paint；页面隐藏时全局节流会暂停它。
+ */
+@keyframes kr-agent-dots {
+  0%, 100% { opacity: .3; }
+  50% { opacity: 1; }
+}
+
 /* ══ 流式文本的平滑显影 ═══════════════════════════════════════════════════
  *
  * 思考流是按块到达的，一整行字常在同一次更新里凭空出现。KrFreshText 把文本
@@ -2227,44 +1912,35 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
  */
 .kr-fresh-run {
   display: inline;
+  /*
+   * 显影用「遮罩层宽度从 0 长到 100%」实现，而不是在 linear-gradient 的色标
+   * 里写 calc(var(--kr-wipe) - 4%)：自定义属性在色标位置接不上（实测 computed
+   * 解析成 calc(-4%)，色标顺序非法，整条 gradient 失效，文字整段不可见）。
+   * mask-size 是标准可插值属性，0% -> 100% 干净利落，语义一样——黑色遮罩铺
+   * 过去，内容就自左向右被写出来。
+   */
+  -webkit-mask-image: linear-gradient(90deg, #000 0 100%);
+  mask-image: linear-gradient(90deg, #000 0 100%);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 0% 100%;
+  mask-size: 0% 100%;
   animation: kr-fresh-wipe .38s cubic-bezier(.33, .66, .36, 1) both;
-}
-
-/*
- * 注册成 <percentage> 才能在关键帧里平滑插值——未注册的普通自定义属性只会
- * 离散跳变，擦除会变成一跳一跳的阶梯。
- */
-@property --kr-wipe {
-  syntax: '<percentage>';
-  inherits: false;
-  initial-value: 0%;
 }
 
 @keyframes kr-fresh-wipe {
   from {
-    --kr-wipe: 0%;
-    -webkit-mask-image: linear-gradient(90deg, #000 0 calc(var(--kr-wipe) - 4%), transparent var(--kr-wipe));
-    mask-image: linear-gradient(90deg, #000 0 calc(var(--kr-wipe) - 4%), transparent var(--kr-wipe));
+    -webkit-mask-size: 0% 100%;
+    mask-size: 0% 100%;
   }
   to {
-    --kr-wipe: 100%;
-    -webkit-mask-image: linear-gradient(90deg, #000 0 calc(var(--kr-wipe) - 4%), transparent var(--kr-wipe));
-    mask-image: linear-gradient(90deg, #000 0 calc(var(--kr-wipe) - 4%), transparent var(--kr-wipe));
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
   }
 }
 
 .kr-fresh-stable {
   display: inline;
-}
-
-/*
- * 光带从文字右侧外进入、推过整行、最后从左侧外离开（色标 50% 落在背景图
- * 200% 处，一个周期正好横跨文字宽度的两倍，位移 0% -> -200% 把它从容器
- * 右外送到左外，同时不留下无背景的死区）。
- */
-@keyframes kr-agent-text-sweep {
-  from { background-position: 0% 0; }
-  to { background-position: -200% 0; }
 }
 
 /* 官方 turn-process 行是固定高度且 overflow:hidden；菜单必须 portal 到 body，
@@ -2441,17 +2117,6 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
   50% { opacity: 1; }
 }
 
-/* 当前节点的转圈：0.85s 一圈，匀速，读作「在跑」。 */
-@keyframes kr-agent-step-spin {
-  to { transform: rotate(360deg); }
-}
-
-/* 步骤落位：淡入 + 4px 上浮。 */
-@keyframes kr-agent-step-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: none; }
-}
-
 @media (max-width: 520px) {
   .kr-agent-mini-shell {
     width: 100%;
@@ -2461,22 +2126,17 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
 @media (prefers-reduced-motion: reduce) {
   .kr-agent-mini-card,
   .kr-agent-mini-action,
+  .kr-agent-dots > i,
   .kr-fresh-run,
-  .kr-agent-workflow-card__expandChevron,
   .kr-agent-mini-shell[data-closing="true"][data-committed="true"],
   .kr-agent-avatar-menu,
-  .kr-agent-mini-avatar__status,
-  .kr-agent-workflow-step,
-  .kr-agent-workflow-card__steps,
-  .kr-agent-workflow-step__label,
-  .kr-agent-workflow-step[data-status="current"] .kr-agent-workflow-step__index::after {
+  .kr-agent-mini-avatar__status {
     animation: none !important;
   }
-  /* 扫光停了但底色还是透明的，字会消失；把文字色还给底色。 */
-  .kr-agent-mini-copy[data-running="true"] .kr-agent-mini-action {
-    color: var(--dsw-alias-label-primary) !important;
-    background-image: none !important;
-  }
+  /*
+   * 三点不跳就保持常态不透明度，而不是整组 display: none —— 三个静止的灰点仍然
+   * 说明"这里有活动"，和头像右下角那个状态点同属一套语汇；整个抹掉反而丢信息。
+   */
 }
 
 /* ══ 隐藏原生 DSH 任务列表/Plan卡片（KR模式下收敛至右侧大盘） ═══════════════ */

@@ -685,7 +685,6 @@ export const TurnProcessShadowView = memo(function TurnProcessShadowView(props: 
         turn={turn}
         reasoning={krProjection.reasoning}
         tools={krProjection.tools}
-        tasks={krProjection.tasks}
         active={krActive}
         closing={krClosing}
         committed={krCommitted}

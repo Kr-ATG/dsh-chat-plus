@@ -1,19 +1,21 @@
 /**
  * dsh-chat-plus — KR 对话内的极简 Agent 状态卡。
  *
- * 只展示“正在做什么”，不把思考全文、工具参数或调用树塞进左侧消息流。
+ * 只展示“正在做什么”这一行，不把任务清单、思考全文、工具参数或调用树塞进
+ * 左侧消息流 —— 那些右栏「任务概览 / 思考过程 / 工具调用」大盘已经各有其位，
+ * 同一件事在对话流里再抄一份只会让人读到两遍。
+ *
  * 头像可点击上传并持久化到 localStorage；图片会裁切为 128×128。
  * 卡片文字大小同样在头像菜单里调，落在 --kr-text-scale 上即时生效。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
+import type { ChangeEvent, CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import type { ChatNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import { callName, isRunning } from '../tool-summary/tool-stats.ts'
-import { useMotionAllowed, useSteppedFollow } from '../motion-utils.ts'
-import { KrFreshText } from './KrFreshText.tsx'
+import { useMotionAllowed } from '../motion-utils.ts'
 
 const EXIT_MS = 980
 const AVATAR_STORAGE_KEY = 'dsh.kr_chat.agent_avatar.v1'
@@ -132,140 +134,6 @@ function toolVerb(name: string): string {
   return `调用 ${name || '工具'}`
 }
 
-type WorkflowStatus = 'done' | 'current' | 'pending'
-
-interface WorkflowStage {
-  /**
-   * 节点身份，**绝不能含 label 文本**。
-   *
-   * 原先 key 是 `${label}:${index}`，而 reasoning 是流式来的：模型每多吐一段
-   * 文本，label 就变一次 → key 变 → 整行被卸载重建 → 淡入 + 上浮动画重播一次，
-   * 顺带整段重排。看上去就是「一行一行蹦出来」，比不做动画还糟。
-   * 换成与文本无关的稳定身份后，流式只改文本内容，节点不重建、动画不重播。
-   */
-  readonly key: string
-  readonly label: string
-  readonly detail: string
-  readonly status: WorkflowStatus
-}
-
-interface WorkflowView {
-  readonly title: string
-  readonly stages: readonly WorkflowStage[]
-}
-
-export interface KrActivityTask {
-  readonly id: string
-  readonly content: string
-  readonly status: 'pending' | 'in_progress' | 'completed'
-}
-
-/**
- * 模型当前的判断原样上屏：**不裁长度**，只规范空白。
- *
- * 原来这里用 /\s+/g 把换行全压成一行，于是模型写的「1. … 2. … 3. …」清单
- * 糊成一坨连续文字——那才是「看着很杂、没有分类」的真凶，宽度不够只是让它
- * 更明显。这些文本本来就是模型自己排好版的结构化输出，压平等于把分类扔掉。
- *
- * 行末换行、空行分段、**行首缩进**全部原样保留（缩进就是 markdown 的层级，
- * 压掉等于把列表拍平）；只收行内连续空白和多余空行，交给 pre-wrap 还原。
- *
- * 长度不裁：早先这里截到 1200 字再补省略号，用户看到的是「话没说完」。超长
- * 改由步骤区的固定高度滚动承载，可见文本永远完整。
- */
-function structuredText(text: string): string {
-  return text
-    .replace(/\r\n?/g, '\n')
-    .split('\n')
-    .map((line) => {
-      const indent = /^[ \t]*/.exec(line)?.[0] ?? ''
-      return `${indent}${line.slice(indent.length).replace(/[^\S\n]+/g, ' ')}`
-    })
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}
-
-
-function taskStatusLabel(status: KrActivityTask['status']): string {
-  return status === 'completed' ? '已完成' : status === 'in_progress' ? '进行中' : '待处理'
-}
-
-function buildTaskWorkflow(tasks: readonly KrActivityTask[]): WorkflowView {
-  const visible = tasks
-  const current = visible.find((task) => task.status === 'in_progress')
-    ?? visible.find((task) => task.status === 'pending')
-    ?? visible.at(-1)
-  const currentId = current?.id
-  return {
-    title: '模型任务',
-    stages: visible.map((task) => ({
-      key: task.id,
-      label: task.content,
-      detail: taskStatusLabel(task.status),
-      status: task.id === currentId ? 'current' : task.status === 'completed' ? 'done' : 'pending',
-    })),
-  }
-}
-
-/**
- * 无任务列表时退化成单行「模型当前判断」。
- *
- * 语义摘要走 label 而不是 detail：detail 是给「已完成/进行中」这类短状态词准备的，
- * 固定 nowrap + flex:none，长文本落进去会把左侧 label 挤成 0 宽度（整行只剩摘要、
- * 标题被吃掉）。label 是可换行可截断的那一列，正好接长文本。
- */
-function buildWorkflow(
-  reasoning: readonly KrActivityReasoningItem[],
-  tasks: readonly KrActivityTask[],
-  active: boolean,
-  closing: boolean,
-): WorkflowView {
-  if (tasks.length > 0) return buildTaskWorkflow(tasks)
-  /*
-   * 展示到「正在流式的那条」为止的**全部**思考，按顺序拼接。
-   *
-   * 早先只取最后一条，模型每换一条思考，卡片内容就被整段换掉——视觉上最难受
-   * 的就是这种「突然更替」：上一段话说到一半，下一段话凭空顶上来。拼接后内容
-   * 只增不减，新思考是接在旧思考后面的追加，配合 KrFreshText 的逐字淡入就
-   * 读作「还在往下写」，而不是被换掉。
-   *
-   * 截到 running 那条为止，是因为 running 之后的条目是尚未开始的占位。
-   */
-  let cut = -1
-  for (let index = reasoning.length - 1; index >= 0; index -= 1) {
-    if (reasoning[index].running && reasoning[index].text.trim() !== '') { cut = index; break }
-  }
-  const upto = (cut >= 0 ? reasoning.slice(0, cut + 1) : reasoning)
-    .filter((item) => item.text.trim() !== '')
-  const joined = upto.map((item) => item.text).join('\n\n')
-  const semantic = joined.trim() === ''
-    ? (active ? '模型正在处理当前请求' : '模型已整理当前结果')
-    : capSolo(structuredText(joined))
-  return {
-    title: '模型进度',
-    stages: [{
-      key: 'solo',
-      label: semantic,
-      detail: '',
-      status: closing ? 'done' : 'current',
-    }],
-  }
-}
-
-/**
- * 思考总量兜底：从**尾部**保留，丢掉最早的部分并明说丢了多少。
- *
- * 只留尾部是刻意的——最新的一段才是当下相关的；砍头部同样是「更替」，那正是
- * 这次要消灭的东西。正常一轮思考远到不了这个量级，触顶只发生在极端长任务。
- */
-const SOLO_MAX_CHARS = 20000
-function capSolo(text: string): string {
-  if (text.length <= SOLO_MAX_CHARS) return text
-  const dropped = text.length - SOLO_MAX_CHARS
-  return `（更早的 ${dropped} 字已折叠，完整思考见右侧「思考过程」）\n\n${text.slice(-SOLO_MAX_CHARS)}`
-}
-
 function defaultAvatar() {
   return (
     <span className="kr-agent-mini-avatar__default" aria-hidden>
@@ -281,7 +149,6 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
   turn,
   reasoning,
   tools,
-  tasks,
   active,
   closing,
   committed,
@@ -290,7 +157,6 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
   readonly turn: number
   readonly reasoning: readonly KrActivityReasoningItem[]
   readonly tools: readonly ChatNode<'tool-call'>[]
-  readonly tasks: readonly KrActivityTask[]
   readonly active: boolean
   readonly closing: boolean
   readonly committed: boolean
@@ -309,7 +175,6 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
   const [avatarMenu, setAvatarMenu] = useState(false)
   const [avatarMenuPosition, setAvatarMenuPosition] = useState<AvatarMenuPosition | null>(null)
   const [avatarError, setAvatarError] = useState(false)
-  const [expanded, setExpanded] = useState(true)
 
   const runningTool = useMemo(() => {
     for (let index = tools.length - 1; index >= 0; index -= 1) {
@@ -320,27 +185,6 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
     }
     return null
   }, [tools])
-  const workflow = useMemo(
-    () => buildWorkflow(reasoning, tasks, active, closing),
-    [active, closing, reasoning, tasks],
-  )
-  const doneCount = useMemo(
-    () => workflow.stages.filter((stage) => stage.status === 'done').length,
-    [workflow.stages],
-  )
-  /*
-   * 步骤区改成「固定高度 + 滚动」，与右栏思考过程同一套跟随手感
-   * （useSteppedFollow）：内容增长自动贴底，上滚即停、滚回底部自动恢复，
-   * 选中文字期间不跟随。此前是「截断到 N 行 + 展开全部」两段式，展开后整张卡
-   * 会长到几千像素把对话流顶飞，收起又等于没写全。
-   */
-  const followActive = expanded && active && !closing
-  const { ref: followRef, onScroll: onFollowScroll, onWheel: onFollowWheel, edges, overflow, following } =
-    useSteppedFollow(
-      `${followActive ? '1' : '0'}:${workflow.stages.map((stage) => stage.label).join(' ')}`,
-      followActive,
-      motion,
-    )
   const thinking = reasoning.some((item) => item.running)
   const action = closing
     ? 'Agent 正在总结'
@@ -445,19 +289,6 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
     try { localStorage.setItem(FONT_SCALE_KEY, id) } catch { /* storage 不可用时仅改内存 */ }
   }, [])
 
-  const toggleExpanded = useCallback((): void => {
-    setExpanded((value) => !value)
-  }, [])
-  const handleCardClick = useCallback((event: ReactMouseEvent<HTMLElement>): void => {
-    if ((event.target as HTMLElement).closest('button, input') !== null) return
-    toggleExpanded()
-  }, [toggleExpanded])
-  const handleCardKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>): void => {
-    if (event.key !== 'Enter' && event.key !== ' ') return
-    event.preventDefault()
-    toggleExpanded()
-  }, [toggleExpanded])
-
   if (!present) return null
 
   return (
@@ -468,18 +299,12 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
       data-active={active || undefined}
       data-closing={closing || undefined}
       data-committed={committed || undefined}
-      data-expanded={expanded || undefined}
       style={{ '--kr-text-scale': FONT_SCALES[fontScale] } as CSSProperties}
     >
       <section
         className="kr-agent-mini-card"
-        role="button"
-        tabIndex={0}
         aria-label="Agent 当前状态"
-        aria-expanded={expanded}
         aria-live={active && !closing ? 'polite' : 'off'}
-        onClick={handleCardClick}
-        onKeyDown={handleCardKeyDown}
       >
         <button
           ref={avatarButtonRef}
@@ -506,19 +331,22 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
 
         <div className="kr-agent-mini-copy" data-running={active && !closing ? 'true' : undefined}>
           {/*
-           * 这里不再逐字拆 span：扫光改成 background-clip: text 的整行遮罩，
-           * 逐字 span 反而会把渐变切进各自的盒子（inline-block 各自成盒），
-           * 扫出来是整行一起闪而不是一道光推过去。key 用 action 本身，
-           * 动作一变元素重建、扫光从右侧重新起一次。
+           * key 用 action 本身：动作一变元素重建，.kr-agent-mini-action 上那次
+           * 220ms 的显影动画就自动重播一次——「有新动作了」这个信号由变化本身
+           * 驱动，不需要另开一条常驻动画去表达。
            */}
           <span key={action} className="kr-agent-mini-action">{action}</span>
+          {/*
+           * 末尾三点：模型停下来等的那段时间里，动作名不再变化，上面那次显影
+           * 也就不会再播——这三点就是"还活着，但暂时没新动作"的持续信号。
+           *
+           * 必须是三个独立元素（不能靠伪元素凑）：opacity 动画打在同一个元素上
+           * 时三颗会一起亮，错峰就没了。延迟在 CSS 里给，这里只管结构。
+           */}
+          <span className="kr-agent-dots" aria-hidden>
+            <i /><i /><i />
+          </span>
         </div>
-
-        <span className="kr-agent-mini-chevron" data-open={expanded || undefined} aria-hidden>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m5 6 3 3 3-3" />
-          </svg>
-        </span>
 
         <input
           ref={inputRef}
@@ -571,60 +399,6 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
         </div>,
         document.body,
       )}
-
-      <div className="kr-agent-mini-details" data-open={expanded || undefined} aria-hidden={!expanded}>
-        <div className="kr-agent-mini-details__inner">
-          <div className="kr-agent-workflow-card">
-            <div className="kr-agent-workflow-card__head">
-              <span>执行进度</span>
-              <span className="kr-agent-workflow-card__meta">
-                {workflow.title}
-                {/* 计数只在真正有多步时才有意义；单行判断下「0/1」纯属噪音。 */}
-                {workflow.stages.length > 1 && (
-                  <span className="kr-agent-workflow-card__count">
-                    {doneCount}/{workflow.stages.length}
-                  </span>
-                )}
-              </span>
-            </div>
-            <div
-              /*
-               * key 带上形态：这一区会在「模型进度（思考文本）」与「模型任务
-               * （todo 列表）」之间切换，子节点完全不同。形态一变就换 key 让整块
-               * 重建，配合 CSS 淡入读作「换了一种呈现」；不换的话新内容直接顶掉
-               * 旧内容，看起来像凭空跳出来。
-               */
-              key={workflow.stages.some((stage) => stage.detail !== '') ? 'tasks' : 'solo'}
-              className="kr-agent-workflow-card__steps"
-              data-edges={edges}
-              data-following={followActive && following ? 'true' : undefined}
-              ref={followRef}
-              onScroll={onFollowScroll}
-              onWheel={onFollowWheel}
-              role="region"
-              aria-label="执行进度，可滚动阅读"
-              tabIndex={overflow ? 0 : undefined}
-            >
-              {workflow.stages.map((stage) => (
-                <div className="kr-agent-workflow-step" data-status={stage.status} key={stage.key}>
-                  {/* 节点只承担三态（✓ / 呼吸点 / 灰点），位次交给头部计数与底部汇总。 */}
-                  <span className="kr-agent-workflow-step__index">
-                    {stage.status === 'done' ? '✓' : ''}
-                  </span>
-                  <div className="kr-agent-workflow-step__copy" data-solo={stage.detail === '' || undefined}>
-                    <span className="kr-agent-workflow-step__label">
-                      <KrFreshText text={stage.label} />
-                    </span>
-                    {stage.detail !== '' && (
-                      <span className="kr-agent-workflow-step__detail">{stage.detail}</span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-            </div>
-        </div>
-      </div>
     </div>
   )
 })
@@ -633,7 +407,6 @@ interface KrActivityCardGateProps {
   readonly turn: number
   readonly reasoning: readonly KrActivityReasoningItem[]
   readonly tools: readonly ChatNode<'tool-call'>[]
-  readonly tasks: readonly KrActivityTask[]
   readonly active: boolean
   readonly closing: boolean
   readonly committed: boolean
@@ -644,7 +417,6 @@ export const KrActivityCardGate = memo(function KrActivityCardGate({
   turn,
   reasoning,
   tools,
-  tasks,
   active,
   closing,
   committed,
@@ -672,7 +444,6 @@ export const KrActivityCardGate = memo(function KrActivityCardGate({
       turn={turn}
       reasoning={reasoning}
       tools={tools}
-      tasks={tasks}
       active={active}
       closing={closing}
       committed={committed}

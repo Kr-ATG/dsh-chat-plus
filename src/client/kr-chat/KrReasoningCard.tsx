@@ -39,13 +39,25 @@ export const KrReasoningCard = memo(function KrReasoningCard({
   const [collapsed, setCollapsed] = useState(false)
   const motion = useMotionAllowed(true)
 
-  // 要点行：优先编号行，否则逐行取全部（完整保留，不再截前 4 行）
+  /*
+   * 完整保留：只按行拆开、去掉空行，不做任何"要点抽取"。
+   *
+   * 原来这里是「优先编号行」：全文里只要出现任意一行以数字开头（/^\d+[\.、\s]/），
+   * 就只保留这些行，其余整段丢掉。后果是思考里绝大多数自然语言行凭空消失——
+   * 模型写的是段落，屏幕上只剩它偶尔列出的几行清单。而且这个正则还会误判：
+   * "401 Unauthorized。看 console 错误。" 以 401 + 空格开头，会被当成编号行
+   * 留下，真正没有序号的句子反被删掉，整轮思考被抽成一堆残骸。
+   *
+   * 这也正是"内容突然更替"的来源：numbered 集合会随模型吐出编号而突变，
+   * 一次 filter 就把整屏内容换掉，与 KrFreshText 设计的"只增不减"直接冲突。
+   *
+   * 思考过程卡要的就是"看模型当时怎么想的"，摘要化在这里只有坏处——视口本来
+   * 就按行封顶滚动（--kr-reasoning-rows），高度不需要靠砍行数来控制。
+   */
   const points = useMemo(() => {
     const full = reasoningTexts.join('\n')
     if (!full.trim()) return [] as readonly string[]
-    const lines = full.split('\n').map((l) => l.trim()).filter((l) => l.length > 0)
-    const numbered = lines.filter((l) => /^\d+[\.、\s]/.test(l))
-    return numbered.length > 0 ? numbered : lines
+    return full.split('\n').map((l) => l.trim()).filter((l) => l.length > 0)
   }, [reasoningTexts])
 
   // 跟随探针：内容或运行态变化都触发重新贴底
