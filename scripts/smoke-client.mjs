@@ -618,6 +618,20 @@ if (krEnabled) {
     } else {
       pass('技术细节收成卡片级开关 + 列表渐隐 + 收口回顶')
     }
+
+    // 子智能体：清单未拉到 ≠ 没有子智能体。两者混为一谈会对着明明派了子智能体的
+    // 步骤说「这次没有派生独立的子智能体」——既自相矛盾（同一行右侧还有子智能体
+    // 徽标）又是假的。
+    const catSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/subagent-catalog.ts'), 'utf8')
+    if (!/state: 'unloaded'/.test(catSrc) || !/parentAvailable/.test(catSrc)) {
+      fail('子智能体目录必须区分「未加载」与「确实为空」（靠 parentAvailable 判定）')
+    } else if (!/refreshSubagents/.test(catSrc)) {
+      fail('必须主动调 sessions.refreshSubagents：subagentsByParent 只在父会话目录被打开过时才存在')
+    } else if (!/state === 'unloaded'/.test(cardSrc) || !/子智能体清单未加载/.test(cardSrc)) {
+      fail('未加载态必须有独立文案，不能复用「这次没有派生独立的子智能体」')
+    } else {
+      pass('子智能体目录：主动拉取 + 未加载/为空分层')
+    }
   }
 }
 

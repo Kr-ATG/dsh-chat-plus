@@ -124,6 +124,15 @@ function SubagentBlock({ catalog }: { readonly catalog: SubagentCatalogView }): 
   if (catalog.state === 'loading') {
     return <div className="kr-plain-subs" data-state="loading">正在读取子智能体…</div>
   }
+  if (catalog.state === 'unloaded') {
+    /*
+     * 目录还没拉到（subagentsByParent 里没有这个父会话的键，或首次读取未成功）。
+     * 这里**不能说"这次没有派生独立的子智能体"** —— 那是在对一件我们并不知道的
+     * 事下结论；截图里就出现过「派出子任务 · 子智能体徽标」下面紧跟这句自相矛盾
+     * 的话。读者看不出区别，但这是假话。
+     */
+    return <div className="kr-plain-subs" data-state="empty">子智能体清单未加载</div>
+  }
   if (catalog.state === 'error') {
     return <div className="kr-plain-subs" data-state="error">子智能体清单读不到（会话服务未就绪）</div>
   }

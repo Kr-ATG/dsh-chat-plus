@@ -38,8 +38,12 @@ export interface SubagentCatalogView {
   readonly rows: readonly SubagentRow[]
   readonly runningCount: number
   readonly doneCount: number
-  /** 目录还没读到 / 读失败 / 根本没有子智能体。 */
-  readonly state: 'loading' | 'ready' | 'error' | 'empty'
+  /**
+   * `unloaded` = 这个父会话的子智能体目录**还没被拉取过**（键不存在，或首次读取
+   * 尚未成功）；`empty` = 拉取过、确实一个都没有。两者对用户是天壤之别：把
+   * unloaded 说成 empty，就等于对着明明派了子智能体的步骤撒谎。
+   */
+  readonly state: 'loading' | 'ready' | 'error' | 'empty' | 'unloaded'
 }
 
 /** 防御式取任意字段：DSH 的投影形状随版本变过，取不到就回 undefined。 */
@@ -83,24 +87,38 @@ function clipLabel(label: string): string {
   return clean.length > 34 ? `${clean.slice(0, 33)}…` : clean
 }
 
-/** 纯函数：从任意形状的 list 快照里找出某个父会话的子智能体清单。 */
+/**
+ * 纯函数：从任意形状的 list 快照里找出某个父会话的子智能体清单。
+ *
+ * **「没读过」和「读过是空」必须分开**。`subagentsByParent` 是
+ * *durable catalogs keyed by their selected parent address* —— 只有父会话的子
+ * 智能体目录被打开过（manager 里的 openCatalogs）才会去拉，所以刚进会话时这个
+ * 键**根本不存在**。把「键不存在」当成「没有子智能体」就会对着一个明明派出了子
+ * 智能体的步骤说「这次没有派生独立的子智能体」——自相矛盾且是假的。
+ *
+ * 两者靠 `parentAvailable` 区分：它在「首次成功读取」之前是 undefined。
+ */
 export function readSubagentCatalog(
   snapshot: unknown,
   parentSessionId: string | null,
 ): SubagentCatalogView {
   const empty: SubagentCatalogView = { rows: [], runningCount: 0, doneCount: 0, state: 'empty' }
-  if (snapshot === null || snapshot === undefined || parentSessionId === null || parentSessionId === '') return empty
+  if (snapshot === null || snapshot === undefined || parentSessionId === null || parentSessionId === '') {
+    return { ...empty, state: 'unloaded' }
+  }
 
-  // subagentsByParent 在 SessionListSnapshot 上；byId 只用来兜底确认父会话存在。
   const byParent = pick(snapshot, 'subagentsByParent')
   const catalog = typeof byParent === 'object' && byParent !== null
     ? (byParent as Record<string, unknown>)[parentSessionId]
     : undefined
-  if (catalog === undefined) return empty
+  // 键不存在 = 这个父会话的目录从来没读过
+  if (catalog === undefined) return { ...empty, state: 'unloaded' }
 
   const state = pick(catalog, 'state')
   if (state === 'loading') return { ...empty, state: 'loading' }
   if (state === 'error') return { ...empty, state: 'error' }
+  // 读到了但还没成功过一次（parentAvailable 在首次成功读取前是 undefined）
+  if (pick(catalog, 'parentAvailable') === undefined) return { ...empty, state: 'unloaded' }
 
   const rows = rowsOf(catalog)
   if (rows.length === 0) return empty
@@ -136,6 +154,38 @@ function subscribeTo(sessions: unknown, cb: () => void): () => void {
   return () => {}
 }
 
+/** 取 client ctx 上的 sessions 服务。 */
+function sessionsService(): unknown {
+  if (typeof window === 'undefined') return null
+  try {
+    const ctx = (window as unknown as { __dshClientCtx__?: { get?: (name: string) => unknown } }).__dshClientCtx__
+    return ctx?.get?.('sessions') ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 主动拉一次子智能体目录。
+ *
+ * **这不是可选优化，是功能能否成立的前提**：`subagentsByParent` 里的条目只在父会话
+ * 的子智能体目录被打开过之后才存在（SessionManager 的 openCatalogs；handleConnected
+ * 也只对 openCatalogs 里的父会话补拉）。用户不点那个目录，我们就永远读不到任何
+ * 子智能体——而 SessionsService 恰好把 `refreshSubagents(parentSessionId)` 公开出来了
+ * （api-session-controller/src/client/sessions/service.ts:305），不必去碰私有
+ * `scheduleCatalogRefresh`。
+ *
+ * 拿不到这个方法（旧版 host）就安静跳过：那台机器上此功能本来就不成立，不该因此
+ * 报错或刷屏。
+ */
+function requestRefresh(sessions: unknown, parentSessionId: string): void {
+  const fn = pick(sessions, 'refreshSubagents')
+  if (typeof fn !== 'function') return
+  try {
+    void (fn as (id: string) => Promise<void>).call(sessions, parentSessionId).catch(() => undefined)
+  } catch { /* 忽略：拉不到就维持当前显示 */ }
+}
+
 /**
  * 订阅某个父会话下的子智能体清单。
  *
@@ -143,6 +193,9 @@ function subscribeTo(sessions: unknown, cb: () => void): () => void {
  * 同样随版本变过；订阅拿到就实时刷新，拿不到就退回 1.5s 轮询 —— 子智能体的
  * running 状态本来就以秒级变化，轮询完全够用，而漏订阅只会让刷新慢一点，
  * 不会让功能消失。
+ *
+ * 目录本身靠 requestRefresh 主动拉：挂载立刻拉一次，之后每 REFRESH_EVERY_TICKS
+ * 轮再拉一次（子智能体是陆续派生的，只在挂载时拉一次会漏掉后面新增的那些）。
  */
 export function useSubagentCatalog(parentSessionId: string | null, pollMs = 1500): SubagentCatalogView {
   const [tick, setTick] = useState(0)
@@ -151,15 +204,20 @@ export function useSubagentCatalog(parentSessionId: string | null, pollMs = 1500
     if (parentSessionId === null || parentSessionId === '') return undefined
     let alive = true
     const bump = (): void => { if (alive) setTick((value) => value + 1) }
-    let sessions: unknown = null
-    try {
-      const ctx = (window as unknown as { __dshClientCtx__?: { get?: (name: string) => unknown } }).__dshClientCtx__
-      sessions = ctx?.get?.('sessions') ?? null
-    } catch {
-      sessions = null
-    }
+    const sessions = sessionsService()
     const unsubscribe = subscribeTo(sessions, bump)
-    const timer = window.setInterval(bump, pollMs)
+    // 挂载先拉一次；之后每 4 轮（默认 6 秒）补拉，兼顾"陆续派生的子智能体"
+    // 与"别把 RPC 打成轮询"。拉取本身是幂等的读操作。
+    let sinceRefresh = 0
+    requestRefresh(sessions, parentSessionId)
+    const timer = window.setInterval(() => {
+      bump()
+      sinceRefresh += 1
+      if (sinceRefresh >= 4) {
+        sinceRefresh = 0
+        requestRefresh(sessions, parentSessionId)
+      }
+    }, pollMs)
     return () => {
       alive = false
       window.clearInterval(timer)
@@ -169,16 +227,9 @@ export function useSubagentCatalog(parentSessionId: string | null, pollMs = 1500
 
   return useMemo(() => {
     if (typeof window === 'undefined') {
-      return { rows: [], runningCount: 0, doneCount: 0, state: 'empty' } as SubagentCatalogView
+      return { rows: [], runningCount: 0, doneCount: 0, state: 'unloaded' } as SubagentCatalogView
     }
-    let sessions: unknown = null
-    try {
-      const ctx = (window as unknown as { __dshClientCtx__?: { get?: (name: string) => unknown } }).__dshClientCtx__
-      sessions = ctx?.get?.('sessions') ?? null
-    } catch {
-      sessions = null
-    }
-    return readSubagentCatalog(snapshotOf(sessions), parentSessionId)
     // tick 是唯一的刷新触发：快照本身是外部可变对象，不进依赖。
+    return readSubagentCatalog(snapshotOf(sessionsService()), parentSessionId)
   }, [parentSessionId, tick])
 }
