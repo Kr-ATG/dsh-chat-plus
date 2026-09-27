@@ -197,40 +197,54 @@ function SubagentBlock({ catalog }: { readonly catalog: SubagentCatalogView }): 
   )
 }
 
-function StepRow({ step, index, catalog }: {
+function StepRow({ step, index, catalog, brief }: {
   readonly step: PlainStep
   readonly index: number
   /** 仅当 step.spawnsSubagents 为真时才有内容。 */
   readonly catalog: SubagentCatalogView | null
+  /** 简要（纪要）模式：不要图标，动词写回文字里。 */
+  readonly brief: boolean
 }): ReactElement {
   /*
-   * 文字只留动作的**对象**，不把动词前缀再抄一遍。
+   * 一句话 = **动词 + 对象**。
    *
-   * 原来是 `${verb} · ${detail}`：一列扫下来全是「在线缆执行命令 · …」「在浏览器
-   * 里操作 · …」，而前面那枚图标（终端 / 地球 / 光标）说的就是同一件事。文字
-   * 留下 detail（「查看视频底层组件详情」），detail 缺失时才退回动词本身。
+   * 详细模式下图标已经说了"是哪类动作"，文字只留对象（「plain-language.ts」）就够；
+   * 简要模式没有图标，动词就没人说了——一行光写"plain-language.ts"用户根本读不出
+   * 是改了它还是读了它。所以 brief 时把动词补回文字（`修改 plain-language.ts`），
+   * 靠文字里的间隔号断句，不再靠图标承担。
    */
-  const title = step.detail === undefined || step.detail === '' ? step.verb : step.detail
+  const label = brief
+    ? (step.detail === undefined || step.detail === ''
+      ? step.verb
+      : `${step.verb} ${step.detail}`)
+    : (step.detail === undefined || step.detail === '' ? step.verb : step.detail)
+  const title = label
   const failed = step.status === 'failed'
   return (
     <div
       className="kr-plain-step"
       data-status={step.status}
+      data-brief={brief ? 'true' : undefined}
       data-nested={step.spawnsSubagents === true ? 'true' : undefined}
       // 错峰入场：只对靠后的若干条错开，卡片整体不拖出一段长尾。
       style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
     >
       {/*
-       * 行首只有**一枚**图标：类别图标说「是哪类动作」，失败时它自己变红。
+       * 行首图标：类别图标说「是哪类动作」，失败时它自己变红。
        *
        * 原来行首是「状态槽 + 类别图标」两列，而状态槽 99% 的行是空盒——一整列
-       * 14px 空白只为等那一条红叉，代价与收益完全不成比例。改为让失败直接由
-       * 类别图标右上角那枚小红叉角标承担（见下方 .kr-plain-step__icon::after），
-       * 正常态不占任何额外宽度，整列左边界因此齐到贴边。
+       * 14px 空白只为等那一条红叉，已整列删除。
+       *
+       * **简要模式整枚不画**（brief 时不渲染）：那一列已经只剩三行里程碑与一条
+       * 报错，图标在纪念要里是纯噪声——用户读的是「改了什么 / 出了什么事」，不是
+       * 「这属于哪类工具」。省下的一列让文字从卡缘起，句子读起来是一整句而不是
+       * 「图标 + 半个词」。失败由行文字本身的红色与那枚人话原因药丸承担。
        */}
-      <span className="kr-plain-step__icon" data-failed={failed ? 'true' : undefined} aria-hidden>
-        <Icon name={step.icon} />
-      </span>
+      {!brief && (
+        <span className="kr-plain-step__icon" data-failed={failed ? 'true' : undefined} aria-hidden>
+          <Icon name={step.icon} />
+        </span>
+      )}
       <span className="kr-plain-step__title" title={title}>{title}</span>
       {/*
        * 失败原因：**人话**那一句，不是原始报错。
@@ -469,6 +483,7 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
                   step={step}
                   index={index}
                   catalog={step.spawnsSubagents === true ? subagentCatalog : null}
+                  brief={brief}
                 />
               ))}
             </div>

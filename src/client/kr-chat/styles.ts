@@ -1051,6 +1051,30 @@ body[data-kr-resizing="true"] * {
 }
 
 /*
+ * 简要（纪要）模式：**不画图标，文字从卡缘直接起**。
+ *
+ * 那一列已经只剩三五条里程碑与一条报错，图标在这个密度下是纯噪声：用户读的是
+ * 「改了什么 / 出了什么事」，不是「这属于哪类工具」。省掉的一列让每行成为一整句
+ * （「修改 plain-language.ts · 共 19 次」），而不是「图标 + 半个词」。
+ *
+ * 失败行靠左侧一道 2px 红条指认：图标拿掉了，但"这一行是坏事"必须一眼可见——它是
+ * 纪要里唯一需要被立刻注意到的那条。不用红底：整行铺红会把右栏整片染红，太重。
+ */
+.kr-plain-step[data-brief="true"] .kr-plain-step__title {
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-plain-step[data-brief="true"][data-status="failed"] {
+  padding-left: 10px;
+  box-shadow: inset 2px 0 0 var(--kr-error);
+}
+
+.kr-plain-step[data-brief="true"][data-status="running"] .kr-plain-step__title {
+  font-weight: 500;
+}
+
+/*
  * 进行中：文字自带一道从左往右扫过的高光，取代原来那枚转圈圆点。
  *
  * 转圈的毛病是它只在说「还在跑」，却把「跑的是什么」留在一旁的静态灰字上；

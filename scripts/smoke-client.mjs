@@ -684,6 +684,19 @@ if (krEnabled) {
       pass('行首无空槽 + 标题行只剩标题（失败由图标角标承担）')
     }
 
+    // 简要模式不画图标、动词写回文字。
+    if (!/data-brief=\{brief \? 'true' : undefined\}/.test(cardSrc)) {
+      fail('简要模式必须打 data-brief（无图标排布靠它选样式）')
+    } else if (!/\{!brief && \(/.test(cardSrc)) {
+      fail('简要模式必须整枚跳过 .kr-plain-step__icon 的渲染')
+    } else if (!/const label = brief/.test(cardSrc)) {
+      fail('简要模式必须把动词写回文字（没图标时"plain-language.ts"分不出改还是读）')
+    } else if (!/\.kr-plain-step\[data-brief="true"\]\[data-status="failed"\]/.test(code)) {
+      fail('简要模式的失败行必须仍有可见标记（左缘 2px 红条）')
+    } else {
+      pass('简要模式无图标、动词入句、失败有红条')
+    }
+
     // 详细/简要切换：卡头右上角两枚按钮，点了不能连带收起卡片（整行 header
     // 都是折叠热区，少了 stopPropagation 就会一点两变），且**默认档必须是简要**。
     const viewBtnCount = (cardSrc.match(/className="kr-plain-view__btn"/g) ?? []).length
