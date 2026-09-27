@@ -7,10 +7,15 @@
  *     自动收掉，右栏回到「只有三张卡」的干净状态。加载中不渲染是为了不闪一张
  *     空卡；模块不可用不渲染是因为这张卡的全部价值就是「这次对话新记了什么」，
  *     它没有新增时只剩一行诊断文字，host 侧异常本来就有 console.warn 兜底。
- *  2. **常驻底部但高度克制**：卡片挂在滚动区之下的独立 flex footer
+ *  2. **常驻底部、常态折叠**：卡片挂在滚动区之下的独立 flex footer
  *     （.kr-panel__memory-dock，见 KrAgentPanel 与 styles.ts），永远钉在右栏
- *     最下方；但它常驻占着右栏时思考卡只能被挤到最小档，所以默认只露 6 条、
- *     列表封顶在 40vh。
+ *     最下方，**但默认收起**，标题行留一枚「N 条」徽标说明这次对话记了几条，
+ *     要看由用户点开。展开后默认只露 6 条、列表封顶在 40vh。
+ *
+ *     折叠是默认值而不是「无新增就不显示」的补充：默认展开时，模型每记下一条
+ *     右栏就自己长高一截，把用户正在读的思考卡顶走一截，而位置还是他没动过的
+ *     ——观感上就是「界面在抖」。顺带也让 footer 常态只占一行，思考卡多拿回
+ *     几行视口。切会话不重置这个状态：用户手动点过一次就说明他想看。
  *
  *     「这个会话写下」按**条目溯源**判定：host 在写入/更新条目时把
  *     `provenance.sessionId` 一并落盘（自动提取、memory_remember / memory_revise
@@ -219,7 +224,21 @@ export const KrMemoryCard = memo(function KrMemoryCard({
   const [entries, setEntries] = useState<readonly MemoryEntryView[]>([])
   const [projects, setProjects] = useState<readonly ProjectView[]>([])
   const [workspaceHash, setWorkspaceHash] = useState<string | null>(null)
-  const [collapsed, setCollapsed] = useState(false)
+  /**
+   * 默认**折叠**（有新增也不自动展开）。
+   *
+   * 这张卡钉死在右栏最下方，展开时是要占掉思考卡行数的。原来默认展开，等于
+   * 「模型一记下东西，右栏就自己长高一截」——用户正在读的那块区域被顶走一截，
+   * 位置还是他没动过的，观感上就是「界面在抖」。
+   *
+   * 所以折叠态才是常态，标题行那枚「N 条」徽标负责说清「这次对话记了什么、
+   * 记了几条」，要不要看由用户点。这也让 footer 常态只占一行，思考卡能多拿
+   * 回几行视口。
+   *
+   * 切会话时**不重置**这个状态：用户刚手动展开就被下一个会话抽走，比自动展开
+   * 更烦。他手动点过一次就说明他想看，尊重那个选择。
+   */
+  const [collapsed, setCollapsed] = useState(true)
   const [openedIds, setOpenedIds] = useState<ReadonlySet<string>>(() => new Set())
   const [sections, setSections] = useState<Record<SectionKey, SectionState>>({
     workspace: EMPTY_SECTION,
@@ -594,10 +613,12 @@ export const KrMemoryCard = memo(function KrMemoryCard({
           </svg>
         </span>
         <span className="kr-card__title">记忆</span>
-        {/* 头部只留图标 + 名称 + 总数：原来把「(N)」「展开其余」「选择」三样都
+        {/* 头部只留图标 + 名称 + 条数徽标：原来把「(N)」「展开其余」「选择」三样都
             堆在这一行，是「乱」的直接来源。现在总数是唯一的数字来源，分区行
-            只报各批条数，两者不再互相重复。 */}
-        <span className="kr-card__badge kr-card__badge--done">{newEntryCount}</span>
+            只报各批条数，两者不再互相重复。
+            徽标带单位（「3 条」而不是光一个 3）：卡片常态是折叠的，这行字是折叠
+            状态下唯一的正文，写清楚「几条」比让人数数字更省一步理解。 */}
+        <span className="kr-card__badge kr-card__badge--count">{newEntryCount} 条</span>
         <span className="kr-card__chevron" data-collapsed={collapsed ? 'true' : 'false'}>
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6">
             <path d="M2.5 4.5 6 8 9.5 4.5" strokeLinecap="round" strokeLinejoin="round" />

@@ -617,6 +617,21 @@ body[data-kr-resizing="true"] * {
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* 记忆卡的条数徽标：卡片常态折叠，这枚徽标是折叠态下**唯一**的正文，
+   所以比 --done 那一档（hover 底 + 三级字色）再抬一格：常规底色 + 二级字色。
+   够读得清，又不至于亮到像一枚待办提醒。 */
+.kr-card__badge--count {
+  background: var(--kr-fill-bg);
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+  transition: background-color .18s ease, color .18s ease;
+}
+
+.kr-card--memory .kr-card__header:hover .kr-card__badge--count {
+  background: color-mix(in srgb, var(--kr-accent) 14%, var(--kr-fill-bg));
+  color: var(--kr-accent);
+}
+
 .kr-card__chevron {
   color: var(--dsw-alias-label-caption);
   transition: transform 0.2s ease;

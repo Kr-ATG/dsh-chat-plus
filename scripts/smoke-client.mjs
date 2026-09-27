@@ -359,6 +359,22 @@ if (krEnabled) {
     pass('plain-progress card (人话行动流) present with its styles')
   }
 }
+
+// 记忆卡：默认折叠 + 折叠态带「N 条」徽标。
+// 断言读源码而不是 bundle —— bundle 里中文被 esbuild 转成 \uXXXX，正则难写；
+// 而这两条契约本身就是源码里的一行状态初值与一个类名，直接读最实。
+if (krEnabled) {
+  const memorySrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrMemoryCard.tsx'), 'utf8')
+  if (!/const \[collapsed, setCollapsed\] = useState\(true\)/.test(memorySrc)) {
+    fail('记忆卡必须默认折叠（有新增也不自动展开），useState 初值应为 true')
+  } else if (!memorySrc.includes('kr-card__badge--count')) {
+    fail('记忆卡折叠态必须带「N 条」徽标（kr-card__badge--count）')
+  } else if (!code.includes('.kr-card__badge--count')) {
+    fail('client bundle is missing the .kr-card__badge--count style')
+  } else {
+    pass('记忆卡默认折叠，折叠态带「N 条」徽标')
+  }
+}
 // 头像菜单不能留在 turn-process 固定高度 / overflow:hidden 的子树里；必须 portal 到 body。
 if (!code.includes('avatarMenuPosition') || !code.includes('.kr-agent-avatar-menu {\n  position: fixed;')) {
   fail('client bundle is missing the body-portaled Agent avatar menu')
