@@ -46,7 +46,13 @@ export const zh = {
   sensitiveConfirm: '内容包含疑似敏感信息（token/密钥等）。仍要保存吗？保存后注入上下文可能被模型读取，风险自担。',
   injectOn: '记忆注入：开',
   injectOff: '记忆注入：关',
-  injectCardTitle: '记忆注入',
+  // 卡片里装的是两类东西：三条内置提示词通道（中文优先 / 对话内流程图 /
+  // 过程播报）与记忆注入本身。标题继续叫「记忆注入」只对后两条成立，所以改成
+  // 中性名，具体归属交给卡片内两个分组标题。
+  injectCardTitle: '注入与记忆',
+  injectGroupBuiltin: '内置提示词通道',
+  injectGroupBuiltinHint: '全局单值，跨会话恒定',
+  injectGroupMemory: '记忆注入',
   injectThisSession: '本会话注入',
   injectDefaultOn: '默认开启',
   injectDefaultHint: '作用于新会话与未单独设置的会话',

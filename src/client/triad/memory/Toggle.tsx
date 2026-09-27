@@ -5,14 +5,20 @@
  *  - hover 进入立即展开，移出延迟 120ms 收起（跨按钮↔卡片间隙不闪）；
  *  - 悬停打开后点击 = 钉住（移开鼠标不收），再点或外点/Esc = 收起；
  *  - 卡片常驻 DOM，显隐走 CSS visibility 过渡（160ms 位移+淡入）。
- * 卡片里三行开关，上面一行是内置通道，与下面两行零联动：
- *  - 中文记忆：内置能力，硬编码在插件内、无卸载入口（回包恒带 builtin）。
- *    不受本会话注入 / 默认开启 / 项目排除任何一道闸门约束——语言契约必须
- *    跨会话恒定，否则同一用户会得到互相矛盾的回答语言。全局单值，不做会话级。
- *  - 本会话注入：只影响当前会话（host state.json 里的显式覆盖）；
- *  - 默认开启：config.injectDefaultEnabled，决定新会话与未单独设置过的会话。
- * 会话单独设置过时显示「已单独设置」角标，并可一键「跟随默认」清除覆盖
- * （清除后该会话重新跟随默认值）。状态全在 host，重启保留。
+ *
+ * 卡片分两组，因为里面装的是两类东西：
+ *  - **内置提示词通道**（中文优先 / 对话内流程图 / 过程播报）：硬编码在插件内、
+ *    无卸载入口（回包恒带 builtin），全局单值，不做会话级，也不受记忆注入的
+ *    任何一道闸门约束——语言契约必须跨会话恒定，否则同一用户会得到互相矛盾的
+ *    回答语言。
+ *  - **记忆注入**（本会话注入 / 默认开启）：本会话是 host state.json 里的显式
+ *    覆盖，默认开启是 config.injectDefaultEnabled，决定新会话与未单独设置过的
+ *    会话。已单独设置过时显示「已单独设置」角标，并可一键「跟随默认」清除覆盖。
+ *    状态全在 host，重启保留。
+ *
+ * 整张卡原先顶着「记忆注入」的名字，前三条与标题对不上；现由两个组标题说清
+ * 归属。原先前三条是「每行一只圆角盒子」、后两行是裸行，同卡两套排版，现已
+ * 统一成一套行。
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -30,6 +36,55 @@ export type MemoryToggleProps =
 
 /** 悬停移出后的延迟收起（毫秒）：给鼠标跨过按钮↔卡片间隙留时间。 */
 const HIDE_DELAY_MS = 120
+
+/**
+ * 卡片里的一行开关：标签（可带角标 / 副说明）+ 右侧开关。
+ *
+ * 五行（中文优先 / 对话内流程图 / 过程播报 / 本会话注入 / 默认开启）共用它，
+ * 避免每行各写一遍几乎一样的 JSX。`lead` 标出该组第一行——它上方已经有组标题，
+ * 不再叠一条虚线。
+ */
+function SwitchRow({
+  label,
+  on,
+  busy,
+  onToggle,
+  lead = false,
+  tag,
+  hint,
+}: {
+  readonly label: string
+  readonly on: boolean
+  readonly busy: boolean
+  readonly onToggle: () => void
+  readonly lead?: boolean
+  readonly tag?: string | undefined
+  readonly hint?: string | undefined
+}): JSX.Element {
+  const classes = [css.injectRow]
+  if (lead) classes.push(css.injectRowLead)
+  if (on) classes.push(css.injectRowOn)
+  return (
+    <div className={classes.join(' ')}>
+      <span className={css.injectMain}>
+        <span className={css.injectLabel}>
+          {label}
+          {tag !== undefined && <span className={css.injectBadge}>{tag}</span>}
+        </span>
+        {hint !== undefined && <span className={css.injectHint}>{hint}</span>}
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        aria-label={label}
+        disabled={busy}
+        className={css.switch}
+        onClick={onToggle}
+      />
+    </div>
+  )
+}
 
 /** 把 host 回包收敛成本地状态形状（缺字段按默认处理）。 */
 function toState(res: InjectStateView): InjectStateView {
@@ -251,96 +306,60 @@ export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.E
       >
         <div className={css.injectHead}>
           <span className={css.injectTitle}><BrainIcon size={13} />{t('injectCardTitle')}</span>
-          <span className={isOn ? `${css.injectTag} ${css.injectTagOn}` : `${css.injectTag} ${css.injectTagOff}`}>
+        </div>
+        {/*
+         * 卡片分两组，因为里面装的是两类东西：三条内置提示词通道（语言契约 /
+         * 图表规范 / 过程播报，全局单值）与记忆注入本身（可按会话覆盖）。原先整张
+         * 卡顶着「记忆注入」的名字，前三条与标题对不上；现在归属由组标题说清。
+         *
+         * 五行共用同一个行组件：裸行 + 虚线分隔 + 右侧开关。开态只加一层极淡的
+         * 主色底（injectRowOn），描边/辉光/竖条一律不要——开关的蓝灰已经说清了
+         * 开合，再套盒子只会把 272px 的卡切成一摞小卡片。
+         */}
+        <div className={css.injectGroup}>
+          <span className={css.injectGroupTitle}>{t('injectGroupBuiltin')}</span>
+          <span className={css.injectGroupHint}>{t('injectGroupBuiltinHint')}</span>
+        </div>
+        <SwitchRow
+          lead
+          on={zhOn}
+          busy={busy}
+          label={t('zhInjectLabel')}
+          onToggle={() => { pushZh(!zhOn) }}
+        />
+        <SwitchRow
+          on={diagramOn}
+          busy={busy}
+          label={t('diagramInjectLabel')}
+          onToggle={() => { pushDiagram(!diagramOn) }}
+        />
+        <SwitchRow
+          on={plainOn}
+          busy={busy}
+          label={t('plainInjectLabel')}
+          onToggle={() => { pushPlain(!plainOn) }}
+        />
+        <div className={css.injectGroup}>
+          <span className={css.injectGroupTitle}>{t('injectGroupMemory')}</span>
+          <span className={css.injectGroupHint}>
             {isOn ? t('injectStateOn') : t('injectStateOff')}
           </span>
         </div>
-        <div className={zhOn ? `${css.zhRow} ${css.zhRowOn}` : css.zhRow}>
-          <span className={css.zhMain}>
-            <span className={css.zhLabel}>
-              {t('zhInjectLabel')}
-              <span className={css.zhBuiltin}>{t('zhInjectBuiltin')}</span>
-            </span>
-          </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={zhOn}
-            aria-label={t('zhInjectLabel')}
-            disabled={busy}
-            className={css.switch}
-            onClick={() => { pushZh(!zhOn) }}
-          />
-        </div>
-        <div className={css.injectDivider} />
-        <div className={diagramOn ? `${css.zhRow} ${css.zhRowOn}` : css.zhRow}>
-          <span className={css.zhMain}>
-            <span className={css.zhLabel}>
-              {t('diagramInjectLabel')}
-              <span className={css.zhBuiltin}>{t('diagramInjectBuiltin')}</span>
-            </span>
-          </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={diagramOn}
-            aria-label={t('diagramInjectLabel')}
-            disabled={busy}
-            className={css.switch}
-            onClick={() => { pushDiagram(!diagramOn) }}
-          />
-        </div>
-        <div className={css.injectDivider} />
-        <div className={plainOn ? `${css.zhRow} ${css.zhRowOn}` : css.zhRow}>
-          <span className={css.zhMain}>
-            <span className={css.zhLabel}>
-              {t('plainInjectLabel')}
-              <span className={css.zhBuiltin}>{t('plainInjectBuiltin')}</span>
-            </span>
-          </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={plainOn}
-            aria-label={t('plainInjectLabel')}
-            disabled={busy}
-            className={css.switch}
-            onClick={() => { pushPlain(!plainOn) }}
-          />
-        </div>
-        <div className={css.injectDivider} />
-        <div className={css.injectRow}>
-          <span className={css.injectMain}>
-            <span className={css.injectLabel}>
-              {t('injectThisSession')}
-              {explicit && <span className={css.injectBadge}>{t('injectOverrideTag')}</span>}
-            </span>
-          </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={isOn}
-            aria-label={t('injectThisSession')}
-            disabled={busy}
-            className={css.switch}
-            onClick={() => { pushSession(!isOn) }}
-          />
-        </div>
-        <div className={css.injectRow}>
-          <span className={css.injectMain}>
-            <span className={css.injectLabel}>{t('injectDefaultOn')}</span>
-            <span className={css.injectHint}>{t('injectDefaultHint')}</span>
-          </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={isDefaultOn}
-            aria-label={t('injectDefaultOn')}
-            disabled={busy}
-            className={css.switch}
-            onClick={() => { pushDefault(!isDefaultOn) }}
-          />
-        </div>
+        <SwitchRow
+          lead
+          on={isOn}
+          busy={busy}
+          label={t('injectThisSession')}
+          tag={explicit ? t('injectOverrideTag') : undefined}
+          onToggle={() => { pushSession(!isOn) }}
+        />
+        <SwitchRow
+          on={isDefaultOn}
+          busy={busy}
+          label={t('injectDefaultOn')}
+          hint={t('injectDefaultHint')}
+          onToggle={() => { pushDefault(!isDefaultOn) }}
+        />
         {explicit && (
           <button type="button" className={css.injectFollow} disabled={busy} onClick={() => { pushSession(null) }}>
             {t('injectFollowDefault')}

@@ -215,22 +215,18 @@ export const css = {
   injectCardOn: 'dsh-memory-inject-card-on',
   injectHead: 'dsh-memory-inject-head',
   injectTitle: 'dsh-memory-inject-title',
-  injectTag: 'dsh-memory-inject-tag',
-  injectTagOn: 'dsh-memory-inject-tag-on',
-  injectTagOff: 'dsh-memory-inject-tag-off',
   injectRow: 'dsh-memory-inject-row',
+  injectRowLead: 'dsh-memory-inject-row-lead',
   injectMain: 'dsh-memory-inject-main',
   injectLabel: 'dsh-memory-inject-label',
   injectHint: 'dsh-memory-inject-hint',
   injectBadge: 'dsh-memory-inject-badge',
   injectFollow: 'dsh-memory-inject-follow',
   injectFoot: 'dsh-memory-inject-foot',
-  injectDivider: 'dsh-memory-inject-divider',
-  zhRow: 'dsh-memory-zh-row',
-  zhRowOn: 'dsh-memory-zh-row-on',
-  zhMain: 'dsh-memory-zh-main',
-  zhLabel: 'dsh-memory-zh-label',
-  zhBuiltin: 'dsh-memory-zh-builtin',
+  injectRowOn: 'dsh-memory-inject-row-on',
+  injectGroup: 'dsh-memory-inject-group',
+  injectGroupTitle: 'dsh-memory-inject-group-title',
+  injectGroupHint: 'dsh-memory-inject-group-hint',
 } as const
 
 const STYLE_ID = 'dsh-memory-styles'
@@ -622,13 +618,14 @@ const SHEET = `
   transition:opacity .16s ease,transform .16s cubic-bezier(.2,.8,.2,1),visibility 0s}
 html[data-dsh-glass] .dsh-memory-inject-card{background:var(--dsw-static-neutral-bluish-00,#fff);backdrop-filter:none;-webkit-backdrop-filter:none}
 body[data-ds-dark-theme] .dsh-memory-inject-card{background:var(--dsw-static-neutral-bluish-1000,#16181d)}
-.dsh-memory-inject-head{display:flex;align-items:center;gap:6px;padding-bottom:8px;border-bottom:1px solid var(--m-border)}
+.dsh-memory-inject-head{display:flex;align-items:center;gap:6px;padding-bottom:7px;border-bottom:1px solid var(--m-border)}
 .dsh-memory-inject-title{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:var(--m-text-2)}
-.dsh-memory-inject-tag{margin-left:auto;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:600;line-height:16px}
-.dsh-memory-inject-tag-on{background:color-mix(in srgb,var(--m-primary) 12%,transparent);color:var(--m-primary)}
-.dsh-memory-inject-tag-off{background:color-mix(in srgb,var(--m-text-3) 18%,transparent);color:var(--m-text-3)}
-.dsh-memory-inject-row{display:flex;align-items:center;gap:10px;padding:9px 0}
+.dsh-memory-inject-row{display:flex;align-items:center;gap:10px;padding:9px 0;transition:background .15s ease}
+/* 悬停：极淡的底，让"这一行能点"被看见，又不与开态的底色混淆（开态更深一档）。 */
+.dsh-memory-inject-row:hover{background:color-mix(in srgb,var(--m-text-3) 7%,transparent);border-radius:7px}
 .dsh-memory-inject-row+.dsh-memory-inject-row{border-top:1px dashed var(--m-border)}
+/* 每组第一行：上方已经有组标题，不再叠一条虚线，否则组标题与首行之间多一道割裂。 */
+.dsh-memory-inject-row.dsh-memory-inject-row-lead{border-top:none}
 .dsh-memory-inject-main{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
 .dsh-memory-inject-label{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;line-height:19px;color:var(--m-text)}
 .dsh-memory-inject-hint{font-size:11px;line-height:15px;color:var(--m-text-3)}
@@ -636,19 +633,21 @@ body[data-ds-dark-theme] .dsh-memory-inject-card{background:var(--dsw-static-neu
 .dsh-memory-inject-follow{display:block;width:100%;margin:2px 0 4px;padding:5px 8px;box-sizing:border-box;border:1px dashed var(--m-border);border-radius:8px;background:transparent;color:var(--m-text-2);font-family:inherit;font-size:11.5px;line-height:16px;cursor:pointer;transition:border-color .15s ease,color .15s ease,background .15s ease}
 .dsh-memory-inject-follow:hover{border-color:var(--m-primary);color:var(--m-primary);background:color-mix(in srgb,var(--m-primary) 7%,transparent)}
 .dsh-memory-inject-foot{margin:2px 0 0;font-size:11px;line-height:15px;color:var(--m-text-3)}
-.dsh-memory-inject-divider{height:1px;margin:2px 0;background:linear-gradient(90deg,transparent,var(--m-border) 12%,var(--m-border) 88%,transparent)}
 
-/* ── 内置通道行（中文优先 / 对话内流程图） ───────────────────────────
-   不给它图标。文字模拟图标（「文」字方块）在 272px 卡片里既抢戏又土，
-   而这一行的表意完全由「名称 + 内置」承载。
-   左侧主色竖条已按用户要求移除：两行都带竖条时，选中态与开关的蓝色开关
-   互相抢注意力，反而看不出是哪一行开了。状态改由整行的描边 + 底色 + 极轻
-   外发光说清——竖条时代的辉光语义保留，只是从局部移到整行。 */
-.dsh-memory-zh-row{position:relative;display:flex;align-items:center;gap:10px;margin:3px 0 1px;padding:8px 9px;border:1px solid var(--m-border);border-radius:9px;background:var(--dsw-alias-bg-layer-1,transparent);transition:border-color .2s cubic-bezier(.2,.8,.2,1),background .2s cubic-bezier(.2,.8,.2,1),box-shadow .2s cubic-bezier(.2,.8,.2,1)}
-.dsh-memory-zh-row-on{border-color:color-mix(in srgb,var(--m-primary) 34%,transparent);background:color-mix(in srgb,var(--m-primary) 6%,transparent);box-shadow:0 0 9px -3px color-mix(in srgb,var(--m-primary) 45%,transparent)}
-.dsh-memory-zh-main{flex:1;min-width:0;display:flex;align-items:center}
-.dsh-memory-zh-label{display:flex;align-items:center;gap:6px;min-width:0;font-size:13px;font-weight:500;line-height:19px;color:var(--m-text)}
-.dsh-memory-zh-builtin{flex:none;padding:0 5px;border-radius:4px;background:color-mix(in srgb,var(--m-primary) 14%,transparent);color:var(--m-primary);font-size:10px;font-weight:500;line-height:15px;letter-spacing:.02em}
+/* ── 行与分组（内置通道 / 记忆注入 统一一套行） ───────────────────────
+   以前三条内置通道是「每行一只圆角盒子 + 描边 + 外发光」，下面两行记忆开关却是
+   裸行 + 虚线分隔——同一张卡里两种排版，盒子之间还夹着渐变分隔线，272px 的宽度
+   被切成一摞小卡片，视觉碎、行高对不齐。现在两组共用同一套行：裸行 + 虚线
+   分隔 + 右侧开关，组与组之间由一枚极轻的小标题分开。
+
+   选中态改由「极淡主色底」承担：描边、外发光、左侧竖条都撤了（竖条此前已按
+   要求删过一次），开关本身的蓝/灰已经足够说清开合，底色只补一层几乎察觉不到的
+   暖意，让一列开关扫过去时开的那几枚不显得孤立。 */
+.dsh-memory-inject-group{margin:9px 0 2px;padding:0 2px 5px;display:flex;align-items:baseline;gap:6px}
+.dsh-memory-inject-group:first-of-type{margin-top:2px}
+.dsh-memory-inject-group-title{font-size:11px;font-weight:600;line-height:15px;letter-spacing:.03em;color:var(--m-text-3)}
+.dsh-memory-inject-group-hint{font-size:10.5px;line-height:15px;color:var(--m-text-3);opacity:.8}
+.dsh-memory-inject-row-on{background:color-mix(in srgb,var(--m-primary) 6%,transparent);border-radius:7px}
 @media (prefers-reduced-motion:reduce){.dsh-memory-inject-card,.dsh-memory-inject-card-on{transition:none}}
 .dsh-memory-switch:focus-visible,.dsh-memory-toggle:focus-visible{outline:none;box-shadow:0 0 0 2px rgba(65,118,230,.35)}
 
