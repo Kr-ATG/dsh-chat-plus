@@ -582,6 +582,18 @@ if (krEnabled) {
   } else {
     pass('hook 顺序 / busy 收口 / 大盘 memo 三处修复在位')
   }
+
+  // 子智能体区块：样式族 + 会话 id 传递。缺任何一样都会让 workflow 底下
+  // 看不到子智能体清单（而子智能体是独立会话，父调用里根本没有这些信息）。
+  if (krEnabled) {
+    if (!code.includes('.kr-plain-subs__list') || !code.includes('.kr-plain-sub__label')) {
+      fail('client bundle is missing the subagent block styles (.kr-plain-subs*)')
+    } else if (!/sessionId=\{latestChatSessionId\}/.test(agentSrc)) {
+      fail('KrPlainTimelineCard 必须收到当前会话 id（子智能体目录按父会话寻址）')
+    } else {
+      pass('子智能体区块样式与父会话 id 传递在位')
+    }
+  }
 }
 
 console.log(`\n${process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED'} — ${CLIENT}`)

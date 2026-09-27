@@ -644,6 +644,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
             timeline={plainTimeline}
             running={currentRunning}
             squeezed={reasoningRows < REASONING_MAX_ROWS}
+            sessionId={latestChatSessionId}
           />
         )}
       </div>

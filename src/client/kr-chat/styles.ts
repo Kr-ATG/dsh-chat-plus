@@ -1359,6 +1359,125 @@ body[data-kr-resizing="true"] * {
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* ── 子智能体区块（挂在「派生子任务」那一步下面） ───────────────────────
+   子智能体是独立会话，父调用对它们内部在做什么一无所知。这里只列拿得到的
+   事实：名字 / 跑没跑 / 有没有下级。缩进挂在父行之下，用一条竖线表达
+   「这些是从上面那一步派生出来的」，而不是并列的同级动作。 */
+.kr-plain-step[data-nested="true"] {
+  flex-wrap: wrap;
+}
+
+.kr-plain-step__subcount {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  line-height: 15px;
+  color: var(--kr-accent);
+  background: color-mix(in srgb, var(--kr-accent) 10%, transparent);
+  font-variant-numeric: tabular-nums;
+  animation: kr-fresh-wipe .28s ease both;
+}
+
+.kr-plain-subs {
+  flex: 1 0 100%;
+  margin: 4px 0 2px 15px;
+  padding: 2px 0 2px 10px;
+  border-left: 1.5px solid color-mix(in srgb, var(--kr-accent) 22%, transparent);
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-tertiary);
+  animation: kr-plain-subs-in .3s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+@keyframes kr-plain-subs-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.kr-plain-subs[data-state="loading"],
+.kr-plain-subs[data-state="empty"],
+.kr-plain-subs[data-state="error"] {
+  margin-top: 2px;
+  color: var(--dsw-alias-label-caption);
+}
+
+.kr-plain-subs__head {
+  margin-bottom: 2px;
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 500;
+}
+
+.kr-plain-subs__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.kr-plain-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 18px;
+  padding: 1px 0;
+}
+
+.kr-plain-sub__dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-caption);
+  opacity: .55;
+}
+
+.kr-plain-sub[data-running="true"] .kr-plain-sub__dot {
+  background: var(--kr-accent);
+  opacity: 1;
+  animation: kr-pulse 1.4s ease-in-out infinite;
+}
+
+.kr-plain-sub__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-plain-sub[data-running="true"] .kr-plain-sub__label {
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-plain-sub__tag {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 7px;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--dsw-alias-label-caption);
+  border: 1px solid var(--kr-card-border);
+}
+
+.kr-plain-sub__state {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--dsw-alias-label-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-plain-subs,
+  .kr-plain-step__subcount,
+  .kr-plain-sub[data-running="true"] .kr-plain-sub__dot {
+    animation: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .kr-plain-step,
   .kr-plain-now__layer,

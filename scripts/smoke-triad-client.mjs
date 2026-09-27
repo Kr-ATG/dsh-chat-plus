@@ -429,6 +429,20 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   if (!doneTl.nowLabel.includes('已完成')) fail(`a finished turn must report completion, got ${doneTl.nowLabel}`)
   else pass('finished turn reports completion instead of repeating the last action')
 
+  // 子智能体标记：subagent / workflow / ralph 这类会派生**独立会话**的工具
+  // 必须在时间线上打标，卡片才会给它挂子智能体区块。subCalls 那条通道是
+  // Code Dispatch（工具里再调工具），两者不是一回事，别混。
+  const wf = toPlainStep({ toolName: 'workflow', args: { name: '多角度审计' }, status: 'running' })
+  const sb = toPlainStep({ toolName: 'subagent', args: { description: '查一下携程' }, status: 'done' })
+  const rd = toPlainStep({ toolName: 'read', args: { file_path: 'a.ts' }, status: 'done' })
+  if (wf.spawnsSubagents !== true || sb.spawnsSubagents !== true) {
+    fail('workflow / subagent 必须标记 spawnsSubagents（否则卡片不挂子智能体区块）')
+  } else if (rd.spawnsSubagents !== undefined) {
+    fail('普通工具不应被标记 spawnsSubagents')
+  } else {
+    pass('派生独立会话的工具带 spawnsSubagents 标记')
+  }
+
   // 纯函数性：相同输入必须等价输出。
   const again = buildPlainTimeline({ reasoningTexts: ['下一步：再查一次'], tools: [doneTool], running: false, now: 2000 })
   if (again.intent !== '再查一次' || again.steps.length !== bare.steps.length) fail('buildPlainTimeline must be deterministic')

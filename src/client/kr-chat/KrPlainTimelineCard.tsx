@@ -22,6 +22,7 @@ import { useCrossfadeText, useHeightAnimation, useMotionAllowed, useSteppedFollo
 import { formatDuration } from '../tool-summary/tool-stats.ts'
 import type { PlainIconKey, PlainStep } from './plain-language.ts'
 import type { PlainTimeline } from './plain-timeline.ts'
+import { useSubagentCatalog, type SubagentCatalogView } from './subagent-catalog.ts'
 
 /** 列表视口最大行数：再高就把思考卡和记忆卡挤出屏幕了。 */
 const LIST_MAX_ROWS = 6
@@ -33,6 +34,8 @@ export interface KrPlainTimelineCardProps {
   readonly running: boolean
   /** 右栏被挤压时为 true，列表降一档高度。 */
   readonly squeezed?: boolean
+  /** 当前会话 id：用于查该会话派生了哪些子智能体。 */
+  readonly sessionId?: string | null
 }
 
 /** 类别图标：单色描边、13px，与既有工具行图标同一套视觉语言。 */
@@ -107,11 +110,55 @@ function StatusDot({ status }: { readonly status: PlainStep['status'] }): ReactE
   )
 }
 
-function StepRow({ step, index, techOpen, onToggleTech }: {
+/**
+ * 子智能体区块：挂在一条「派生子任务」的步骤下面。
+ *
+ * 回答的是「这个 workflow 底下到底有几个子智能体、谁还在跑」——这些信息父调用
+ * 一概不知道（子智能体是独立会话），不给它的话用户只能自己去顶栏的子智能体
+ * 目录里翻，那正是这张卡要取代的一跳。
+ *
+ * 只列拿得到的事实（名字 / 跑没跑 / 有没有后代），**不编造子智能体内部在做什么**：
+ * 那部分数据不在 client 侧，宁可空着。
+ */
+function SubagentBlock({ catalog }: { readonly catalog: SubagentCatalogView }): ReactElement | null {
+  if (catalog.state === 'loading') {
+    return <div className="kr-plain-subs" data-state="loading">正在读取子智能体…</div>
+  }
+  if (catalog.state === 'error') {
+    return <div className="kr-plain-subs" data-state="error">子智能体清单读不到（会话服务未就绪）</div>
+  }
+  if (catalog.state === 'empty' || catalog.rows.length === 0) {
+    return <div className="kr-plain-subs" data-state="empty">这次没有派生独立的子智能体</div>
+  }
+  return (
+    <div className="kr-plain-subs">
+      <div className="kr-plain-subs__head">
+        {catalog.runningCount > 0
+          ? `${catalog.rows.length} 个子智能体 · ${catalog.runningCount} 个进行中`
+          : `${catalog.rows.length} 个子智能体 · 全部结束`}
+      </div>
+      <ul className="kr-plain-subs__list">
+        {catalog.rows.map((row) => (
+          <li key={row.id} className="kr-plain-sub" data-running={row.running ? 'true' : undefined}>
+            <span className="kr-plain-sub__dot" aria-hidden />
+            <span className="kr-plain-sub__label" title={row.label}>{row.label}</span>
+            {row.hasChildren && <span className="kr-plain-sub__tag">还有下级</span>}
+            {row.mode === 'continuable' && <span className="kr-plain-sub__tag">可续接</span>}
+            <span className="kr-plain-sub__state">{row.running ? '进行中' : '已结束'}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function StepRow({ step, index, techOpen, onToggleTech, catalog }: {
   readonly step: PlainStep
   readonly index: number
   readonly techOpen: boolean
   readonly onToggleTech: (id: string) => void
+  /** 仅当 step.spawnsSubagents 为真时才有内容。 */
+  readonly catalog: SubagentCatalogView | null
 }): ReactElement {
   const title = step.detail === undefined ? step.verb : `${step.verb} · ${step.detail}`
   const techText = step.tech === undefined
@@ -121,6 +168,7 @@ function StepRow({ step, index, techOpen, onToggleTech }: {
     <div
       className="kr-plain-step"
       data-status={step.status}
+      data-nested={step.spawnsSubagents === true ? 'true' : undefined}
       // 错峰入场：只对靠后的若干条错开，卡片整体不拖出一段长尾。
       style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
     >
@@ -129,6 +177,11 @@ function StepRow({ step, index, techOpen, onToggleTech }: {
       <span className="kr-plain-step__title" title={title}>{title}</span>
       {step.durationMs !== undefined && step.durationMs > 40 && (
         <span className="kr-plain-step__time">{formatDuration(step.durationMs)}</span>
+      )}
+      {step.spawnsSubagents === true && catalog !== null && (
+        <span className="kr-plain-step__subcount">
+          {catalog.state === 'ready' ? `${catalog.rows.length} 个子智能体` : '子智能体'}
+        </span>
       )}
       {techText !== '' && (
         <button
@@ -141,6 +194,7 @@ function StepRow({ step, index, techOpen, onToggleTech }: {
         </button>
       )}
       {techOpen && techText !== '' && <pre className="kr-plain-step__tech">{techText}</pre>}
+      {step.spawnsSubagents === true && catalog !== null && <SubagentBlock catalog={catalog} />}
     </div>
   )
 }
@@ -149,6 +203,7 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   timeline,
   running,
   squeezed = false,
+  sessionId = null,
 }: KrPlainTimelineCardProps) {
   // 默认展开：这张卡挂在滚动区最末尾，收起等于把它藏到视线之外。
   const [open, setOpen] = useState(true)
@@ -156,6 +211,17 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   const motion = useMotionAllowed(true)
   const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(open, motion)
   const nowLayers = useCrossfadeText(timeline.nowLabel, motion)
+
+  /*
+   * 子智能体清单只在**本轮真的派生了子智能体**时才去订阅。
+   * 没有派生动作时完全不接轮询 —— 绝大多数轮次压根不 spawn，任何时候都在
+   * 读目录是白花的开销。
+   */
+  const hasSpawning = useMemo(
+    () => timeline.steps.some((step) => step.spawnsSubagents === true),
+    [timeline.steps],
+  )
+  const subagentCatalog = useSubagentCatalog(hasSpawning ? sessionId : null)
 
   const toggleTech = (id: string): void => {
     setTechOpen((prev) => {
@@ -274,6 +340,7 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
                   index={index}
                   techOpen={techOpen.has(step.id)}
                   onToggleTech={toggleTech}
+                  catalog={step.spawnsSubagents === true ? subagentCatalog : null}
                 />
               ))}
             </div>

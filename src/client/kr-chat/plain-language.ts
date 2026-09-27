@@ -32,6 +32,8 @@ export interface PlainStep {
   readonly detail?: string
   readonly status: PlainStatus
   readonly durationMs?: number
+  /** 该调用派生独立子智能体会话（subagent / workflow…），需要挂子智能体区块。 */
+  readonly spawnsSubagents?: boolean
   /** 二级技术信息：用户点开这一条时才需要看到。 */
   readonly tech?: { readonly name: string; readonly args?: string; readonly error?: string }
 }
@@ -246,6 +248,24 @@ const EXACT: Readonly<Record<string, Rule>> = {
   subagent: { verb: '派出子任务', icon: 'spark', detail: (a) => clip(str(a, 'description', 'prompt') ?? '', MAX_DETAIL) },
   subagent_fork: { verb: '派出子任务', icon: 'spark', detail: (a) => clip(str(a, 'description', 'prompt') ?? '', MAX_DETAIL) },
   automation: { verb: '安排定时任务', icon: 'bolt' },
+  workflow: { verb: '执行 workflow', icon: 'spark', detail: (a) => clip(str(a, 'name', 'description') ?? '', MAX_DETAIL) },
+  ralph: { verb: '执行 workflow', icon: 'spark', detail: (a) => clip(str(a, 'name', 'description') ?? '', MAX_DETAIL) },
+}
+
+/**
+ * 会**派生独立子智能体会话**的工具。
+ *
+ * 这类调用有个特别之处：它派出去的子智能体不是它的 subCalls（subCalls 是
+ * Code Dispatch「工具里再调工具」那条通道），而是各自独立的 session。所以在
+ * 时间线上它是一条孤零零的「执行 workflow」，用户完全看不到底下有几个子智能体、
+ * 各自在干什么——只能自己跑去顶栏的子智能体目录里翻。标记出这类步骤后，
+ * 卡片会给它挂一个子智能体区块（见 subagent-catalog.ts）。
+ */
+const SPAWNING_TOOLS = new Set(['subagent', 'subagent_fork', 'workflow', 'ralph', 'subagent_control'])
+
+/** 该工具是否会派生独立子智能体会话。 */
+export function spawnsSubagents(toolName: string): boolean {
+  return SPAWNING_TOOLS.has(plainToolName(toolName))
 }
 
 /**
@@ -311,6 +331,7 @@ export function toPlainStep(input: PlainStepInput): PlainStep {
     ...(detail !== undefined && detail !== '' ? { detail } : {}),
     status: input.status,
     ...(typeof input.durationMs === 'number' ? { durationMs: input.durationMs } : {}),
+    ...(spawnsSubagents(toolName) ? { spawnsSubagents: true } : {}),
     tech,
   }
 }
