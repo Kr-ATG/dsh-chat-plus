@@ -184,6 +184,16 @@ body[data-dsh-kr-chat="true"],
   /* 对话流里那张 Agent 状态卡是浮在消息底上的（不贴大盘），必须留投影；
      深浅两套阴影都在 --kr-float-shadow 里给出，避免把 #FFFFFF 之类写死在规则里。 */
   --kr-float-shadow: 0 1px 2px rgba(15, 17, 21, .04), 0 8px 24px -18px rgba(15, 17, 21, .28);
+  /*
+   * 简约滚动条（大盘内所有滚动区共用）。
+   *
+   * 基底沿用 --dsw-alias-scrollbar-bg-l2（大盘原本就在用它，token 确实存在），
+   * 再用 color-mix 压到 55% 不透明：滚动条的角色是「找得到就行」，静止时不该
+   * 跟卡片标题抢注意力；指针移上去才提到全不透明，并给 180ms 过渡，让它有
+   * 「被唤起」的手感而不是突然变色。
+   */
+  --kr-scrollbar-thumb: color-mix(in srgb, var(--dsw-alias-scrollbar-bg-l2, rgba(127, 127, 127, .4)) 55%, transparent);
+  --kr-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-bg-l2, rgba(127, 127, 127, .55));
 }
 
 /* 深色主题：底色透出主对话区后，卡片(layer-1)与底色只差几级亮度，
@@ -196,6 +206,8 @@ body[data-ds-dark-theme] .kr-split__side {
   --kr-card-shadow-hover: 0 2px 6px rgba(0, 0, 0, .5), 0 14px 24px -14px rgba(0, 0, 0, .85);
   /* 浮层卡在深色下靠描边 + 更黑的落影分层，不能沿用浅色的暖灰阴影。 */
   --kr-float-shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 10px 28px -18px rgba(0, 0, 0, .78);
+  /* 深色底上滚动条要更实一点才看得见（浅色那套 55% 在黑底上等于没有）。 */
+  --kr-scrollbar-thumb: color-mix(in srgb, var(--dsw-alias-scrollbar-bg-l2, rgba(127, 127, 127, .4)) 68%, transparent);
 }
 
 .kr-split {
@@ -750,8 +762,7 @@ body[data-kr-resizing="true"] * {
   scroll-behavior: auto;
   overflow-anchor: none;
   padding-right: 2px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--dsw-alias-scrollbar-bg-l2, rgba(127, 127, 127, .4)) transparent;
+  /* 滚动条样式走大盘统一那套（见文件末尾「大盘统一简约滚动条」）。 */
 }
 
 .kr-reasoning-inner {
@@ -779,20 +790,6 @@ body[data-kr-resizing="true"] * {
 .kr-reasoning-view:focus-visible {
   outline: 2px solid var(--kr-accent);
   outline-offset: -2px;
-}
-
-.kr-reasoning-view::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
-}
-
-.kr-reasoning-view::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.kr-reasoning-view::-webkit-scrollbar-thumb {
-  background: var(--dsw-alias-scrollbar-bg-l2, rgba(127, 127, 127, .4));
-  border-radius: 2px;
 }
 
 @media (forced-colors: active) {
@@ -1290,21 +1287,10 @@ body[data-kr-resizing="true"] * {
   max-height: calc(var(--kr-plain-rows, 6) * var(--kr-plain-row-h) + 6px);
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* 滚动条走大盘统一那套（见文件末尾「大盘统一简约滚动条」）。
+     不再单独写 thumb 色：此前这里用的是 --kr-card-border（发丝级描边，
+     浅色下 4% 黑、深色下 7% 白），滑块画出来跟没画一样。 */
   padding-right: 2px;
-  scrollbar-width: thin;
-}
-
-.kr-plain-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.kr-plain-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.kr-plain-list::-webkit-scrollbar-thumb {
-  background: var(--kr-card-border);
-  border-radius: 3px;
 }
 
 /* ── 单条步骤 ─────────────────────────────────────────────────────────── */
@@ -1450,6 +1436,101 @@ body[data-kr-resizing="true"] * {
   }
   .kr-plain-dot--running {
     animation: none;
+  }
+}
+
+/* ══ 大盘统一简约滚动条 ══════════════════════════════════════════════════
+   大盘里有四个滚动区，此前各写各的：主滚动区完全没样式（用系统默认，宽且带
+   端帽）、思考卡 4px、记忆卡只有 Firefox 写法、新卡更是把发丝级描边色
+   --kr-card-border 当滑块色（4% 黑，在白底上等于没画）。同栏里出现四种
+   观感，比任何一种单独不好看都更糟。
+
+   现在合成一套：**6px 槽 + 2px 胶囊滑块**（靠 2px 透明边框 + content-box
+   实现，滑块本身比槽窄一截，这才是「细」）、轨道全透明（画出来的方块轨道
+   是系统默认样式里最吵的部分）、常态 55% 不透明、指针移上去才提到全不透明
+   并给 180ms 过渡。
+
+   刻意不做「滚动时才显形」：那要么靠 JS 监听 scroll 做显隐（每个滚动区一份
+   计时器），要么靠 scroll-driven animation（Chromium 支持面还不够）。半透明
+   常驻 + hover 提亮是同等克制、零 JS 的做法。 */
+
+/* Firefox：scrollbar-* 是标准属性，一条就够 */
+.kr-panel__scroll,
+.kr-reasoning-view,
+.kr-plain-list,
+.kr-memory__list,
+.kr-plain-step__tech {
+  scrollbar-width: thin;
+  scrollbar-color: var(--kr-scrollbar-thumb) transparent;
+}
+
+/* Chromium / Safari：::-webkit-scrollbar 是另一套语法，必须显式覆盖，
+   否则走系统默认（宽槽 + 端帽 + 方块轨道）。 */
+.kr-panel__scroll::-webkit-scrollbar,
+.kr-reasoning-view::-webkit-scrollbar,
+.kr-plain-list::-webkit-scrollbar,
+.kr-memory__list::-webkit-scrollbar,
+.kr-plain-step__tech::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.kr-panel__scroll::-webkit-scrollbar-track,
+.kr-reasoning-view::-webkit-scrollbar-track,
+.kr-plain-list::-webkit-scrollbar-track,
+.kr-memory__list::-webkit-scrollbar-track,
+.kr-plain-step__tech::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.kr-panel__scroll::-webkit-scrollbar-thumb,
+.kr-reasoning-view::-webkit-scrollbar-thumb,
+.kr-plain-list::-webkit-scrollbar-thumb,
+.kr-memory__list::-webkit-scrollbar-thumb,
+.kr-plain-step__tech::-webkit-scrollbar-thumb {
+  background-color: var(--kr-scrollbar-thumb);
+  /* 2px 透明边框把 6px 槽收成 2px 滑块：background-clip 让滑块只落在内容盒里，
+     于是槽两侧各空 2px，视觉上是一根悬浮的细线而不是一条贴边的粗条。 */
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+  transition: background-color .18s ease;
+}
+
+.kr-panel__scroll::-webkit-scrollbar-thumb:hover,
+.kr-reasoning-view::-webkit-scrollbar-thumb:hover,
+.kr-plain-list::-webkit-scrollbar-thumb:hover,
+.kr-memory__list::-webkit-scrollbar-thumb:hover,
+.kr-plain-step__tech::-webkit-scrollbar-thumb:hover {
+  background-color: var(--kr-scrollbar-thumb-hover);
+}
+
+.kr-panel__scroll::-webkit-scrollbar-corner,
+.kr-reasoning-view::-webkit-scrollbar-corner,
+.kr-plain-list::-webkit-scrollbar-corner,
+.kr-memory__list::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Windows 高对比度：color-mix 派生的半透明滑块会被系统接管成不可见，
+   显式给回系统文本色，保证至少「看得见能拖」。 */
+@media (forced-colors: active) {
+  .kr-panel__scroll::-webkit-scrollbar-thumb,
+  .kr-reasoning-view::-webkit-scrollbar-thumb,
+  .kr-plain-list::-webkit-scrollbar-thumb,
+  .kr-memory__list::-webkit-scrollbar-thumb,
+  .kr-plain-step__tech::-webkit-scrollbar-thumb {
+    background-color: CanvasText;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-panel__scroll::-webkit-scrollbar-thumb,
+  .kr-reasoning-view::-webkit-scrollbar-thumb,
+  .kr-plain-list::-webkit-scrollbar-thumb,
+  .kr-memory__list::-webkit-scrollbar-thumb,
+  .kr-plain-step__tech::-webkit-scrollbar-thumb {
+    transition: none;
   }
 }
 
@@ -1670,8 +1751,7 @@ body[data-kr-resizing="true"] * {
   max-height: 40vh;
   overflow-y: auto;
   overscroll-behavior-y: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--dsw-alias-scrollbar-bg-l2, rgba(127, 127, 127, 0.4)) transparent;
+  /* 滚动条走大盘统一那套（见文件末尾「大盘统一简约滚动条」）。 */
 }
 
 /* 挤压态：思考卡已被压到最小档、右栏仍然装不下时，记忆卡自己再让一档，
