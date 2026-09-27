@@ -405,6 +405,27 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     pass('navigation covers all five landing shapes (default / intent dropped / clean / same-site / cross-site)')
   }
 
+  // 桌面控制（cua-driver）：命名空间前缀被剥掉后只剩通用短名，既匹配不上
+  // /^cua_/ 兜底也看不出是干什么的。这一组是从真实右栏截图里抓出来的：
+  // 一屏都是「执行 get_window_state」「执行 zoom」。
+  const cua = [
+    ['cua_driver_native__get_window_state', '查看窗口内容'],
+    ['cua_driver_native__list_windows', '列出窗口'],
+    ['cua_driver_native__get_accessibility_tree', '读取界面元素'],
+    ['cua_driver_native__bring_to_front', '激活窗口'],
+    ['cua_driver_native__zoom', '放大查看局部'],
+    ['cua_driver_native__clipboard_read', '读取剪贴板'],
+    ['cua_driver_native__press_key', '按下按键'],
+  ]
+  const cuaBad = cua.find(([name, want]) => toPlainStep({ toolName: name, args: {}, status: 'done' }).verb !== want)
+  if (cuaBad !== undefined) {
+    fail(`cua tool ${cuaBad[0]} must read as ${cuaBad[1]}, got ${toPlainStep({ toolName: cuaBad[0], args: {}, status: 'done' }).verb}`)
+  } else if (/^执行 /.test(toPlainStep({ toolName: 'cua_driver_native__get_window_state', args: {}, status: 'done' }).verb)) {
+    fail('cua tools must not fall through to the generic 执行 X form')
+  } else {
+    pass('cua desktop tools read as plain Chinese, not 执行 X')
+  }
+
   // 英文枚举不许露到卡片上。
   const scrolled = toPlainStep({ toolName: 'browser_scroll', args: { direction: 'down' }, status: 'done' })
   if (scrolled.detail !== '向下') fail(`browser_scroll direction must be translated, got ${scrolled.detail}`)
