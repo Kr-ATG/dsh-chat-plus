@@ -682,16 +682,22 @@ if (krEnabled) {
       pass('行首无空槽 + 标题行只剩标题（失败由图标角标承担）')
     }
 
-    // 详细/简要切换：必须挂在卡头右上角、点了不能连带收起卡片（整行 header
-    // 都是折叠热区，少了 stopPropagation 就会一点两变）。
-    if (!/className="kr-plain-view"/.test(cardSrc) || !/event\.stopPropagation\(\); toggleView\(\)/.test(cardSrc)) {
-      fail('操作面板卡头右上角必须有「详细/简要」切换，且点击不得连带折叠卡片')
-    } else if (!/const \[view, setView\] = useState<PlainStepView>/.test(cardSrc)) {
-      fail('详细/简要必须是组件状态并落盘（dsh.kr_chat.plain_view）')
-    } else if (!/\.kr-plain-view__thumb/.test(code)) {
-      fail('切换滑块样式缺失（.kr-plain-view__thumb）')
+    // 详细/简要切换：卡头右上角两枚按钮，点了不能连带收起卡片（整行 header
+    // 都是折叠热区，少了 stopPropagation 就会一点两变），且**默认档必须是简要**。
+    const viewBtnCount = (cardSrc.match(/className="kr-plain-view__btn"/g) ?? []).length
+    if (viewBtnCount !== 2) {
+      fail('操作面板卡头右上角必须有「详细」「简要」两枚按钮（现在只有一枚）')
+    } else if (!/className="kr-plain-view__btn"[\s\S]{0,400}?stopPropagation\(\); setViewDirect\('brief'\)/.test(cardSrc)
+      || !/className="kr-plain-view__btn"[\s\S]{0,400}?stopPropagation\(\); setViewDirect\('full'\)/.test(cardSrc)) {
+      fail('两枚档位按钮都必须 stopPropagation（整行 header 是折叠热区）')
+    } else if (!/useState<PlainStepView>\(\(\) => readStoredView\(\)\)/.test(cardSrc)) {
+      fail('详细/简要必须是组件状态并落盘（dsh.kr_chat.plain_view_v2）')
+    } else if (!/localStorage\.getItem\(VIEW_STORAGE_KEY\) === 'full' \? 'full' : 'brief'/.test(cardSrc)) {
+      fail('默认档必须是「简要」（只有显式存了 full 才回详细）')
+    } else if (!/\.kr-plain-view__btn\[data-active="true"\]/.test(code)) {
+      fail('档位按钮的激活态样式缺失（.kr-plain-view__btn[data-active="true"]）')
     } else {
-      pass('操作面板卡头带详细/简要切换（不误触折叠）')
+      pass('操作面板卡头带详细/简要双按钮（默认简要 / 不误触折叠）')
     }
 
     // 子智能体：主数据源必须是 items（实时投影），subagentsByParent 只作兜底。

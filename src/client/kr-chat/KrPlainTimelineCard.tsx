@@ -24,18 +24,32 @@ import type { PlainIconKey, PlainStep } from './plain-language.ts'
 import { condenseSteps, type PlainStepView, type PlainTimeline } from './plain-timeline.ts'
 import { useSubagentCatalog, type SubagentCatalogView } from './subagent-catalog.ts'
 
-/** 详细/简要的落盘键。换个键名就会丢用户上次的偏好，改动时留意。 */
-const VIEW_STORAGE_KEY = 'dsh.kr_chat.plain_view'
+/**
+ * 详细/简要的落盘键。换个键名就会丢用户上次的偏好，改动时留意。
+ *
+ * 带 `_v2` 后缀：默认档从「详细」改成「简要」，而旧键里存着的是上一版留下的
+ * 偏好（多数人从没按过，值是默认的 full）。不换键的话这批人会被旧值钉在详细档，
+ * 新功能对他们等于没生效。换键时顺手清掉旧的。
+ */
+const VIEW_STORAGE_KEY = 'dsh.kr_chat.plain_view_v2'
+const VIEW_STORAGE_KEY_LEGACY = 'dsh.kr_chat.plain_view'
 
-/** 读上次的选择；读不到（首次访问 / 隐私模式禁用存储）一律回详细。 */
+/**
+ * 读上次的选择；读不到（首次访问 / 隐私模式禁用存储）一律回**简要**。
+ *
+ * ��认简要而不是详细：这张卡的读者是普通用户，他明确说过"不在意你干了啥"，
+ * 而 80% 以上的步骤都是翻文件/看网页这类 read——默认给详细等于每次都先砸给
+ * 他一屏噪音、再让他自己动手关掉。想看全的人自己按一下"详细"，那是一个主动
+ * 意图；反过来（默认详细、要收敛）是把收敛的活儿推给用户。
+ */
 function readStoredView(): PlainStepView {
   try {
-    return localStorage.getItem(VIEW_STORAGE_KEY) === 'brief' ? 'brief' : 'full'
+    localStorage.removeItem(VIEW_STORAGE_KEY_LEGACY)
+    return localStorage.getItem(VIEW_STORAGE_KEY) === 'full' ? 'full' : 'brief'
   } catch {
-    return 'full'
+    return 'brief'
   }
 }
-
 function writeStoredView(view: PlainStepView): void {
   try {
     localStorage.setItem(VIEW_STORAGE_KEY, view)
@@ -236,19 +250,23 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(open, motion)
 
   /*
-   * 详细 / 简要：默认**详细**，落盘记住。
-   *
-   * 默认选详细而不是简要：这张卡是「已经做了什么」的事实流水，简要模式会丢掉
-   * 一部分 read 步骤——把"用户主动要看的东西"藏在开关后面、默认不给，是把选择
-   * 权倒过来给。而"这次只想看结果"是一个明确的、用户会自己按下的意图。
+   * 详细 / 简要：默认**简要**（见 readStoredView 的理由），选择落盘记住。
    */
   const [view, setView] = useState<PlainStepView>(() => readStoredView())
-  const toggleView = useCallback(() => {
-    setView((value) => {
-      const next: PlainStepView = value === 'full' ? 'brief' : 'full'
-      writeStoredView(next)
-      return next
-    })
+  /**
+   * 直接定档并落盘。两枚按钮各写清自己的档位，就不需要"在两档间来回拨"的 toggle。
+   *
+   * 落盘**不能**写在 setState 的 updater 里：updater 必须保持纯函数（React 并发
+   * 模式下可能调用它两次、也可能不调用，副作用就会时有时无）。所以 updater 只做
+   * 纯状态变更，写盘放在它外面。ref 记着当前档，用来判断"值真的变了"——不能拿
+   * 磁盘值比：controller 每 250ms 重渲染一次，磁盘值与此刻 state 可能不同步。
+   */
+  const viewRef = useRef(view)
+  const setViewDirect = useCallback((next: PlainStepView) => {
+    if (viewRef.current === next) return
+    viewRef.current = next
+    setView(next)
+    writeStoredView(next)
   }, [])
 
   const brief = view === 'brief'
@@ -339,30 +357,47 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
          * 哪些东西」「出了什么事」。简要模式据此把连续的查看动作收敛成一行，只留
          * 写/改/删、失败与进行中（判定见 plain-timeline 的 condenseSteps）。
          *
-         * 做成双档滑块而不是两枚独立按钮：两枚按钮并排会让标题行右边多出一块
-         * 噪声，一枚滑块只占一行、且当前档位一眼可见（滑块在哪边就是哪档）。
+         * 形态：两枚并列的小按钮，各带一枚图形（等宽三横线=详细，递减两横线=简
+         * 要），当前档用**主文字色 + 一枚淡底色圆角块**标出。放弃上一版的滑块：
+         * 滑块在 440px 宽的右栏里要占 66px，且"滑块停在哪"这件事在扫读时要盯一
+         * 眼才读得出；两枚按钮各写清自己的名字，扫读零成本，宽度也省一半。
          *
          * stopPropagation 是必须的——整行 header 都是折叠热区，不拦住的话点切换
          * 会顺带把卡片收起。
          */}
-        <button
-          type="button"
-          className="kr-plain-view"
-          data-view={view}
-          role="switch"
-          aria-checked={view === 'full'}
-          aria-label={view === 'full' ? '操作面板：详细' : '操作面板：简要'}
-          title={view === 'full'
-            ? (hiddenCount > 0 ? `切到简要，只看重要节点（可折叠 ${hiddenCount} 步）` : '切到简要，只看重要节点')
-            : '切到详细，看每一步做了什么'}
-          onClick={(event) => { event.stopPropagation(); toggleView() }}
-        >
-          <span className="kr-plain-view__track" aria-hidden="true">
-            <span className="kr-plain-view__thumb" />
-            <span className="kr-plain-view__label kr-plain-view__label--full">详细</span>
-            <span className="kr-plain-view__label kr-plain-view__label--brief">简要</span>
-          </span>
-        </button>
+        <div className="kr-plain-view" role="group" aria-label="操作面板显示密度">
+          <button
+            type="button"
+            className="kr-plain-view__btn"
+            data-active={view === 'brief' ? 'true' : undefined}
+            aria-pressed={view === 'brief'}
+            title="简要：只看改了东西、失败与进行中，其余查看动作收敛成一行"
+            onClick={(event) => { event.stopPropagation(); setViewDirect('brief') }}
+          >
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+              <path d="M2.2 4.4h5.6" />
+              <path d="M2.2 9.6h9.6" />
+            </svg>
+            <span>简要</span>
+          </button>
+          <button
+            type="button"
+            className="kr-plain-view__btn"
+            data-active={view === 'full' ? 'true' : undefined}
+            aria-pressed={view === 'full'}
+            title={hiddenCount > 0
+              ? `详细：看每一步做了什么（简要模式下可折叠 ${hiddenCount} 步）`
+              : '详细：看每一步做了什么'}
+            onClick={(event) => { event.stopPropagation(); setViewDirect('full') }}
+          >
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+              <path d="M2.2 2.9h9.6" />
+              <path d="M2.2 7h9.6" />
+              <path d="M2.2 11.1h9.6" />
+            </svg>
+            <span>详细</span>
+          </button>
+        </div>
       </div>
 
       {bodyPresent && (

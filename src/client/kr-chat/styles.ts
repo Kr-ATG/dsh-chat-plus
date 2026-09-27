@@ -833,90 +833,81 @@ body[data-kr-resizing="true"] * {
 }
 
 /* ── 详细 / 简要 切换（卡头右上角） ─────────────────────────────────────
-   一枚双档滑块，不是两枚独立按钮：标题行右边只多一枚控件，当前档位靠滑块在哪
-   一边一眼读出（两枚按钮并排时，用户得逐个比对哪个是激活态）。
-   滑块底色是唯一一处在这张卡里出现的填充色，恰好就是"当前选中的那一档"需要
-   的强调，不算噪声。 */
+   两枚并列的小按钮，各带一枚图形：等宽三横线=详细，递减两横线=简要。图形直接把
+   "档位"画出来（行多/行少），用户不用先读懂"详细/简要"这两个词。
+
+   为什么不是滑块：滑块在 440px 宽的右栏里要占 66px，且"滑块停在哪"在扫读时得盯
+   一眼才读得出；两枚按钮各写清自己的名字，扫读零成本，宽度还省一半。
+
+   激活态 = 主文字色 + 卡片底色实块（不是描边、不是品牌色）。这张卡通体是弱一档
+   的灰字 + 彩色角标，标题行右侧这块实心块刚好够标出"当前是哪档"，不抢戏。 */
 .kr-plain-view {
   flex: none;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  line-height: 0;
-  cursor: pointer;
-  outline: none;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.kr-plain-view__track {
-  position: relative;
   display: inline-flex;
   align-items: center;
-  box-sizing: border-box;
-  width: 66px;
-  height: 20px;
-  padding: 2px;
-  border-radius: 999px;
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, .14));
-  transition: background-color .2s ease;
+  gap: 1px;
+  padding: 1px;
+  border-radius: 7px;
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, .1));
 }
 
-.kr-plain-view:hover .kr-plain-view__track {
-  background: var(--dsw-alias-interactive-bg-active, rgba(127, 127, 127, .2));
-}
-
-.kr-plain-view__label {
-  position: relative;
-  z-index: 1;
-  width: 29px;
-  text-align: center;
+.kr-plain-view__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 19px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
   font-size: 11px;
-  line-height: 16px;
-  font-weight: 500;
-  white-space: nowrap;
-  /* 两档文字叠在同一格里（grid 压成一行），靠颜色差表达当前档，不做位移 */
+  line-height: 1;
   color: var(--dsw-alias-label-tertiary);
-  transition: color .2s ease;
+  cursor: pointer;
+  outline: none;
+  white-space: nowrap;
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: color .16s ease, background-color .16s ease;
 }
 
-/* 滑块：两档之间横移，缩放略带回弹（overshoot），让它读作"拨过去"而不是"闪过去"。 */
-.kr-plain-view__thumb {
-  position: absolute;
-  z-index: 0;
-  top: 2px;
-  left: 2px;
-  width: 30px;
-  height: 16px;
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-1, #fff);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .18);
-  transition: transform .28s cubic-bezier(.34, 1.4, .5, 1);
+.kr-plain-view__btn svg {
+  flex: none;
+  opacity: .8;
+  /* 激活时轻微放大一点：档位切换时"有什么东西动了"，而不只是颜色跳变 */
+  transition: opacity .16s ease, transform .24s cubic-bezier(.34, 1.35, .5, 1);
 }
 
-.kr-plain-view[data-view="full"] .kr-plain-view__thumb {
-  transform: translateX(0);
+.kr-plain-view__btn:hover {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-interactive-bg-active, rgba(127, 127, 127, .12));
 }
 
-.kr-plain-view[data-view="brief"] .kr-plain-view__thumb {
-  transform: translateX(32px);
+.kr-plain-view__btn:hover svg {
+  opacity: 1;
 }
 
-.kr-plain-view[data-view="full"] .kr-plain-view__label--full,
-.kr-plain-view[data-view="brief"] .kr-plain-view__label--brief {
+/* 激活档：主文字色 + 卡片底色实块，把外层那层托底色盖住，整块读作一枚浮起的标签。 */
+.kr-plain-view__btn[data-active="true"] {
   color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+  background: var(--kr-card-bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .16);
 }
 
-.kr-plain-view:focus-visible .kr-plain-view__track {
+.kr-plain-view__btn[data-active="true"] svg {
+  opacity: 1;
+  transform: scale(1.08);
+}
+
+.kr-plain-view__btn:focus-visible {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--kr-accent) 55%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .kr-plain-view__thumb { transition: none; }
-  .kr-plain-view__label,
-  .kr-plain-view__track { transition: none; }
+  .kr-plain-view__btn,
+  .kr-plain-view__btn svg { transition: none; }
 }
 
 /* ── 「接下来」预告行（模型自己播报的那句） ───────────────────────────── */
