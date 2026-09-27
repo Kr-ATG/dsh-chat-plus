@@ -832,6 +832,93 @@ body[data-kr-resizing="true"] * {
   min-width: 0;
 }
 
+/* ── 详细 / 简要 切换（卡头右上角） ─────────────────────────────────────
+   一枚双档滑块，不是两枚独立按钮：标题行右边只多一枚控件，当前档位靠滑块在哪
+   一边一眼读出（两枚按钮并排时，用户得逐个比对哪个是激活态）。
+   滑块底色是唯一一处在这张卡里出现的填充色，恰好就是"当前选中的那一档"需要
+   的强调，不算噪声。 */
+.kr-plain-view {
+  flex: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  line-height: 0;
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.kr-plain-view__track {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: 66px;
+  height: 20px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, .14));
+  transition: background-color .2s ease;
+}
+
+.kr-plain-view:hover .kr-plain-view__track {
+  background: var(--dsw-alias-interactive-bg-active, rgba(127, 127, 127, .2));
+}
+
+.kr-plain-view__label {
+  position: relative;
+  z-index: 1;
+  width: 29px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+  /* 两档文字叠在同一格里（grid 压成一行），靠颜色差表达当前档，不做位移 */
+  color: var(--dsw-alias-label-tertiary);
+  transition: color .2s ease;
+  user-select: none;
+}
+
+/* 滑块：两档之间横移，缩放略带回弹（overshoot），让它读作"拨过去"而不是"闪过去"。 */
+.kr-plain-view__thumb {
+  position: absolute;
+  z-index: 0;
+  top: 2px;
+  left: 2px;
+  width: 30px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .18);
+  transition: transform .28s cubic-bezier(.34, 1.4, .5, 1);
+}
+
+.kr-plain-view[data-view="full"] .kr-plain-view__thumb {
+  transform: translateX(0);
+}
+
+.kr-plain-view[data-view="brief"] .kr-plain-view__thumb {
+  transform: translateX(32px);
+}
+
+.kr-plain-view[data-view="full"] .kr-plain-view__label--full,
+.kr-plain-view[data-view="brief"] .kr-plain-view__label--brief {
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-plain-view:focus-visible .kr-plain-view__track {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--kr-accent) 55%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-plain-view__thumb { transition: none; }
+  .kr-plain-view__label,
+  .kr-plain-view__track { transition: none; }
+}
+
 /* ── 「接下来」预告行（模型自己播报的那句） ───────────────────────────── */
 .kr-plain-intent {
   display: flex;

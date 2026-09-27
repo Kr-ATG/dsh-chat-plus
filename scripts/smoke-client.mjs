@@ -682,6 +682,18 @@ if (krEnabled) {
       pass('行首无空槽 + 标题行只剩标题（失败由图标角标承担）')
     }
 
+    // 详细/简要切换：必须挂在卡头右上角、点了不能连带收起卡片（整行 header
+    // 都是折叠热区，少了 stopPropagation 就会一点两变）。
+    if (!/className="kr-plain-view"/.test(cardSrc) || !/event\.stopPropagation\(\); toggleView\(\)/.test(cardSrc)) {
+      fail('操作面板卡头右上角必须有「详细/简要」切换，且点击不得连带折叠卡片')
+    } else if (!/const \[view, setView\] = useState<PlainStepView>/.test(cardSrc)) {
+      fail('详细/简要必须是组件状态并落盘（dsh.kr_chat.plain_view）')
+    } else if (!/\.kr-plain-view__thumb/.test(code)) {
+      fail('切换滑块样式缺失（.kr-plain-view__thumb）')
+    } else {
+      pass('操作面板卡头带详细/简要切换（不误触折叠）')
+    }
+
     // 子智能体：主数据源必须是 items（实时投影），subagentsByParent 只作兜底。
     // 后者只在父会话的目录被打开过时才存在，要靠 refreshSubagents 主动拉、依赖
     // host 的 remote 子服务能不能通；而顶栏「N 个子智能体」读的是 items 里的投影

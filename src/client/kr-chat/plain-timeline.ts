@@ -35,6 +35,13 @@ export interface PlainTimeline {
   readonly failedCount: number
 }
 
+/**
+ * 卡片当前该显示哪一份步骤：完整时间线，还是只留重要节点。
+ *
+ * `brief` 模式下由 `condenseSteps()` 产出，规则见那里的注释。
+ */
+export type PlainStepView = 'full' | 'brief'
+
 export interface PlainTimelineInput {
   /** 本轮思考文本（已按块收集）。 */
   readonly reasoningTexts: readonly string[]
@@ -241,4 +248,54 @@ function nowLabelOf(steps: readonly PlainStep[], intent: string | undefined, run
   }
   if (running) return '正在思考下一步'
   return steps.length === 0 ? '本轮还没有执行动作' : `本轮已完成 · ${steps.length} 步`
+}
+
+/**
+ * 「简要」模式：只留重要节点，连续的查看动作收敛成一行。
+ *
+ * 读者是普通用户——他不在意模型翻了多少个文件、点了几次屏幕，但在意「改了哪些
+ * 文件」「出了什么事」。所以：
+ *
+ *  1. **write 一律保留**（写/改/删文件、下载/生成/上传、点网页、派子任务、记记忆…），
+ *     外加**失败**与**进行中**——反例与当下正在发生的事永远不能被折叠掉；
+ *  2. **连续的一串 read 收敛成一行**：中间几条丢掉，只留最后一条（它最接近现状），
+ *     并在行尾补一句"此前还看过 N 个"。留最后一条而不是全留，是因为"翻了 12 个文件"
+ *     对用户是一条废话，而"最后在看哪个"是他唯一可能关心的；补上 N 是为了让折叠量
+ *     可核对——否则用户会以为模型只看了一个文件；
+ *  3. read 与 write 不混在一行里计数：一段 read 被 write 打断就算两段。
+ *
+ * 纯函数，相同输入返回等价输出，可在 smoke 里直接断言。
+ */
+export function condenseSteps(steps: readonly PlainStep[]): readonly PlainStep[] {
+  const out: PlainStep[] = []
+  let readRun: PlainStep[] = []
+
+  const flushReads = (): void => {
+    if (readRun.length === 0) return
+    const last = readRun[readRun.length - 1]!
+    if (readRun.length === 1) {
+      out.push(last)
+    } else {
+      const count = readRun.length - 1
+      out.push({
+        ...last,
+        id: `${last.id}::brief`,
+        detail: last.detail === undefined
+          ? `此前还看过 ${count} 个`
+          : `${last.detail} · 此前还看过 ${count} 个`,
+      })
+    }
+    readRun = []
+  }
+
+  for (const step of steps) {
+    if (step.impact === 'write' || step.status !== 'done') {
+      flushReads()
+      out.push(step)
+      continue
+    }
+    readRun.push(step)
+  }
+  flushReads()
+  return out
 }

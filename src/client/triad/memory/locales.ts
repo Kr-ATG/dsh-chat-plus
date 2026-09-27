@@ -65,9 +65,13 @@ export const zh = {
   diagramInjectOff: '流程图规范注入：关',
   diagramInjectLabel: '对话内流程图',
   diagramInjectBuiltin: '内置',
-  plainInjectOn: '执行过程播报：开',
-  plainInjectOff: '执行过程播报：关',
-  plainInjectLabel: '过程播报',
+  // 这枚开关的文案按**用户看到的东西**命名，不按内部机制命名：它管的是右栏那张
+  // 「操作面板」卡有没有「接下来」预告行（模型每次动手前在思考里播报"下一步：…"）。
+  // 早先叫「过程播报」——那是注入通道的技术名，用户在输入框里根本看不到什么
+  // "过程播报"，却认得出右栏那张卡。
+  plainInjectOn: '操作面板的「接下来」提示：开',
+  plainInjectOff: '操作面板的「接下来」提示：关',
+  plainInjectLabel: '操作面板',
   plainInjectBuiltin: '内置',
   builtinToggleOn: '内置提示词通道：开',
   builtinToggleOff: '内置提示词通道：关',
@@ -326,9 +330,10 @@ export const en = {
   diagramInjectOff: 'Flowchart spec injection: off',
   diagramInjectLabel: 'In-chat flowcharts',
   diagramInjectBuiltin: 'Built-in',
-  plainInjectOn: 'Plain progress updates: on',
-  plainInjectOff: 'Plain progress updates: off',
-  plainInjectLabel: 'Plain progress',
+  // 命名同中文：按用户认得的那张卡（Action panel）来叫，不叫内部机制名。
+  plainInjectOn: 'Action panel "Next" hints: on',
+  plainInjectOff: 'Action panel "Next" hints: off',
+  plainInjectLabel: 'Action panel',
   plainInjectBuiltin: 'Built-in',
   builtinToggleOn: 'Built-in prompt channels: on',
   builtinToggleOff: 'Built-in prompt channels: off',

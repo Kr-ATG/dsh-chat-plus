@@ -343,11 +343,11 @@ if (typeof activityColor === 'function') {
 
 // ── 人话行动流：工具调用 → 中文人话 + 时间线组装 ────────────────────────
 const {
-  toPlainStep, plainToolName, siteOf, isMetaTool, spawnsSubagents, buildPlainTimeline, extractIntent,
+  toPlainStep, plainToolName, siteOf, isMetaTool, spawnsSubagents, buildPlainTimeline, extractIntent, condenseSteps,
 } = mod
 
-if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function' || typeof extractIntent !== 'function') {
-  fail('toPlainStep / buildPlainTimeline / extractIntent must be exported from the client bundle')
+if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function' || typeof extractIntent !== 'function' || typeof condenseSteps !== 'function') {
+  fail('toPlainStep / buildPlainTimeline / extractIntent / condenseSteps must be exported from the client bundle')
 } else {
   pass('plain-language exports present')
 
@@ -586,6 +586,45 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     fail('普通工具不应被标记 spawnsSubagents')
   } else {
     pass('派生独立会话的工具带 spawnsSubagents 标记')
+  }
+
+  // impact（读 / 写）：简要模式靠它决定谁留下。规则表漏声明的一律 read，
+  // 但真正"改变了什么"的那几条必须逐条显式标 write —— 标漏一条，用户就在
+  // 简要模式里看不到"改了哪个文件"。
+  const impacts = [
+    ['read', 'read'], ['glob', 'read'], ['grep', 'read'], ['web_search', 'read'],
+    ['browser_snapshot', 'read'], ['get_window_state', 'read'],
+    ['write', 'write'], ['edit', 'write'], ['apply_patch', 'write'], ['delete_file', 'write'],
+    ['browser_click', 'write'], ['browser_navigate', 'write'], ['generate_image', 'write'],
+    ['download', 'write'], ['present', 'write'], ['subagent', 'write'],
+    ['memory_remember', 'write'],
+  ].filter(([tool]) => toPlainStep({ toolName: tool, args: {}, status: 'done' }).impact !== undefined)
+  const wrong = impacts.filter(([tool, want]) => toPlainStep({ toolName: tool, args: {}, status: 'done' }).impact !== want)
+  if (wrong.length > 0) {
+    fail(`impact 标注错误: ${wrong.map(([t, w]) => `${t} 期望 ${w} 实得 ${toPlainStep({ toolName: t, args: {}, status: 'done' }).impact}`).join('; ')}`)
+  } else {
+    pass('impact 读/写标注正确（写/改/删/下载/生成/派子任务/记记忆 = write）')
+  }
+
+  // 简要模式：只留 write + 非 done（失败/进行中），连续 read 收敛成一行并
+  // 报出"此前还看过 N 个"。
+  const seq = [
+    toPlainStep({ toolName: 'read', args: { file_path: 'a.ts' }, status: 'done' }),
+    toPlainStep({ toolName: 'read', args: { file_path: 'b.ts' }, status: 'done' }),
+    toPlainStep({ toolName: 'read', args: { file_path: 'c.ts' }, status: 'done' }),
+    toPlainStep({ toolName: 'edit', args: { file_path: 'd.ts' }, status: 'done' }),
+    toPlainStep({ toolName: 'read', args: { file_path: 'e.ts' }, status: 'done' }),
+    toPlainStep({ toolName: 'read', args: { file_path: 'f.ts' }, status: 'failed' }),
+  ]
+  const briefSteps = condenseSteps(seq)
+  if (briefSteps.length !== 4) {
+    fail(`简要模式应把 6 步压成 4 步（3 连读→1、编辑留下、单读留下、失败留下），got ${briefSteps.length}`)
+  } else if (briefSteps[0].detail !== 'c.ts · 此前还看过 2 个') {
+    fail(`连续 read 应只留最后一条并报出折叠量, got ${briefSteps[0].detail}`)
+  } else if (briefSteps[1].verb !== '修改文件' || briefSteps[2].verb !== '查看文件' || briefSteps[3].status !== 'failed') {
+    fail('简要模式必须保留 write、单条 read 与失败步骤')
+  } else {
+    pass('简要模式只留重要节点，连续查看收敛成一行')
   }
 
   // 纯函数性：相同输入必须等价输出。

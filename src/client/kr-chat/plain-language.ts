@@ -40,11 +40,31 @@ export interface PlainStep {
   readonly detail?: string
   readonly status: PlainStatus
   readonly durationMs?: number
+  /**
+   * 这一步是**读**还是**写**（对用户可见世界的影响）。
+   *
+   * 「简要」模式下只留 `write`：普通用户不关心模型翻了多少个文件、点了几次屏幕，
+   * 但「改了哪个文件」「出了什么事」必须一条不漏地看到。这个判定不能靠 icon 猜
+   * （同一个 file 图标既能是读也能是写），只能由规则表显式声明。
+   */
+  readonly impact?: PlainImpact
   /** 该调用派生独立子智能体会话（subagent / workflow…），需要挂子智能体区块。 */
   readonly spawnsSubagents?: boolean
   /** 二级技术信息：用户点开这一条时才需要看到。 */
   readonly tech?: { readonly name: string; readonly args?: string; readonly error?: string }
 }
+
+/**
+ * 一步动作对用户的影响面。
+ *
+ *  · `write` —— 改变了什么：写了/改了/删了文件、下载/生成/上传了东西、派了子任务、
+ *    记了记忆。简要模式下一律保留。
+ *  · `read`  —— 只是看了看：翻文件、浏览网页、点链接、滚动、截图、查配置。普通用户
+ *    完全不在意，简要模式下折叠掉（同一段连续读只留最后一条，免得"翻了 12 个文件"
+ *    变成一行废话）。
+ *  · undefined —— 没声明。规则表漏了某条工具时按 `read` 处理（少显示好过刷屏）。
+ */
+export type PlainImpact = 'read' | 'write'
 
 export interface PlainStepInput {
   readonly id?: string
@@ -329,6 +349,11 @@ function navigateDetail(args: Record<string, unknown>, resultText?: string): str
 interface Rule {
   readonly verb: string
   readonly icon: PlainIconKey
+  /**
+   * 这一步是读还是写。**不写就按 read 处理**（少显示好过刷屏），
+   * 所以只有"改变了什么"的那几条需要显式声明 `impact: 'write'`。
+   */
+  readonly impact?: PlainImpact
   readonly detail?: (args: Record<string, unknown>, resultText?: string) => string | undefined
 }
 
@@ -338,17 +363,17 @@ interface Rule {
  */
 const EXACT: Readonly<Record<string, Rule>> = {
   // ── 浏览器控制 ──────────────────────────────────────────────────────
-  browser_navigate: { verb: '打开网页', icon: 'globe', detail: navigateDetail },
-  browser_open: { verb: '打开网页', icon: 'globe', detail: navigateDetail },
+  browser_navigate: { verb: '打开网页', icon: 'globe', impact: 'write', detail: navigateDetail },
+  browser_open: { verb: '打开网页', icon: 'globe', impact: 'write', detail: navigateDetail },
   /*
    * playwright-mcp 的两个高频工具原先都掉进 /^browser_/ 兜底，只得到一句干巴巴的
    * 「操作浏览器」——而它们恰恰是信息量最大的两个：fill_form 装着「这次要往哪些
    * 字段里填什么」，evaluate 多半装着「在页面上做了什么 / 读到了什么」。
    */
-  browser_fill_form: { verb: '填写表单', icon: 'keyboard', detail: (a) => fillFormFields(a) },
-  browser_evaluate: { verb: '操作页面', icon: 'cursor' },
-  browser_click: { verb: '点击网页', icon: 'cursor', detail: (a) => clip(str(a, 'element', 'description', 'text') ?? str(a, 'ref') ?? '', MAX_DETAIL) },
-  click: { verb: '点击屏幕', icon: 'cursor', detail: (a) => clip(str(a, 'element', 'description', 'text') ?? str(a, 'ref') ?? '', MAX_DETAIL) },
+  browser_fill_form: { verb: '填写表单', icon: 'keyboard', impact: 'write', detail: (a) => fillFormFields(a) },
+  browser_evaluate: { verb: '操作页面', icon: 'cursor', impact: 'write' },
+  browser_click: { verb: '点击网页', icon: 'cursor', impact: 'write', detail: (a) => clip(str(a, 'element', 'description', 'text') ?? str(a, 'ref') ?? '', MAX_DETAIL) },
+  click: { verb: '点击屏幕', icon: 'cursor', impact: 'write', detail: (a) => clip(str(a, 'element', 'description', 'text') ?? str(a, 'ref') ?? '', MAX_DETAIL) },
 
   // ── 桌面控制（cua-driver）：命名空间前缀被剥掉后剩下的都是通用短名，
   //    既匹配不上 /^cua_/ 兜底、也看不出是干什么的，只能落到「执行 X」。
@@ -363,37 +388,37 @@ const EXACT: Readonly<Record<string, Rule>> = {
   move_cursor: { verb: '移动鼠标', icon: 'cursor' },
   bring_to_front: { verb: '激活窗口', icon: 'arrow' },
   list_apps: { verb: '列出应用', icon: 'folder' },
-  launch_app: { verb: '启动应用', icon: 'bolt' },
-  kill_app: { verb: '关闭应用', icon: 'bolt' },
-  double_click: { verb: '双击屏幕', icon: 'cursor' },
-  right_click: { verb: '右键点击', icon: 'cursor' },
-  drag: { verb: '拖拽', icon: 'cursor' },
+  launch_app: { verb: '启动应用', icon: 'bolt', impact: 'write' },
+  kill_app: { verb: '关闭应用', icon: 'bolt', impact: 'write' },
+  double_click: { verb: '双击屏幕', icon: 'cursor', impact: 'write' },
+  right_click: { verb: '右键点击', icon: 'cursor', impact: 'write' },
+  drag: { verb: '拖拽', icon: 'cursor', impact: 'write' },
   scroll: { verb: '滚动', icon: 'scroll' },
-  press_key: { verb: '按下按键', icon: 'keyboard', detail: (a) => clip(str(a, 'key', 'keys') ?? '', MAX_SHORT) },
-  type_text: { verb: '输入文字', icon: 'keyboard' },
-  type: { verb: '输入文字', icon: 'keyboard' },
-  paste: { verb: '粘贴', icon: 'keyboard' },
+  press_key: { verb: '按下按键', icon: 'keyboard', impact: 'write', detail: (a) => clip(str(a, 'key', 'keys') ?? '', MAX_SHORT) },
+  type_text: { verb: '输入文字', icon: 'keyboard', impact: 'write' },
+  type: { verb: '输入文字', icon: 'keyboard', impact: 'write' },
+  paste: { verb: '粘贴', icon: 'keyboard', impact: 'write' },
   zoom: { verb: '放大查看局部', icon: 'eye' },
   clipboard_read: { verb: '读取剪贴板', icon: 'file' },
-  clipboard_write: { verb: '写入剪贴板', icon: 'file' },
+  clipboard_write: { verb: '写入剪贴板', icon: 'file', impact: 'write' },
   verify_state: { verb: '验证界面状态', icon: 'task' },
   health_report: { verb: '检查驱动状态', icon: 'task' },
   get_config: { verb: '读取驱动配置', icon: 'task' },
-  set_config: { verb: '修改驱动配置', icon: 'task' },
-  browser_type: { verb: '在输入框里填写', icon: 'keyboard', detail: (a) => clip(str(a, 'text', 'value') ?? '', MAX_DETAIL) },
-  insert_text: { verb: '在输入框里填写', icon: 'keyboard', detail: (a) => clip(str(a, 'text', 'value') ?? '', MAX_DETAIL) },
-  type_keystrokes: { verb: '在输入框里填写', icon: 'keyboard', detail: (a) => clip(str(a, 'text', 'value') ?? '', MAX_DETAIL) },
-  browser_press_key: { verb: '按下按键', icon: 'keyboard', detail: (a) => clip(str(a, 'key', 'keys') ?? '', MAX_SHORT) },
-  hotkey: { verb: '按下快捷键', icon: 'keyboard', detail: (a) => clip(str(a, 'keys', 'key') ?? '', MAX_SHORT) },
+  set_config: { verb: '修改驱动配置', icon: 'task', impact: 'write' },
+  browser_type: { verb: '在输入框里填写', icon: 'keyboard', impact: 'write', detail: (a) => clip(str(a, 'text', 'value') ?? '', MAX_DETAIL) },
+  insert_text: { verb: '在输入框里填写', icon: 'keyboard', impact: 'write', detail: (a) => clip(str(a, 'text', 'value') ?? '', MAX_DETAIL) },
+  type_keystrokes: { verb: '在输入框里填写', icon: 'keyboard', impact: 'write', detail: (a) => clip(str(a, 'text', 'value') ?? '', MAX_DETAIL) },
+  browser_press_key: { verb: '按下按键', icon: 'keyboard', impact: 'write', detail: (a) => clip(str(a, 'key', 'keys') ?? '', MAX_SHORT) },
+  hotkey: { verb: '按下快捷键', icon: 'keyboard', impact: 'write', detail: (a) => clip(str(a, 'keys', 'key') ?? '', MAX_SHORT) },
   browser_snapshot: { verb: '查看当前页面', icon: 'eye' },
   get_browser_state: { verb: '查看当前页面', icon: 'eye' },
   browser_find: { verb: '在页面上查找', icon: 'search', detail: (a) => clip(str(a, 'text', 'query') ?? '', MAX_SHORT) },
   browser_scroll: { verb: '滚动页面', icon: 'scroll', detail: (a) => SCROLL_DIRECTION[str(a, 'direction') ?? ''] },
   browser_back: { verb: '返回上一页', icon: 'arrow' },
   browser_forward: { verb: '前进一页', icon: 'arrow' },
-  browser_download: { verb: '下载文件', icon: 'download' },
-  browser_set_input_files: { verb: '上传文件', icon: 'download', detail: (a) => fileNameOf(str(a, 'paths', 'files')) },
-  file_upload: { verb: '上传文件', icon: 'download', detail: (a) => fileNameOf(str(a, 'paths', 'files')) },
+  browser_download: { verb: '下载文件', icon: 'download', impact: 'write' },
+  browser_set_input_files: { verb: '上传文件', icon: 'download', impact: 'write', detail: (a) => fileNameOf(str(a, 'paths', 'files')) },
+  file_upload: { verb: '上传文件', icon: 'download', impact: 'write', detail: (a) => fileNameOf(str(a, 'paths', 'files')) },
   browser_console_messages: { verb: '查看控制台输出', icon: 'terminal' },
   browser_network_requests: { verb: '查看网络请求', icon: 'cloud' },
   browser_dialog: { verb: '处理页面弹窗', icon: 'eye' },
@@ -401,24 +426,27 @@ const EXACT: Readonly<Record<string, Rule>> = {
   browser_wait_for: { verb: '等待页面加载', icon: 'scroll' },
 
   // ── 网络 ───────────────────────────────────────────────────────────
+  // 搜索/抓取网页只是"看了看"（read），生成图片与下载文件才是"做出了什么"。
   web_search: { verb: '搜索网络', icon: 'search', detail: (a) => clip(str(a, 'query', 'queries') ?? '', MAX_DETAIL) },
   web_fetch: { verb: '读取网页', icon: 'globe', detail: (a) => siteOf(str(a, 'url')) },
-  download: { verb: '下载文件', icon: 'download', detail: (a) => fileNameOf(str(a, 'output', 'path', 'dest')) },
-  generate_image: { verb: '生成图片', icon: 'image', detail: (a) => clip(str(a, 'prompt') ?? '', MAX_SHORT) },
+  download: { verb: '下载文件', icon: 'download', impact: 'write', detail: (a) => fileNameOf(str(a, 'output', 'path', 'dest')) },
+  generate_image: { verb: '生成图片', icon: 'image', impact: 'write', detail: (a) => clip(str(a, 'prompt') ?? '', MAX_SHORT) },
   vision_describe: { verb: '查看图片内容', icon: 'image' },
 
   // ── 文件 ───────────────────────────────────────────────────────────
   // 读 / 写 / 改 / 删各有自己的图标：读者是靠形状扫列的，四条都画成「文档」时
   // 一列扫过去完全分不出在干什么，而这三件事恰恰是这一列里最需要被一眼认出的。
+  //
+  // impact：只有真正改了东西的四条（写/改/删 + 交付）标 write，其余全是 read。
   read: { verb: '查看文件', icon: 'fileView', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
   read_file: { verb: '查看文件', icon: 'fileView', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
   view: { verb: '查看文件', icon: 'fileView', detail: (a) => fileNameOf(str(a, 'file_path', 'path')) },
   open_file: { verb: '打开文件', icon: 'fileView', detail: (a) => fileNameOf(str(a, 'file_path', 'path')) },
-  write: { verb: '新建文件', icon: 'fileNew', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
-  edit: { verb: '修改文件', icon: 'fileEdit', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
-  apply_patch: { verb: '修改文件', icon: 'fileEdit' },
-  str_replace_editor: { verb: '修改文件', icon: 'fileEdit' },
-  delete_file: { verb: '删除文件', icon: 'trash', detail: (a) => fileNameOf(str(a, 'file_path', 'path')) },
+  write: { verb: '新建文件', icon: 'fileNew', impact: 'write', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
+  edit: { verb: '修改文件', icon: 'fileEdit', impact: 'write', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
+  apply_patch: { verb: '修改文件', icon: 'fileEdit', impact: 'write' },
+  str_replace_editor: { verb: '修改文件', icon: 'fileEdit', impact: 'write' },
+  delete_file: { verb: '删除文件', icon: 'trash', impact: 'write', detail: (a) => fileNameOf(str(a, 'file_path', 'path')) },
   glob: { verb: '查找文件', icon: 'folder', detail: (a) => clip(str(a, 'pattern') ?? '', MAX_DETAIL) },
   find: { verb: '查找文件', icon: 'folder', detail: (a) => clip(str(a, 'pattern', 'query') ?? '', MAX_DETAIL) },
   grep: { verb: '搜索内容', icon: 'search', detail: (a) => clip(str(a, 'pattern', 'query') ?? '', MAX_DETAIL) },
@@ -431,14 +459,15 @@ const EXACT: Readonly<Record<string, Rule>> = {
   exec_command: { verb: '在终端执行命令', icon: 'terminal', detail: (a) => clip(str(a, 'description') ?? '', MAX_DETAIL) },
 
   // ── 元信息 / 协作 ──────────────────────────────────────────────────
-  todo_write: { verb: '更新任务清单', icon: 'task' },
-  skill: { verb: '加载技能', icon: 'spark', detail: (a) => clip(str(a, 'name') ?? '', MAX_DETAIL) },
-  present: { verb: '交付文件', icon: 'file' },
-  subagent: { verb: '派出子任务', icon: 'spark', detail: (a) => clip(str(a, 'description', 'prompt') ?? '', MAX_DETAIL) },
-  subagent_fork: { verb: '派出子任务', icon: 'spark', detail: (a) => clip(str(a, 'description', 'prompt') ?? '', MAX_DETAIL) },
-  automation: { verb: '安排定时任务', icon: 'bolt' },
-  workflow: { verb: '执行 workflow', icon: 'spark', detail: (a) => clip(str(a, 'name', 'description') ?? '', MAX_DETAIL) },
-  ralph: { verb: '执行 workflow', icon: 'spark', detail: (a) => clip(str(a, 'name', 'description') ?? '', MAX_DETAIL) },
+  // 这一段几乎全是"改变了什么"：派子任务、记记忆、交付文件、改清单，用户都得知道。
+  todo_write: { verb: '更新任务清单', icon: 'task', impact: 'write' },
+  skill: { verb: '加载技能', icon: 'spark', impact: 'write', detail: (a) => clip(str(a, 'name') ?? '', MAX_DETAIL) },
+  present: { verb: '交付文件', icon: 'file', impact: 'write' },
+  subagent: { verb: '派出子任务', icon: 'spark', impact: 'write', detail: (a) => clip(str(a, 'description', 'prompt') ?? '', MAX_DETAIL) },
+  subagent_fork: { verb: '派出子任务', icon: 'spark', impact: 'write', detail: (a) => clip(str(a, 'description', 'prompt') ?? '', MAX_DETAIL) },
+  automation: { verb: '安排定时任务', icon: 'bolt', impact: 'write' },
+  workflow: { verb: '执行 workflow', icon: 'spark', impact: 'write', detail: (a) => clip(str(a, 'name', 'description') ?? '', MAX_DETAIL) },
+  ralph: { verb: '执行 workflow', icon: 'spark', impact: 'write', detail: (a) => clip(str(a, 'name', 'description') ?? '', MAX_DETAIL) },
 }
 
 /**
@@ -462,20 +491,20 @@ export function spawnsSubagents(toolName: string): boolean {
  * 与内置工具的变体名。
  */
 const PATTERNS: ReadonlyArray<readonly [RegExp, Rule]> = [
-  [/^memory_(remember|add|write|create)/, { verb: '记录记忆', icon: 'bolt', detail: (a) => clip(str(a, 'content', 'text') ?? '', MAX_SHORT) }],
+  [/^memory_(remember|add|write|create)/, { verb: '记录记忆', icon: 'bolt', impact: 'write', detail: (a) => clip(str(a, 'content', 'text') ?? '', MAX_SHORT) }],
   [/^memory_(search|query|get|read|list)/, { verb: '检索记忆', icon: 'search' }],
   [/^browser_/, { verb: '操作浏览器', icon: 'globe' }],
   [/^cua_/, { verb: '操作电脑', icon: 'cursor' }],
   // 剥掉命名空间后剩下的通用短名：按特征词兜一层，免得只得到「执行 X」。
   [/window|cursor|screen|clipboard|desktop/, { verb: '操作电脑', icon: 'cursor' }],
-  [/app$|^app_|launch|kill_/, { verb: '操作应用', icon: 'folder' }],
+  [/app$|^app_|launch|kill_/, { verb: '操作应用', icon: 'folder', impact: 'write' }],
   [/read|view|inspect/, { verb: '查看文件', icon: 'fileView' }],
-  [/write|edit|patch|replace/, { verb: '修改文件', icon: 'fileEdit' }],
-  [/delete|remove|unlink|rm$/, { verb: '删除文件', icon: 'trash' }],
+  [/write|edit|patch|replace/, { verb: '修改文件', icon: 'fileEdit', impact: 'write' }],
+  [/delete|remove|unlink|rm$/, { verb: '删除文件', icon: 'trash', impact: 'write' }],
   [/search|grep|find|query/, { verb: '搜索', icon: 'search' }],
   [/shell|bash|exec|command|pwsh|run_code/, { verb: '在终端执行命令', icon: 'terminal' }],
-  [/download|fetch|curl|wget/, { verb: '下载文件', icon: 'download' }],
-  [/image|picture|draw|render/, { verb: '生成图片', icon: 'image' }],
+  [/download|fetch|curl|wget/, { verb: '下载文件', icon: 'download', impact: 'write' }],
+  [/image|picture|draw|render/, { verb: '生成图片', icon: 'image', impact: 'write' }],
 ]
 
 /** 兜底：从参数里挑第一个像「人能读懂」的值（描述 > 文本 > 其余）。 */
@@ -525,6 +554,9 @@ export function toPlainStep(input: PlainStepInput): PlainStep {
     icon,
     verb,
     ...(detail !== undefined && detail !== '' ? { detail } : {}),
+    // 规则表漏声明的一律当 read（少显示好过刷屏）：简要模式下宁可少几条，
+    // 也不能把"新建文件"这种真动作藏起来 —— 所以默认值取的是保守的那一端。
+    impact: rule?.impact ?? 'read',
     status: input.status,
     ...(typeof input.durationMs === 'number' ? { durationMs: input.durationMs } : {}),
     ...(spawnsSubagents(toolName) ? { spawnsSubagents: true } : {}),

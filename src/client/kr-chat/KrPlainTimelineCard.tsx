@@ -16,13 +16,31 @@
  * 底部自动恢复。与思考过程卡同一套手感。
  */
 
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import { useHeightAnimation, useMotionAllowed, useSteppedFollow } from '../motion-utils.ts'
 import { formatDuration } from '../tool-summary/tool-stats.ts'
 import type { PlainIconKey, PlainStep } from './plain-language.ts'
-import type { PlainTimeline } from './plain-timeline.ts'
+import { condenseSteps, type PlainStepView, type PlainTimeline } from './plain-timeline.ts'
 import { useSubagentCatalog, type SubagentCatalogView } from './subagent-catalog.ts'
+
+/** 详细/简要的落盘键。换个键名就会丢用户上次的偏好，改动时留意。 */
+const VIEW_STORAGE_KEY = 'dsh.kr_chat.plain_view'
+
+/** 读上次的选择；读不到（首次访问 / 隐私模式禁用存储）一律回详细。 */
+function readStoredView(): PlainStepView {
+  try {
+    return localStorage.getItem(VIEW_STORAGE_KEY) === 'brief' ? 'brief' : 'full'
+  } catch {
+    return 'full'
+  }
+}
+
+function writeStoredView(view: PlainStepView): void {
+  try {
+    localStorage.setItem(VIEW_STORAGE_KEY, view)
+  } catch { /* ignore */ }
+}
 
 /** 列表视口最大行数：6 → 8（比上一版多约 40px，用户按实际观感定的档）。 */
 const LIST_MAX_ROWS = 8
@@ -218,20 +236,42 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(open, motion)
 
   /*
+   * 详细 / 简要：默认**详细**，落盘记住。
+   *
+   * 默认选详细而不是简要：这张卡是「已经做了什么」的事实流水，简要模式会丢掉
+   * 一部分 read 步骤——把"用户主动要看的东西"藏在开关后面、默认不给，是把选择
+   * 权倒过来给。而"这次只想看结果"是一个明确的、用户会自己按下的意图。
+   */
+  const [view, setView] = useState<PlainStepView>(() => readStoredView())
+  const toggleView = useCallback(() => {
+    setView((value) => {
+      const next: PlainStepView = value === 'full' ? 'brief' : 'full'
+      writeStoredView(next)
+      return next
+    })
+  }, [])
+
+  const brief = view === 'brief'
+  const steps = useMemo(
+    () => (brief ? condenseSteps(timeline.steps) : timeline.steps),
+    [brief, timeline.steps],
+  )
+
+  /*
    * 子智能体清单只在**本轮真的派生了子智能体**时才去订阅。
    * 没有派生动作时完全不接轮询 —— 绝大多数轮次压根不 spawn，任何时候都在
    * 读目录是白花的开销。
    */
   const hasSpawning = useMemo(
-    () => timeline.steps.some((step) => step.spawnsSubagents === true),
-    [timeline.steps],
+    () => steps.some((step) => step.spawnsSubagents === true),
+    [steps],
   )
   const subagentCatalog = useSubagentCatalog(hasSpawning ? sessionId : null)
 
   // 跟随探针：条目数 / 当前动作 / 预告任一变化都重新贴底。
   const probe = useMemo(
-    () => `${timeline.steps.length}:${timeline.nowLabel}:${timeline.intent ?? ''}`,
-    [timeline.steps.length, timeline.nowLabel, timeline.intent],
+    () => `${steps.length}:${timeline.nowLabel}:${timeline.intent ?? ''}`,
+    [steps.length, timeline.nowLabel, timeline.intent],
   )
   const { ref: listRef, onScroll, onWheel, overflow, following, edges } = useSteppedFollow(probe, running && open, motion)
 
@@ -256,9 +296,11 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
 
   const empty = timeline.steps.length === 0
   const maxRows = squeezed ? LIST_MAX_ROWS_SQUEEZED : LIST_MAX_ROWS
+  // 折叠了多少：给切换按钮做 tooltip，也让"简要"模式下的收敛量可核对。
+  const hiddenCount = timeline.steps.length - steps.length
 
   return (
-    <div className="kr-card kr-card--plain" data-empty={empty || undefined}>
+    <div className="kr-card kr-card--plain" data-empty={empty || undefined} data-view={view}>
       <div
         className="kr-card__header"
         onClick={() => { setOpen((value) => !value) }}
@@ -291,15 +333,36 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
         </span>
         <span className="kr-card__title">操作面板</span>
         {/*
-         * 标题行右侧原先有三样东西，已按用户要求全部删掉，标题行现在只剩标题本身：
-         *  1. **「当前在做什么」**（模型播报的那句「正在查 model-seats 目录…」）：
-         *     它与正文里那张蓝底的「接下来」预告说的是同一件事，只是旧版靠
-         *     crossfade 叠在标题右侧，两处并排时用户要读两遍同一句话；而且标题
-         *     行只有 ~18px，句子一长就被省略号截断，等于只留一个说不全的半句。
-         *     「此刻在干什么」由预告行与步骤列表（进行中那行自带扫光）承担。
-         *  2. 「N 步」徽标 —— 可数的东西，且步数在列表里数得出来。
-         *  3. 「技术细节」总开关 —— 技术视角已整块移除，这张卡只讲人话。
+         * 详细 / 简要 切换（卡头右上角）。
+         *
+         * 读者是普通用户：他不在意模型翻了多少个文件、点了几次屏幕，只关心「改了
+         * 哪些东西」「出了什么事」。简要模式据此把连续的查看动作收敛成一行，只留
+         * 写/改/删、失败与进行中（判定见 plain-timeline 的 condenseSteps）。
+         *
+         * 做成双档滑块而不是两枚独立按钮：两枚按钮并排会让标题行右边多出一块
+         * 噪声，一枚滑块只占一行、且当前档位一眼可见（滑块在哪边就是哪档）。
+         *
+         * stopPropagation 是必须的——整行 header 都是折叠热区，不拦住的话点切换
+         * 会顺带把卡片收起。
          */}
+        <button
+          type="button"
+          className="kr-plain-view"
+          data-view={view}
+          role="switch"
+          aria-checked={view === 'full'}
+          aria-label={view === 'full' ? '操作面板：详细' : '操作面板：简要'}
+          title={view === 'full'
+            ? (hiddenCount > 0 ? `切到简要，只看重要节点（可折叠 ${hiddenCount} 步）` : '切到简要，只看重要节点')
+            : '切到详细，看每一步做了什么'}
+          onClick={(event) => { event.stopPropagation(); toggleView() }}
+        >
+          <span className="kr-plain-view__track" aria-hidden="true">
+            <span className="kr-plain-view__thumb" />
+            <span className="kr-plain-view__label kr-plain-view__label--full">详细</span>
+            <span className="kr-plain-view__label kr-plain-view__label--brief">简要</span>
+          </span>
+        </button>
       </div>
 
       {bodyPresent && (
@@ -339,7 +402,7 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
               data-edges={edges}
               style={{ '--kr-plain-rows': maxRows } as CSSProperties}
             >
-              {timeline.steps.map((step, index) => (
+              {steps.map((step, index) => (
                 <StepRow
                   key={step.id}
                   step={step}
