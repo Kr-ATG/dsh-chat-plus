@@ -41,12 +41,12 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
   const percent = empty ? 0 : Math.round((doneCount / tasks.length) * 100)
 
   const progressText = empty
-    ? '暂无任务'
+    ? '本轮还没有任务'
     : allDone
-    ? `${tasks.length} 项已完成`
-    : activeCount > 0
-    ? `${doneCount}/${tasks.length} 完成 · 进行中`
-    : `${doneCount}/${tasks.length} 完成`
+      ? `${tasks.length} 项已完成`
+      : activeCount > 0
+        ? `${doneCount}/${tasks.length} 完成 · 进行中`
+        : `${doneCount}/${tasks.length} 完成`
 
   return (
     <div className="kr-card kr-card--task" data-empty={empty || undefined}>
@@ -70,8 +70,15 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
         </span>
       </div>
 
-      {/* 极简细平滑进度条（2.5px，轻量雅致） */}
-      {!collapsed && (
+      {/*
+       * 空态时整张卡只剩这一行头。
+       *
+       * 原来空态要占三行：头部（徽标写"暂无任务"）+ 0% 进度条 + 正文
+       * "本轮还没有任务清单"。后两者都是同一句话的重复与纯装饰（0% 的进度条
+       * 不传达任何信息），三行换一行，右栏省下的高度直接给思考与操作面板。
+       * 徽标改成把话说完整，读起来也不用猜"暂无任务"指的是什么。
+       */}
+      {!collapsed && !empty && (
         <div className="kr-task-progress-line">
           <div
             className="kr-task-progress-line__fill"
@@ -81,9 +88,8 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
       )}
 
       {/* 任务列表（整洁单层卡片排布，无俄式套盒，去除非必要重复徽标） */}
-      {!collapsed && (
+      {!collapsed && !empty && (
         <div className="kr-task-list">
-          {empty && <div className="kr-task-empty">本轮还没有任务清单</div>}
           {tasks.map((task, index) => {
             const isCompleted = task.status === 'completed'
             const isInProgress = task.status === 'in_progress'

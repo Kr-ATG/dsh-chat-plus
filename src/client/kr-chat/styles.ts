@@ -494,7 +494,10 @@ body[data-kr-resizing="true"] * {
   border: 1px solid var(--kr-card-border);
   border-radius: 10px;
   box-shadow: var(--kr-card-shadow);
-  padding: 12px 14px;
+  /* 10px 12px（原先 12px 14px）：右栏是纵向堆叠的内距敏感区，每张卡上下各
+     省的 2px × 三张卡叠起来是一眼能看出的紧凑度。不影响任何可点区域——点击
+     热区是整张卡，不依赖 padding。 */
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -531,7 +534,9 @@ body[data-kr-resizing="true"] * {
 .kr-card__header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  /* 6px（原先 8px）：标题行一行的宽度预算在窄栏下很紧，图标/标题/徽标/
+     开关/chevron 五件东西都靠这个 gap 排开。 */
+  gap: 6px;
   cursor: pointer;
   user-select: none;
 }
@@ -607,8 +612,10 @@ body[data-kr-resizing="true"] * {
 }
 
 /* ══ 任务概览卡片（单卡片原生极简设计）═════════════════════════════════════ */
+/* 任务概览：内距与 .kr-card 对齐即可，这条曾经单开 12px 14px，
+   在「空态只留一行头」之后它已无额外内容要容纳。 */
 .kr-card--task {
-  padding: 12px 14px;
+  padding: 10px 12px;
 }
 
 /* 极简细平滑进度条（2.5px，轻量雅致，不割裂界面） */
@@ -635,17 +642,11 @@ body[data-kr-resizing="true"] * {
 }
 
 /*
- * 空态常驻：卡片不再因为「这轮还没有 todo」整张消失，右栏第一张卡的位置永远
- * 稳定。压低对比度让它退成背景，不与真有任务时抢注意力。
+ * 空态文案行已删：徽标现在直接说「本轮还没有任务」，正文再写一遍
+ * 「本轮还没有任务清单」是同一句话占两行。空态只剩一行头，位置依然稳定
+ * （卡片不整张消失），信息也依然在。规则留着备用：将来若要恢复独立空态
+ * （比如给一行引导操作），把 .kr-task-empty 挂回列表区即可。
  */
-.kr-task-empty {
-  padding: 7px 8px 8px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  line-height: 16px;
-  opacity: .72;
-}
-
 .kr-card--task[data-empty] .kr-card__badge {
   opacity: .6;
 }
