@@ -923,7 +923,7 @@ body[data-kr-resizing="true"] * {
 /* ── 时间线列表（有界视口 + 内部滚动） ───────────────────────────────── */
 .kr-plain-list {
   --kr-plain-row-h: 22px;
-  max-height: calc(var(--kr-plain-rows, 6) * var(--kr-plain-row-h) + 6px);
+  max-height: calc(var(--kr-plain-rows, 13) * var(--kr-plain-row-h) + 6px);
   overflow-y: auto;
   /* 纵向可滚、横向钳死：卡片里没有任何需要横向滚动的内容，出现横条只可能是
      某个子项把宽度顶破了（窄栏最易发生），那属于 bug 而不是功能。 */

@@ -56,10 +56,17 @@ function writeStoredView(view: PlainStepView): void {
   } catch { /* ignore */ }
 }
 
-/** 列表视口最大行数：6 → 8（比上一版多约 40px，用户按实际观感定的档）。 */
-const LIST_MAX_ROWS = 8
+/**
+ * 列表视口最大行数：6 → 8 → **13**（用户按实际观感定的档，8 → 13 是「再加 100px」：
+ * 行高 22px，+5 行 = +110px）。
+ *
+ * 这张卡在右栏最末尾，视口高度就是它能一口气看到多少条动作。右栏本身有滚动区，
+ * 列表内部再套一层滚动是双重滚动条（旧档位 6 行时这样更明显），所以宁可把视口
+ * 开大些，让更多动作直接露出来。
+ */
+const LIST_MAX_ROWS = 13
 /** 被右栏挤压时（记忆卡常驻底部触发自适应降档）收一档。 */
-const LIST_MAX_ROWS_SQUEEZED = 5
+const LIST_MAX_ROWS_SQUEEZED = 9
 
 export interface KrPlainTimelineCardProps {
   readonly timeline: PlainTimeline
