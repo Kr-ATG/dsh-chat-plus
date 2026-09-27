@@ -573,6 +573,19 @@ if (!/className="kr-elapsed"[\s\S]{0,400}aria-hidden="true"/.test(cardCode)) {
   pass('用时读数与思考视口都不在 live 播报面上（高频文本不轰炸读屏）')
 }
 
+// 表头短徽标不许被 flex 压成竖排。回归过一次：「2 步」在窄栏里被压成一个字宽、
+// 「步」掉到第二行，徽标凭空长高一截——根因是 flex item 的 min-width:auto 解析成
+// min-content，而含空格的短文本 min-content 就是第一个词。
+if (krEnabled) {
+  if (!/\.kr-card__badge \{[^}]*white-space: nowrap/.test(code)) {
+    fail('.kr-card__badge 必须 white-space: nowrap（窄栏里「2 步」会被压成竖排两行）')
+  } else if (!/\.kr-plain-tech-toggle \{[^}]*white-space: nowrap/.test(code)) {
+    fail('.kr-plain-tech-toggle 必须 white-space: nowrap（窄栏里「技术细节」会竖排）')
+  } else {
+    pass('表头短徽标与开关按钮不会被压成竖排')
+  }
+}
+
 // 三条这轮修掉的 P1：规则形状不能回退。
 if (krEnabled) {
   const toolViewSrc = readFileSync(resolve(ROOT, 'src/client/tool-summary/ToolGroupNodeView.tsx'), 'utf8')

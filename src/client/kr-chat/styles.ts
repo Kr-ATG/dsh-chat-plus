@@ -578,6 +578,17 @@ body[data-kr-resizing="true"] * {
   display: flex;
   align-items: center;
   gap: 4px;
+  /*
+   * flex: none + nowrap：徽标是「N 步」「N 条」这类固定短文本，绝不能参与收缩。
+   *
+   * 之前它默认 flex-shrink:1，而 flex item 的 min-width:auto 解析成 min-content
+   * —— 对含空格的「2 步」来说 min-content 就是「2」，于是标题行一挤，徽标被压到
+   * 只剩一个字宽，"步" 掉到第二行，徽标凭空长高一截（就是那个「2 / 步」竖排）。
+   * 挤压压力理应交给旁边可省略的动作名（.kr-plain-now--inline 有 min-width:0 +
+   * ellipsis），徽标必须完整。
+   */
+  flex: none;
+  white-space: nowrap;
 }
 
 .kr-card__badge--running {
@@ -992,6 +1003,8 @@ body[data-kr-resizing="true"] * {
    「状态点 + 图标 + 标题 + 耗时」，该有的呼吸感回来了。 */
 .kr-plain-tech-toggle {
   flex: none;
+  /* 同 .kr-card__badge：固定短文本不参与收缩，窄栏时省略的是旁边的动作名。 */
+  white-space: nowrap;
   padding: 1px 7px;
   border: 1px solid var(--kr-card-border);
   border-radius: 7px;
