@@ -164,8 +164,19 @@ function StepRow({ step, index, catalog }: {
       // 错峰入场：只对靠后的若干条错开，卡片整体不拖出一段长尾。
       style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
     >
+      {/*
+       * 状态圆圈：**只标异常与进行中，完成态留空**。
+       *
+       * 这一列里的每一条都已经发生过了，"已完成"是这张列表的默认前提而不是
+       * 什么信息——每行前面再挂一枚对勾，等于给同一句话说八遍，还把行首压窄。
+       * 真正需要被看见的是反例：正在跑的（蓝色转圈）和失败的（红叉），它们因此
+       * 在一列灰色文字里凸出来。
+       *
+       * 槽位本身永远保留（完成态是只留 14px 的空盒），否则完成行贴左、进行中
+       * 与失败行右移 14px，整列参差不齐。
+       */}
       <span className="kr-plain-step__status">
-        <StatusIcon state={step.status} />
+        {step.status !== 'done' && <StatusIcon state={step.status} />}
       </span>
       <span className="kr-plain-step__icon" aria-hidden><Icon name={step.icon} /></span>
       <span className="kr-plain-step__title" title={title}>{title}</span>
