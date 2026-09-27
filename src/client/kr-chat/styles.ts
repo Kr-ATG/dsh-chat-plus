@@ -1103,6 +1103,33 @@ body[data-kr-resizing="true"] * {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * 失败原因（人话那句）：一行标题右边的补充，不与主文案并列。
+ *
+ * 排在一枚淡红底的小药丸里而不是裸文字，是为了让它一眼归到"这行出事了"名下，
+ * 而不是被读成第二个动作对象（"查看文件" + "找不到文件或页面" 连在一起很容易被
+ * 理解成两件事）。药丸只用 error 色 12% 混底，够指认、不抢戏。
+ */
+.kr-plain-step__issue {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  line-height: 15px;
+  color: var(--kr-error);
+  background: color-mix(in srgb, var(--kr-error) 12%, transparent);
+  animation: kr-plain-issue-in .26s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+@keyframes kr-plain-issue-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
 /* @keyframes kr-plain-tech-in 已删：唯一使用它的 .kr-plain-step__tech 整块移除。 */
 
 /* ── 子智能体区块（挂在「派生子任务」那一步下面） ───────────────────────
@@ -1244,6 +1271,10 @@ body[data-kr-resizing="true"] * {
 
   /* 失败角标的弹性缩放一并关掉。 */
   .kr-plain-step__icon[data-failed="true"]::after {
+    animation: none;
+  }
+
+  .kr-plain-step__issue {
     animation: none;
   }
 

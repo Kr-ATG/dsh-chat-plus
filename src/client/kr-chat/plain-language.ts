@@ -48,6 +48,15 @@ export interface PlainStep {
    * （同一个 file 图标既能是读也能是写），只能由规则表显式声明。
    */
   readonly impact?: PlainImpact
+  /**
+   * 失败时的人话原因，如「文件不存在」「没权限」「连不上」。
+   *
+   * 失败是这个卡上**最该被看见**的一件事，而一枚红叉只说了"有件事没成"，
+   * 没说"什么事"。用户点开技术细节去翻 `ENOENT: no such file or directory` 是
+   * 不现实的——那不是他该读的东西。取不到人话原因时退回 undefined（宁可空着，
+   * 也不把一句英文报错原样糊到普通用户脸上）。
+   */
+  readonly issue?: string
   /** 该调用派生独立子智能体会话（subagent / workflow…），需要挂子智能体区块。 */
   readonly spawnsSubagents?: boolean
   /** 二级技术信息：用户点开这一条时才需要看到。 */
@@ -510,6 +519,45 @@ const PATTERNS: ReadonlyArray<readonly [RegExp, Rule]> = [
 /** 兜底：从参数里挑第一个像「人能读懂」的值（描述 > 文本 > 其余）。 */
 const FALLBACK_DETAIL_KEYS: readonly string[] = ['description', 'text', 'name', 'title', 'query', 'url', 'path', 'file_path', 'prompt']
 
+/* ── 失败原因：把技术报错翻成人话 ─────────────────────────────────────── */
+
+/**
+ * 报错 → 人话。**先匹配到的赢**，所以顺序按"具体 → 笼统"排。
+ *
+ * 这一层是给"失败了怎么办"用的：用户在这张卡上最需要知道的就是「出了什么事」，
+ * 而原始报错对他全是噪音（`ENOENT: no such file or directory, open 'D:\a\b.ts'`）。
+ * 认出类别就给一句他能据此判断的话；认不出就返回 undefined —— 把一句英文报错原样
+ * 糊到普通用户脸上，比不显示更糟（他会以为是自己看错了）。
+ */
+const ISSUES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/enoent|no such file|not found|404|找不到/i, '找不到文件或页面'],
+  [/eacces|eperm|permission|forbidden|403|unauthor|权限/i, '没有权限'],
+  [/etimedout|timeout|timed out|超时/i, '等太久没响应'],
+  [/econnrefused|connection refused|无法连接|连不上/i, '连不上对方'],
+  [/enotfound|getaddrinfo|dns|域名/i, '连不上这个地址'],
+  [/ehostunreach|network is unreachable|网络/i, '网络不通'],
+  [/enospc|no space left|磁盘|空间不足/i, '磁盘空间不够'],
+  [/ealreadyexists|file exists|已存在/i, '东西已经在那儿了'],
+  [/eisdir|is a directory|not a directory/i, '那不是一个文件'],
+  [/429|too many requests|rate limit|频率/i, '请求太频繁，被限流'],
+  [/5\d\d|internal server|server error|服务端/i, '对方服务出错'],
+  [/certificate|ssl|tls|证书/i, '连接不安全（证书问题）'],
+  [/aborted|cancelled|取消|中断|interrupted/i, '被中断了'],
+  [/invalid|malformed|parse|unexpected token|格式|解析/i, '内容格式不对，读不出来'],
+  [/empty|为空|空文件/i, '内容是空的'],
+]
+
+/**
+ * 原始错误文本 → 一句人话。认不出类别时返回 undefined（见 ISSUES 的说明）。
+ *
+ * 纯函数、只做匹配不做 IO，smoke 里可直接断言。
+ */
+export function humanIssue(errorText: string | undefined): string | undefined {
+  if (errorText === undefined || errorText.trim() === '') return undefined
+  const hit = ISSUES.find(([pattern]) => pattern.test(errorText))
+  return hit?.[1]
+}
+
 /* ── 主入口 ───────────────────────────────────────────────────────────── */
 
 /**
@@ -549,6 +597,8 @@ export function toPlainStep(input: PlainStepInput): PlainStep {
     ...(input.errorText !== undefined && input.errorText !== '' ? { error: clip(input.errorText, 200) } : {}),
   }
 
+  const issue = input.status === 'failed' ? humanIssue(input.errorText) : undefined
+
   return {
     id: input.id ?? `${name}:${verb}`,
     icon,
@@ -558,6 +608,7 @@ export function toPlainStep(input: PlainStepInput): PlainStep {
     // 也不能把"新建文件"这种真动作藏起来 —— 所以默认值取的是保守的那一端。
     impact: rule?.impact ?? 'read',
     status: input.status,
+    ...(issue !== undefined ? { issue } : {}),
     ...(typeof input.durationMs === 'number' ? { durationMs: input.durationMs } : {}),
     ...(spawnsSubagents(toolName) ? { spawnsSubagents: true } : {}),
     tech,

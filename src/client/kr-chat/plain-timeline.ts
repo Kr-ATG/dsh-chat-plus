@@ -251,51 +251,97 @@ function nowLabelOf(steps: readonly PlainStep[], intent: string | undefined, run
 }
 
 /**
- * 「简要」模式：只留重要节点，连续的查看动作收敛成一行。
+ * 「简要」模式：一份**进展纪要**，不是一份缩短的动作流水。
  *
- * 读者是普通用户——他不在意模型翻了多少个文件、点了几次屏幕，但在意「改了哪些
- * 文件」「出了什么事」。所以：
+ * 读者是普通用户，他要的三件事（与「任务概览」同一口径）：
+ *  1. **走到哪一步了** —— 每一个**里程碑**都要说清"改了什么"；
+ *  2. **出了什么事** —— 失败必须写出**人话原因**（`issue`），不是只给一枚红叉；
+ *  3. **卡到哪了** —— 正在跑的那一步永远保留。
  *
- *  1. **write 一律保留**（写/改/删文件、下载/生成/上传、点网页、派子任务、记记忆…），
- *     外加**失败**与**进行中**——反例与当下正在发生的事永远不能被折叠掉；
- *  2. **连续的一串 read 收敛成一行**：中间几条丢掉，只留最后一条（它最接近现状），
- *     并在行尾补一句"此前还看过 N 个"。留最后一条而不是全留，是因为"翻了 12 个文件"
- *     对用户是一条废话，而"最后在看哪个"是他唯一可能关心的；补上 N 是为了让折叠量
- *     可核对——否则用户会以为模型只看了一个文件；
- *  3. read 与 write 不混在一行里计数：一段 read 被 write 打断就算两段。
+ * 明确**不写**的：
+ *  · **已解决的失败**。后面同类动作又成了，说明模型自己绕过去了；把一次已经翻篇
+ *    的报错留在纪要里，用户会以为现在还有个坑。判定方式：某个 failed 之后还有
+ *    **同一 icon** 的 done 步骤 → 视为已解决（同一个动作重来一遍成了）。
+ *  · **成功的 read**（翻文件、看网页、截图…）。它们是达成里程碑的手段，不是里程碑
+ *    本身。注意只砍成功的 —— **失败的 read 恰恰是"卡住了"的信号**，必须留着。
+ *  · 连续同类里程碑的**中间步骤**。同一个文件改了 5 次只出一条"修改文件 x.ts ·
+ *    共 5 次"，而不是 5 行——那 5 行在用户眼里是同一件事被反复说。
  *
  * 纯函数，相同输入返回等价输出，可在 smoke 里直接断言。
  */
 export function condenseSteps(steps: readonly PlainStep[]): readonly PlainStep[] {
-  const out: PlainStep[] = []
-  let readRun: PlainStep[] = []
-
-  const flushReads = (): void => {
-    if (readRun.length === 0) return
-    const last = readRun[readRun.length - 1]!
-    if (readRun.length === 1) {
-      out.push(last)
-    } else {
-      const count = readRun.length - 1
-      out.push({
-        ...last,
-        id: `${last.id}::brief`,
-        detail: last.detail === undefined
-          ? `此前还看过 ${count} 个`
-          : `${last.detail} · 此前还看过 ${count} 个`,
-      })
+  /*
+   * 哪些失败**已经翻篇**（不必再报）。
+   *
+   * 倒着扫、维护"在它之后出现过的成功 icon"：某条 failed 后面若还有**同 icon**
+   * 的 done，说明模型已经把同一个动作又做成功了一次（改了参数重试、换条路走通），
+   * 这次失败对用户已经没有意义——留着只会让他以为现在还有个坑。反过来，倒扫到它
+   * 时 `seenDoneIcons` 里还没有它的 icon，说明后面没人再把它做成功过，这就是
+   * **真的还没解决**，必须留下。
+   */
+  const resolved = new Set<number>()
+  const seenDoneIcons = new Set<string>()
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    const step = steps[i]!
+    if (step.status === 'done') {
+      seenDoneIcons.add(step.icon)
+    } else if (step.status === 'failed' && seenDoneIcons.has(step.icon)) {
+      resolved.add(i)
     }
-    readRun = []
   }
 
-  for (const step of steps) {
-    if (step.impact === 'write' || step.status !== 'done') {
-      flushReads()
+  const out: PlainStep[] = []
+  /** 同类里程碑合并：icon 相同就续上计数，detail 换成带次数的那条。 */
+  let lastIndex = -1
+  let lastCount = 0
+
+  for (const [index, step] of steps.entries()) {
+    // 1. 已解决的失败：不写（模型后来把同一个动作做成了，这次失败已翻篇）。
+    if (resolved.has(index)) continue
+    // 2. **未解决的失败**一律留下，哪怕它是 read。
+    //
+    // "读不到某个文件"、"命令跑不通"这类失败恰恰是**卡住**的信号 —— 进展纪要
+    // 漏掉它，用户就看不出模型为什么停下。已解决的那些在上面一步已经被剔掉了。
+    if (step.status === 'failed') {
       out.push(step)
+      lastIndex = -1
+      lastCount = 0
       continue
     }
-    readRun.push(step)
+    // 3. 成功的 read 不是里程碑，整段丢掉。
+    if (step.impact !== 'write') continue
+    // 4. 进行中：永远保留（"卡到哪了"）。它打断合并计数——它是一次新的尝试，
+    //    不该被并进上一条"连做 N 次"里去。
+    if (step.status === 'running') {
+      out.push(step)
+      lastIndex = -1
+      lastCount = 0
+      continue
+    }
+    // 5. 里程碑：连续的同 icon 合并成一条（同一件事被反复说只说一次）。
+    if (lastIndex >= 0 && out[lastIndex]!.icon === step.icon && step.issue === undefined) {
+      lastCount += 1
+      const prev = out[lastIndex]!
+      // prev.detail 可能已经带过"共 N 次"（上一轮合并写进去的），所以先剥掉再
+      // 按新计数重新贴，避免出现"共 2 次 · 共 3 次"这种叠出来的串。
+      const base = stripCount(prev.detail)
+      out[lastIndex] = {
+        ...prev,
+        detail: base === undefined || base === ''
+          ? `共 ${lastCount} 次`
+          : `${base} · 共 ${lastCount} 次`,
+      }
+      continue
+    }
+    out.push(step)
+    lastIndex = out.length - 1
+    lastCount = 1
   }
-  flushReads()
   return out
+}
+
+/** 去掉 detail 尾部的「· 共 N 次」，还原成合并前的原始对象描述。 */
+function stripCount(detail: string | undefined): string | undefined {
+  if (detail === undefined) return undefined
+  return detail.replace(/ · 共 \d+ 次$/, '')
 }

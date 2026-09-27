@@ -225,6 +225,19 @@ function StepRow({ step, index, catalog }: {
         <Icon name={step.icon} />
       </span>
       <span className="kr-plain-step__title" title={title}>{title}</span>
+      {/*
+       * 失败原因：**人话**那一句，不是原始报错。
+       *
+       * 这是整张卡上最该被看见的一件事——用户要的是"出了什么问题"，而一枚红叉
+       * 只说了"有件事没成"。原样贴 `ENOENT: no such file or directory` 也没用，
+       * 那不是他会读的东西；plain-language 的 humanIssue 已经把它翻成「找不到
+       * 文件或页面」这类他能据此判断的话。认不出类别时不显示这一枚，宁可空着。
+       *
+       * 简短、弱一级字色，不抢行的主文案——它是对那行标题的**补充**，不是并列。
+       */}
+      {failed && step.issue !== undefined && (
+        <span className="kr-plain-step__issue">{step.issue}</span>
+      )}
       {step.durationMs !== undefined && step.durationMs > 40 && (
         <span className="kr-plain-step__time">{formatDuration(step.durationMs)}</span>
       )}

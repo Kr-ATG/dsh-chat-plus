@@ -343,11 +343,11 @@ if (typeof activityColor === 'function') {
 
 // ── 人话行动流：工具调用 → 中文人话 + 时间线组装 ────────────────────────
 const {
-  toPlainStep, plainToolName, siteOf, isMetaTool, spawnsSubagents, buildPlainTimeline, extractIntent, condenseSteps,
+  toPlainStep, plainToolName, siteOf, isMetaTool, spawnsSubagents, buildPlainTimeline, extractIntent, condenseSteps, humanIssue,
 } = mod
 
-if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function' || typeof extractIntent !== 'function' || typeof condenseSteps !== 'function') {
-  fail('toPlainStep / buildPlainTimeline / extractIntent / condenseSteps must be exported from the client bundle')
+if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function' || typeof extractIntent !== 'function' || typeof condenseSteps !== 'function' || typeof humanIssue !== 'function') {
+  fail('toPlainStep / buildPlainTimeline / extractIntent / condenseSteps / humanIssue must be exported from the client bundle')
 } else {
   pass('plain-language exports present')
 
@@ -606,25 +606,47 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     pass('impact 读/写标注正确（写/改/删/下载/生成/派子任务/记记忆 = write）')
   }
 
-  // 简要模式：只留 write + 非 done（失败/进行中），连续 read 收敛成一行并
-  // 报出"此前还看过 N 个"。
+  // 简要模式 = 进展纪要：走到哪（里程碑合并）、出了什么事（未解决的失败 + 人话
+  // 原因）、卡到哪（进行中永远保留）。已解决的失败不写，纯 read 不写。
   const seq = [
     toPlainStep({ toolName: 'read', args: { file_path: 'a.ts' }, status: 'done' }),
     toPlainStep({ toolName: 'read', args: { file_path: 'b.ts' }, status: 'done' }),
-    toPlainStep({ toolName: 'read', args: { file_path: 'c.ts' }, status: 'done' }),
     toPlainStep({ toolName: 'edit', args: { file_path: 'd.ts' }, status: 'done' }),
-    toPlainStep({ toolName: 'read', args: { file_path: 'e.ts' }, status: 'done' }),
-    toPlainStep({ toolName: 'read', args: { file_path: 'f.ts' }, status: 'failed' }),
+    toPlainStep({ toolName: 'edit', args: { file_path: 'd.ts' }, status: 'done' }),
+    toPlainStep({ toolName: 'edit', args: { file_path: 'd.ts' }, status: 'done' }),
+    // 这一条失败后来重试成功了 → 已解决，不该出现在纪要里
+    toPlainStep({ toolName: 'read', args: { file_path: 'f.ts' }, status: 'failed', errorText: 'ENOENT: no such file' }),
+    toPlainStep({ toolName: 'read', args: { file_path: 'f.ts' }, status: 'done' }),
+    // 这一条到时间线末尾都没成功 → 真出事了，必须留下并带人话原因
+    toPlainStep({ toolName: 'pwsh', args: { description: '推送' }, status: 'failed', errorText: 'EACCES: permission denied' }),
+    toPlainStep({ toolName: 'edit', args: { file_path: 'e.ts' }, status: 'running' }),
   ]
   const briefSteps = condenseSteps(seq)
-  if (briefSteps.length !== 4) {
-    fail(`简要模式应把 6 步压成 4 步（3 连读→1、编辑留下、单读留下、失败留下），got ${briefSteps.length}`)
-  } else if (briefSteps[0].detail !== 'c.ts · 此前还看过 2 个') {
-    fail(`连续 read 应只留最后一条并报出折叠量, got ${briefSteps[0].detail}`)
-  } else if (briefSteps[1].verb !== '修改文件' || briefSteps[2].verb !== '查看文件' || briefSteps[3].status !== 'failed') {
-    fail('简要模式必须保留 write、单条 read 与失败步骤')
+  const briefFailed = briefSteps.filter((s) => s.status === 'failed')
+  if (briefSteps.some((s) => s.detail === 'a.ts' || s.detail === 'b.ts')) {
+    fail('简要模式不该保留纯 read 步骤（翻文件不是里程碑）')
+  } else if (briefFailed.length !== 1 || briefFailed[0].issue !== '没有权限') {
+    fail(`只该留下未解决的那条失败且带人话原因, got ${JSON.stringify(briefFailed.map((s) => [s.detail, s.issue]))}`)
+  } else if (!briefSteps.some((s) => s.status === 'running' && s.detail === 'e.ts')) {
+    fail('简要模式必须保留「卡到哪了」（进行中那一步）')
+  } else if (!briefSteps.some((s) => s.detail === 'd.ts · 共 3 次')) {
+    fail(`同一文件连改 3 次应合并成一条并报出次数, got ${JSON.stringify(briefSteps.map((s) => s.detail))}`)
   } else {
-    pass('简要模式只留重要节点，连续查看收敛成一行')
+    pass('简要模式 = 进展纪要（里程碑合并 / 只报未解决的错 / 保留卡点）')
+  }
+
+  // 失败原因必须翻成人话，且认不出类别时宁可不给（不把英文报错糊到用户脸上）。
+  if (humanIssue('ENOENT: no such file or directory, open \'D:\\a\\b.ts\'') !== '找不到文件或页面'
+    || humanIssue('Request failed with status 403 Forbidden') !== '没有权限'
+    || humanIssue('connect ECONNREFUSED 127.0.0.1:3080') !== '连不上对方'
+    || humanIssue('the operation was aborted by the user') !== '被中断了') {
+    fail('humanIssue 必须把常见技术报错翻成人话')
+  } else if (humanIssue('zzz 完全无法归类的怪东西') !== undefined) {
+    fail('认不出类别的报错必须返回 undefined（宁可空着，不贴英文原文）')
+  } else if (toPlainStep({ toolName: 'read', args: {}, status: 'done', errorText: 'ENOENT' }).issue !== undefined) {
+    fail('没失败的步骤不该带 issue')
+  } else {
+    pass('失败原因翻成人话；认不出就不显示')
   }
 
   // 纯函数性：相同输入必须等价输出。
