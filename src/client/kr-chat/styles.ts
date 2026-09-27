@@ -535,7 +535,7 @@ body[data-kr-resizing="true"] * {
   display: flex;
   align-items: center;
   /* 6px（原先 8px）：标题行一行的宽度预算在窄栏下很紧，图标/标题/徽标/
-     开关/chevron 五件东西都靠这个 gap 排开。 */
+     状态开关这几件东西都靠这个 gap 排开。 */
   gap: 6px;
   cursor: pointer;
   user-select: none;
@@ -910,18 +910,14 @@ body[data-kr-resizing="true"] * {
   color: var(--dsw-alias-label-primary);
 }
 
-.kr-tool-row__chevron {
-  color: var(--dsw-alias-label-caption);
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.2s ease;
-}
-
-.kr-tool-row__chevron--open {
-  transform: rotate(180deg);
-}
+/*
+ * 单条工具调用行末尾的展开箭头（.kr-tool-row__chevron）已连同 DOM 一起删除。
+ *
+ * 它与卡片级那个是同一类东西：N 行调用就是 N 个同样的 V，而展开能力从来不靠它
+ * ——点击热区是整行 .kr-tool-row（role=button + onClick 切换），行首的状态点
+ * （对勾 / 转圈 / 叉）已经把"这条处于什么状态"说清楚了，右侧再挂一个方向箭头
+ * 只是把同一件事讲两遍。
+ */
 
 /* 展开的详情面板 */
 .kr-tool-detail-panel {

@@ -186,12 +186,6 @@ export const KrToolCallsCard = memo(function KrToolCallsCard({
                       </svg>
                     )}
                   </span>
-
-                  <span className={`kr-tool-row__chevron ${isExpanded ? 'kr-tool-row__chevron--open' : ''}`}>
-                    <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8">
-                      <path d="M2.5 4.5 6 8 9.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </span>
                 </div>
 
                 {/* 点击展开后的详细调用面板 */}
