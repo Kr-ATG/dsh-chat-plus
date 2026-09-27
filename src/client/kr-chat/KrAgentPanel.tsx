@@ -623,22 +623,13 @@ export const KrAgentPanel = memo(function KrAgentPanel({
           maxRows={reasoningRows}
         />
 
-        {/* 工具调用卡片 */}
-        <KrToolCallsCard
-          tools={toolViews}
-          onInspectCall={(callId) => {
-            try {
-              actStore.handlers().inspectCall(callId)
-            } catch (err) {
-              console.warn('[kr-agent-panel] inspectCall error', err)
-            }
-          }}
-        />
+        {/* 人话行动流。给不懂技术的用户看的一张：「已经做了什么」来自工具调用
+            事实（工具调用卡那一份，只是翻成了人话），「准备做什么」来自模型自己
+            播报的预告。
 
-        {/* 人话行动流：工具调用卡之下。给不懂技术的用户看的一张——
-            「已经做了什么」来自上面的工具调用事实，「准备做什么」来自模型
-            自己播报的预告。放在末尾而不是置顶，是因为它是复盘用的完整流水，
-            置顶会跟「任务概览」抢第一眼的注意力。 */}
+            工具调用卡原先就挂在它上面，现在挪到 footer 去了 —— 两张卡讲的是同一
+            批事件，参数与原始返回在「技术细节」里也都给全了，工具卡留在思考下面
+            纯属碍眼。 */}
         {KR_PLAIN_TIMELINE_CARD_VISIBLE && (
           <KrPlainTimelineCard
             timeline={plainTimeline}
@@ -649,18 +640,41 @@ export const KrAgentPanel = memo(function KrAgentPanel({
         )}
       </div>
 
-      {/* 记忆卡停靠区：滚动区之下的独立 flex footer（.kr-panel__memory-dock）。
-          不再放滚动容器内部——sticky 只能在「内容溢出且滚动」时贴底，内容少时
-          卡片会悬在中间；独立 footer 才能做到「永远钉在右栏最下方」。分「工作区
-          记忆 / 全局记忆」两个分区，支持多选批量删除。
+      {/*
+        右栏底部：滚动区之外的独立 flex footer（.kr-panel__memory-dock）。
+        不放滚动容器内部——sticky 只能在「内容溢出且滚动」时贴底，内容少时卡片会
+        悬在中间；独立 footer 才能做到「永远钉在右栏最下方」。
 
-          footer 现在恒不为空：用时细行常驻在上方，即使记忆卡因「本会话没有新增」
-          而 return null，这一行也照旧在（它跟记忆无关）。 */}
-      {(KR_MEMORY_CARD_VISIBLE || elapsedMeasured) && (
+        自上而下三块：
+          用时        —— 本轮耗时，逐秒走
+          工具调用    —— 技术视角，**默认整块折叠**（标题行只留「工具调用 (N)」与
+                        「展开 N 次调用」）。从思考卡下面挪到这里：它和人话行动
+                        流讲的是同一批事件，留在思考下面纯属碍眼；挪到最底部
+                        后不打断「任务 → 思考 → 正在做什么」的阅读主线，需要
+                        翻参数、退出码、轨迹定位时往下翻即可。它仍保有两样
+                        人话卡没有的东西：执行结果/入参/原始数据三个页签，以及
+                        「轨迹定位」跳官方轨迹视图。
+          记忆        —— 保持钉在最后，维持用户已有的空间习惯；分「工作区记忆 /
+                        全局记忆」两个分区，支持多选批量删除。
+
+        footer 因而不再有 :empty：用时细行常驻，即使记忆卡因「本会话没有新增」
+        而 return null，上面的用时与工具调用也照旧在（它们与记忆无关）。
+      */}
+      {(KR_MEMORY_CARD_VISIBLE || elapsedMeasured || toolViews.length > 0) && (
         <div className="kr-panel__memory-dock">
           {elapsedMeasured && (
             <KrTurnTimer text={durationText} running={currentRunning && !isViewingHistory} />
           )}
+          <KrToolCallsCard
+            tools={toolViews}
+            onInspectCall={(callId) => {
+              try {
+                actStore.handlers().inspectCall(callId)
+              } catch (err) {
+                console.warn('[kr-agent-panel] inspectCall error', err)
+              }
+            }}
+          />
           {KR_MEMORY_CARD_VISIBLE && (
             <KrMemoryCard
               squeezed={reasoningRows < REASONING_MAX_ROWS}

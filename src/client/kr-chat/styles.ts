@@ -1762,10 +1762,26 @@ body[data-kr-resizing="true"] * {
 .kr-panel__memory-dock {
   flex: none;
   padding: 0 12px 12px;
-  /* 同样透明：footer 只是把记忆卡钉在下方，不该自己带一块底色。 */
+  /* 同样透明：footer 只是把「用时 / 工具调用 / 记忆」钉在下方，不该自己带一块底色。 */
   background: var(--kr-canvas-bg);
   display: flex;
   flex-direction: column;
+  /* 三块之间留呼吸。用时行原有的 padding-bottom 相应收到 0，避免双重间距。 */
+  gap: 8px;
+}
+
+/*
+ * 工具调用卡挪进 footer 之后的必要封顶。
+ *
+ * 滚动区是 flex:1 + overflow-y:auto，内容多长都由它吸收；**footer 不是滚动
+ * 容器**。工具调用卡展开后每个调用都会铺开结果/入参/原始数据三页签 + 台账，
+ * 在 footer 里没有任何约束，展开一次就能把右栏下半截全顶走、把思考卡挤没。
+ * 这里给明细列表封顶 + 内部滚动，footer 的膨胀就有了上限。
+ */
+.kr-panel__memory-dock .kr-tools-list {
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* 记忆卡「没有本会话新增就整卡不渲染」时，dock 里一个子节点都不剩。
@@ -1786,7 +1802,8 @@ body[data-kr-resizing="true"] * {
   align-items: center;
   gap: 6px;
   min-height: 22px;
-  padding: 0 2px 6px;
+  /* 下内边距交给 .kr-panel__memory-dock 的 gap，这里保持 0 免得两处叠出双重间距。 */
+  padding: 0 2px;
   font-size: 11.5px;
   color: var(--dsw-alias-label-tertiary);
 }
