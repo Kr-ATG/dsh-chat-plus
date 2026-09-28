@@ -594,6 +594,24 @@ if (krEnabled) {
   }
 }
 
+// 思考过程卡必须贴在 KR 对话流里，不能回到右栏大盘。
+// 两处一起断：右栏不再挂这张卡；对话流侧 assistant-step 真的挂了 inline 实例。
+if (krEnabled) {
+  const panelSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8')
+  const panelCode = panelSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+  const stepSrc = readFileSync(resolve(ROOT, 'src/client/thinking/ThinkingStepNodeView.tsx'), 'utf8')
+  const stepCode = stepSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+  if (/<KrReasoningCard[\s\S]{0,200}?\/>/.test(panelCode)) {
+    fail('思考过程卡已移到 KR 对话流，右栏大盘不该再挂 <KrReasoningCard>')
+  } else if (!/isFirstStep[\s\S]{0,400}?<KrReasoningCard[\s\S]{0,200}?\sinline\b/.test(stepCode)) {
+    fail('assistant-step 座位必须在本回合首步挂 inline 形态的思考过程卡')
+  } else if (!/REASONING_MAX_ROWS/.test(reasoningCode)) {
+    fail('思考卡仍应保留 REASONING_MAX_ROWS 行数上限常量')
+  } else {
+    pass('思考过程卡贴在 KR 对话流（inline），右栏大盘不再重复挂载')
+  }
+}
+
 // 三条这轮修掉的 P1：规则形状不能回退。
 if (krEnabled) {
   const toolViewSrc = readFileSync(resolve(ROOT, 'src/client/tool-summary/ToolGroupNodeView.tsx'), 'utf8')

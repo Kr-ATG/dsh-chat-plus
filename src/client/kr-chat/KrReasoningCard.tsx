@@ -1,29 +1,37 @@
 /**
- * dsh-chat-plus — 思考过程卡片（带电灯泡图标、要点、实时跟随滚动）。
+ * dsh-chat-plus — 思考过程卡片（带电灯泡图标、实时跟随滚动）。
  *
- * 行为（2026-09 需求：实时滚动 + 可手动截停 + 最大 15 行）：
- * 1. **实时滚动**：思考流式增长时视口自动跟到底，新内容逐行出现；复用左侧
- *    实时轨道那套 `useSteppedFollow`（同一节拍与手感，两处体验一致）。
+ * 座位（2026-09-28 起）：**贴在 KR 对话流里**，由 assistant-step 座位挂在本回合
+ * 第一条助手节点上（见 ThinkingStepNodeView），右栏大盘里那张已整块移除——
+ * 思考是「这一轮正文的一部分」，摆在右栏等于要用户来回对照两栏才能把一段思考
+ * 和它对应的回答读在一起。普通「对话」视图不挂这张卡（那边由官方 ReasoningRow
+ * 自己渲染）。
+ *
+ * 行为：
+ * 1. **实时滚动**：思考流式增长时视口自动跟到底，新内容逐行出现；复用对话流
+ *    实时轨道那套 `useSteppedFollow`（同一节拍与手感）。
  * 2. **可手动截停**：向上滚动即停住跟随（读者要往回看时不会被拽走），
  *    滚回底部（≤24px）自动恢复；选中文字期间也不跟随。
- * 3. **最大 15 行**：视口高度按 15 行封顶（见 CSS --kr-reasoning-rows），
- *    超出部分在视口内滚动，不再把卡片撑成长条。行数上限可由
- *    `maxRows` prop 覆盖——右栏被常驻的记忆卡挤压时，大盘会传一档更小的值。
+ * 3. **行数封顶**：视口高度按 `maxRows` 行封顶（见 CSS --kr-reasoning-rows），
+ *    超出部分在视口内滚动，不再把卡片撑成长条。
+ * 4. **回合进行中自动展开、收口自动折叠**（`inline` 模式）：思考正在长的时候
+ *    摊开给人看，模型转入总结后自动收成标题一行（带动画），让位给正式回答。
+ *    历史轮次进来就是折叠态，点标题行随时能展开重读。
  *
  * 与旧版的差异：旧版是「默认 3 条 + 展开其余 N 项」的静态列表；现在改成
  * 有界视口内的完整文本流——内容不再被截断，滚动由用户掌控。
  */
-import { memo, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { useMotionAllowed, useSteppedFollow } from '../motion-utils.ts'
+import { useHeightAnimation, useMotionAllowed, useSteppedFollow } from '../motion-utils.ts'
 import { KrFreshText } from './KrFreshText.tsx'
 
 /**
  * 视口最多显示的行数（超出在视口内滚动）。
  *
- * 12 → 16 行（≈307px，比上一版多 80px）：这是用户按实际观感定的档——12 行太
- * 紧，读不出本轮思路的走向；16 行既读得到走向，操作面板与任务概览仍能同屏。
- * 它排在操作面板上面，思考是背景，够看清即可。
+ * 16 行 ≈ 307px：对话流里这条卡要「看得见但别抢正文」，12 行太紧读不出本轮
+ * 思路的走向，20 行以上又开始压过正式回答。留 16 行是「读得到走向，正式回答
+ * 仍在视野中心」之间的平衡点。
  */
 export const REASONING_MAX_ROWS = 16
 
@@ -31,19 +39,45 @@ export interface ReasoningCardProps {
   readonly reasoningTexts: readonly string[]
   readonly running: boolean
   /**
-   * 视口行数上限。默认 REASONING_MAX_ROWS；右栏被挤压时由 KrAgentPanel 经
-   * use-adaptive-rows.ts 算出一档更小的值传进来（记忆卡常驻底部会挤掉高度）。
+   * 视口行数上限。默认 REASONING_MAX_ROWS。
+   *
+   * 内联模式（对话流）不再有右栏挤压问题，这个值由调用方按需给；右栏模式保留
+   * 该 prop 是为兼容仍在传的 maxRows。
    */
   readonly maxRows?: number
+  /**
+   * 内联模式：贴在对话流里，随回合状态自动展开 / 折叠。
+   *
+   * true 时：回合进行中展开并跟随滚动；running 由 true 翻 false 的那一刻起
+   * 播一次高度收拢动画并停在折叠态（用户此后仍可点标题行展开）。
+   * 初次挂载时 running 已经是 false 的（历史轮次）直接从折叠态起步。
+   */
+  readonly inline?: boolean
 }
 
 export const KrReasoningCard = memo(function KrReasoningCard({
   reasoningTexts,
   running,
   maxRows = REASONING_MAX_ROWS,
+  inline = false,
 }: ReasoningCardProps) {
-  const [collapsed, setCollapsed] = useState(false)
+  // 内联模式的初始态跟着 running 走：正在跑就展开（要看它长），已经收口就折叠。
+  const [collapsed, setCollapsed] = useState(inline ? !running : false)
   const motion = useMotionAllowed(true)
+
+  /*
+   * 收口自动折叠：只在 running 由 true→false 的**那一次**翻转上触发。
+   *
+   * 判据必须是翻转而不是 `!running` 的持续态——后者会在用户手动展开历史轮次
+   * 后被下一次重渲染立刻按回去，「点开看看」这个动作根本留不住。
+   */
+  const wasRunningRef = useRef(running)
+  useEffect(() => {
+    const was = wasRunningRef.current
+    wasRunningRef.current = running
+    if (!inline || !was || running) return
+    setCollapsed(true)
+  }, [inline, running])
 
   /*
    * 完整保留：只按行拆开、去掉空行，不做任何"要点抽取"。
@@ -71,14 +105,29 @@ export const KrReasoningCard = memo(function KrReasoningCard({
   const followActive = running && !collapsed
   const { ref, onScroll, onWheel, edges, overflow, following } =
     useSteppedFollow(probe, followActive, motion)
+  // 折叠/展开的高度补间（收口那一帧看得见让位过程）。
+  const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(!collapsed, motion)
 
   if (reasoningTexts.length === 0 && !running) return null
 
   const hasContent = points.length > 0
+  const open = !collapsed
 
   return (
-    <div className="kr-card kr-card--reasoning">
-      <div className="kr-card__header" onClick={() => setCollapsed(!collapsed)}>
+    <div className="kr-card kr-card--reasoning" data-inline={inline || undefined} data-open={open || undefined}>
+      <div
+        className="kr-card__header"
+        onClick={() => setCollapsed((value) => !value)}
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            setCollapsed((value) => !value)
+          }
+        }}
+      >
         <span className="kr-card__icon">
           {/* 电灯泡线框无色彩矢量图标 */}
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
@@ -88,6 +137,16 @@ export const KrReasoningCard = memo(function KrReasoningCard({
         <span className="kr-card__title">
           思考过程 {hasContent ? `(${points.length})` : running ? '(思考中…)' : ''}
         </span>
+        {/*
+         * 折叠时的一枚小 chevron：内联模式下这张卡收口后只剩标题一行，
+         * 没有它用户不知道点标题还能展开（.kr-card__chevron 旧样式已随右栏
+         * 那套删除，这里内联卡自己带一枚，跟着 data-open 转 90°）。
+         */}
+        <span className="kr-reasoning-chevron" aria-hidden>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 6.2 8 10.2l4-4" />
+          </svg>
+        </span>
         {/* 跟随状态提示：截停时给出明确反馈（否则用户不知道为何不再滚动） */}
         {followActive && overflow && (
           <span className="kr-card__follow" data-following={following ? 'true' : 'false'}>
@@ -96,8 +155,19 @@ export const KrReasoningCard = memo(function KrReasoningCard({
         )}
       </div>
 
-      {!collapsed && (
-        <div className="kr-reasoning-list">
+      {/*
+       * 折叠体走 useHeightAnimation：收口那一帧是「高度从当前量归零」的补间，
+       * 不是内容瞬间消失。思考卡此刻正贴在正式回答上方，让位的过程被看见，
+       * 回答才是「顶上来」的而不是「被替换掉的」。
+       */}
+      {(bodyPresent || open) && (
+        <div
+          ref={bodyRef}
+          className="kr-reasoning-list"
+          data-open={open || undefined}
+          aria-hidden={!open}
+          {...(!open ? { inert: '' } : {})}
+        >
           {hasContent ? (
             <div
               className="kr-reasoning-view"

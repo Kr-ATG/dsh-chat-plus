@@ -779,6 +779,91 @@ body[data-kr-resizing="true"] * {
   .kr-reasoning-view { -webkit-mask-image: none !important; mask-image: none !important; }
 }
 
+/* ══ 思考过程卡：贴在 KR 对话流里的内联形态 ═══════════════════════════════
+   这张卡原先住在右栏大盘（滚动区三张卡之一），2026-09-28 按用户要求整体搬进
+   对话流，改由 assistant-step 座位挂在每回合第一条助手节点上（见
+   ThinkingStepNodeView）。下面这一段是它离开右栏后新增的：变量作用域、尺寸
+   口径、折叠态与收起动效。 */
+
+/*
+ * 变量重声明。
+ *
+ * 右栏里那张卡能直接吃 :root / .kr-split 上那套 --kr-*，因为它在
+ * .kr-split__side 子树里；搬进对话流后它在**主区**，--kr-card-bg 之类
+ * 在 :root 上声明时求值不到 body 上的 --dsw-alias-*（html 上没有这些 token），
+ * 会静默走 fallback —— 深色下卡片照样纯白，不报任何错。因此这里在卡自己
+ * 身上重声明一次（与 .kr-agent-mini-shell 同一处理，理由见那里的注释）。
+ */
+.kr-card--reasoning[data-inline] {
+  --kr-accent: var(--dsw-alias-state-business-primary, #4176e6);
+  --kr-card-bg: var(--dsw-alias-bg-layer-1, #ffffff);
+  --kr-card-border: var(--dsw-alias-border-l1, rgba(0, 0, 0, .06));
+  --kr-card-hover: var(--dsw-alias-border-l2, rgba(0, 0, 0, .16));
+  --kr-hover-bg: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, .06));
+  --kr-card-shadow: var(--kr-float-shadow, 0 1px 2px rgba(15, 17, 21, .04), 0 8px 24px -18px rgba(15, 17, 21, .28));
+  --kr-card-shadow-hover: 0 2px 4px rgba(15, 17, 21, .06), 0 12px 22px -14px rgba(15, 17, 21, .26);
+  font-family: var(--dsw-font-family, inherit);
+  /* 不占满整行：思考是这一轮的**背景材料**，与正式回答同一列宽即可，
+     铺满会把它读成与回答并列的另一条消息。 */
+  align-self: flex-start;
+  max-width: 100%;
+  width: auto;
+  /* 折叠态只剩标题一行时的横向内距：右栏那张 10px/12px 是给三张卡纵向堆叠
+     用的省空间口径，内联卡独占一行，上下留够呼吸。 */
+  padding: 8px 12px;
+  gap: 6px;
+}
+
+/* 内联态的字级跟着正文走：右栏 12px 是窄栏里塞更多行的取舍，对话流里
+   思考与回答同列，差一级会读成两种东西。 */
+.kr-card--reasoning[data-inline] .kr-reasoning-list {
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* 折叠态：只留标题行 + 一枚 chevron，不再有上下 padding 撑出空盒。 */
+.kr-card--reasoning[data-inline]:not([data-open]) {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.kr-reasoning-chevron {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-label-tertiary);
+  transition: transform .22s cubic-bezier(.16, 1, .3, 1), color .18s ease;
+}
+
+.kr-card--reasoning[data-open] .kr-reasoning-chevron {
+  transform: rotate(180deg);
+}
+
+.kr-card__header:hover .kr-reasoning-chevron {
+  color: var(--dsw-alias-label-secondary);
+}
+
+/*
+ * 折叠体的高度补间由 useHeightAnimation 用 WAAPI 直接改 inline height，
+ * 这里只需要给一个起点：折叠时内容仍在 DOM（present 期间）但不可见，
+ * overflow:hidden + height 由 hook 写死，这里不重复声明，免得两边各写一份
+ * 互相覆盖。data-open 供样式钩子与调试查看当前态。
+ */
+.kr-card--reasoning[data-inline] .kr-reasoning-list:not([data-open]) {
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+
+.kr-card--reasoning[data-inline] .kr-reasoning-list[data-open] {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-reasoning-chevron { transition: none; }
+  .kr-card--reasoning[data-inline] .kr-reasoning-list { transition: none; }
+}
+
 /* 跟随状态提示（只在截停时出现，给用户明确反馈） */
 .kr-card__follow {
   flex: none;

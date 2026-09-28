@@ -10,9 +10,8 @@ import { toolArgsRaw } from '../tool-summary/activity-view-model.ts'
 import { useNow } from '../tool-summary/use-now.ts'
 import { getKrChatStore, PANEL_WIDTH_MAX, PANEL_WIDTH_MIN } from './kr-chat-store.ts'
 import { KrTaskOverviewCard, type DshTaskItem } from './KrTaskOverviewCard.tsx'
-import { KrReasoningCard, REASONING_MAX_ROWS } from './KrReasoningCard.tsx'
 import { KrMemoryCard } from './KrMemoryCard.tsx'
-import { useAdaptiveReasoningRows } from './use-adaptive-rows.ts'
+import { usePanelSqueezed } from './use-adaptive-rows.ts'
 import { ShotPanel } from '../shot/Panel.tsx'
 import { collectMessages, deriveCurrentDialogueTitle, type ShotRange, type ShotMessage } from '../shot/collect.ts'
 import { useModalClose } from '../modal-animation.ts'
@@ -273,11 +272,13 @@ export const KrAgentPanel = memo(function KrAgentPanel({
 
   /* ── 右栏挤压自适应 ─────────────────────────────────────────────────────
      记忆卡是滚动区之下的独立 flex footer（永远钉在右栏最下方，不可挤压），
-     滚动区 flex:1 1 0 自动让出剩余高度。footer 高度变化会压缩滚动区，使
-     「任务/思考/工具」三张卡溢出，唯一可让的尺寸是思考卡的视口行数：
+     滚动区 flex:1 1 0 自动让出剩余高度。footer 太高时滚动区内容放不下，
+     此刻让操作面板与记忆卡各自缩一档：
        · 记忆卡条目变化 → KrMemoryCard 经 onContentChange 把 memoryTick +1；
        · 思考/工具内容变化 → 下面那份 fingerprint 跟着变；
-       · 两者任一变化都让 useAdaptiveReasoningRows 重测，按溢出程度定一档行数。 */
+       · 两者任一变化都让 usePanelSqueezed 重测一次。
+     思考过程卡已于 2026-09-28 移到 KR 对话流内联展示（右栏不再有可缩放的
+     思考视口），所以这里保留的只是「挤了没有」这一个布尔量。 */
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const [memoryTick, setMemoryTick] = useState(0)
   const handleMemoryContentChange = useCallback(() => { setMemoryTick((tick) => tick + 1) }, [])
@@ -286,7 +287,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     [reasoningTexts],
   )
   const heightFingerprint = `${memoryTick}|${reasoningChars}|${reasoningTexts.length}|${tools.length}|${tasks.length}|${plainTimeline.steps.length}|${plainTimeline.intent ?? ''}`
-  const reasoningRows = useAdaptiveReasoningRows(scrollRef, heightFingerprint)
+  const panelSqueezed = usePanelSqueezed(scrollRef, heightFingerprint)
 
   // 会话切换（新建 / 切换 / 离开）时重置本面板的本地视图状态，
   // 避免「截图弹窗开着」被带到新会话。
@@ -536,12 +537,10 @@ export const KrAgentPanel = memo(function KrAgentPanel({
         {/* 任务概览卡片：常驻，无任务时给一行低对比度空态 */}
         <KrTaskOverviewCard tasks={tasks} isRunning={currentRunning} />
 
-        {/* 思考过程卡片（行数随右栏挤压自适应：默认 25 行，空间不够自动降档） */}
-        <KrReasoningCard
-          reasoningTexts={reasoningTexts}
-          running={currentRunning}
-          maxRows={reasoningRows}
-        />
+        {/* 思考过程卡已从右栏移出，改为贴在 KR 对话流里（见 ThinkingStepNodeView
+            挂的 KrReasoningCard inline 模式）：思考与它对应的回答是同一件事的
+            两半，分两栏摆就得来回对照才读得完整。thinking 文本在本面板仍要留
+            一份——操作面板的「接下来」预告要从里面抽播报句。 */}
 
         {/* 人话行动流（「操作面板」卡）。给不懂技术的用户看的一张：「已经做了什么」
             来自工具调用事实，「准备做什么」来自模型自己播报的预告。原先下面还挂
@@ -551,7 +550,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
           <KrPlainTimelineCard
             timeline={plainTimeline}
             running={currentRunning}
-            squeezed={reasoningRows < REASONING_MAX_ROWS}
+            squeezed={panelSqueezed}
             sessionId={latestChatSessionId}
           />
         )}
@@ -573,7 +572,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
       {KR_MEMORY_CARD_VISIBLE && (
         <div className="kr-panel__memory-dock">
           <KrMemoryCard
-            squeezed={reasoningRows < REASONING_MAX_ROWS}
+            squeezed={panelSqueezed}
             onContentChange={handleMemoryContentChange}
           />
         </div>

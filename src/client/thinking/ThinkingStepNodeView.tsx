@@ -10,9 +10,11 @@
  *  2. **KR 过程是一张瞬态活动卡**：由 turn-process 的 per-turn 座位聚合
  *     分析、思考与工具调用到有界时间线，自动跟随滚动；最终回答出现后整卡
  *     上移淡出。回合正文仍保持官方链路，结束后才包步骤 / 总结卡。
- *  3. **非 KR 对话不展示思考折叠**：普通「对话」视图把 thinking block 从官方
- *     AssistantNodeView 输入中过滤掉，也不写入普通活动抽屉；KR 视图仍由
- *     turn-process 活动卡与右侧大盘完整展示思考。
+ *  3. **思考过程卡贴在 KR 对话流里**：挂在本回合第一条助手节点上（isFirstStep
+ *     门控，一个回合一张），回合进行中展开跟随，收口自动折叠让位给正式回答。
+ *     右栏大盘里原先那张思考卡已随之移除——思考与回答是同一件事的两半，分两栏
+ *     摆就得来回对照才读得完整。普通「对话」视图不受影响：那边由官方
+ *     ReasoningRow 自己渲染，本组件整体委托回官方 AssistantNodeView。
  *
  * 总结卡门控不变：turn.status === 'closed'（或中断）后，中间片段变轻量步骤
  * 卡，最终回复变总结卡（纯正文外壳，头部统计行已移除）。
@@ -41,6 +43,7 @@ import { GeneratedImageStrip } from '../generated-images/GeneratedImageStrip.tsx
 import { useGeneratedImages } from '../generated-images/use-generated-images.ts'
 import { getKrChatStore } from '../kr-chat/kr-chat-store.ts'
 import { KR_CHAT_ENABLED } from '../kr-chat/enabled.ts'
+import { KrReasoningCard } from '../kr-chat/KrReasoningCard.tsx'
 import { getOfficialAssistantNodeView } from '../index.ts'
 import { latestChatSnapshot, setLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
 
@@ -302,7 +305,6 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
 
   // 普通「对话」不展示思考 chip；KR 过程由 turn-process 座位上的实时活动卡承接。
   // 即使官方 assistant-step 捕获失败而落到本组件的自有 renderer，也不能恢复旧折叠。
-  const chip = undefined
   const streaming = data.status === 'running'
   const interrupted = data.status === 'interrupted'
   // 卡片只在「回合已结束」时出现（含中断）：流式期不包卡，保住流式输出；
@@ -365,7 +367,29 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
   const showBody = !hideProcessText || isLastStep || isClosingReply || interrupted
   const shown = showBody ? rendered : []
 
-  if (shown.length === 0 && chip === undefined && gallery === undefined) return null
+  /*
+   * 思考过程卡：**贴在 KR 对话流里**，挂在本回合第一条助手节点上。
+   *
+   * 为什么回到对话流：思考与它对应的回答是同一件事的两半，摆在右栏大盘里
+   * 就得来回对照两栏才读得完整。挂在首步（isFirstStep）而不是每步各挂一张：
+   * 一个回合只该有一张思考卡，否则工具调用把它切成好几段、每段都断在半截。
+   *
+   * running 用 turnRunning 而不是 data.status：工具执行期 assistant-step 往往
+   * 已经不在 running 了，但那段时间思考轨仍在、卡也不该先收起来。
+   * inline 模式让这张卡自己管展开/折叠：跑着的时候摊开跟着长，转入总结后
+   * 自动收成标题一行给正式回答让位（见 KrReasoningCard）。
+   */
+  const inlineReasoning = KR_CHAT_ENABLED && isKrMode && isFirstStep && reasoningItems.length > 0
+    ? (
+      <KrReasoningCard
+        reasoningTexts={reasoningItems.map((item) => item.text)}
+        running={turnRunning}
+        inline
+      />
+    )
+    : undefined
+
+  if (shown.length === 0 && inlineReasoning === undefined && gallery === undefined) return null
 
   return (
     <div
@@ -374,7 +398,7 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
       data-running={turnRunning || undefined}
     >
       <div className="dtt__assistant-body">
-        {chip}
+        {inlineReasoning}
         {shown.length > 0 && (variant !== undefined
           ? <FlowCard variant={variant} interrupted={interrupted}>{shown}{gallery}</FlowCard>
           : <>{shown}{gallery}</>)}
