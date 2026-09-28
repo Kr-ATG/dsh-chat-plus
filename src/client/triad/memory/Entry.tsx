@@ -34,7 +34,7 @@ export function MemoryNavApp(): JSX.Element | null {
   const [open, setOpen] = useState(false)
   const [anchor, setAnchor] = useState<PopoverAnchor | null>(null)
   const [initialTab, setInitialTab] = useState<MemoryTab>('all')
-  const { closing, requestClose } = useModalClose(open, () => { setOpen(false) })
+  const { closing, requestClose, cancelClose } = useModalClose(open, () => { setOpen(false) })
   usePanelAutoClose('memory', open, requestClose)
 
   const openPanel = (tab: MemoryTab): void => {
@@ -65,7 +65,16 @@ export function MemoryNavApp(): JSX.Element | null {
           //
           // 同时把 markRead 挪进「真的要打开」的分支：否则「面板已经开着还去点
           // 这一行」会在收起的同时静默清掉未读角标。
-          if (open || closing) { requestClose(); return }
+          //
+          // 退场动画那 200ms 里再点是「弹回」而不是「收起」：此时
+          // requestClose 会被自己的 closingRef 挡下、什么都不做，而
+          // 动画结束又会把面板关掉——用户看到的正是按钮突然失灵。
+          if (closing) {
+            cancelClose()
+            setAnchor(navAnchorFrom(e.currentTarget))
+            return
+          }
+          if (open) { requestClose(); return }
           setAnchor(navAnchorFrom(e.currentTarget))
           openPanel(unread.count > 0 ? 'changes' : 'home')
         }}

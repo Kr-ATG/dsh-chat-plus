@@ -33,9 +33,29 @@ function UsagePanelEntry(): JSX.Element {
   ensureShellStyles()
   const [open, setOpen] = useState(false)
   const [anchor, setAnchor] = useState<PopoverAnchor | null>(null)
-  const { closing, requestClose } = useModalClose(open, () => { setOpen(false) })
+  const { closing, requestClose, cancelClose } = useModalClose(open, () => { setOpen(false) })
   const rail = useRail()
   usePanelAutoClose('usage', open, requestClose)
+
+  // 导航行是这一格唯一的开关，三种落点必须各自成立：
+  //   退场中 → 原地弹回（必须清掉待执行的关闭，否则动画结束时仍会把它关掉）
+  //   已打开 → 收起
+  //   已关闭 → 打开
+  const toggle = (e: React.MouseEvent<HTMLButtonElement>): void => {
+    e.stopPropagation()
+    const next = anchorFromEvent(e)
+    if (closing) {
+      cancelClose()
+      if (next !== null) setAnchor(next)
+      return
+    }
+    if (open) {
+      requestClose()
+      return
+    }
+    if (next !== null) setAnchor(next)
+    setOpen(true)
+  }
 
   return (
     <>
@@ -44,17 +64,7 @@ function UsagePanelEntry(): JSX.Element {
         label="用量"
         rail={rail}
         expanded={open}
-        onClick={e => {
-          e.stopPropagation()
-          // 已打开（哪怕正在退场）时再点同一行 = 收起，与「自动化」入口一致。
-          // 少了这个分支：sidebar-nav 的自动关闭刻意把导航行排除在「点外面
-          // 关闭」之外（那是为了配合 toggle 语义），于是 setOpen(true) 打在
-          // 已打开的状态上毫无变化、又不会被自动关闭接手 —— 四个外观完全相同
-          // 并排的入口里，只有自动化响应第二次点击，这三个像坏了。
-          if (open || closing) { requestClose(); return }
-          setAnchor(anchorFromEvent(e))
-          setOpen(true)
-        }}
+        onClick={toggle}
       />
       {/* 面板单独包边界：面板内部崩了只收面板，导航行按钮留着（否则 React 18
           会卸载整个 root，侧边栏入口凭空消失且控制台无痕）。 */}
@@ -73,9 +83,25 @@ function SkillsEntry(): JSX.Element {
   ensureShellStyles()
   const [open, setOpen] = useState(false)
   const [anchor, setAnchor] = useState<PopoverAnchor | null>(null)
-  const { closing, requestClose } = useModalClose(open, () => { setOpen(false) })
+  const { closing, requestClose, cancelClose } = useModalClose(open, () => { setOpen(false) })
   const rail = useRail()
   usePanelAutoClose('skills', open, requestClose)
+  // 同 UsagePanelEntry：退场中再点是弹回，不是收起。
+  const toggle = (e: React.MouseEvent<HTMLButtonElement>): void => {
+    e.stopPropagation()
+    const next = anchorFromEvent(e)
+    if (closing) {
+      cancelClose()
+      if (next !== null) setAnchor(next)
+      return
+    }
+    if (open) {
+      requestClose()
+      return
+    }
+    if (next !== null) setAnchor(next)
+    setOpen(true)
+  }
   return (
     <>
       {/* 能力（闪电，Feather zap 线性风，与自动化/记忆的自绘图标同款描边） */}
@@ -88,13 +114,7 @@ function SkillsEntry(): JSX.Element {
         label="能力"
         rail={rail}
         expanded={open}
-        onClick={e => {
-          e.stopPropagation()
-          // 同 UsagePanelEntry：已打开时再点 = 收起。
-          if (open || closing) { requestClose(); return }
-          setAnchor(anchorFromEvent(e))
-          setOpen(true)
-        }}
+        onClick={toggle}
       />
       {open && (
         <ErrorBoundary label="技能面板" fallback={null} onError={requestClose}>

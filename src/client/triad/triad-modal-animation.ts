@@ -116,10 +116,17 @@ export const modalStaggerClass = 'dsh-modal-stagger'
 
 /**
  * 弹窗关闭动画状态机：先置 closing 播放收回动画，结束后再真正 onClose。
- * `open` 由入口传入：弹窗再次打开时重置 closing（否则上一次收回动画会把
- * closing 卡在 true，重开后弹窗透明且遮罩挡住整页）。
+ *
+ * 收口必须发生在动画结束的那一刻，而不只是「下次打开时」：入口的
+ * onClick 是 `if (open || closing) { requestClose(); return }`，所以
+ * closing 一旦停在 true，再点就永远走 requestClose 分支；而
+ * requestClose 开头是 `if (closingRef.current) return`，那个 ref 同样
+ * 停在 true。两处一起卡死，弹窗再也打不开——曾只在「用量」入口暴露，
+ * 因为它是唯一点开后再关、然后立刻重试的。
+ * `open` 时的复位保留：它负责「连点两次、第二次在退场中就重开」时
+ * 跳过剩余动画。
  */
-export function useModalClose(open: boolean, onClose: () => void, durationMs = MODAL_ANIM_MS): { closing: boolean; requestClose: () => void } {
+export function useModalClose(open: boolean, onClose: () => void, durationMs = MODAL_ANIM_MS): { closing: boolean; requestClose: () => void; cancelClose: () => void } {
   const [closing, setClosing] = useState(false)
   const timerRef = useRef<number | null>(null)
   const closingRef = useRef(false)
@@ -137,13 +144,33 @@ export function useModalClose(open: boolean, onClose: () => void, durationMs = M
     closingRef.current = true
     setClosing(true)
     timerRef.current = window.setTimeout(() => {
+      // 退场播完：把两个标志一起收口，状态机才回到「已关闭、可重开」。
+      closingRef.current = false
+      setClosing(false)
       onClose()
     }, durationMs)
   }, [onClose, durationMs])
+
+  /**
+   * 撤销一次尚未播完的退场，面板原地弹回。
+   *
+   * 少了它，「点关闭后马上再点开」会落在退场动画那 200ms 窗口里，
+   * 被 requestClose 开头的 `if (closingRef.current) return` 吞掉——用户
+   * 看到的就是按钮失灵。此处也要清掉定时器，否则 onClose 仍会在窗口
+   * 结束时把已经弹回的面板关掉。
+   */
+  const cancelClose = useCallback(() => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    closingRef.current = false
+    setClosing(false)
+  }, [])
 
   useEffect(() => () => {
     if (timerRef.current !== null) window.clearTimeout(timerRef.current)
   }, [])
 
-  return { closing, requestClose }
+  return { closing, requestClose, cancelClose }
 }
