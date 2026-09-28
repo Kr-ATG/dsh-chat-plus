@@ -259,6 +259,28 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
       .filter((block): block is Extract<AssistantBlockLike, { kind: 'reasoning' }> => block.kind === 'reasoning')
       .map(block => ({ text: block.text, running: stepRunning, step: step.data.step }))
   }), [steps])
+  /*
+   * 喂给思考卡的文本数组必须**引用稳定**，否则那张卡的一切 memo 全部失效。
+   *
+   * `reasoningItems.map(...)` 每次渲染都产出新数组：KrReasoningCard 的 memo
+   * 被打穿 → 内部 points 的 useMemo 被打穿 → 每帧把整轮思考 join + split +
+   * trim + filter 重跑一遍，几千字时这一下就是几毫秒，外加 probe 再把全文
+   * join 成一个大字符串。流式期每来一个 delta 就重来一轮，思考越长越卡——
+   * 这正是「思考过程有点多的时候就会很卡」的成因之一。
+   *
+   * 这里用**长度序列指纹**做依赖（同仓库 KrAgentPanel 的 fingerprintTurnData
+   * 同一手法）：思考是纯追加流式（KrFreshText 的注释也这么认定），长度序列
+   * 单调增长，指纹不变即内容不变，于是数组引用也跟着不变。
+   */
+  const reasoningSignature = useMemo(
+    () => reasoningItems.map((item) => item.text.length).join(','),
+    [reasoningItems],
+  )
+  const stableReasoningTexts = useMemo<readonly string[]>(
+    () => reasoningItems.map((item) => item.text),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [reasoningSignature],
+  )
   const isFirstStep = steps.length > 0 && node.key === steps[0]?.key
   const toolsRunning = toolNodes.some((toolNode) => {
     try { return isRunning(toolNode.data.root) } catch { return false }
@@ -374,16 +396,22 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
    * 就得来回对照两栏才读得完整。挂在首步（isFirstStep）而不是每步各挂一张：
    * 一个回合只该有一张思考卡，否则工具调用把它切成好几段、每段都断在半截。
    *
+   * **折叠时机 = 总结卡出现**（summarizing = isClosingReply || interrupted），
+   * 不是回合收口。回合 closed 只说明「模型这一轮说完了」，工具间隙的回合更是
+   * closed 了大半程；真正的分界是最终回答（总结卡）开始出现在对话流里——此前
+   * 思考还在源源不断长，卡就该一直摊开着跟随滚动；总结卡一出现就收成标题一行
+   * 给它让位。中断等同总结（这一轮不会再有回答了）。
+   *
    * running 用 turnRunning 而不是 data.status：工具执行期 assistant-step 往往
    * 已经不在 running 了，但那段时间思考轨仍在、卡也不该先收起来。
-   * inline 模式让这张卡自己管展开/折叠：跑着的时候摊开跟着长，转入总结后
-   * 自动收成标题一行给正式回答让位（见 KrReasoningCard）。
    */
+  const summarizing = isClosingReply || interrupted
   const inlineReasoning = KR_CHAT_ENABLED && isKrMode && isFirstStep && reasoningItems.length > 0
     ? (
       <KrReasoningCard
-        reasoningTexts={reasoningItems.map((item) => item.text)}
+        reasoningTexts={stableReasoningTexts}
         running={turnRunning}
+        summarizing={summarizing}
         inline
       />
     )

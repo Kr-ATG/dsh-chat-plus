@@ -779,6 +779,37 @@ body[data-kr-resizing="true"] * {
   .kr-reasoning-view { -webkit-mask-image: none !important; mask-image: none !important; }
 }
 
+/* 「向上翻看更早的行」入口：它是窗口边界，不做成一枚按钮控件的样子。 */
+.kr-reasoning-more {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 4px 6px;
+  margin-bottom: 2px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  transition: background-color .16s ease, color .16s ease;
+}
+
+.kr-reasoning-more:hover {
+  background: var(--kr-hover-bg);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-reasoning-more:focus-visible {
+  outline: 2px solid var(--kr-accent);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-reasoning-more { transition: none; }
+}
+
 /* ══ 思考过程卡：贴在 KR 对话流里的内联形态 ═══════════════════════════════
    这张卡原先住在右栏大盘（滚动区三张卡之一），2026-09-28 按用户要求整体搬进
    对话流，改由 assistant-step 座位挂在每回合第一条助手节点上（见

@@ -35,6 +35,15 @@ import { KrFreshText } from './KrFreshText.tsx'
  */
 export const REASONING_MAX_ROWS = 16
 
+/**
+ * 尾部窗口一次挂多少行。
+ *
+ * 视口只有 16 行，60 行足够滚四五屏仍不用「向上翻」；再往上翻才是明确的
+ * 「我要读很早以前那段」意图。挂 60 行 ≈ 120 个节点，而整轮思考可达上千行
+ * ——这一条界线就是卡与不卡的差别。
+ */
+const WINDOW_ROWS = 60
+
 export interface ReasoningCardProps {
   readonly reasoningTexts: readonly string[]
   readonly running: boolean
@@ -46,11 +55,17 @@ export interface ReasoningCardProps {
    */
   readonly maxRows?: number
   /**
-   * 内联模式：贴在对话流里，随回合状态自动展开 / 折叠。
+   * 内联模式：回合的**总结卡出现**（`summarizing`）时收拢，此前一直展开。
    *
-   * true 时：回合进行中展开并跟随滚动；running 由 true 翻 false 的那一刻起
-   * 播一次高度收拢动画并停在折叠态（用户此后仍可点标题行展开）。
-   * 初次挂载时 running 已经是 false 的（历史轮次）直接从折叠态起步。
+   * true 时：总结卡一出现就播一次高度收拢动画并停在折叠态（用户此后仍可点
+   * 标题行展开）。判据必须是**翻转**而不是 `summarizing` 的持续态——后者会在
+   * 用户手动展开历史轮次后被下一次重渲染立刻按回去，「点开看看」这个动作
+   * 根本留不住。
+   */
+  readonly summarizing?: boolean
+  /**
+   * 内联模式：贴在对话流里。默认按 running 决定初始展开/折叠；显式传
+   * summarizing 时改按它决定（收口 → 折叠）。
    */
   readonly inline?: boolean
 }
@@ -59,25 +74,24 @@ export const KrReasoningCard = memo(function KrReasoningCard({
   reasoningTexts,
   running,
   maxRows = REASONING_MAX_ROWS,
+  summarizing = false,
   inline = false,
 }: ReasoningCardProps) {
-  // 内联模式的初始态跟着 running 走：正在跑就展开（要看它长），已经收口就折叠。
-  const [collapsed, setCollapsed] = useState(inline ? !running : false)
+  // 初始态：内联且已出总结 → 折叠；其余（跑着 / 历史轮次）按旧口径。
+  const settled = summarizing || !running
+  const [collapsed, setCollapsed] = useState(inline ? settled : false)
   const motion = useMotionAllowed(true)
 
   /*
-   * 收口自动折叠：只在 running 由 true→false 的**那一次**翻转上触发。
-   *
-   * 判据必须是翻转而不是 `!running` 的持续态——后者会在用户手动展开历史轮次
-   * 后被下一次重渲染立刻按回去，「点开看看」这个动作根本留不住。
+   * 收口自动折叠：只在 summarizing 由 false→true 的**那一次**翻转上触发。
    */
-  const wasRunningRef = useRef(running)
+  const wasSettlingRef = useRef(summarizing)
   useEffect(() => {
-    const was = wasRunningRef.current
-    wasRunningRef.current = running
-    if (!inline || !was || running) return
+    const was = wasSettlingRef.current
+    wasSettlingRef.current = summarizing
+    if (!inline || !summarizing || was) return
     setCollapsed(true)
-  }, [inline, running])
+  }, [inline, summarizing])
 
   /*
    * 完整保留：只按行拆开、去掉空行，不做任何"要点抽取"。
@@ -100,13 +114,34 @@ export const KrReasoningCard = memo(function KrReasoningCard({
     return full.split('\n').map((l) => l.trim()).filter((l) => l.length > 0)
   }, [reasoningTexts])
 
-  // 跟随探针：内容或运行态变化都触发重新贴底
-  const probe = useMemo(() => `${running ? '1' : '0'}:${points.join('\u0000')}`, [points, running])
+  /*
+   * 跟随探针：**只放长度指纹，不放全文**。
+   *
+   * 原来探针是 `points.join('\u0000')` ——整轮思考拼成一个大字符串。流式期每个
+   * delta 都要重建一次这个几万字符的字符串、再作为 useLayoutEffect 的依赖做一次
+   * 全量比较，思考越长每帧越贵。指纹用长度序列（同 KrAgentPanel 的
+   * fingerprintTurnData）：思考是纯追加流式，长度序列单调增长，指纹变即内容变。
+   */
+  const probe = useMemo(
+    () => `${running ? '1' : '0'}:${points.length}:${points.map((p) => p.length).join(',')}`,
+    [points, running],
+  )
   const followActive = running && !collapsed
   const { ref, onScroll, onWheel, edges, overflow, following } =
     useSteppedFollow(probe, followActive, motion)
   // 折叠/展开的高度补间（收口那一帧看得见让位过程）。
   const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(!collapsed, motion)
+
+  /*
+   * 尾部窗口：只把最后 WINDOW_ROWS 行挂进 DOM。
+   *
+   * `windowSize` 是**用户意愿**（点过几次「向上翻」），内容增长时不清零——否则
+   * 思考每长一段就把用户翻出来的上文又收回去，那一下比一开始就不给更气人。
+   */
+  const [windowSize, setWindowSize] = useState(WINDOW_ROWS)
+  const startIndex = Math.max(0, points.length - windowSize)
+  const windowed = startIndex === 0 ? points : points.slice(startIndex)
+  const hiddenCount = startIndex
 
   if (reasoningTexts.length === 0 && !running) return null
 
@@ -189,14 +224,37 @@ export const KrReasoningCard = memo(function KrReasoningCard({
                * 时，右侧那枚「跟随中 / 已暂停」才是真正的状态指示。
                */
               aria-live="off"
-              /* 行数上限由 JS 常量/入参驱动，避免与 CSS 里的字面量各写一份而漂移。
-                 右栏空间富余时用默认 25 行；被记忆卡等常驻内容挤压时由大盘
-                 自适应下调（见 use-adaptive-rows.ts）。 */
+              /* 行数上限由 JS 常量/入参驱动，避免与 CSS 里的字面量各写一份而漂移。 */
               style={{ '--kr-reasoning-rows': maxRows } as CSSProperties}
             >
+              {/*
+               * **只挂尾部 WINDOW 行**，前面的用一条「往上翻」入口逐批放出来。
+               *
+               * 视口只有 16 行，却原来把整轮思考（可达上千行）全部塞进 DOM：
+               * 每行一个 div + 一个 KrFreshText 组件，长回合动辄几千个节点，
+               * 展开那一刻的建树 + 布局 + 跟随滚动强制的回流就是「思考多就卡」的
+               * 主因。行数是内容的函数，卡顿也就成了内容的函数。
+               *
+               * 为什么不做整窗虚拟滚动：行高并不恒定（长句 pre-wrap 换行会把一行
+               * 撑成两三行），按 scrollTop 推算可见区间必然错位，滚动条也会跳。
+               * 尾部窗口不需要知道行高，代价是「更早的内容要点一下才挂载」——
+               * 而那本来就是用户主动往回翻的动作，不是被动等待的开销。
+               *
+               * 滚动位置因此**只由已挂载的批次决定**，上方那行入口就是分界线：
+               * 挂更多即向上生长，滚动条随之变长，不会出现「明明还有内容却滚不到底」。
+               */}
               <div className="kr-reasoning-inner">
-                {points.map((item, idx) => (
-                  <div className="kr-reasoning-row" key={idx}>
+                {hiddenCount > 0 && (
+                  <button
+                    type="button"
+                    className="kr-reasoning-more"
+                    onClick={() => setWindowSize((size) => size + WINDOW_ROWS)}
+                  >
+                    ↑ 前面还有 {hiddenCount} 行，向上翻看
+                  </button>
+                )}
+                {windowed.map((item, idx) => (
+                  <div className="kr-reasoning-row" key={startIndex + idx}>
                     {/* 逐字淡入：思考是流式按块到达的，整行直接冒出来会被读成
                         「一行字突然出现」；这里只让本次新增的字错峰显影。 */}
                     <span><KrFreshText text={item} /></span>

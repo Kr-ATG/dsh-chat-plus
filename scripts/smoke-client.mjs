@@ -603,12 +603,41 @@ if (krEnabled) {
   const stepCode = stepSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
   if (/<KrReasoningCard[\s\S]{0,200}?\/>/.test(panelCode)) {
     fail('思考过程卡已移到 KR 对话流，右栏大盘不该再挂 <KrReasoningCard>')
-  } else if (!/isFirstStep[\s\S]{0,400}?<KrReasoningCard[\s\S]{0,200}?\sinline\b/.test(stepCode)) {
+  } else if (!/isFirstStep[\s\S]{0,400}?<KrReasoningCard[\s\S]{0,300}?\sinline\b/.test(stepCode)) {
     fail('assistant-step 座位必须在本回合首步挂 inline 形态的思考过程卡')
   } else if (!/REASONING_MAX_ROWS/.test(reasoningCode)) {
     fail('思考卡仍应保留 REASONING_MAX_ROWS 行数上限常量')
   } else {
     pass('思考过程卡贴在 KR 对话流（inline），右栏大盘不再重复挂载')
+  }
+
+  // 「思考一长就卡」的四处成因 + 折叠时机，逐条钉住：
+  //  1. 喂进去的文本数组引用必须稳定（memo 一旦被打穿，每帧重算整轮思考）；
+  //  2. 跟随探针只能是长度指纹，不能是全文 join（流式期每个 delta 拼一次全文）；
+  //  3. DOM 必须只挂尾部窗口，不能整轮上千行全塞进去；
+  //  4. 折叠判据是「总结卡出现」（summarizing），不是回合收口。
+  const reasons = []
+  if (!/reasoningSignature[\s\S]{0,500}?stableReasoningTexts/.test(stepCode)) {
+    reasons.push('思考文本数组需用长度指纹稳定引用（stableReasoningTexts）')
+  }
+  if (/points\.join\('\\u0000'\)/.test(reasoningCode)) {
+    reasons.push('跟随探针不能是全文 join（应为长度指纹）')
+  }
+  // 注意只查**渲染处** `{points.map(`：探针那行 points.map((p) => p.length) 是
+  // 长度指纹本身，不该被这条误伤。
+  if (!/WINDOW_ROWS/.test(reasoningCode)
+    || /\{points\.map\(\(item/.test(reasoningCode)
+    || !/\{windowed\.map\(/.test(reasoningCode)) {
+    reasons.push('思考行必须只挂尾部 WINDOW_ROWS 窗口（{windowed.map}），不能整轮全量渲染')
+  }
+  if (!/summarizing\s*=\s*isClosingReply\s*\|\|\s*interrupted/.test(stepCode)
+    || !/if \(!inline \|\| !summarizing \|\| was\) return/.test(reasoningCode)) {
+    reasons.push('折叠判据必须是「总结卡出现」（summarizing），不是回合收口')
+  }
+  if (reasons.length > 0) {
+    fail('思考卡性能/时机回退：' + reasons.join('；'))
+  } else {
+    pass('思考卡：稳定引用 + 指纹探针 + 尾部窗口 + 按总结卡折叠')
   }
 }
 
