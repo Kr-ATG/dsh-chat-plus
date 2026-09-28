@@ -326,6 +326,11 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
      * 曾经在这里把 reasoning block 过滤掉再转发（"彻底移除 thinking block"），
      * 结果普通对话里思考被整段抹掉——官方组件拿不到 block，就不是"不折叠"
      * 而是"没有"。插件在普通模式下对官方节点只有「原样委托」这一种姿态。
+     *
+     * 也不在这里套卡片外壳：实测 0.1.5-rc.2 上普通「对话」视图里本组件根本
+     * 不会被调用——官方 assistant-step 的 priority ≥ 0 高于本插件的 -100，
+     * 官方直接渲染，这个分支不可达。想给普通对话加卡片只能走 DOM 观察器，
+     * 那是另一件事（用户明确表示普通对话不需要）。
      */
     return <OfficialComp {...props} />
   }
