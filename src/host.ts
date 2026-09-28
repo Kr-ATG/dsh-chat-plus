@@ -166,12 +166,12 @@ export function apply(ctx: Record<string, any>): void {
   ctx.inject(['tools'], (toolsCtx: any) => {
     applyDownloadTool(toolsCtx)
   })
-  // ── 融合的原 dsh-triad 四工作台（记忆引擎 / 定时自动化 / 用量+技能 / MCP）──
-  // 路由前缀与座位一仍其旧（/api/dsh-memory/* 、/api/triad-automation/* …），
-  // 用户零迁移；dsh-triad 自此退役，数据与配置目录也不动。
+  // ── 融合的原 dsh-triad 工作台（记忆引擎 / 用量+技能 / MCP）────────────
+  // 路由前缀与座位一仍其旧（/api/dsh-memory/* 等），用户零迁移；dsh-triad
+  // 自此退役，数据与配置目录也不动。定时自动化已交给官方 schedule bundle。
   //
   // 七个 service 与原 dsh-triad 顶层 inject 一致。任一缺失则回调不执行
-  // （四工作台整体不挂载，但本插件的截图/下载/generated-images 照常）——
+  // （工作台整体不挂载，但本插件的截图/下载/generated-images 照常）——
   // 与 dsh-triad 原本的硬依赖语义相同，不额外放宽。
   ctx.inject(
     ['webServer', 'tools', 'credentials', 'sessions', 'sessionPersistence', 'settings', 'llm'],

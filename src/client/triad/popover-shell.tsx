@@ -134,7 +134,7 @@ export interface PopoverAnchor {
   top: number
 }
 
-/** 理想尺寸（px）：抽屉宽度随 tab 切换以 240ms 平滑过渡（automation 卡片同款曲线）。 */
+/** 理想尺寸（px）：抽屉宽度随 tab 切换以 240ms 平滑过渡。 */
 export interface PopoverSize {
   width: number
   /** compact 卡片的高度上限；抽屉模式下忽略（抽屉一律满高）。 */

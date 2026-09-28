@@ -474,7 +474,11 @@ const EXACT: Readonly<Record<string, Rule>> = {
   present: { verb: '交付文件', icon: 'file', impact: 'write' },
   subagent: { verb: '派出子任务', icon: 'spark', impact: 'write', detail: (a) => clip(str(a, 'description', 'prompt') ?? '', MAX_DETAIL) },
   subagent_fork: { verb: '派出子任务', icon: 'spark', impact: 'write', detail: (a) => clip(str(a, 'description', 'prompt') ?? '', MAX_DETAIL) },
-  automation: { verb: '安排定时任务', icon: 'bolt', impact: 'write' },
+  // 官方 schedule bundle 的四个工具（2026-09-28 起接管定时自动化）。
+  schedule_create: { verb: '新建定时任务', icon: 'bolt', impact: 'write' },
+  schedule_update: { verb: '调整定时任务', icon: 'bolt', impact: 'write' },
+  schedule_delete: { verb: '删除定时任务', icon: 'bolt', impact: 'write' },
+  schedule_list: { verb: '查看定时任务', icon: 'bolt' },
   workflow: { verb: '执行 workflow', icon: 'spark', impact: 'write', detail: (a) => clip(str(a, 'name', 'description') ?? '', MAX_DETAIL) },
   ralph: { verb: '执行 workflow', icon: 'spark', impact: 'write', detail: (a) => clip(str(a, 'name', 'description') ?? '', MAX_DETAIL) },
 }

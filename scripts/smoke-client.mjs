@@ -335,7 +335,7 @@ const expectedStyles = [
   'dsh-chat-flow-proto-styles', 'dsh-chat-flow-diagram-styles',
   'dsh-chat-flow-download-styles',
   'dsh-triad-skill-source-styles',
-  // 四工作台的窄屏覆盖（src/client/triad/responsive.ts）。曾经定义了却没人
+  // 工作台的窄屏覆盖（src/client/triad/responsive.ts）。曾经定义了却没人
   // 调用，整段样式被 tree-shake 掉、从未注入 —— 窄屏下设置面板与居中对话框
   // 全是坏的。断言它必须在册，防止再次掉线。
   'dsh-triad-responsive-styles',
@@ -465,15 +465,15 @@ if (!code.includes('data-dsh-anim-paused') || !code.includes('animation-play-sta
   pass('global animation throttle pauses all CSS animations when the page is hidden')
 }
 
-// 九枚槽位：对话增强五枚（turn-process / assistant-step keyed / 截图按钮 /
-// download toolview / kr-todo-bridge）+ 融合工作台四枚（automation-notifier、
-// dsh-memory-builtin-toggle、dsh-memory-inject-toggle、skill toolview）。
-// 座位 id/order/locale 全部原样保留。
+// 八枚槽位：对话增强五枚（turn-process / assistant-step keyed / 截图按钮 /
+// download toolview / kr-todo-bridge）+ 融合工作台三枚（dsh-memory-builtin-toggle、
+// dsh-memory-inject-toggle、skill toolview）。座位 id/order/locale 全部原样保留；
+// 原 automation-notifier 随自动化模块一起下线。
 const cell = (key) => registeredSlots.find((s) => s?.slot === 'conversation.chat.node' && s?.key === key)
-if (registeredSlots.length !== 9) {
-  fail(`expected 9 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
+if (registeredSlots.length !== 8) {
+  fail(`expected 8 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
 } else {
-  pass('registered 9 seats (5 chat-plus + 4 triad: automation-notifier / builtin+memory toggles / skill toolview)')
+  pass('registered 8 seats (5 chat-plus + 3 triad: builtin+memory toggles / skill toolview)')
 }
 
 const downloadSeat = registeredSlots.find((s) => s?.slot === 'tool.call.toolview' && s?.key === 'download')
@@ -496,10 +496,14 @@ else if (builtinToggle.order !== 98) fail(`builtin toggle order = ${builtinToggl
 else if (builtinToggle.order >= memoryToggle.order) fail('内置通道按钮必须排在记忆按钮左侧（order 更小）')
 else pass('seat conversation.input.left / dsh-memory-builtin-toggle @ order 98 (triad)')
 
+// 自动化完成通知（shell.overlay / automation-notifier）随 automation 模块一起下线：
+// 官方的 schedule 任务页自带提醒目录，这条壳子里的 toast 不该复活。
 const notifier = registeredSlots.find((s) => s?.slot === 'shell.overlay' && s?.id === 'automation-notifier')
-if (notifier === undefined) fail('missing triad seat shell.overlay / automation-notifier')
-else if (notifier.order !== 90) fail(`automation notifier order = ${notifier.order}, expected 90`)
-else pass('seat shell.overlay / automation-notifier @ order 90 (triad)')
+if (notifier !== undefined) {
+  fail('automation-notifier 座位已下线，不该再注册')
+} else {
+  pass('seat shell.overlay / automation-notifier 已下线')
+}
 
 const todoDockSeat = registeredSlots.find((s) => s?.slot === 'conversation.input.dock' && s?.id === 'kr-todo-bridge')
 if (todoDockSeat === undefined) fail('missing input.dock seat conversation.input.dock / kr-todo-bridge')

@@ -536,7 +536,7 @@ function currentLang(): 'zh' | 'en' {
   return 'zh'
 }
 
-/** 轻量翻译：{n} 占位插值（与 automation locales.makeT 同款实现）。 */
+/** 轻量翻译：{n} 占位插值。 */
 export function makeT(): MemoryT {
   return (key, vars) => {
     let text: string = DICTS[currentLang()][key] ?? zh[key]

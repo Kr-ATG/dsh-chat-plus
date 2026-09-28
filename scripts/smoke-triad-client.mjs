@@ -227,7 +227,7 @@ if (!Array.isArray(mod.inject)) fail('factory did not export inject[]')
 else pass(`factory exports inject[] = [${mod.inject.join(', ')}]`)
 
 // ── run apply() against a stub client context ────────────────────────────
-// 融合后的 apply 同时装配对话增强 + 四工作台，所以桩要给全 chat-plus 也要用的
+// 融合后的 apply 同时装配对话增强 + 工作台，所以桩要给全 chat-plus 也要用的
 // slots.entries（captureOfficialAssistantStep 要读官方 assistant-step 条目）。
 const registered = []
 const slotsStub = {

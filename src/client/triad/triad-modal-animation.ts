@@ -1,9 +1,9 @@
 /**
- * 弹窗开合动画（用量工作台 / 技能面板 / 记忆面板共用）——对齐「自动化」卡片的滑入滑出手感：
- * - 弹出：fade + 自底部 24px 上滑进入（无缩放；automation sheet-in 同款位移与曲线），mount 时播放。
- * - 收回：fade + 下滑 24px 退出（automation sheet-out 同款反向曲线），closing 阶段播放，结束后再卸载。
- * - 内容：`.dsh-modal-stagger` 容器在卡片滑入后 60ms 轻微上浮跟进（automation 内部区块同款
- *   rise-in），关闭时动画自动解除、随卡片整体收回渐隐。
+ * 弹窗开合动画（用量工作台 / 技能面板 / 记忆面板共用）：
+ * - 弹出：fade + 自底部 24px 上滑进入（无缩放），mount 时播放。
+ * - 收回：fade + 下滑 24px 退出，closing 阶段播放，结束后再卸载。
+ * - 内容：`.dsh-modal-stagger` 容器在卡片滑入后 60ms 轻微上浮跟进（rise-in），
+ *   关闭时动画自动解除、随卡片整体收回渐隐。
  *
  * 用法：入口组件用 useModalClose 持有 closing 态，把 closing 传给弹窗，
  * 弹窗把 closing 映射成 slide-out class（卡片）与 mask 的淡出 class；
@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-/** 动画时长（ms），CSS 与 hook 计时保持一致（与 automation 的 AUTO_ANIM_MS 同值）。 */
+/** 动画时长（ms），CSS 与 hook 计时保持一致。 */
 export const MODAL_ANIM_MS = 240
 
 /** 样式标签 id（带 triad 前缀：dsh-chat-flow 注入同名旧表，先到先得会吞掉本表的 keyframes）。 */

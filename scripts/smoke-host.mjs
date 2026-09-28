@@ -24,7 +24,7 @@
  * Usage: node scripts/smoke-host.mjs
  */
 
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -36,7 +36,7 @@ const fail = (msg) => { console.error(`FAIL  ${msg}`); process.exitCode = 1 }
 const pass = (msg) => console.log(`ok    ${msg}`)
 
 // 先做文本守卫：安装位置解析不了的 specifier 一个都不许出现——包括
-// `@deepseek-ai/*`。融合进来的四工作台把需要的 DSH 叶子模块全部 vendor 化在
+// `@deepseek-ai/*`。融合进来的工作台把需要的 DSH 叶子模块全部 vendor 化在
 // src/vendor/ 下（含 dsh-util-crypto），所以产物对 @deepseek-ai/* 零运行时依赖；
 // `@deepseek-ai/cordis` 只会以 `import type` 出现，构建时擦除。
 const source = readFileSync(HOST, 'utf8')
@@ -233,13 +233,12 @@ if (!/clashIsSource/.test(consolidateSrc)) {
   pass('consolidate 的 merge 覆盖了「撞上源条目」分支（记忆不再凭空消失）')
 }
 
-// 自动化：取消功能依赖 executing 里的 AbortController，按 id 无条件删会把
-// 新一轮执行的 controller 一起抹掉。
-const autoSrc = stripComments(srcOf('src/triad/automation/index.ts'))
-if (/executing\.delete\(job\.id\)\s*\n/.test(autoSrc) && !/executing\.get\(job\.id\) === ac/.test(autoSrc)) {
-  fail('executing 的清理必须比对实例（按 id 无条件删会让「取消」收不到 abort）')
+// 定时自动化已于 2026-09-28 整块删除（官方 schedule bundle 接管）：源目录、
+// 工具注册与 /api/triad-automation/* 路由都不该复活。
+if (existsSync(resolve(ROOT, 'src/triad/automation')) || existsSync(resolve(ROOT, 'src/client/triad/automation'))) {
+  fail('automation 模块已删除：src/triad/automation 与 src/client/triad/automation 不该复活')
 } else {
-  pass('automation 的 executing 按实例清理（取消功能不会失效）')
+  pass('automation 模块已删除（官方 schedule bundle 接管）')
 }
 
 console.log(`\n${process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED'} — ${HOST}`)

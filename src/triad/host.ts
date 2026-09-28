@@ -8,20 +8,20 @@
  *   src/triad/host.ts                    → ../vendor/usage-skill/index.js
  *   src/triad/memory/engine/*.ts         → ../../../vendor/dsh-llm/index.js
  *   src/triad/memory/tools.ts            → ../../vendor/dsh-tools/schema.js
- *   src/triad/automation/{tool,executor} → ../../vendor/dsh-{tools,dsh-llm}/index.js
  *
- * 四个模块，各自独立 try/catch——一个挂载失败只 warn，绝不影响其他模块：
+ * 三个模块，各自独立 try/catch——一个挂载失败只 warn，绝不影响其他模块：
  *
  *  - memory     → 本地记忆引擎（LLM 抽取、embedding 检索、
  *                 `agent/pre-step` 注入、工具、`/api/dsh-memory/*`）
- *  - automation → 定时任务：store + 60s 调度 + llm executor + agent 工具 +
- *                 `/api/triad-automation/*`（移植自 dsh-webui）
  *  - usage+skills → 用量统计 + 供应商余额（`/api/usage-stats/*`）与技能包
  *                 管理（`/api/skill-manager/*`），即 vendor 化的
  *                 dsh-usage-skill host
  *  - skill-toggles / skill-health / mcp-recommended / mcp-status
  *               → `/api/skill-toggles/*`、`/api/skill-health`、
  *                 `/api/mcp-recommended`、`/api/triad/mcp-status`
+ *
+ * 定时自动化（原 automation 模块、`/api/triad-automation/*`）已于 2026-09-28
+ * 整块删除：官方 `@deepseek-ai/dsh-experimental-schedule-bundle` 接管了同一件事。
  *
  * 不导出 `name` / `inject` / `apply`：这三个名字由主插件
  * （`src/host.ts`）独占，避免与 dsh-chat-plus 主插件契约冲突。主插件只需
@@ -33,7 +33,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import { applyMemory } from './memory/index.js'
 // @ts-expect-error — vendored JS half (no type declarations shipped)
 import { apply as applyUsageHost } from '../vendor/usage-skill/index.js'
-import { applyAutomationHost } from './automation/index.js'
 import { apply as applySkillToggles } from './skill-toggles.js'
 import { applySkillHealth } from './skill-health.js'
 import { applyMcpRecommended } from './mcp-recommended.js'
@@ -42,13 +41,12 @@ import { installBundledSkills } from './bundled-skills.js'
 import type { MemoryConfig } from './memory/types.js'
 
 /**
- * Host services the four modules touch. 本文件不导出 `inject`——合并后的
+ * Host services the three modules touch. 本文件不导出 `inject`——合并后的
  * 数组由主插件在 `src/host.ts` 统一声明（并集）：
  *
  *  - dsh-chat-plus 现有：webServer, tools
- *  - dsh-triad 全部：
+ *  - 其余模块：
  *      memory     → webServer, tools
- *      automation → webServer, tools, llm
  *      usage      → webServer, credentials, sessions, sessionPersistence,
  *                   settings, llm
  *      skills     → webServer
@@ -81,7 +79,7 @@ export function resolveConfig(config: TriadConfig = {}): {
 }
 
 /**
- * 装配 dsh-triad 的四个模块。任何单个模块抛错都只记录 warn 后继续。
+ * 装配 triad 的三个模块。任何单个模块抛错都只记录 warn 后继续。
  *
  * @param ctx    主插件的 Cordis Context（已合并 inject）。
  * @param config 可选配置；memory 覆盖层走 resolveConfig。
@@ -94,7 +92,7 @@ export async function applyTriadHost(ctx: Context, config: TriadConfig = {}): Pr
   // skill-filesystem provider 扫到，而技能面板列的就是这个目录。放在
   // 面板/开关之后装，面板会先渲染出一个"技能不存在"的空态再刷新。
   // 纯文件操作、不依赖任何 ctx service，失败只 warn（内置技能装不上不该
-  // 拖垮记忆引擎与自动化）。
+  // 拖垮记忆引擎与用量面板）。
   try {
     await installBundledSkills(ctx.logger)
   } catch (error) {
@@ -110,17 +108,6 @@ export async function applyTriadHost(ctx: Context, config: TriadConfig = {}): Pr
   } catch (error) {
     ctx.logger?.warn?.(
       `[dsh-chat-plus] triad memory engine failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
-    )
-  }
-
-  // ── 自动化（定时任务：存储 + 调度 + 执行 + 工具 + 路由）──────────────
-  // /api/triad-automation/*：侧边栏首行「自动化」入口的数据面。
-  try {
-    applyAutomationHost(ctx)
-    ctx.logger?.info?.('[dsh-chat-plus] triad automation mounted')
-  } catch (error) {
-    ctx.logger?.warn?.(
-      `[dsh-chat-plus] triad automation failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
     )
   }
 

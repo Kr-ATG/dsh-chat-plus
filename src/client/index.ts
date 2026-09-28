@@ -248,11 +248,12 @@ export function apply(ctx: ClientContext): void {
     ))
   })
 
-  // ── 融合的原 dsh-triad 四工作台（自动化 / 记忆 / 用量 / 技能与 MCP）────────
+  // ── 融合的原 dsh-triad 工作台（记忆 / 用量 / 技能与 MCP）──────────────
   // 侧边栏导航行、面板、composer 记忆注入开关的座位 id / order / locale
   // namespace 全部原样保留（dsh-triad 退役，用户侧零迁移）。内部每个工作台
-  // 各自 try/catch，一个挂载失败不影响其他三个，也不影响上面的对话增强。
-  guarded(ctx, 'triad (automation/memory/usage/skills)', () => {
+  // 各自 try/catch，一个挂载失败不影响其他两个，也不影响上面的对话增强。
+  // 定时自动化不在此列：2026-09-28 起由官方 schedule bundle 提供。
+  guarded(ctx, 'triad (memory/usage/skills)', () => {
     applyTriadClient(ctx)
   })
 }

@@ -2,9 +2,9 @@
  * sidebar-nav — 侧边栏导航区共享挂载器。
  *
  * 在 sidebar 的浏览区容器（`[data-slot="sidebar.workspaces"]`）正上方插
- * 一个 host，host 内按固定顺序（automation / skills / memory / usage / team）
- * 放五个 `data-nav-slot` 槽位容器；各入口（automation / usage / skills /
- * memory 四个 React 组件，以及将来可能新增的 team）经 `useNavSlot` 轮询拿到
+ * 一个 host，host 内按固定顺序（skills / memory / usage / team）
+ * 放四个 `data-nav-slot` 槽位容器；各入口（usage / skills /
+ * memory 三个 React 组件，以及 team）经 `useNavSlot` 轮询拿到
  * 自己的槽位后 `createPortal` 进去——顺序确定、互不覆盖、跟 React 首次提交不竞态。
  *
  * rail 折叠态由 `useRail` 观察 `data-shell-overlay` 框架容器的
@@ -25,14 +25,13 @@ const FRAME_SELECTOR = 'div:has(> [data-shell-overlay])'
 /**
  * nav host 的行布局：每个数组元素是一行，行内数组是并排的槽位。
  *
- *   [automation][skills][memory] 合并一行 → usage 独立一行 → team 独立一行
+ *   [skills][memory] 合并一行 → usage 独立一行 → team 独立一行
  *
- * 历史：自动化从 dsh-webui 提取归属本插件后，不再自建菜单 host（原
- * `dsh-automation-menu-host` 已删除），首行即自动化占位（原用量位置，
- * 用量下移一行独立成行）。合并行由本模块自建的 `.dsh-nav-row` 容器承载。
+ * 历史：自动化入口从本插件删除后（官方 schedule bundle 接管），第一行由
+ * skills + memory 两人共用；合并行由本模块自建的 `.dsh-nav-row` 容器承载。
  */
 const SLOT_LAYOUT = [
-  ['automation', 'skills', 'memory'],
+  ['skills', 'memory'],
   ['usage'],
   ['team'],
 ] as const
@@ -135,7 +134,7 @@ export function ensureNavMount(): () => void {
 /** 轮询获取指定槽位容器（未就位时返回 null，组件据此暂不渲染）。
  *
  * 槽位可能直接挂在 nav host 下（独立行的 usage / team）或嵌在 `.dsh-nav-row`
- * 合并行容器里（automation / skills / memory），因此全局按 data-nav-slot 查找——
+ * 合并行容器里（skills / memory），因此全局按 data-nav-slot 查找——
  * 槽位名由本模块统一创建，唯一。
  *
  * **永不停止**：未就位时 100ms 阶梯快查（10 次后退 400ms）；找到后退化为
@@ -298,15 +297,15 @@ export function NavPortal({ name, children }: { name: NavSlotName; children: Rea
   return createPortal(children, slot)
 }
 
-/** 面板互斥 + 切会话自动收：四个入口共用的面板行为 hook。
+/** 面板互斥 + 切会话自动收：三个入口共用的面板行为 hook。
  *
- *  - 互斥：任一面板打开时广播，其余已打开的面板自动收回（自动化/用量/能力/记忆
+ *  - 互斥：任一面板打开时广播，其余已打开的面板自动收回（用量/能力/记忆
  *    同时只占住一个主区，不叠罗汉）；
  *  - 切会话自动收：面板盖住会话主区、无遮罩，侧栏保持可点；侧栏会话区内
  *    的点击（会话行/新会话/设置等，自己导航行与面板内部除外）直接收面板，
  *    跟「点会话回到会话」的直觉一致。
  */
-export type TriadPanelName = 'automation' | 'usage' | 'skills' | 'memory'
+export type TriadPanelName = 'usage' | 'skills' | 'memory'
 
 const PANEL_OPEN_EVENT = 'dsh-triad:panel-open'
 

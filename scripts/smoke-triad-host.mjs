@@ -1,12 +1,13 @@
 /**
- * dsh-chat-plus — 融合工作台（原 dsh-triad 四工作台）host 半身 smoke。
+ * dsh-chat-plus — 融合工作台（原 dsh-triad）host 半身 smoke。
  *
  * 直接 import 真正的 `lib/index.js`（@deepseek-ai/* 从 live DSH profile 解析），
- * 先校验 dsh-chat-plus 主插件契约，再跑 `apply(ctx)` 证明四工作台都挂上、路由
+ * 先校验 dsh-chat-plus 主插件契约，再跑 `apply(ctx)` 证明各工作台都挂上、路由
  * 与工具都注册，全程不碰真实 DSH 运行时。
  *
  * 与 dsh-triad 原版的差别：name 期望改为 dsh-chat-plus；inject 断言改为主插件
  * 的并集；桩 ctx 需要 inject 方法（主插件 apply 用 ctx.inject 延迟等 service）。
+ * 定时自动化已删除（官方 schedule bundle 接管），本脚本断言旧路由与工具不再出现。
  *
  * Usage: node scripts/smoke-triad-host.mjs
  */
@@ -45,7 +46,7 @@ if (mod.name !== 'dsh-chat-plus') fail(`expected name "dsh-chat-plus", got ${JSO
 else pass(`name = ${JSON.stringify(mod.name)}`)
 
 // host 半身不导出顶层 `inject`：本插件的 host 用 `ctx.inject([...], cb)` 延迟等
-// service 就绪（未声明的属性一读就抛，会把整棵插件树 boot 失败），四工作台需要的
+// service 就绪（未声明的属性一读就抛，会把整棵插件树 boot 失败），工作台需要的
 // 七个 service 全部由 apply 内部按需取。client 半身才导出 inject（并集）。
 if (mod.inject !== undefined && !Array.isArray(mod.inject)) {
   fail(`inject, when present, must be an array; got ${typeof mod.inject}`)
@@ -101,9 +102,9 @@ const ctx = {
   sessionPersistence: {},
   llm: {},
   // 主插件 apply 用 ctx.inject 延迟等 service 就绪；桩要真的把回调跑起来，
-  // 否则四工作台一次都不挂载，下面的路由断言全 false。
+  // 否则工作台一次都不挂载，下面的路由断言全 false。
   //
-  // scope 必须是「ctx 的超集 + effect」：四工作台的模块一進去就调
+  // scope 必须是「ctx 的超集 + effect」：工作台的模块一進去就调
   // `webCtx.effect(fn, 'dsh-memory: routes')` 做资源回收登记，scope 里少了
   // effect 会 TypeError，而且这个异常会从 apply 里冒出去，把后面所有
   // ctx.inject 全部中断（表现为 routes/tools/listeners 全 0）。
@@ -125,7 +126,7 @@ const ctx = {
 }
 
 // 注意：`applyTriadHost` 是 async（usage host 与 skill-toggles 都 await），而主插件
-// 的 `ctx.inject([...], cb)` 回调是同步的、不返回 promise。所以四工作台里凡是被
+// 的 `ctx.inject([...], cb)` 回调是同步的、不返回 promise。所以工作台里凡是被
 // await 的挂载（usage/skills、skill-toggles、skill-health、mcp-*）在同步 apply 期间
 // **根本没跑完**——routes 里看不到它们不是缺陷，是同步回调的固有语义。
 // 这里把 apply 的 promise 等一拍（microtask 排干）再断言，让 smoke 反映真实挂载结果。
@@ -155,7 +156,8 @@ need(paths.some(p => p.startsWith('/api/usage-stats')), 'usage routes registered
 need(paths.some(p => p.startsWith('/api/skill-manager')), 'skill routes registered (/api/skill-manager/*)')
 // 技能面板的开关与「Agent 预设」筛选条都打这条；漏了就全 404、面板顶部没有预设条。
 need(paths.some(p => p.startsWith('/api/skill-toggles')), 'skill toggle routes registered (/api/skill-toggles/*)')
-need(paths.some(p => p.startsWith('/api/triad-automation')), 'automation routes registered (/api/triad-automation/*)')
+// 定时自动化已下线：官方 schedule bundle 接管，旧路由不得复活。
+need(!paths.some(p => p.startsWith('/api/triad-automation')), 'automation routes gone (/api/triad-automation/* 未注册)')
 // 融合后由本插件自己提供这些前缀（原 dsh-triad 的 client fetch 原样打过来）。
 need(paths.some(p => p.startsWith('/api/skill-health')), 'skill-health route registered (/api/skill-health)')
 need(paths.some(p => p.startsWith('/api/mcp-recommended')), 'mcp recommended route registered (/api/mcp-recommended)')
@@ -165,7 +167,7 @@ need(paths.some(p => p.startsWith('/api/chat-flow/screenshot')), 'chat-plus scre
 need(paths.some(p => p.startsWith('/api/chat-flow/download')), 'chat-plus download progress route still registered')
 need(paths.some(p => p.startsWith('/api/chat-flow/generated-images')), 'chat-plus generated-images route still registered')
 need(tools.includes('download'), 'chat-plus download tool still registered')
-need(tools.includes('automation'), 'automation tool registered')
+need(!tools.includes('automation'), 'automation tool gone (官方 schedule_* 工具接管)')
 need(tools.includes('memory_search') && tools.includes('memory_remember'), 'memory tools registered')
 need(listeners.has('agent/pre-step'), 'agent/pre-step injection hooked')
 need(listeners.has('session/event'), 'session/event capture hooked')
@@ -179,7 +181,7 @@ if (warns.length > 0) {
   for (const [, m] of warns) console.log(`    ${m}`)
 }
 
-// apply 内部按需取的 service（四工作台 + 本插件自己的截图/下载）。
+// apply 内部按需取的 service（工作台 + 本插件自己的截图/下载）。
 const union = new Set(injectNamesSeen.flat())
 for (const svc of ['webServer', 'tools', 'credentials', 'sessions', 'sessionPersistence', 'settings', 'llm']) {
   need(union.has(svc), `apply defers service "${svc}" via ctx.inject (four-workbench ∪ chat-plus)`)

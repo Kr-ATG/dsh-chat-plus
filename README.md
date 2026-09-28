@@ -20,9 +20,10 @@
   footer 钉在右栏最下方，分区**有本会话新增才显示**（按条目溯源 `provenance.sessionId` 等值判定），
   无新增的分区整个不出现，支持多选批量删除；
   右栏被挤压时思考卡视口行数逐档自动缩小（25→18→12→8→5）
-- **四工作台（原 dsh-triad，已融合）**：自动沉淀的长期记忆 · 定时自动化 · 用量（52 周热力 +
+- **三工作台（原 dsh-triad，已融合）**：自动沉淀的长期记忆 · 用量（52 周热力 +
   token 消耗查询）· 技能与 MCP Server 管理。`dsh-triad` 自此退役，其座位（slot id / order /
-  locale namespace）、8 组 HTTP 路由前缀、数据与配置目录全部原样保留，用户零迁移
+  locale namespace）、7 组 HTTP 路由前缀、数据与配置目录全部原样保留，用户零迁移。
+  定时自动化于 2026-09-28 交给官方 schedule bundle，本插件不再提供
 
 产物约 **5.4 MB**（host 3.9 MB + 浏览器半身 448 KB + mermaid 资源 968 KB），浏览器侧只加载
 448 KB。随包另分发**内置技能 2.79 MB**（`assets/skills/`，只落在磁盘、由 host 读文件，
@@ -41,7 +42,7 @@
 | **KR 对话双栏大盘** | 左栏官方 ChatView 原样保留（只有一行状态卡，明细全在右栏），右栏是全高执行大盘，分**滚动区**与**钉底 footer**两段。滚动区自上而下：**任务**（来自本轮 `todo_write` / 官方 todos 实时投影，有真实任务才出现）→ **思考**（有界视口 + 实时跟随滚动，**完整保留不摘要**，默认 25 行封顶）→ **操作面板**（人话行动流，见下条）。footer 钉底只剩**记忆**（默认折叠，见下条）；**用时已搬去左栏那张「Agent 正在…」活动卡**（裸数字跟在三点后，见下段）。技术视角的**「工具调用」卡已按用户要求整块移除**（组件 `KrToolCallsCard.tsx` 与整套 `kr-tool*` 样式一并删除，smoke-client 留了断言防复活）：它和操作面板讲的是同一批事件；操作面板里那枚「技术细节」总开关（连同它展开的技术明细块）随后也按要求删除，这张卡从此只讲人话，技术视角完全交给对话流里官方那条工具折叠行。开关都在 `src/client/kr-chat/enabled.ts`：`KR_CHAT_ENABLED`（整套 KR 视图）、`KR_PANEL_HEADER_VISIBLE`（顶栏，默认 false）、`KR_PLAIN_TIMELINE_CARD_VISIBLE`（操作面板卡，默认 true）、`KR_MEMORY_CARD_VISIBLE`（记忆卡，默认 true）——全是**隐藏而非删除**，改回 true 即恢复。顶栏隐藏后能力不丢：截图走 assistant 消息操作栏相机按钮。**大盘在 KR 对话里常态常驻**（原先靠标签行最右端一枚「Agent 轨迹大盘」开关收起/展开，该开关连同 `store.panelOpen` / `KrAgentPanel` 顶栏的「收起大盘 ×」/ `.kr-panel-toggle` 样式已按用户要求整块删除——一个常驻面板不需要再挂一个"要不要它"的开关，那枚按钮反而让人以为右栏是可选的；smoke-client 留了断言防复活）。**挤压自适应**：`use-adaptive-rows.ts` 用 ResizeObserver 监视 `.kr-panel__scroll`，溢出时把思考卡视口行数逐档下调（25→18→12→8→5），空间恢复即回升，只在档位真正变化时 setState（不进 ResizeObserver 自激循环） |
 | **「操作面板」卡（人话行动流）** | 滚动区第三张，读者定位是**不会编程的普通用户**；卡片头是「一串按时间发生的动作」图标（竖线 + 三个节点 + 递减短线，与任务清单/灯泡/扳手/大脑都不撞形）+ 右上角**「简要 / 详细」两枚小按钮**（`.kr-plain-view__btn`，各带一枚图形：等宽三横线=详细、递减两横线=简要；激活档 = 主文字色 + 卡片底色实块，图标轻微放大），落盘 `dsh.kr_chat.plain_view_v2`，**默认简要**（只有显式存过 full 才回详细）。放弃过滑块形态：滑块在 440px 右栏里要占 66px，且"滑块停在哪"扫读时得盯一眼才读得出；两枚按钮各写清自己的名字，扫读零成本、宽度还省一半。两枚都 `stopPropagation` —— 整行 header 是折叠热区。切档时 updater 只做纯状态变更、**落盘放在 updater 之外**（React 并发模式下 updater 可能被调两次或一次不调，副作用放里面会时有时无，实测切档会"点了没反应"）。**简要模式不画图标**（`data-brief="true"`，`StepRow` 的 `brief` prop 为真时整枚 `.kr-plain-step__icon` 不渲染）：那一列已经只剩三五条里程碑与一条报错，图标在这个密度下是纯噪声——用户读的是「改了什么 / 出了什么事」，不是「这属于哪类工具」。图标拿掉了，动词就得写回文字，否则一行光写「plain-language.ts」用户分不出是改了它还是读了它，所以 `brief` 时文字由「只留对象」变成「动词 + 对象」（**修改文件 KrPlainTimelineCard.tsx · 共 4 次**），靠文字断句而不是靠图标承担。省下的一列让每行是一整句话，文字从卡缘直接起。失败行改用**左侧一道 2px 红条**（`box-shadow: inset`）指认——它是纪要里唯一需要被立刻注意到的那条；不用红底，整行铺红会把右栏整片染红太重。**简要模式不是"短版流水"，是一份进展纪要**（与「任务概览」同一口径，回答三件事）：**走到哪一步了**（每个里程碑说清改了什么，同一文件连改 19 次收成「plain-language.ts · 共 19 次」一条）、**出了什么事**（失败写出**人话原因**，见下）、**卡到哪了**（进行中那一步永远保留）。明确不写的：①**已解决的失败**——某条 failed 之后还有**同 icon** 的 done，说明模型自己重试/换路走通了，留着只会让用户以为现在还有坑（倒扫一遍判定）；②**成功的 read**（翻文件/看网页/截图是达成里程碑的手段，不是里程碑本身）——但**失败的 read 恰恰是"卡住了"的信号，必须留着**；③连续同类里程碑的中间步骤。**失败原因人话化**：`humanIssue(errorText)`（`plain-language.ts`，16 条规则按"具体→笼统"排序）把技术报错翻成用户能据此判断的话——`ENOENT/no such file/404` → 找不到文件或页面、`EACCES/403` → 没有权限、`ETIMEDOUT` → 等太久没响应、`ECONNREFUSED` → 连不上对方、`429` → 请求太频繁被限流……**认不出类别时返回 undefined**，宁可空着也不把一句英文报错原样糊到普通用户脸上。原文仍在 `tech.error` 里，需要的人点开技术细节看。卡上渲染成一枚淡红底小药丸（`.kr-plain-step__issue`，error 色 12% 混底 + 横向滑入，`reduced-motion` 下关闭）——排成药丸而不是裸文字，是为了让它一眼归到"这行出事了"名下，不会被读成第二个动作对象。纯函数 `condenseSteps()` 在 `plain-timeline.ts`，smoke-triad 断言了 impact 标注、已解决失败的剔除、里程碑合并与人话化，smoke-client 断言了默认档必须是 brief。三块纯逻辑：`src/client/kr-chat/plain-language.ts`（工具名 → `{图标, 动词, 细节, 影响面}`）、`plain-timeline.ts`（思考播报 + 工具事实 → 时间线 + 简要收敛）、`KrPlainTimelineCard.tsx`（呈现）。**「已经做了什么」**来自工具调用事实：先剥命名空间前缀（`mcp__playwright-mcp__browser_click` → `browser_click`，provider 前缀由注册决定，规则表不跟着它变），再走规则表 + 站点友好名表（携程/淘宝/GitHub…，携程机票页给「携程 · 机票」），`read` 只出文件名、`pwsh` 只出 description，**命令原文 / 完整路径 / 参数名一律不上屏**——原先压在卡片头部那枚「技术细节」总开关下面统一展开（tool 名 + 原始入参 JSON + 错误原文），该开关连同展开块已按用户要求整块删除。步骤行与任务概览行**同一套行语言**（行距/圆角/悬停一致，gap 也对齐到 9px，两卡文字起点齐平）。行首**只有一枚类别图标**（14px 描边），**文件族拆成四枚**：`fileView`（文件+放大镜）/ `fileEdit`（文件+铅笔）/ `fileNew`（文件+加号）/ `trash`（垃圾桶）——四者共用同一份缩到左侧 2/3 的文件轮廓保证看得出是一家人，线宽单独提到 1.5（14px 下 1.3 会糊），右下角各叠一枚不同的动作符号；此前读/改/建/删都画成同一枚「文档」，扫一列等于什么都没说，尤其「修改」与「查看」紧挨着时根本分不出模型刚动过哪个文件。**操作面板只标失败**：这一列每条都已发生，「已完成」是默认前提不是信息；「正在跑」也不用转圈圆点，改为**行文字上那道从左往右扫过的高光**（`kr-plain-sweep`，2.2s 一轮，暗端三级字色 / 亮端主文字色，中间 16% 是窄光带；`background-clip:text` + `background-position` 不走合成器，但同时只有一行在跑，重绘范围是一行文字）。原先行首还有一列 14px 的状态槽（`.kr-plain-step__status`），而 99% 的行是空盒——整列空白只为等那一条红叉，已整列删除，失败改由类别图标**自己转红 + 右上角一枚 5px 红点角标**（`::after` 绝对定位，不占布局宽度；`kr-plain-bad-pop` 弹性缩放入场，`prefers-reduced-motion` 下关闭），整列左边界因此齐到贴边。**标题行右侧只剩标题本身**：「当前在做什么」那句（`kr-plain-now--inline` + 整套 crossfade 样式）、「N 步」徽标、「技术细节」开关三样已按用户要求全部删除。**「接下来」预告行（`.kr-plain-intent` 整族，含组件渲染点与全部样式）也已删除**——它是**尚未发生**的事，而这张卡回答的是"已经做了什么"，一行没兑现的承诺混在事实流水里只会让人分不清做没做；且八成与当前正在跑的那一行说的是同一件事，白占一行高度。模型侧的播报约定 `PLAIN_PROGRESS_RULE` 本身保留（仍喂 `nowLabel` 与进行中行的措辞），只是不再单独占一行；`KrAgentPanel` 里"预告行也算内容"那条空态判据随之去掉。行文字只留动作的**对象**（「查看视频底层组件详情」），动词前缀（「在线缆执行命令 ·」）已删——前面那枚类别图标（终端/地球/放大镜/文件夹）说的就是同一件事。未知工具 / 未知 MCP 统一兜底「执行 X」，不崩不空；CUA 桌面控制（`cua_driver_native__*` 剥掉前缀后只剩 `get_window_state` 这类通用短名，匹配不上任何前缀兜底）另有 20 来条专门规则，否则整屏都是「执行 get_window_state」。细节里的 `\uXXXX` 转义统一解回字符（工具描述是 JSON 编出来的，原样透上去就是一串机器码），但路径里的 `\\` 保持原样。**「准备做什么」**来自新增的第 4 条内置注入通道 `PLAIN_PROGRESS_RULE`（`src/triad/memory/engine/inject.ts`）：约定模型每次动手前在**思考里**单起一行写「下一步：<不超过 30 字的中文说明>」，客户端 `extractIntent()` 取**最后一条**匹配（流式重述天然去重），行首严格匹配失败再退到行内匹配。选思考块而不是正文，是因为思考在 KR 模式下不流进对话流（由右栏思考卡承接），不会把正式回复搞脏。导航落地按信息量分四档：默认落地只报站点名、**查询参数被整个丢掉**时明说「目标信息已被忽略」（实测携程的 `/online/list/oneway-ctrip?dcity=bjs&acity=sha` 会被打回首页）、同站跳别处报「被重定向」、跨站报两个站名。**保留每一次调用**（browser_click 点 20 次就是 20 条，不聚合计数——「点了 20 次」本身就是事实），但 `todo_write` 整轮只出**一行汇总**并钉在它**首次出现**的位置（说清「改了几次 / 完成几项」）——模型每改一次任务状态就重写一次清单，按时间逐条排会得到「更新清单 → 做A → 更新清单 → 做B」这种反复穿插，而甩到最后又破坏了时间线的时间语义（模型列计划往往发生在**开头**）；任务状态本身已有上面那张「任务概览」卡实时显示，这里逐条重复纯属冗余；不算百分比，只给进行中 / 已完成 / 失败三个计数。列表有界滚动（**默认 13 行**，被挤压降到 9 行；6 → 8 → 13 是用户按实际观感逐档定的，8→13 就是"再加 100px"，行高 22px × 5 = +110px）并接进 `heightFingerprint`，新步骤贴底自动跟随、用户上滚即截停、收口回顶（内容定格后停在底部，开头几步反而看不见）。视口开大是有意的：这张卡挂在右栏最末尾，列表内部再套一层滚动就是双重滚动条（旧 6 行档时尤其明显），宁可多露几行也别让用户在一个小窗口里滚一条时间线。**派生子智能体的步骤**（`subagent` / `workflow` / `ralph`）下方挂一个缩进区块，列出子智能体的名字与运行状态 —— 子智能体在 DSH 里是**独立会话**、不是父调用的 `subCalls`（那条通道是 Code Dispatch「工具里再调工具」），父调用对它们内部在做什么一无所知，不挂这个区块就只剩一句干巴巴的「执行 workflow」。开关：composer 记忆注入悬浮卡里新增「过程播报」一行（`state.plainEnabled` / `config.plainInjectDefaultEnabled`，**默认开**——与 diagram 通道默认关相反，这条通道是「准备做什么」的唯一来源，关掉卡片不空但只剩一半） |
 | **记忆卡（KR 右栏）** | 数据面走 host 的 `/api/dsh-memory/*`（纯 fetch，无 typert）。**常态折叠**：钉在右栏最下方，但**默认收起**，标题行右侧留一行「N 条」纯文字说清这次对话记了几条（徽标底色已按要求取消，改为与标题同列的弱一级文字），要看由用户点开——默认展开时模型每记一条右栏就自己长高一截、把用户正在读的思考卡顶走一截，而位置还是他没动过的，观感上就是「界面在抖」；顺带让 footer 常态只占一行，思考卡多拿回几行视口。切会话**不重置**折叠态：用户手动点过一次就说明他想看。**口径 = 本会话新增，有新增才显示**：分区只列**这个会话写下 / 更新过**的条目——按条目溯源 `provenance.sessionId` 等值判定（host 在自动提取、memory_remember / memory_revise 写入时落盘），**不按时间**：时钟偏差、刷新、切会话都不影响结果；本会话更新过的记忆（upsert 撞已有条目）同样刷新溯源算本会话。没有新增的分区**整个不渲染**（无占位行），两个分区都无新增时卡体收成一行头部；不再提供「全部 N」历史逃生口（全量历史走侧边栏记忆工作台）。工作区分区再叠加当前 cwd → projectHash 限定（path 匹配，不自己复刻 sha1）。**删除**：点行尾垃圾桶 → 行内「删除？确认 取消」，`POST /delete-batch`，乐观摘除、失败整份回滚。记忆模块不可用时整卡降级成一行「记忆模块未就绪」，不崩其余卡片 |
-| **四工作台（原 dsh-triad）** | 2026-09-24 融合：`dsh-triad` 的 host / client 两半身整体搬进 `src/triad/` 与 `src/client/triad/`（host 45 文件 + client 74 文件，SHA256 逐一比对零差异），`dsh-triad` 从 profile bundles 摘除。**侧边栏四入口**：自动化（首行）/ 记忆 / 能力 / 用量。**8 组路由前缀**与工具名一字未改：`/api/dsh-memory/*`（面板数据 + 裁决操作）、`/api/triad-automation/*`、`/api/usage-stats/*`、`/api/skill-manager/*`、`/api/skill-toggles/*`、`/api/skill-health`、`/api/mcp-recommended`、`/api/triad/mcp-status|mcp-config`；工具 `memory_search` / `memory_remember` / `memory_pin` / `memory_tag` / `memory_forget` / `memory_revise` / `memory_retire` / `memory_consolidate` 与 `automation` 照旧。**记忆引擎**仍挂 `agent/pre-step` 注入（prepend，绝不写 system prompt）与 `session/event` 的 turn/end 捕获 → LLM 提取 → ticker 增量编译。装配按「每模块一个 try/catch」，一个工作台挂不起来不影响其他三个，也不影响上面的对话增强 |
+| **四工作台 → 三工作台（原 dsh-triad）** | 2026-09-24 融合：`dsh-triad` 的 host / client 两半身整体搬进 `src/triad/` 与 `src/client/triad/`（host 45 文件 + client 74 文件，SHA256 逐一比对零差异），`dsh-triad` 从 profile bundles 摘除。**记忆引擎**仍挂 `agent/pre-step` 注入（prepend，绝不写 system prompt）与 `session/event` 的 turn/end 捕获 → LLM 提取 → ticker 增量编译。装配按「每模块一个 try/catch」，一个工作台挂不起来不影响其他两个，也不影响上面的对话增强。2026-09-28：定时自动化（`src/{client/,}triad/automation/`、`/api/triad-automation/*` 8 组里的 1 组、`automation` 工具、`shell.overlay / automation-notifier` 座位）整块删除，改由官方 `@deepseek-ai/dsh-experimental-schedule-bundle` 接管；余下 **7 组路由前缀**与记忆 8 个工具一字未改 |
 
 **正文链路保持官方**：text 块用官方 `MarkdownText`（ui-primitives）、图片走官方
 `renderMessageImages` 槽——不引入 markstream / shiki / katex（截图渲染是 host
@@ -208,20 +209,29 @@ variant 可选 pill / expand / glow，缺省 pill（方案A）。未闭合围栏
    这条链最容易写成死循环，档位比较是唯一的刹车
 4. 不再溢出且当前低于默认档时回升一档（带回退，避免在阈值上抖动）
 
-## 四工作台（原 dsh-triad 融合）
+## 工作台（原 dsh-triad 融合）
 
-2026-09-24 把 `dsh-triad` 整体并入本插件，`dsh-triad` 从 profile bundles 摘除：
-侧边栏的自动化 / 记忆 / 能力 / 用量四个入口与各自的面板，现在都来自这一个插件。
+2026-09-24 把 `dsh-triad` 整体并入本插件，`dsh-triad` 从 profile bundles 摘除；
+2026-09-28 再把其中的定时自动化整块删除（官方 `@deepseek-ai/dsh-experimental-schedule-bundle`
+已提供同样的能力），侧边栏现存记忆 / 能力 / 用量三个入口与各自的面板。
 
 **为什么整包搬而不是各自调用**：dsh-triad 的 client 半身本来就是「纯 fetch + 同源
 路由」的形态（`createMemoryApi()` 就是 fetch 包装），host 半身的路由与工具在 DSH 的
 service 图上是一等公民。只调它的 API 会让两插件之间形成隐式的加载顺序依赖（谁先挂载、
-对方没装怎么办），而整包搬之后四工作台的装配仍按「每模块一个 try/catch」，一个挂不起来
-不影响其他三个。
+对方没装怎么办），而整包搬之后各工作台的装配仍按「每模块一个 try/catch」，一个挂不起来
+不影响其他两个。
+
+**自动化为什么让给官方**：官方 schedule bundle 给的是「持久任务 + 到点投递回原会话 +
+任务页 + `schedule_create/list/update/delete` 四个工具 + 每步时间读数」，覆盖面不低于
+自研那套，还少一套要自己维护的存储、调度与建议确认。删除范围是整块模块：
+`src/triad/automation/`、`src/client/triad/automation/`、`/api/triad-automation/*` 路由、
+`automation` 工具、`shell.overlay / automation-notifier` 座位，侧边栏首行改为
+`skills + memory` 合并行；历史任务目录 `~/.dsh/automation/` 同步删除。
+`plain-language.ts` 里的定时工具词条换成官方 `schedule_*` 四个。
 
 **融合时守住的三条**：
 
-1. **座位与命名空间原样保留** —— slot id / order / locale namespace / 8 组路由前缀 /
+1. **座位与命名空间原样保留** —— slot id / order / locale namespace / 路由前缀 /
    工具名 / 数据与配置目录一字未改，用户侧零迁移
 2. **相对路径同构** —— dsh-triad 的 `vendor/` 实际在仓库根（不是 `src/vendor/`），
    所以搬到 `src/vendor/`，让 `src/triad/host.ts` 的 `../vendor/...` 与
@@ -298,8 +308,8 @@ service 图上是一等公民。只调它的 API 会让两插件之间形成隐�
 ```powershell
 node scripts/smoke-client.mjs       # 对话增强：7 座位 / 9 样式表 / KR 开关同源自适应
 node scripts/smoke-host.mjs         # 本插件 host：3 路由 + download 工具
-node scripts/smoke-triad-host.mjs   # 四工作台 host：8 组路由 + 记忆 8 工具 + 自动化 + agent 钩子，路由零撞车
-node scripts/smoke-triad-client.mjs # 四工作台 client：Token 活动 52 周热力模型等纯逻辑
+node scripts/smoke-triad-host.mjs   # 工作台 host：7 组路由 + 记忆 8 工具 + agent 钩子，路由零撞车
+node scripts/smoke-triad-client.mjs # 工作台 client：Token 活动 52 周热力模型等纯逻辑
 ```
 
 `smoke-triad-host.mjs` 从已安装位置加载 host 半身（`@deepseek-ai/*` 在 profile 里才
@@ -346,25 +356,28 @@ dsh-webui 已从工作区删除，不再参与 profile 加载或运行时共存�
 
 **已融合，dsh-triad 退役。** 2026-09-24 起 dsh-triad 的 host / client 两半身整体并入
 本插件（`src/triad/` + `src/client/triad/`），并已从 profile 的 bundles 摘除。若你的
-环境里还挂着 `dsh-triad`，请去掉——两套同时挂会因为 slot id 相同（`automation-notifier`、
-`dsh-memory-inject-toggle`、`tool.call.toolview` key `skill`）与路由前缀相同
-（`/api/dsh-memory/*` 等 8 组）而重复注册。
+环境里还挂着 `dsh-triad`，请去掉——两套同时挂会因为 slot id 相同（`dsh-memory-inject-toggle`、
+`tool.call.toolview` key `skill`）与路由前缀相同（`/api/dsh-memory/*` 等 7 组）而重复注册。
 
-融合保留的是「座位与命名空间原样」：slot id / order / locale namespace / 8 组路由前缀 /
-12 个工具名 / 记忆与自动化的数据目录（`<DSH_HOME>/storages`、`<DSH_HOME>/automation/dsh-triad/`）
-都没动，所以原本装在 dsh-triad 上的记忆条目、定时任务、用量统计在融合后继续可用，
-不需要迁移任何数据。
+融合保留的是「座位与命名空间原样」：slot id / order / locale namespace / 7 组路由前缀 /
+记忆 8 个工具名 / 数据目录（`<DSH_HOME>/storages`）都没动，所以原本装在 dsh-triad 上的
+记忆条目、用量统计在融合后继续可用，不需要迁移任何数据。
+
+**定时任务不再由本插件提供**（2026-09-28）。官方 `@deepseek-ai/dsh-experimental-schedule-bundle`
+已在 profile 的 bundles 中启用，自研的 `/api/triad-automation/*`、`automation` 工具、
+`automation-notifier` 座位与 `<DSH_HOME>/automation/` 目录一并删除；旧的定时任务
+不会被官方接管，需要重建。
 
 ## 产物体积
 
-发布内容约 **5.4 MB**：`lib/index.js` 3.9 MB（host 半身，含融合进来的四工作台）+
+发布内容约 **5.4 MB**：`lib/index.js` 3.9 MB（host 半身，含融合进来的工作台）+
 `lib/client.js` 448 KB（浏览器半身，另带 822 KB 的 map 给 DevTools 断点用）+
 `assets/` 968 KB（mermaid 引擎预压缩）+ 构建脚本零头。两处刻意省下来的：
 
 - **host 半身不出 source map**：Node 只有带 `--enable-source-maps` 才读它，DSH 服务没开，十几 MB 的 map 纯属占地方（也占 git 历史）。`build.mjs` 里 host 是 `sourcemap: false`，client 保留。
 - **shiki 走 fine-grained**：`shiki/core` + `shiki/engine/javascript` + 显式 import 的 34 个 grammar 与 2 个主题。之前从 `shiki` 主入口 `createHighlighter`，esbuild 会把全量 ~220 种语法（约 10 MB）内联进来，而其中未注册的那些本来也用不到（`codeToHtml` 外面套着 try/catch，未注册语言回落纯文本）。用纯 JS 正则引擎而不是 oniguruma wasm，是为了不引 wasm 文件路径依赖 —— 产物仍是单文件自包含，装到 profile 的 node_modules 里也不会找不到 wasm。代价是首次高亮慢一些（三个代码块含引擎初始化约 550ms，截图整体 1.4s 内），加语言要在 `src/shot/markdown.ts` 的 import 列表里补一行。
 
-> 融合 dsh-triad 后 host 半身从 3.45 MB 涨到 3.9 MB（记忆引擎 + 自动化 store + usage/skills host + vendored 的 DSH 叶子模块），浏览器半身从 258 KB 涨到 448 KB（四个工作台的面板）。这部分体积换来的是一整套侧边栏工作台，且 host 侧对 `@deepseek-ai/*` 仍是零运行时依赖。
+> 融合 dsh-triad 后 host 半身从 3.45 MB 涨到 3.9 MB（记忆引擎 + usage/skills host + vendored 的 DSH 叶子模块），浏览器半身从 258 KB 涨到 448 KB（工作台面板）。删掉定时自动化后又各降一截（host 3.8 MB）。这部分体积换来的是一整套侧边栏工作台，且 host 侧对 `@deepseek-ai/*` 仍是零运行时依赖。
 
 ## 构建（Windows）
 
@@ -373,7 +386,7 @@ node build.mjs    # esbuild 双 bundle：lib/index.js(host) + lib/client.js(brow
 ```
 
 - host 半身运行时导入仅 node: 内置 —— markdown-it / shiki / CDP 客户端 / **融合进来的
-  四工作台及其 vendored DSH 叶子模块**全部内联，产物自包含。构建末尾的
+  工作台及其 vendored DSH 叶子模块**全部内联，产物自包含。构建末尾的
   `assertHostExternals()` 拿一份**空 allowlist** 逐个扫 `lib/index.js` 里留给运行时
   解析的裸 import，命中任何一个 `@deepseek-ai/*` 就直接让构建失败（这条守卫真实拦过
   一次：`@deepseek-ai/dsh-util-crypto` 在源码 checkout 里解析得到、装进 profile 后
@@ -397,8 +410,8 @@ node <DSH>/node_modules/.pnpm/typescript@*/node_modules/typescript/bin/tsc -p ts
 ```powershell
 node scripts/smoke-client.mjs        # 对话增强：7 座位 / 9 样式表 / KR 开关同源自适应
 node scripts/smoke-host.mjs          # 本插件 host：3 路由 + download 工具
-node scripts/smoke-triad-host.mjs    # 四工作台 host：8 组路由 + 记忆 8 工具 + agent 钩子，路由零撞车
-node scripts/smoke-triad-client.mjs  # 四工作台 client：Token 活动 52 周热力模型等纯逻辑
+node scripts/smoke-triad-host.mjs    # 工作台 host：7 组路由 + 记忆 8 工具 + agent 钩子，路由零撞车
+node scripts/smoke-triad-client.mjs  # 工作台 client：Token 活动 52 周热力模型等纯逻辑
 node scripts/test-skill-manager.mjs && node scripts/test-skill-toggles.mjs   # 技能纯逻辑
 ```
 
@@ -406,13 +419,13 @@ node scripts/test-skill-manager.mjs && node scripts/test-skill-toggles.mjs   # �
 `lib/client.js`，或用桩 ctx 驱动 `lib/index.js` 的 `apply()`。几个值得知道的桩细节：
 
 - client 桩必须给全 `slots` / `locale` / `inputTriggers` / `sessions` 四类服务——
-  融合后 apply 同时装配对话增强和四工作台，少给一个，对应工作台的 try/catch 会静默
+  融合后 apply 同时装配对话增强和各工作台，少给一个，对应工作台的 try/catch 会静默
   吃掉它，座位数断言就分不清「真没注册」与「桩不够」
 - `smoke-triad-host.mjs` 从**已安装位置**加载 host 半身（`@deepseek-ai/*` 在 profile 里
   才可解析），并且要显式等一拍（`setImmediate`）让被 `await` 的异步挂载跑完——同步
   `ctx.inject` 回调里 await 的挂载在 apply 返回时还没落地，不等会误判成「路由没注册」
 - host 桩的 `ctx.inject` 必须真的把回调跑起来，且 scope 得是「ctx 超集 + `effect`」：
-  四工作台的模块一进去就调 `webCtx.effect(fn, 'dsh-memory: routes')` 做资源回收登记，
+  各工作台的模块一进去就调 `webCtx.effect(fn, 'dsh-memory: routes')` 做资源回收登记，
   scope 少了 `effect` 会 TypeError，而且这个异常会从 apply 冒出去、把后面所有
   `ctx.inject` 全中断（表现为 routes / tools / listeners 全 0）
 
@@ -476,20 +489,18 @@ src/
         ├── kr-todo-bridge.ts        — 官方 todos 实时投影（同时是会话身份登记点）
         ├── KrLiveActivityCard.tsx   — 左栏对话流那张瞬态状态卡
         └── styles.ts                — KR 专属 CSS（含统一简约滚动条）
-    └── triad/                       — 原 dsh-triad 四工作台 client 半身（整体搬迁）
-        ├── index.ts                 — applyTriadClient（四模块各 try/catch）
+    └── triad/                       — 原 dsh-triad 工作台 client 半身（整体搬迁）
+        ├── index.ts                 — applyTriadClient（三模块各 try/catch）
         ├── memory/                  — 记忆面板 + composer 两枚注入开关（记忆注入 / 内置提示词通道，纯 fetch）
-        ├── automation/              — 定时任务面板 + notifier
         ├── usage/                   — 用量卡片（热力图 + token 消耗查询）+ 技能面板
         ├── skill-source/            — 技能面板 + `/` slash source
-        ├── sidebar-nav.tsx          — 侧边栏导航行（四入口）
+        ├── sidebar-nav.tsx          — 侧边栏导航行（三入口：首行 skills+memory，其余 usage / team）
         ├── popover-shell.tsx        — 面板外壳（drawer / compact 两种形态）
         ├── responsive.ts            — 响应式
         └── triad-modal-animation.ts —  triad 版弹窗动画（与主插件那版不等价，故改名）
-src/triad/                           — 原 dsh-triad 四工作台 host 半身
-├── host.ts                          — applyTriadHost（七模块各 try/catch）
+src/triad/                           — 原 dsh-triad 工作台 host 半身
+├── host.ts                          — applyTriadHost（各模块各 try/catch）
 ├── memory/                          — 记忆引擎：store / tools / api / engine/（extract|compile|inject|retrieval|scoring|embedding|consolidate|ticker）
-├── automation/                      — 定时任务：store / scheduler / executor / routes / tool / suggestions
 ├── skill-toggles.ts                 — /api/skill-toggles/*
 ├── skill-health.ts                  — /api/skill-health
 ├── mcp-recommended.ts               — /api/mcp-recommended
@@ -507,8 +518,8 @@ assets/
 scripts/
 ├── smoke-host.mjs                   — 本插件 host：3 路由 + download 工具
 ├── smoke-client.mjs                 — 对话增强：7 座位 / 9 样式表 / KR 开关自适应
-├── smoke-triad-host.mjs             — 四工作台 host：8 组路由 + 工具 + agent 钩子
-├── smoke-triad-client.mjs           — 四工作台 client：热力模型纯逻辑
+├── smoke-triad-host.mjs             — 工作台 host：7 组路由 + 工具 + agent 钩子
+├── smoke-triad-client.mjs           — 工作台 client：热力模型纯逻辑
 ├── test-skill-manager.mjs           — 技能管理纯逻辑
 └── test-skill-toggles.mjs           — 技能开关纯逻辑
 ```
