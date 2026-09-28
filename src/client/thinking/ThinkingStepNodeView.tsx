@@ -16,6 +16,12 @@
  *     摆就得来回对照才读得完整。普通「对话」视图不受影响：那边由官方
  *     ReasoningRow 自己渲染，本组件整体委托回官方 AssistantNodeView。
  *
+ *     挂载点还有几个硬约束（缺一个卡片就不显示，别再改回去）：
+ *       · **进行中挂首步、收口后挂答案行**：官方的过程投影只存在于回合进行中，
+ *         历史轮次的 group part 全是 response；死守首步就会在收口那一刻失去
+ *         唯一的落点。两段各自只有一个合法投影（reasoning / response），
+ *         同一时刻只认一份，避免同一张卡出现两遍。
+ *
  * 总结卡门控不变：turn.status === 'closed'（或中断）后，中间片段变轻量步骤
  * 卡，最终回复变总结卡（纯正文外壳，头部统计行已移除）。
  */
@@ -205,6 +211,15 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
   props: ChatNodeViewProps<'assistant-step'>,
 ) {
   const { node, useTurnData, useChat, openFile, renderMessageImages, fileMentions, t } = props
+  /**
+   * 本次渲染属于官方的哪一份投影（owner 分组的 groupPart）。
+   *
+   * 官方把同一个 assistant-step 节点渲染两次：过程投影 `reasoning`、答案投影
+   * `response`（见 kr-chat/styles.ts 顶部那张对照）。两段各只有一个合法落点：
+   * 进行中卡片在过程投影里（官方那时还没有答案投影），收口后官方只剩答案投影。
+   * 同一时刻只认一份，避免同一张卡出现两遍。
+   */
+  const groupPart = (props as { readonly groupPart?: string }).groupPart
   const krStore = getKrChatStore()
   const krState = useSyncExternalStore(
     (cb) => krStore.subscribe(cb),
@@ -327,7 +342,7 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
     [reasoningSignature],
   )
   /*
-   * 思考卡挂在「回合内第一个带思考的 step」上，而不是 locations 里的 steps[0]。
+   * 思考卡在**回合进行中**挂在「回合内第一个带思考的 step」上。
    *
    * 用 steps[0] 会漏：工具间隙里官方会把前面的 step 从 locations 摘掉，
    * steps[0] 变成当前那个，而卡所在的节点不是它——于是整张卡挂不上。
@@ -335,6 +350,10 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
    * 这里必须与上面的 reasoningItems **同一套兜底口径**：只把 reasoningTexts
    * 兜底、挂载判定仍只看 locations 的话，收口后的历史轮次会出现「思考文本取得到
    * 却没人认领」——卡整块不渲染，正好是用户要问的「总结完了怎么查看」。
+   *
+   * 为什么进行中挂首步：官方的过程投影（groupPart=reasoning）**只存在于回合
+   * 进行中**，一步一行、位置稳定；挂首步卡片就钉在回合开头，不会每来一个 step
+   * 就换一次父节点。
    */
   const firstReasoningStepKey = useChat((snapshot): string | undefined => {
     if (turnNumber === undefined) return undefined
@@ -362,7 +381,48 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
       return undefined
     }
   })
-  const ownsReasoningCard = firstReasoningStepKey !== undefined && node.key === firstReasoningStepKey
+  /*
+   * 回合**收口后**的挂载点：本回合最后一个 assistant-step —— 也就是官方的答案行。
+   *
+   * 历史轮次实测（已收口会话）：`[data-chat-group-part]` 全是 response，
+   * reasoning 一条都没有——官方只在回合进行中渲染过程投影。卡片若仍死守首步，
+   * 收口那一刻就再也没有节点认领它，正是「总结完了怎么查看」看不到的原因。
+   *
+   * 与 firstReasoningStepKey 同一套两级取数（locations 优先、收口后扫全量），
+   * 全量那路按 data.step 排序：Map 的插入顺序不保证等于步骤顺序。
+   */
+  const lastStepKey = useChat((snapshot): string | undefined => {
+    if (turnNumber === undefined) return undefined
+    const pickLast = (candidates: readonly ChatNode<'assistant-step'>[]): string | undefined => {
+      for (let index = candidates.length - 1; index >= 0; index -= 1) {
+        const key = candidates[index]?.key
+        if (key !== undefined && key !== '') return key
+      }
+      return undefined
+    }
+    try {
+      const fromLocations: ChatNode<'assistant-step'>[] = []
+      for (const key of snapshot?.locations?.getTurn?.(turnNumber) ?? []) {
+        const candidate = snapshot?.nodes?.get?.(key)
+        if (candidate?.kind === 'assistant-step') fromLocations.push(candidate)
+      }
+      const picked = pickLast(fromLocations)
+      if (picked !== undefined) return picked
+      const all: ChatNode<'assistant-step'>[] = []
+      for (const candidate of snapshot?.nodes?.values?.() ?? []) {
+        if (candidate?.kind !== 'assistant-step') continue
+        const loc = candidate.location
+        const locTurn = candidate.data?.turn
+          ?? (typeof loc?.turn === 'number' ? loc.turn : loc?.turn?.turn)
+        if (locTurn !== turnNumber) continue
+        all.push(candidate)
+      }
+      all.sort((a, b) => (a.data?.step ?? 0) - (b.data?.step ?? 0))
+      return pickLast(all)
+    } catch {
+      return undefined
+    }
+  })
   const isFirstStep = steps.length > 0 && node.key === steps[0]?.key
   const toolsRunning = toolNodes.some((toolNode) => {
     try { return isRunning(toolNode.data.root) } catch { return false }
@@ -499,13 +559,25 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
    * 真正的分界只有一个：这回合的总结卡（最终回答）出来没有。
    */
   const turnActive = !summarizing
-  const inlineReasoning = KR_CHAT_ENABLED && isKrMode && ownsReasoningCard && reasoningItems.length > 0
+  /*
+   * 挂载点随回合状态切换（两段各只有一个合法落点，见上面两个 key 的注释）：
+   *   进行中 → 首个带思考的 step，走**过程投影**那一份 DOM；
+   *   收口后 → 最后一个 step（答案行），走**答案投影**那一份 DOM。
+   *
+   * projectionAllowsCard 是配套的排重：官方对同一个节点最多渲染两份 DOM
+   * （reasoning / response），同一时刻只认其中一份，否则短回合会出现同一张卡
+   * 在屏幕上出现两遍（历史 bug「点开思考到总结时出现两个」）。
+   */
+  const cardAnchorKey = summarizing ? lastStepKey : firstReasoningStepKey
+  const ownsReasoningCard = cardAnchorKey !== undefined && node.key === cardAnchorKey
+  const projectionAllowsCard = summarizing ? groupPart !== 'reasoning' : groupPart !== 'response'
+  const inlineReasoning = KR_CHAT_ENABLED && isKrMode && projectionAllowsCard
+    && ownsReasoningCard && reasoningItems.length > 0
     ? (
       <KrReasoningCard
         reasoningTexts={stableReasoningTexts}
         running={turnActive}
         summarizing={summarizing}
-        turnActive={turnActive}
         inline
       />
     )

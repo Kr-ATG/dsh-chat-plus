@@ -153,6 +153,19 @@ export const KrReasoningCard = memo(function KrReasoningCard({
   const startIndex = Math.max(0, points.length - windowSize)
   const windowed = startIndex === 0 ? points : points.slice(startIndex)
   const hiddenCount = startIndex
+  /*
+   * 标题里的数字 = **这一轮模型思考了几段**（reasoning 块数），不是行数。
+   *
+   * 2026-09-29 按用户口径改的：原来显示 points.length（行数），一轮推理动辄上千
+   * 行，标题上写着「(1214)」读不出任何信息量，用户直接问「这是什么意思」。
+   * 行数仍然是**流内部的滚动单位**（「↑ 前面还有 N 行，向上翻看」照旧用它），
+   * 但不该当标题读数。一段思考 = 一个 reasoning 块，与右栏活动抽屉里
+   * 「N 次思考」完全同一口径（那里数的也是 reasoning 项数）。
+   */
+  const times = useMemo(
+    () => reasoningTexts.reduce((count, text) => (text.trim() === '' ? count : count + 1), 0),
+    [reasoningTexts],
+  )
 
   if (reasoningTexts.length === 0 && !running) return null
 
@@ -181,7 +194,7 @@ export const KrReasoningCard = memo(function KrReasoningCard({
           </svg>
         </span>
         <span className="kr-card__title">
-          思考过程 {hasContent ? `(${points.length})` : running ? '(思考中…)' : ''}
+          思考过程 {hasContent ? `(${times} 次)` : running ? '(思考中…)' : ''}
         </span>
         {/*
          * 折叠时的一枚小 chevron：内联模式下这张卡收口后只剩标题一行，

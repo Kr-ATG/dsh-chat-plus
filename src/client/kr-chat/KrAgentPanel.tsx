@@ -21,6 +21,15 @@ import { KrPlainTimelineCard } from './KrPlainTimelineCard.tsx'
 import { KR_MEMORY_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE } from './enabled.ts'
 
 /**
+ * 左侧对话流必须保留的最小宽度（px）。
+ *
+ * 官方 AppFrame 把中心栏钳到 CENTER_MIN=400（ui-layout/columns.ts），本面板正是
+ * 挂在中心栏里、且与对话流平分这 400px。留 380 给对话流，剩下 20px 的余量刚好
+ * 抵掉两侧滚动条 —— 再窄，正文一行放不下十几个字，双栏就失去意义了。
+ */
+const CHAT_FLOW_MIN_WIDTH = 380
+
+/**
  * 一轮的数据视图。
  *
  * 显式声明成 readonly 形状，而不是直接用 collectTurnNodes 的返回类型推断：
@@ -298,35 +307,132 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   // ── 左边缘拖拽调宽 ────────────────────────────────────────────────────
   // pointer events（不是 mouse events）：Pointer Capture 保证指针滑出手柄、
   // 甚至滑出窗口后 move/up 依然派发给手柄，不丢拖拽；同时天然覆盖触屏。
-  // 拖拽方向：向左拖 = 变宽（width = 视口右边缘 - 指针 x）。
+  //
+  // 锚点是**面板自身右缘**，不是 window.innerWidth。
+  // 官方 AppFrame 是三栏 grid（sidebar | center | rightbar，见
+  // @deepseek-ai/dsh-client-ui-layout 的 AppFrame.tsx），本面板挂在 center 栏内的
+  // [data-conversation-content] 里，其右缘 = frame 右缘 - rightbar 宽度。官方
+  // rightbar 默认占视口 45%、还能被用户继续拖宽，sidebar 也可展开/折叠成 rail ——
+  // 于是「视口右缘」与「面板右缘」之间恒有一段偏差 δ。旧算法 width = innerWidth - x
+  // 把这段 δ 错算进宽度，手柄于是恒定偏在指针左边 δ 像素，表现为「拖不动 / 位置不对」，
+  // 右栏一开 δ 更大、错位更明显。改成量自己的 getBoundingClientRect().right 后：
+  // 面板左缘 = right - width = 指针 x，与指针逐像素对齐，且官方三栏怎么变都不用跟改。
   const width = krState.width
   const [dragging, setDragging] = useState(false)
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const widthBadgeRef = useRef<HTMLDivElement | null>(null)
   const dragStateRef = useRef<{ pointerId: number; handle: HTMLElement } | null>(null)
+  /**
+   * 手势内冻结的锚点。right 是拖拽起手那一帧的面板右缘（全程不重取，避免布局
+   * 抖动把基准带跑）；max 是这次手势允许的宽度上限（见下）。
+   */
+  const dragAnchorRef = useRef<{ right: number; max: number } | null>(null)
+  /**
+   * 当前空间允许的宽度上限。拖拽与键盘共用：官方 rightbar / 侧边栏一变，中心栏
+   * 宽窄就变，静态的 PANEL_WIDTH_MAX 不再是真实天花板。挂载时与窗口 resize 时重算。
+   */
+  const [spaceMax, setSpaceMax] = useState(PANEL_WIDTH_MAX)
+  /** handleDragStart 是空依赖的稳定回调，需要读 fullscreen 时走这个镜像。 */
+  const krStateRef = useRef(krState)
+  krStateRef.current = krState
+
+  /**
+   * 本次手势的宽度上限：除了 store 的静态 PANEL_WIDTH_MAX，还要受**当前可用空间**
+   * 约束。中心栏宽度会随官方 rightbar 开合、侧边栏展开/折叠而变，中心栏最窄被官方
+   * 钳到 CENTER_MIN=400；若此时仍允许 720，KR 面板会吃掉整个中心栏、把左栏对话流
+   * 压成 0 宽（content 是 overflow:hidden，看起来就是「面板糊满一整块」）。
+   * 所以上限取 min(静态上限, 宿主宽 - 左栏对话流最小可读宽)，并保底不低于面板自身
+   * 最小宽 —— 空间实在不够时宁可让左栏窄，也不能让面板宽度算成负数或缩到 0。
+   */
+  const resolveDragMax = useCallback((): number => {
+    const panel = panelRef.current
+    if (!panel) return PANEL_WIDTH_MAX
+    const host = panel.closest('[data-conversation-content]') as HTMLElement | null
+    if (!host) return PANEL_WIDTH_MAX
+    const hostWidth = host.getBoundingClientRect().width
+    if (!(hostWidth > 0)) return PANEL_WIDTH_MAX
+    const maxBySpace = Math.max(PANEL_WIDTH_MIN, Math.round(hostWidth - CHAT_FLOW_MIN_WIDTH))
+    return Math.min(PANEL_WIDTH_MAX, maxBySpace)
+  }, [])
+
+  // 空间上限随官方三栏布局的变化实时重算：官方 rightbar 的开关/拖拽、侧边栏的
+  // 展开/折叠都会改中心栏宽度，而它们发生在我们的组件之外，只能靠观测宿主盒。
+  // ResizeObserver 打在 [data-conversation-content] 上（比 window.resize 精确：
+  // 官方三栏重排不改变窗口宽度，却会改变这个盒的宽度）。
+  useEffect(() => {
+    const panel = panelRef.current
+    const host = panel?.closest('[data-conversation-content]') as HTMLElement | null
+    if (!host) return
+    const sync = (): void => setSpaceMax(resolveDragMax())
+    sync()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', sync)
+      return () => window.removeEventListener('resize', sync)
+    }
+    const observer = new ResizeObserver(sync)
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [resolveDragMax])
 
   const handleDragStart = useCallback((e: React.PointerEvent<HTMLElement>) => {
     if (e.button !== 0) return
+    // 全屏态面板铺满整栏，宽度由 CSS !important 决定，拖拽无意义 —— 直接不接。
+    if (krStateRef.current.fullscreen) return
     const handle = e.currentTarget
+    const panel = panelRef.current
+    if (!panel) return
     dragStateRef.current = { pointerId: e.pointerId, handle }
+    dragAnchorRef.current = { right: panel.getBoundingClientRect().right, max: resolveDragMax() }
+    setSpaceMax(dragAnchorRef.current.max)
     // setPointerCapture 之后 move/up 事件始终派发给 handle，指针滑出也不断。
     try { handle.setPointerCapture(e.pointerId) } catch {}
     setDragging(true)
     e.preventDefault()
-  }, [])
+  }, [resolveDragMax])
 
   useEffect(() => {
     if (!dragging) return
     // 全局光标/选择锁定：拖拽滑过左栏文字时不再误选中文本。
     document.body.setAttribute('data-kr-resizing', 'true')
+    // rAF 节流：setPanelWidth 会广播到整棵 KR 面板订阅树，按原始 pointermove
+    // 频率（可达 120Hz+）重渲染只会让拖拽发涩、跟手发飘。每帧至多一次。
+    let frame: number | null = null
+    let queued: number | null = null
+    const flush = (): void => {
+      frame = null
+      if (queued === null) return
+      const anchor = dragAnchorRef.current
+      if (!anchor) return
+      // 向左拖 = 变宽：面板左缘 = 锚点右缘 - 宽度，令它贴住指针 x。
+      const next = Math.min(anchor.max, anchor.right - queued)
+      queued = null
+      store.setPanelWidth(next)
+      // 宽度读数直写 DOM 文本，不走 setState：数值每帧都变，交给 React 会把
+      // 整个大盘按帧重渲染一遍。读 snapshot.width 而不是 next —— store 还会
+      // 按 [PANEL_WIDTH_MIN, PANEL_WIDTH_MAX] 二次钳制，气泡要显示真正生效的值，
+      // 否则撞到上限时会出现「气泡还在涨、面板不动」。
+      if (widthBadgeRef.current) {
+        widthBadgeRef.current.textContent = `${store.snapshot.width} px`
+      }
+    }
     const onMove = (e: PointerEvent): void => {
       if (dragStateRef.current?.pointerId !== e.pointerId) return
-      // 向左拖 = 变宽（面板左边缘 = 视口宽 - 面板宽）。store 内部钳制取值域。
-      store.setPanelWidth(window.innerWidth - e.clientX)
+      queued = e.clientX
+      frame ??= requestAnimationFrame(flush)
     }
     const onUp = (e: PointerEvent): void => {
       if (dragStateRef.current?.pointerId !== e.pointerId) return
+      if (frame !== null) { cancelAnimationFrame(frame); frame = null }
+      // 最后一帧的位移不能丢：抬手与 move 之间常有一小段没派发的位移。
+      if (queued !== null) {
+        const anchor = dragAnchorRef.current
+        if (anchor) store.setPanelWidth(Math.min(anchor.max, anchor.right - queued))
+        queued = null
+      }
       const handle = dragStateRef.current.handle
       try { handle.releasePointerCapture(e.pointerId) } catch {}
       dragStateRef.current = null
+      dragAnchorRef.current = null
       setDragging(false)
       store.commitPanelWidth()
     }
@@ -334,6 +440,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
     return () => {
+      if (frame !== null) cancelAnimationFrame(frame)
       document.body.removeAttribute('data-kr-resizing')
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
@@ -406,6 +513,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
 
   return (
     <div
+      ref={panelRef}
       className={`kr-split__side ${krState.fullscreen ? 'kr-split__side--fullscreen' : ''}`}
       data-dragging={dragging ? 'true' : undefined}
       style={krState.fullscreen ? undefined : { width, minWidth: width, maxWidth: width }}
@@ -423,19 +531,22 @@ export const KrAgentPanel = memo(function KrAgentPanel({
         className="kr-panel__resize-handle"
         onPointerDown={handleDragStart}
         role="separator"
-        tabIndex={0}
+        tabIndex={krState.fullscreen ? -1 : 0}
         aria-orientation="vertical"
         aria-valuenow={width}
         aria-valuemin={PANEL_WIDTH_MIN}
-        aria-valuemax={PANEL_WIDTH_MAX}
+        aria-valuemax={spaceMax}
+        aria-disabled={krState.fullscreen ? 'true' : undefined}
         aria-label="调整大盘宽度"
         title="拖拽调整大盘宽度；键盘 ←/→ 微调，Shift 加速，Home 恢复默认"
         onKeyDown={(event) => {
+          // 键盘与拖拽共用同一条空间上限：官方右栏/侧边栏一改，静态的
+          // PANEL_WIDTH_MAX 就不是真实天花板，键盘也不能把面板推出中心栏。
           const step = event.shiftKey ? 64 : 16
           if (event.key === 'ArrowLeft') {
-            // 向左 = 面板变宽（与拖拽方向一致：宽度 = 视口右缘 - 指针 x）
+            // 向左 = 面板变宽（与拖拽方向一致）
             event.preventDefault()
-            store.setPanelWidth(width + step)
+            store.setPanelWidth(Math.min(spaceMax, width + step))
           } else if (event.key === 'ArrowRight') {
             event.preventDefault()
             store.setPanelWidth(width - step)
@@ -455,6 +566,19 @@ export const KrAgentPanel = memo(function KrAgentPanel({
           }
         }}
       />
+      {/*
+        拖拽中的实时宽度读数。
+
+        纯 CSS 显隐（挂在 [data-dragging] 下），文本由 pointermove 直接写
+        textContent —— 数值每帧都变，走 setState 会把整棵大盘按帧重渲染。
+        进入拖拽的那一帧 effect 补一次初值，让气泡不是从空字符串跳出来。
+      */}
+      <div
+        ref={widthBadgeRef}
+        className="kr-panel__resize-badge"
+        aria-hidden="true"
+      >{`${width} px`}</div>
+
       {/* 顶部 Header：头像 + 标题（当前对话提问）+ 副标题（任务/工具统计行）
           + 右侧「生成对话截图」一枚按钮（原先还有一枚「收起大盘 ×」，与标签行
           那枚开关是一对，已随大盘常驻化一起删除）。

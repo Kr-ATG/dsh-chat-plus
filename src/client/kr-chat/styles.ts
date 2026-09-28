@@ -49,6 +49,68 @@ body[data-dsh-kr-chat="true"] [data-turn-process-member] {
   display: none !important;
 }
 
+/*
+ * 例外：**含思考过程卡的那条过程链必须放行**。
+ *
+ * 上面那条规则是为了去掉与答案投影重复的过程正文，代价是把思考卡一起藏了 ——
+ * 思考卡（assistant-step 座位上的 KrReasoningCard inline 形态）**只渲染在过程
+ * 投影里**：回合进行中官方还没有答案投影（实测 answer 行数 = 0），过程投影是
+ * 卡片唯一的 DOM 落点，整块 display:none 就是「KR 对话里看不到思考过程卡」。
+ *
+ * 放行范围精确到「确实含卡片」的那一条链（顺带命中它的两个祖先容器），一个回合
+ * 至多一行 —— 卡片挂在首个带思考的 step 上（见 ThinkingStepNodeView）。其余过程
+ * 行（tool-call、别的 step）照旧隐藏，不会把过程正文放回来。
+ *
+ * ⚠ **不放行 [data-turn-process] 容器本身**。实测过：那条容器是官方整轮的折叠行
+ * （标题就是「执行了命令，已读取文件，已搜索代码等」），放行它会把折叠标题一起
+ * 露到左侧对话流里 —— 用户看到的第一句话就是「这条怎么又出来了」。卡片所需的
+ * 祖先只有下面两个，turn-process 那一层不在卡片链上（卡片在 step 分组里）。
+ *
+ * 祖先两级缺一不可，实测：
+ *   [data-step-process]        每个 step 的过程分组根（.O_Ebla_root），display:none
+ *   [data-turn-process-member] 该 step 的投影行（flowItem），display:none
+ * 只放成员行、不放分组根，卡片量出来仍是 0×0。
+ */
+body[data-dsh-kr-chat="true"] [data-step-process]:has(.kr-card--reasoning),
+body[data-dsh-kr-chat="true"] [data-turn-process-member]:has(.kr-card--reasoning),
+body[data-dsh-kr-chat="true"] [hidden="until-found"]:has(.kr-card--reasoning) {
+  display: block !important;
+}
+
+/*
+ * 放行容器时**只留卡片那一条链**。
+ *
+ * [data-step-process] 根下面除了卡片所在的 body，官方还挂着一个过程摘要位
+ * （实测渲染出「正在分析请求 · 一切明确」这类文案；用户截图里那条
+ * 「执行了命令，已读取文件，已搜索代码等」同源）。容器一放行，它就跟着露到
+ * 左侧对话流里 —— 收起的分组摘要本来该由插件自己的活动卡与右栏操作面板承接。
+ * 所以把不含卡片的直接子元素压回去，容器里只剩卡片行。
+ */
+body[data-dsh-kr-chat="true"] [data-step-process]:has(.kr-card--reasoning) > *:not(:has(.kr-card--reasoning)) {
+  display: none !important;
+}
+
+/*
+ * 官方对折叠过程内容用的是 hidden="until-found"，它在 Chromium 里的实现是
+ * **content-visibility: hidden**（不是 display:none）——只放行 display 会命中
+ * 一个仍被「跳过绘制」的子树：卡片有盒模型但宽高为 0，入场动画停在 0% 帧
+ * （kr-card-in 的 both 填充），表现为「放行了却还是不显示」。这里显式恢复。
+ */
+body[data-dsh-kr-chat="true"] [hidden="until-found"]:has(.kr-card--reasoning) {
+  content-visibility: visible !important;
+}
+
+/*
+ * 排重不做样式兜底，全部交给组件侧的 groupPart 判定（进行中只认 reasoning、
+ * 收口后只认 response）。
+ *
+ * 这里曾有一条 [data-chat-group-part="response"] .kr-card--reasoning
+ * { display: none } 用来压掉答案投影里的重复卡片。它是错的：**收口后官方
+ * 只渲染 response 投影**（历史轮次实测 group part 全是 response，reasoning
+ * 一条都没有），那条规则会把历史轮次的思考卡一并删掉 —— 正是「总结完了怎么
+ * 查看」看不到的原因。官方的答案行本来就是可见的，不需要额外放行。
+ */
+
 /* 实时活动卡借用 turn-process 的 per-turn 座位，但KR 模式要让它可见。
    :has 只命中含新卡的那一个过程投影，不把官方过程内容/重复节点放回来。 */
 body[data-dsh-kr-chat="true"] [data-turn-process]:has(.kr-agent-mini-shell),
@@ -273,18 +335,25 @@ body[data-kr-resizing="true"] * {
   cursor: col-resize !important;
 }
 
-/* 左边缘拖拽手柄：宽 7px 的命中区。分隔线去掉后它是右栏唯一剩下的边界线索，
+/* 左边缘拖拽手柄：9px 命中区。分隔线去掉后它是右栏唯一剩下的边界线索，
    所以常态透明、悬停/拖拽才亮一条竖线 —— 平时干净，需要时又找得到。
-   absolute 覆盖在容器左边缘上（容器 overflow:hidden 已裁剪），不参与 flex。 */
+   absolute 覆盖在容器左边缘上（容器 overflow:hidden 已裁剪），不参与 flex。
+   命中区从 7px 放宽到 9px：7px 在高 DPI 与触屏上偏窄，「按不中」本身就会
+   被当成拖不动。竖线仍然是 1px、仍然落在容器左缘，视觉零变化。 */
 .kr-panel__resize-handle {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -3px;
-  width: 7px;
+  left: -4px;
+  width: 9px;
   cursor: col-resize;
   z-index: 60;
   touch-action: none;
+}
+/* 全屏态下面板铺满整栏，宽度由 .kr-split__side--fullscreen 的 !important 决定，
+   拖拽改不动任何东西 —— 光标与 tab 焦点都收掉，别给一个无效的手柄留诱饵。 */
+.kr-split__side--fullscreen .kr-panel__resize-handle {
+  display: none;
 }
 /* 悬停/拖拽时亮一条竖线，提示「这里可以拖」。 */
 .kr-panel__resize-handle::before {
@@ -292,7 +361,7 @@ body[data-kr-resizing="true"] * {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 3px;
+  left: 4px;
   width: 1px;
   background: transparent;
   opacity: 0;
@@ -301,11 +370,45 @@ body[data-kr-resizing="true"] * {
   transition: background 0.18s ease, opacity 0.18s ease, transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .kr-panel__resize-handle:hover::before,
+.kr-panel__resize-handle:focus-visible::before,
 .kr-split__side[data-dragging="true"] .kr-panel__resize-handle::before {
   background: var(--kr-accent);
   opacity: 1;
   transform: scaleY(1);
 }
+
+/* 拖拽中的实时宽度读数。
+ *
+   贴在手柄右侧一点，跟着面板一起动：splitter 的经典反馈 —— 宽度是个「撑出去
+   多少」的概念，光看边缘看不出来到底拖到多少，撞上空间上限时更是完全没提示。
+   显隐走 [data-dragging] 纯 CSS（不占一次 setState），入场带一点 overshoot 的
+   缩放 + 淡入，抬手时反向淡出，跟手柄那条橙线是同一次呼吸。 */
+.kr-panel__resize-badge {
+  position: absolute;
+  top: 50%;
+  left: 20px;
+  transform: translate(-50%, -50%) scale(0.86);
+  z-index: 61;
+  pointer-events: none;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: 0.2px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: #fff;
+  background: var(--kr-accent);
+  box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--kr-accent) 72%, transparent);
+  opacity: 0;
+  transition: opacity 0.18s ease, transform 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.kr-split__side[data-dragging="true"] .kr-panel__resize-badge {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
 
 /* 全屏态铺满整个 split：无投影，此规则保留作显式声明，
    防止将来有人给基础态加投影时漏掉这一态。 */
@@ -834,11 +937,14 @@ body[data-kr-resizing="true"] * {
   --kr-card-shadow: var(--kr-float-shadow, 0 1px 2px rgba(15, 17, 21, .04), 0 8px 24px -18px rgba(15, 17, 21, .28));
   --kr-card-shadow-hover: 0 2px 4px rgba(15, 17, 21, .06), 0 12px 22px -14px rgba(15, 17, 21, .26);
   font-family: var(--dsw-font-family, inherit);
-  /* 不占满整行：思考是这一轮的**背景材料**，与正式回答同一列宽即可，
-     铺满会把它读成与回答并列的另一条消息。 */
-  align-self: flex-start;
+  /* 宽度口径与总结卡（.dtt__card--reply）一致：**占满整列，不随内容自适应**。
+     原来是 align-self:flex-start + width:auto（宽度收缩到内容），短思考时卡片
+     只有半行宽、长思考时又跳成整行，与下方总结卡左右缘对不齐；按用户要求统一
+     成「和总结卡一样的宽度」。
+     只写 stretch 不写 width:100%：卡片是 content-box（实测 padding 12px×2 +
+     边框会外溢 26px），stretch 由 flex 分配 margin box，含内距刚好等于列宽。 */
+  align-self: stretch;
   max-width: 100%;
-  width: auto;
   /* 折叠态只剩标题一行时的横向内距：右栏那张 10px/12px 是给三张卡纵向堆叠
      用的省空间口径，内联卡独占一行，上下留够呼吸。 */
   padding: 8px 12px;
