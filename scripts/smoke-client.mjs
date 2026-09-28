@@ -237,6 +237,22 @@ new vm.Script(code, { filename: CLIENT }).runInContext(context)
 const fail = (msg) => { console.error(`FAIL  ${msg}`); process.exitCode = 1 }
 const pass = (msg) => console.log(`ok    ${msg}`)
 
+/*
+ * styles.ts 是**模板字符串**里的 CSS，注释中出现反引号会当场截断字符串，esbuild
+ * 报出一句莫名其妙的 "Expected ";" but found <CSS 属性名>"（实测踩过三次：写
+ * `position: static`、`修改 plain-language.ts`）。这里先静态扫一遍，把这个坑的
+ * 报错变成一句人话。与 KR 开关无关，所以不套 krEnabled（它在后面才声明）。
+ */
+{
+  const styleSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/styles.ts'), 'utf8')
+  const btInComment = styleSrc.match(/^\s*(\*|\/\/).*`/m)
+  if (btInComment) {
+    fail(`styles.ts 的注释里不能出现反引号（会截断 CSS 模板字符串）：${btInComment[0].trim().slice(0, 60)}`)
+  } else {
+    pass('styles.ts 注释无反引号（CSS 模板字符串安全）')
+  }
+}
+
 if (registrations.length !== 1) fail(`expected 1 loader registration, got ${registrations.length}`)
 else pass('registered exactly one __ModuleLoader__ entry')
 

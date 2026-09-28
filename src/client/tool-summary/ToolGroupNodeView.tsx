@@ -32,6 +32,7 @@ import type { ViewCategory, ViewPhase } from './activity-view-model.ts'
 import { useNow } from './use-now.ts'
 import { activityStore, useDrawerOpen, type ActivityHandlers, type ActivityStore } from './activity-drawer.tsx'
 import { useMotionAllowed, useHeightAnimation } from '../motion-utils.ts'
+import { isTurnSettled } from '../turn-status.ts'
 import { LiveThinkingStack, LIVE_RECLAIM_UNMOUNT_MS, type LiveThinkingItem } from '../thinking/live-stack.tsx'
 import { useTurnActivityCounts } from './TurnProcessShadowView.tsx'
 import { LiveDownloadCard } from '../download/DownloadCard.tsx'
@@ -637,7 +638,9 @@ export const ToolGroupNodeView = memo(function ToolGroupNodeView(props: ChatNode
   // Only the first node of the turn renders the chip; siblings render empty.
   if (node.key !== nodes[0]?.key) return null
   const loc = node.location as { readonly kind?: string; readonly turn?: { readonly status?: string } } | undefined
-  const closed = loc !== undefined && (loc.kind === 'turn' || loc.kind === 'step') && loc.turn?.status === 'closed'
+  const closed = loc !== undefined
+    && (loc.kind === 'turn' || loc.kind === 'step')
+    && isTurnSettled(loc.turn as { readonly status: 'open' | 'closed' | 'unknown' } | undefined)
   return (
     <ToolEntry
       nodes={nodes}

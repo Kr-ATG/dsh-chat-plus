@@ -23,6 +23,7 @@ import { getKrChatStore } from '../kr-chat/kr-chat-store.ts'
 import { getOfficialTurnProcessNodeView } from '../index.ts'
 import { KrActivityCardGate, type KrActivityReasoningItem } from '../kr-chat/KrLiveActivityCard.tsx'
 import { clearLiveDshTodos } from '../kr-chat/kr-todo-bridge.ts'
+import { isTurnSettled } from '../turn-status.ts'
 
 const NS = 'dts'
 const LIVE_SUMMARY_CONFIRM_MS = 1200
@@ -606,13 +607,13 @@ export const TurnProcessShadowView = memo(function TurnProcessShadowView(props: 
   const krProjectionSnapshot = useChat((snapshot) => {
     const shouldCollect = isKrMode && (
       locationTurn?.status === 'open'
-      || (locationTurn?.status === 'closed' && !krClosedProjectionCollectedRef.current)
+      || (isTurnSettled(locationTurn) && !krClosedProjectionCollectedRef.current)
     )
     if (!shouldCollect) return EMPTY_KR_ACTIVITY_PROJECTION
     const next = collectKrActivityProjection(
       snapshot,
       turn,
-      locationTurn?.status === 'closed' && !krClosedProjectionCollectedRef.current,
+      isTurnSettled(locationTurn) && !krClosedProjectionCollectedRef.current,
     )
     if (sameKrActivityProjection(krProjectionCacheRef.current, next)) {
       return krProjectionCacheRef.current
@@ -662,16 +663,19 @@ export const TurnProcessShadowView = memo(function TurnProcessShadowView(props: 
   }, [liveSummaryCandidate, liveSummaryProbe, turn])
   const answerStarted = liveSummaryReady
   const interrupted = krProjection.steps.some((step) => step.status === 'interrupted')
-  const krCommitted = locationTurn?.status === 'closed' || interrupted
+  // 收口判定统一走 isTurnSettled：切视图后历史回合的 status 可能是 'unknown'
+  // 而不是 'closed'，只认 closed 会让活动卡该收不收、总结卡该出不出。
+  const krTurnSettled = isTurnSettled(locationTurn)
+  const krCommitted = krTurnSettled || interrupted
   const krClosing = krCommitted || answerStarted
   const krActive = isKrMode && locationTurn?.status === 'open' && !krClosing
   useEffect(() => {
     if (locationTurn?.status === 'open') {
       krClosedProjectionCollectedRef.current = false
-    } else if (locationTurn?.status === 'closed') {
+    } else if (krTurnSettled) {
       krClosedProjectionCollectedRef.current = true
     }
-  }, [locationTurn?.status])
+  }, [locationTurn?.status, krTurnSettled])
 
   // 实时思考预览堆叠只在 KR 模式保留；普通「对话」不创建这个浮层。
   const activeThinking = isKrMode

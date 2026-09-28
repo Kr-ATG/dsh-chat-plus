@@ -886,14 +886,20 @@ const CSS = `
 .dtt__card--step { border: none !important; }
 body[data-ds-dark-theme] .dtt__card--reply { box-shadow: 0 12px 32px rgba(0,0,0,.55) !important; border-color: rgba(255,255,255,.10) !important; }
 
-/* ══ 会话头部视图标签（对话 / 轨迹）移到右上角 ═══════════════════════════
-   官方 ui-conversation 把 tablist 作为 header 的第二个块级子元素，独占标题行
-   下方一整条（header 实测 76px）。这里把 header 改成单行 flex：标题行
-   flex:1 1 auto + min-width:0 负责收缩截断，tablist flex:none 靠 margin-left:auto
-   钉到右上角，与标题垂直同行；header 收回 45px，省下的 31px 全还给正文。
-   选择器只用稳定钩子：header 标签、role=tablist、CSS Module 的 _titleRow /
-   _tab 后缀（前缀 wSkVaW_ 是构建 hash，会变，一律不写死）。
-   单行统一高度 44px + 垂直居中，与桌面壳窗口控制按钮中心线（y=22px）精准平齐。 */
+/* ══ 会话头部视图标签（对话 / 轨迹 / KR对话）的停靠布局 ═════════════════════
+   官方 ui-conversation 把 tablist 作为 <header> 的第二个块级子元素，在官方自己的
+   display:grid（两列 auto / 1fr）里落到第二行，header 实测 76px。标签栏本体由
+   kr-chat-controller 用 inline fixed 定位到右上角「打开文件夹」按钮的左侧，这里
+   只负责把 header 收回单行 44px —— 标签脱流后不占位，官方那个 76px 必须压掉，
+   否则正文上方凭空多出一条空白。
+
+   **标签本体一概不管**：早先这里覆写过它们的 padding / line-height / gap / hover
+   底色 / 下划线动效，现已全部删除。三枚标签的外观统一由 kr-chat/styles.ts 的
+   .kr-tab-docked 规则接管（药丸式分段控件），本文件不再有第二套 tab 样式，
+   也就不会再出现"两套规则打架、谁优先级高显示谁"。
+
+   选择器只用稳定钩子：header 标签、role=tablist、CSS Module 的 _titleRow 后缀
+   （前缀 wSkVaW_ 是构建 hash，会变，一律不写死）。 */
 header:has(> [class*='_titleRow']) {
   display: flex;
   align-items: center;
@@ -904,55 +910,10 @@ header:has(> [class*='_titleRow']) {
   box-sizing: border-box;
 }
 
-header:has(> [role='tablist']) {
-  gap: 18px;
-}
-
+/* 标题行占满剩余宽度，右上角那排按钮（headerUtilities / headerCorner）才贴到最右。 */
 header:has(> [role='tablist']) > [class*='_titleRow'] {
   flex: 1 1 auto;
   min-width: 0;
-}
-
-header:has(> [role='tablist']) > [role='tablist'] {
-  flex: none;
-  gap: 22px;
-  margin: 0 0 0 auto;
-  padding-left: 0;
-}
-
-/* 标签本体：下划线收回到贴着文字（官方 11px 底衬是给整行贴边用的），
-   hover 提色 + 下划线从中心展开，选中态常驻蓝色下划线。 */
-header > [role='tablist'] > [class*='_tab'] {
-  padding: 2px 0 8px;
-  transition: color .18s ease;
-}
-
-header > [role='tablist'] > [class*='_tab']:hover {
-  color: var(--dsw-alias-label-primary);
-}
-
-header > [role='tablist'] > [class*='_tab']::after {
-  right: 0;
-  bottom: 2px;
-  left: 0;
-  transform: scaleX(0);
-  transform-origin: 50% 100%;
-  transition: transform .22s cubic-bezier(.2, .8, .2, 1), background-color .18s ease;
-}
-
-header > [role='tablist'] > [class*='_tab']:hover::after {
-  background: var(--dsw-alias-border-l2, rgba(127,127,127,.28));
-  transform: scaleX(1);
-}
-
-header > [role='tablist'] > [class*='_tab'][class*='_tabActive']::after {
-  background: var(--dsw-alias-state-business-primary, #4176e6);
-  transform: scaleX(1);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  header > [role='tablist'] > [class*='_tab'],
-  header > [role='tablist'] > [class*='_tab']::after { transition: none; }
 }
 
 /* ══ 壳窗口控制：全视口原样呈现（不再为右上角保留留位空档） ═════════════════ */

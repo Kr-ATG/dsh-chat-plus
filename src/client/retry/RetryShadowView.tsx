@@ -19,6 +19,7 @@ import type { ChatNodeViewProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 // resolves the 'model-retry' keyed share.
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
+import { isTurnSettled } from '../turn-status.ts'
 
 function retrySeconds(milliseconds: number): number {
   return Math.max(1, Math.ceil(milliseconds / 1000))
@@ -104,7 +105,9 @@ export const RetryShadowView = memo(function RetryShadowView(props: ChatNodeView
     | undefined
   const closed = loc !== undefined
     && (loc.kind === 'turn' || loc.kind === 'step')
-    && loc.turn?.status === 'closed'
+    // 走 isTurnSettled 而非 `=== 'closed'`：切视图后历史回合会落进 'unknown'，
+    // 那时重试行也该收起来，否则它们会一直挂在总结卡上方。
+    && isTurnSettled(loc.turn as { readonly status: 'open' | 'closed' | 'unknown' } | undefined)
   if (closed === true) return null
   const data = node.data
   return (

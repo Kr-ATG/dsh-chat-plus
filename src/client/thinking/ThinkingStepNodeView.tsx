@@ -40,6 +40,7 @@ import { isRunning } from '../tool-summary/tool-stats.ts'
 import { GeneratedImageStrip } from '../generated-images/GeneratedImageStrip.tsx'
 import { useGeneratedImages } from '../generated-images/use-generated-images.ts'
 import { getKrChatStore } from '../kr-chat/kr-chat-store.ts'
+import { isTurnSettled } from '../turn-status.ts'
 import { KR_CHAT_ENABLED } from '../kr-chat/enabled.ts'
 import { getOfficialAssistantNodeView } from '../index.ts'
 import { latestChatSnapshot, setLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
@@ -222,7 +223,7 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
     : undefined
   const tail = useTurnData('turn-tail')
   const owner = useMemo<TurnTailOwnerProps | undefined>(() => {
-    if (locationTurn?.status !== 'closed' || data.finalNode === undefined) return undefined
+    if (!isTurnSettled(locationTurn) || data.finalNode === undefined) return undefined
     if (tail?.closing?.finalNode.seq !== data.finalNode.seq) return undefined
     return { turn: locationTurn, seq: data.finalNode.seq, openFile }
   }, [data.finalNode, openFile, tail, locationTurn])
@@ -307,7 +308,10 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
   const interrupted = data.status === 'interrupted'
   // 卡片只在「回合已结束」时出现（含中断）：流式期不包卡，保住流式输出；
   // 中间步骤要等整轮收口才变轻量步骤卡，最终回复变总结卡。
-  const turnClosed = locationTurn?.status === 'closed'
+  // 回合是否已收口。**不是 `status === 'closed'`** —— 切一次视图（对话 ↔ 轨迹 ↔
+  // KR对话）会让历史回合的 status 落进 'unknown'，只认 closed 的话，切回来后所有
+  // 历史回复的总结卡会集体消失、只剩正文。统一走 isTurnSettled（见 turn-status.ts）。
+  const turnClosed = isTurnSettled(locationTurn)
   const showCard = turnClosed === true || interrupted
   const isClosingReply = owner !== undefined
   const isSummary = isClosingReply || interrupted

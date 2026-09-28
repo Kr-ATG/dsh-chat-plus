@@ -74,76 +74,130 @@ body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-turn] a {
   cursor: text;
 }
 
-/* ══ 头部 KR 对话分类标签（与官方原生标签保持完全一致的块级排版与基线） ════════ */
-.kr-tab-btn {
-  display: block;
-  padding: 0 0 9px;
-  border: none;
+/* ══ 三枚视图标签（KR对话 / 对话 / 轨迹）停靠到右上角 + 药丸式分段控件 ═══════
+   它原先独占标题下方一整行（~40px），而那一行除三个标签外空无一物。挪到右上角
+   之后：一是不再吃正文上方的高度，二是和「切换到哪个视图」这个动作的语义对上了
+   ——右上角本来就是切换/操作区。
+
+   **不搬 DOM**：三枚标签由官方 React 虚拟 DOM 拥有，物理移动它们的父容器，官方
+   下次重渲染就会搬回去。
+
+   ⚠ 坐标全部由 JS 写 inline style（见 kr-chat-controller 的 syncTabBarDock）：
+   标签栏是标题行的兄弟节点，目标位置（打开文件夹按钮）在更外一层的容器里，
+   fixed + 视口坐标是唯一不碰 DOM 关系的路。这里只管外观。
+
+   ── 外观：为什么从「下划线」换成「药丸」 ──────────────────────────────────
+   标签被挪到与右上角那排图标**同一行**之后，官方的下划线式 tab 就不成立了：
+     · 官方按钮是 padding-bottom:9px 的底衬（下划线贴在底衬下沿），文字中心比按钮
+       几何中心高 4.5px —— 直接搬过去会明显"靠上"，与旁边图标不在一条基线上；
+     · 36px 的标签间距在原本独占一行时是合理的，并到图标行里会把三枚标签拉成一
+       条松散的长链，读起来像三个互不相干的按钮；
+     · 下划线 + 蓝色文字这一套是"页面级导航"的语言，右上角是"操作区"，两套语汇
+       混在一行里，谁都不像。
+   药丸（分段控件）同时解决这三点：等高居中、2px 紧贴、激活用底色而非下划线。
+   整条容器仍然不铺底色（用户要求）——只有激活的那一枚有自己的小圆角面。
+
+   选择器用 .kr-tab-docked（我们自己的稳定钩子，controller 每次都挂），不按
+   KR/非 KR 分流：无论当前在哪个视图，这三枚标签都是同一套外观。 */
+
+/* 容器：不铺底色，标签紧贴成组；2px 间隙让相邻两枚的圆角底不会糊成一块。 */
+header [role="tablist"].kr-tab-docked {
+  animation: kr-tab-dock-in .28s cubic-bezier(.16, 1, .3, 1) both;
+  gap: 2px;
+  padding: 0;
+  border-radius: 0;
   background: transparent;
-  font-family: inherit;
+  box-shadow: none;
+}
+
+@keyframes kr-tab-dock-in {
+  from { opacity: 0; transform: translateX(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/*
+ * 药丸本体。inline-flex + align-items:center 让文字在 26px 高的盒子里真正居中，
+ * 于是 JS 只要把标签组中心对齐图标中心，两者的基线就齐了（官方那 9px 底衬正是
+ * 让文字偏上 4.5px 的元凶，这里 height + 居中把它彻底消掉）。
+ *
+ * 高度 26px 是对着右上角那排 28px 图标按钮挑的：略小一点，视觉上标签是"次级
+ * 切换"、图标是"操作"，层级清楚又不会显得掉队。
+ */
+header [role="tablist"].kr-tab-docked > button[role="tab"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 11px;
+  line-height: 1;
   font-size: 13px;
   font-weight: 500;
-  line-height: 16px;
-  cursor: pointer;
-  position: relative;
-  transition: color .18s ease;
+  border-radius: 7px;
   color: var(--dsw-alias-label-tertiary);
-  outline: none;
-  user-select: none;
+  white-space: nowrap;
+  flex: none;
+  width: auto;
+  transition:
+    color .18s ease,
+    background-color .22s ease,
+    transform .16s cubic-bezier(.2, .8, .2, 1);
 }
 
-.kr-tab-btn::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 2px;
-  border-radius: 2px;
-  background: transparent;
-  transform: scaleX(0);
-  transform-origin: 50% 100%;
-  transition: transform .22s cubic-bezier(.2, .8, .2, 1), background-color .18s ease;
+/* 下划线在这套语言里没有位置（激活面已经由底色承担），彻底关掉，
+   免得残留一条横线与药丸底色打架。 */
+header [role="tablist"].kr-tab-docked > button[role="tab"]::after {
+  display: none;
 }
 
-.kr-tab-btn:hover {
+header [role="tablist"].kr-tab-docked > button[role="tab"]:hover {
   color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, .06));
 }
 
-.kr-tab-btn:hover::after {
-  background: var(--dsw-alias-border-l2, rgba(127,127,127,.28));
-  transform: scaleX(1);
+/*
+ * 激活面：中性的一层浮面（bg-module-platform，主题自带明暗），文字提到
+ * label-primary。不沿用品牌蓝 —— 右上角整排都是中性色图标，一枚亮蓝药丸会在
+ * 那行里跳出来；需要品牌色时，右栏大盘本身已经是通篇的蓝，够了。
+ *
+ * 匹配官方激活类用 [class*="Active"]：那对类名带构建 hash（wSkVaW_tabActive），
+ * 写死会随官方构建失配，按子串匹配则两套 hash 都能命中。
+ */
+header [role="tablist"].kr-tab-docked > button[role="tab"][class*="Active"] {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-module-platform, rgba(127, 127, 127, .12));
 }
 
-.kr-tab-btn--active {
-  color: var(--dsw-alias-state-business-primary, #4176e6) !important;
-  font-weight: 500 !important;
+/*
+ * ⚠ KR 模式：「对话」那枚必须**不显示激活面**。
+ *
+ * KR 对话并没有真的换掉底层 chat 视图，只是在它之上加了大盘 —— 官方那边 chat
+ * 始终是「当前视图」，「对话」按钮的 tabActive 类就一直挂着。不压制的话两枚
+ * 药丸同时亮着，看着像同时选中了两个视图。
+ *
+ * 判据用 body[data-dsh-kr-chat]：只在 KR 生效时压制。用户真切到「对话」或「轨迹」
+ * （body 上没这个属性）时，各自的激活面照常显示。压制后仍保留 hover 反馈 ——
+ * 它表达的是「这是一枚可点的标签」，与「当前选中」是两回事。
+ */
+body[data-dsh-kr-chat="true"] header [role="tablist"].kr-tab-docked
+  > button[role="tab"][class*="Active"]:not(#kr-chat-tab-btn) {
+  color: var(--dsw-alias-label-tertiary);
+  background: transparent;
 }
 
-.kr-tab-btn--active::after {
-  background: var(--dsw-alias-state-business-primary, #4176e6) !important;
-  transform: scaleX(1) !important;
+body[data-dsh-kr-chat="true"] header [role="tablist"].kr-tab-docked
+  > button[role="tab"]:not(#kr-chat-tab-btn):hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, .06));
 }
 
-/* 当处于 KR 模式时，原生的“对话”与“轨迹”按钮不要显示激活高亮与下划线 */
-body[data-dsh-kr-chat="true"] header [role="tablist"] > button[role="tab"]:not(#kr-chat-tab-btn)::after {
-  transform: scaleX(0) !important;
-  background: transparent !important;
+/* 按下时轻微内缩，给一枚即时反馈（0.16s，回弹用官方那条曲线）。 */
+header [role="tablist"].kr-tab-docked > button[role="tab"]:active {
+  transform: scale(.96);
 }
-body[data-dsh-kr-chat="true"] header [role="tablist"] > button[role="tab"]:not(#kr-chat-tab-btn) {
-  color: var(--dsw-alias-label-tertiary) !important;
-  font-weight: 500 !important;
-}
-body[data-dsh-kr-chat="true"] header [role="tablist"] > button[role="tab"]:not(#kr-chat-tab-btn):hover {
-  color: var(--dsw-alias-label-primary) !important;
-}
-body[data-dsh-kr-chat="true"] header [role="tablist"] #kr-chat-tab-btn {
-  color: var(--dsw-alias-state-business-primary, #4176e6) !important;
-  font-weight: 500 !important;
-}
-body[data-dsh-kr-chat="true"] header [role="tablist"] #kr-chat-tab-btn::after {
-  transform: scaleX(1) !important;
-  background: var(--dsw-alias-state-business-primary, #4176e6) !important;
+
+@media (prefers-reduced-motion: reduce) {
+  header [role="tablist"].kr-tab-docked { animation: none; }
+  header [role="tablist"].kr-tab-docked > button[role="tab"] { transition: none; }
 }
 
 :root,
