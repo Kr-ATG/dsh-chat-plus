@@ -2,7 +2,7 @@
  * sidebar-nav — 侧边栏导航区共享挂载器。
  *
  * 在 sidebar 的浏览区容器（`[data-slot="sidebar.workspaces"]`）正上方插
- * 一个 host，host 内按固定顺序（skills / memory / usage / team）
+ * 一个 host，host 内按固定顺序（usage / skills / memory / team）
  * 放四个 `data-nav-slot` 槽位容器；各入口（usage / skills /
  * memory 三个 React 组件，以及 team）经 `useNavSlot` 轮询拿到
  * 自己的槽位后 `createPortal` 进去——顺序确定、互不覆盖、跟 React 首次提交不竞态。
@@ -25,14 +25,14 @@ const FRAME_SELECTOR = 'div:has(> [data-shell-overlay])'
 /**
  * nav host 的行布局：每个数组元素是一行，行内数组是并排的槽位。
  *
- *   [skills][memory] 合并一行 → usage 独立一行 → team 独立一行
+ *   [usage][skills][memory] 合并一行 → team 独立一行
  *
- * 历史：自动化入口从本插件删除后（官方 schedule bundle 接管），第一行由
- * skills + memory 两人共用；合并行由本模块自建的 `.dsh-nav-row` 容器承载。
+ * 历史：自动化入口从本插件删除后（官方 schedule bundle 接管），原本独占一行的
+ * 用量并回首行最左，首行由 usage / skills / memory 三人共用；team 仍旧独立一行。
+ * 合并行由本模块自建的 `.dsh-nav-row` 容器承载。
  */
 const SLOT_LAYOUT = [
-  ['skills', 'memory'],
-  ['usage'],
+  ['usage', 'skills', 'memory'],
   ['team'],
 ] as const
 
@@ -133,8 +133,8 @@ export function ensureNavMount(): () => void {
 
 /** 轮询获取指定槽位容器（未就位时返回 null，组件据此暂不渲染）。
  *
- * 槽位可能直接挂在 nav host 下（独立行的 usage / team）或嵌在 `.dsh-nav-row`
- * 合并行容器里（skills / memory），因此全局按 data-nav-slot 查找——
+ * 槽位可能直接挂在 nav host 下（独立行的 team）或嵌在 `.dsh-nav-row`
+ * 合并行容器里（usage / skills / memory），因此全局按 data-nav-slot 查找——
  * 槽位名由本模块统一创建，唯一。
  *
  * **永不停止**：未就位时 100ms 阶梯快查（10 次后退 400ms）；找到后退化为
@@ -207,7 +207,7 @@ const SHEET = `
    官方行多探出 12px，「记忆」等按钮几乎贴住侧栏边缘。扣掉这 12px 即与官方对齐。 */
 #dsh-triad-nav-host{display:flex;flex-direction:column;align-items:stretch;width:calc(100% - 12px)}
 #dsh-triad-nav-host>[data-nav-slot]{display:contents}
-/* 合并行：[自动化][技能][记忆] 并排；槽位 display:contents 让按钮直接参与行布局，
+/* 合并行：[用量][技能][记忆] 并排；槽位 display:contents 让按钮直接参与行布局，
    按钮等分整行（flex:1 1 0），与独立行的视觉节奏一致——
    否则收缩为内容宽时行尾会留出大片空白。 */
 .dsh-nav-row{display:flex;flex-wrap:wrap;align-items:stretch;gap:2px;padding:0 2px}
