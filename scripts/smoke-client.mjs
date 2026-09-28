@@ -603,8 +603,8 @@ if (krEnabled) {
   const stepCode = stepSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
   if (/<KrReasoningCard[\s\S]{0,200}?\/>/.test(panelCode)) {
     fail('思考过程卡已移到 KR 对话流，右栏大盘不该再挂 <KrReasoningCard>')
-  } else if (!/isFirstStep[\s\S]{0,400}?<KrReasoningCard[\s\S]{0,300}?\sinline\b/.test(stepCode)) {
-    fail('assistant-step 座位必须在本回合首步挂 inline 形态的思考过程卡')
+  } else if (!/ownsReasoningCard[\s\S]{0,200}?<KrReasoningCard[\s\S]{0,300}?\sinline\b/.test(stepCode)) {
+    fail('assistant-step 座位必须在「本回合第一个带思考的 step」上挂 inline 思考卡')
   } else if (!/REASONING_MAX_ROWS/.test(reasoningCode)) {
     fail('思考卡仍应保留 REASONING_MAX_ROWS 行数上限常量')
   } else {
@@ -634,10 +634,21 @@ if (krEnabled) {
     || !/if \(!inline \|\| !summarizing \|\| was\) return/.test(reasoningCode)) {
     reasons.push('折叠判据必须是「总结卡出现」（summarizing），不是回合收口')
   }
+  // 5. 初始态只能看 summarizing。写成 `summarizing || !running` 会让卡在
+  //    工具间隙挂成折叠态，而那时 summarizing 还没翻，之后再没有任何东西
+  //    把它展开——整轮都看不见（工具执行期 step 早就不 running 了）。
+  if (!/useState\(inline \? summarizing : false\)/.test(reasoningCode)) {
+    reasons.push('卡片初始态必须只看 summarizing（写成 summarizing || !running 会整轮吞卡）')
+  }
+  // 6. 思考取数必须能在 locations 漏掉 step 时兜底扫全量节点，否则工具
+  //    间隙里会出现「右栏能抽出预告、对话流却没有思考卡」。
+  if (!/EMPTY_REASONING/.test(stepCode) || !/typeof nodes\.values === 'function'/.test(stepCode)) {
+    reasons.push('思考取数需在 locations 为空时兜底扫全量 nodes')
+  }
   if (reasons.length > 0) {
     fail('思考卡性能/时机回退：' + reasons.join('；'))
   } else {
-    pass('思考卡：稳定引用 + 指纹探针 + 尾部窗口 + 按总结卡折叠')
+    pass('思考卡：稳定引用 + 指纹探针 + 尾部窗口 + 按总结卡折叠 + 全量兜底')
   }
 }
 

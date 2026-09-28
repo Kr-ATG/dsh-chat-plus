@@ -49,6 +49,7 @@ import { latestChatSnapshot, setLatestChatSnapshot } from '../tool-summary/TurnP
 
 const EMPTY_STEPS: readonly ChatNode<'assistant-step'>[] = []
 const EMPTY_TOOLS: readonly ChatNode<'tool-call'>[] = []
+const EMPTY_REASONING: readonly ReasoningItem[] = []
 
 /** Localized copy adapters for Cordis-free Markdown primitives（官方同款）。 */
 function markdownLabelsFrom(t: ChatViewSlotProps['t']): MarkdownLabels {
@@ -253,20 +254,54 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
         candidate !== undefined && candidate.kind === 'tool-call'
       ))
   })
-  const reasoningItems = useMemo<readonly ReasoningItem[]>(() => steps.flatMap(step => {
+  const localReasoning = useMemo<readonly ReasoningItem[]>(() => steps.flatMap(step => {
     const stepRunning = step.data.status === 'running'
     return step.data.blocks
       .filter((block): block is Extract<AssistantBlockLike, { kind: 'reasoning' }> => block.kind === 'reasoning')
       .map(block => ({ text: block.text, running: stepRunning, step: step.data.step }))
   }), [steps])
   /*
+   * locations 拿不全时**兜底扫全量节点**。
+   *
+   * locations.getTurn 在工具间隙 / 紧凑模式下会把某些 assistant-step 摘掉，
+   * 只靠它会整段漏掉思考——右栏大盘早就为同一个坑做过全量兜底
+   * （TurnProcessShadowView.collectTurnNodes 第 2 步），这里必须同一口径，
+   * 否则会出现「右栏能抽出思考里的预告、对话流里却没有思考卡」这种自相矛盾。
+   */
+  const reasoningItems = useChat((snapshot) => {
+    if (turnNumber === undefined) return EMPTY_REASONING
+    if (localReasoning.length > 0) return localReasoning
+    try {
+      const collected: ReasoningItem[] = []
+      const nodes = snapshot?.nodes
+      if (nodes !== undefined && nodes !== null && typeof nodes.values === 'function') {
+        for (const node of nodes.values()) {
+          if (node?.kind !== 'assistant-step') continue
+          const loc = node.location
+          const locTurn = node.data?.turn ?? (typeof loc?.turn === 'number' ? loc.turn : loc?.turn?.turn)
+          if (locTurn !== turnNumber) continue
+          const running = node.data?.status === 'running'
+          for (const block of node.data.blocks ?? []) {
+            if (block?.kind !== 'reasoning') continue
+            const text = typeof block.text === 'string' ? block.text : ''
+            if (text.trim() === '') continue
+            collected.push({ text, running, step: node.data.step })
+          }
+        }
+      }
+      return collected.length > 0 ? collected : EMPTY_REASONING
+    } catch {
+      return EMPTY_REASONING
+    }
+  })
+  /*
    * 喂给思考卡的文本数组必须**引用稳定**，否则那张卡的一切 memo 全部失效。
    *
-   * `reasoningItems.map(...)` 每次渲染都产出新数组：KrReasoningCard 的 memo
-   * 被打穿 → 内部 points 的 useMemo 被打穿 → 每帧把整轮思考 join + split +
-   * trim + filter 重跑一遍，几千字时这一下就是几毫秒，外加 probe 再把全文
-   * join 成一个大字符串。流式期每来一个 delta 就重来一轮，思考越长越卡——
-   * 这正是「思考过程有点多的时候就会很卡」的成因之一。
+   * 直接 `map(...)` 每次渲染都产出新数组：KrReasoningCard 的 memo 被打穿 →
+   * 内部 points 的 useMemo 被打穿 → 每帧把整轮思考 join + split + trim +
+   * filter 重跑一遍，几千字时这一下就是几毫秒，外加 probe 再把全文 join 成
+   * 一个大字符串。流式期每来一个 delta 就重来一轮，思考越长越卡——这正是
+   * 「思考过程有点多的时候就会很卡」的成因之一。
    *
    * 这里用**长度序列指纹**做依赖（同仓库 KrAgentPanel 的 fingerprintTurnData
    * 同一手法）：思考是纯追加流式（KrFreshText 的注释也这么认定），长度序列
@@ -281,6 +316,22 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [reasoningSignature],
   )
+  /*
+   * 思考卡挂在「回合内第一个带思考的 step」上，而不是 locations 里的 steps[0]。
+   *
+   * 用 steps[0] 会漏：工具间隙里官方会把前面的 step 从 locations 摘掉，
+   * steps[0] 变成当前那个，而卡所在的节点不是它——于是整张卡挂不上，
+   * 表现是「Agent 正在分析、思考也在长，但对话流里什么都没有」。改成按内容
+   * 认领，谁是第一个真有思考的谁挂。
+   */
+  const ownsReasoningCard = useMemo(() => {
+    for (const step of steps) {
+      if (step.data.blocks.some((block) => block.kind === 'reasoning' && block.text.trim() !== '')) {
+        return node.key === step.key
+      }
+    }
+    return false
+  }, [steps, node.key])
   const isFirstStep = steps.length > 0 && node.key === steps[0]?.key
   const toolsRunning = toolNodes.some((toolNode) => {
     try { return isRunning(toolNode.data.root) } catch { return false }
@@ -406,12 +457,22 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
    * 已经不在 running 了，但那段时间思考轨仍在、卡也不该先收起来。
    */
   const summarizing = isClosingReply || interrupted
-  const inlineReasoning = KR_CHAT_ENABLED && isKrMode && isFirstStep && reasoningItems.length > 0
+  /*
+   * 回合是否「还没出总结卡」——思考卡在它为真时一律展开。
+   *
+   * 不能拿 turnRunning 当这个判据：assistant-step 在工具执行期就已经不在
+   * running 了，但那段时间思考轨仍在、回合也远没到总结。实测这会让卡片在
+   * 工具间隙挂载成折叠态，之后再没有任何东西把它展开——整轮都看不见。
+   * 真正的分界只有一个：这回合的总结卡（最终回答）出来没有。
+   */
+  const turnActive = !summarizing
+  const inlineReasoning = KR_CHAT_ENABLED && isKrMode && ownsReasoningCard && reasoningItems.length > 0
     ? (
       <KrReasoningCard
         reasoningTexts={stableReasoningTexts}
-        running={turnRunning}
+        running={turnActive}
         summarizing={summarizing}
+        turnActive={turnActive}
         inline
       />
     )

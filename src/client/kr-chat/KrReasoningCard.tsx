@@ -46,6 +46,13 @@ const WINDOW_ROWS = 60
 
 export interface ReasoningCardProps {
   readonly reasoningTexts: readonly string[]
+  /**
+   * 是否跟随滚动。**只管跟随**，不参与初始展开/折叠的判定。
+   *
+   * 内联模式下它由调用方给成「回合还没出总结卡」而不是「assistant-step 正在
+   * running」：工具执行期 step 早就不 running 了，但思考轨仍在、回合也远没到
+   * 总结，拿 step 的 running 当跟随开关会让跟随在工具间隙里断掉。
+   */
   readonly running: boolean
   /**
    * 视口行数上限。默认 REASONING_MAX_ROWS。
@@ -55,18 +62,14 @@ export interface ReasoningCardProps {
    */
   readonly maxRows?: number
   /**
-   * 内联模式：回合的**总结卡出现**（`summarizing`）时收拢，此前一直展开。
+   * 内联模式：回合的**总结卡出现**时收拢，此前一直展开。
    *
-   * true 时：总结卡一出现就播一次高度收拢动画并停在折叠态（用户此后仍可点
-   * 标题行展开）。判据必须是**翻转**而不是 `summarizing` 的持续态——后者会在
-   * 用户手动展开历史轮次后被下一次重渲染立刻按回去，「点开看看」这个动作
-   * 根本留不住。
+   * 翻转为 true 的那一刻播高度收拢动画并停在折叠态（用户此后仍可点标题行
+   * 展开）。判据必须是**翻转**而不是它的持续态——后者会在用户手动展开历史
+   * 轮次后被下一次重渲染立刻按回去，「点开看看」这个动作根本留不住。
    */
   readonly summarizing?: boolean
-  /**
-   * 内联模式：贴在对话流里。默认按 running 决定初始展开/折叠；显式传
-   * summarizing 时改按它决定（收口 → 折叠）。
-   */
+  /** 内联模式：贴在对话流里。 */
   readonly inline?: boolean
 }
 
@@ -77,9 +80,17 @@ export const KrReasoningCard = memo(function KrReasoningCard({
   summarizing = false,
   inline = false,
 }: ReasoningCardProps) {
-  // 初始态：内联且已出总结 → 折叠；其余（跑着 / 历史轮次）按旧口径。
-  const settled = summarizing || !running
-  const [collapsed, setCollapsed] = useState(inline ? settled : false)
+  /*
+   * 初始态：**只看 summarizing**（这回合有没有出总结卡）。
+   *
+   * 之前是 `summarizing || !running`——那次把卡整轮吞掉了。工具执行期
+   * assistant-step 早就不 running，`!running` 于是为真，卡在那个窗口挂载成
+   * 折叠态；而折叠后没有任何东西会把它再展开（`summarizing` 那一刻还没到），
+   * 于是整轮都看不见——正是「怎么现在又不出来了」。
+   *
+   * 语义上也该如此：只要这回合还没出总结卡，思考就该摊开着给人看。
+   */
+  const [collapsed, setCollapsed] = useState(inline ? summarizing : false)
   const motion = useMotionAllowed(true)
 
   /*
