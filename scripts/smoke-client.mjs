@@ -630,9 +630,11 @@ if (krEnabled) {
     || !/\{windowed\.map\(/.test(reasoningCode)) {
     reasons.push('思考行必须只挂尾部 WINDOW_ROWS 窗口（{windowed.map}），不能整轮全量渲染')
   }
-  if (!/summarizing\s*=\s*isClosingReply\s*\|\|\s*interrupted/.test(stepCode)
+  // 4. 折叠判据是「回合已定型」（turnClosed || interrupted），不是
+  //    assistant-step 的 running——工具间隙里 step 早就不 running 了。
+  if (!/summarizing\s*=\s*turnClosed\s*\|\|\s*interrupted/.test(stepCode)
     || !/if \(!inline \|\| !summarizing \|\| was\) return/.test(reasoningCode)) {
-    reasons.push('折叠判据必须是「总结卡出现」（summarizing），不是回合收口')
+    reasons.push('折叠判据必须是「回合已定型」（turnClosed || interrupted），不是 step 的 running')
   }
   // 5. 初始态只能看 summarizing。写成 `summarizing || !running` 会让卡在
   //    工具间隙挂成折叠态，而那时 summarizing 还没翻，之后再没有任何东西
@@ -644,6 +646,15 @@ if (krEnabled) {
   //    间隙里会出现「右栏能抽出预告、对话流却没有思考卡」。
   if (!/EMPTY_REASONING/.test(stepCode) || !/typeof nodes\.values === 'function'/.test(stepCode)) {
     reasons.push('思考取数需在 locations 为空时兜底扫全量 nodes')
+  }
+  // 7. 轮次号与回合状态必须双路取值：data.turn / data.status 优先，location
+  //    那一路只作兜底。已收口的历史轮次上 location 对象可能整个缺字段，只写
+  //    locationTurn?.turn 会取到 undefined，后续按轮次号的取数全部短路——
+  //    卡连落脚点都没有，正是「总结完了怎么查看」看不到的原因。右栏一直好好的，
+  //    因为 collectTurnNodes 本来就有 data.turn 那一路。
+  if (!/\(data as \{ turn\?: number \}\)\.turn/.test(stepCode)
+    || !/locationTurn\?\.status \?\?/.test(stepCode)) {
+    reasons.push('轮次号/回合状态需 data.turn / data.status 优先、location 兜底（否则历史轮次取不到）')
   }
   if (reasons.length > 0) {
     fail('思考卡性能/时机回退：' + reasons.join('；'))

@@ -236,7 +236,17 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
   )
 
   // Aggregate reasoning across every assistant step of this turn.
-  const turnNumber = locationTurn?.turn
+  /*
+   * 轮次号取数必须与右栏 collectTurnNodes 同一口径：`data.turn` 优先，其次
+   * location.turn（它在不同状态下是数字或 `{turn,status}` 对象两种形状）。
+   *
+   * 原来只写 `locationTurn?.turn` 一路。已收口的历史轮次上 location 对象可能
+   * 不带 turn 字段，取出来是 undefined，于是后面所有按轮次号的取数（locations
+   * 快路径 + 全量兜底）全部短路——卡连落脚点都没有，正是「总结完了怎么查看」
+   * 看不到的原因。右栏一直好好的，正是因为它有 data.turn 那一路兜底。
+   */
+  const turnNumber = (data as { turn?: number }).turn
+    ?? (typeof locationTurn === 'number' ? locationTurn : locationTurn?.turn)
   const steps = useChat(snapshot => {
     setLatestChatSnapshot(snapshot)
     if (turnNumber === undefined) return EMPTY_STEPS
@@ -320,18 +330,39 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
    * 思考卡挂在「回合内第一个带思考的 step」上，而不是 locations 里的 steps[0]。
    *
    * 用 steps[0] 会漏：工具间隙里官方会把前面的 step 从 locations 摘掉，
-   * steps[0] 变成当前那个，而卡所在的节点不是它——于是整张卡挂不上，
-   * 表现是「Agent 正在分析、思考也在长，但对话流里什么都没有」。改成按内容
-   * 认领，谁是第一个真有思考的谁挂。
+   * steps[0] 变成当前那个，而卡所在的节点不是它——于是整张卡挂不上。
+   *
+   * 这里必须与上面的 reasoningItems **同一套兜底口径**：只把 reasoningTexts
+   * 兜底、挂载判定仍只看 locations 的话，收口后的历史轮次会出现「思考文本取得到
+   * 却没人认领」——卡整块不渲染，正好是用户要问的「总结完了怎么查看」。
    */
-  const ownsReasoningCard = useMemo(() => {
-    for (const step of steps) {
-      if (step.data.blocks.some((block) => block.kind === 'reasoning' && block.text.trim() !== '')) {
-        return node.key === step.key
+  const firstReasoningStepKey = useChat((snapshot): string | undefined => {
+    if (turnNumber === undefined) return undefined
+    try {
+      for (const key of snapshot?.locations?.getTurn?.(turnNumber) ?? []) {
+        const candidate = snapshot?.nodes?.get?.(key)
+        if (candidate?.kind !== 'assistant-step') continue
+        if (candidate.data?.blocks?.some((block) => block.kind === 'reasoning' && block.text.trim() !== '')) {
+          return key
+        }
       }
+      // locations 拿不到（收口/紧凑模式会摘掉）时扫全量节点。
+      for (const candidate of snapshot?.nodes?.values?.() ?? []) {
+        if (candidate?.kind !== 'assistant-step') continue
+        const loc = candidate.location
+        const locTurn = candidate.data?.turn
+          ?? (typeof loc?.turn === 'number' ? loc.turn : loc?.turn?.turn)
+        if (locTurn !== turnNumber) continue
+        if (candidate.data?.blocks?.some((block) => block.kind === 'reasoning' && block.text.trim() !== '')) {
+          return candidate.key ?? undefined
+        }
+      }
+      return undefined
+    } catch {
+      return undefined
     }
-    return false
-  }, [steps, node.key])
+  })
+  const ownsReasoningCard = firstReasoningStepKey !== undefined && node.key === firstReasoningStepKey
   const isFirstStep = steps.length > 0 && node.key === steps[0]?.key
   const toolsRunning = toolNodes.some((toolNode) => {
     try { return isRunning(toolNode.data.root) } catch { return false }
@@ -382,7 +413,10 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
   const interrupted = data.status === 'interrupted'
   // 卡片只在「回合已结束」时出现（含中断）：流式期不包卡，保住流式输出；
   // 中间步骤要等整轮收口才变轻量步骤卡，最终回复变总结卡。
-  const turnClosed = locationTurn?.status === 'closed'
+  //
+  // 状态同样做双路兜底：location 上的 turn 对象在历史轮次上可能整个缺失，
+  // 那时靠 data.status 判——非 running / 非 interrupted 即已定型。
+  const turnClosed = (locationTurn?.status ?? (data.status !== 'running' ? 'closed' : 'open')) === 'closed'
   const showCard = turnClosed === true || interrupted
   const isClosingReply = owner !== undefined
   const isSummary = isClosingReply || interrupted
@@ -447,16 +481,15 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
    * 就得来回对照两栏才读得完整。挂在首步（isFirstStep）而不是每步各挂一张：
    * 一个回合只该有一张思考卡，否则工具调用把它切成好几段、每段都断在半截。
    *
-   * **折叠时机 = 总结卡出现**（summarizing = isClosingReply || interrupted），
-   * 不是回合收口。回合 closed 只说明「模型这一轮说完了」，工具间隙的回合更是
-   * closed 了大半程；真正的分界是最终回答（总结卡）开始出现在对话流里——此前
-   * 思考还在源源不断长，卡就该一直摊开着跟随滚动；总结卡一出现就收成标题一行
-   * 给它让位。中断等同总结（这一轮不会再有回答了）。
+   * **折叠时机 = 总结卡出现**：回合已定型（turnClosed）或本轮被中断。
    *
-   * running 用 turnRunning 而不是 data.status：工具执行期 assistant-step 往往
-   * 已经不在 running 了，但那段时间思考轨仍在、卡也不该先收起来。
+   * 不是「assistant-step 是否 running」——工具间隙里 step 早就不 running 了，
+   * 拿它当判据会让卡在那个窗口挂成折叠态且永不再展开。
+   *
+   * 中断等同总结（这一轮不会再有回答了）。历史轮次一律按已定型处理：它们的
+   * tail.closing 早被清空，认不得 isClosingReply，但它们显然已经出过总结了。
    */
-  const summarizing = isClosingReply || interrupted
+  const summarizing = turnClosed || interrupted
   /*
    * 回合是否「还没出总结卡」——思考卡在它为真时一律展开。
    *
