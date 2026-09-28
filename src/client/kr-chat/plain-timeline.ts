@@ -340,8 +340,23 @@ export function condenseSteps(steps: readonly PlainStep[]): readonly PlainStep[]
   return out
 }
 
+/** 合并后 detail 尾部「· 共 N 次」的分隔规则。拆开渲染时与 {@link stripCount} 同源。 */
+const COUNT_SUFFIX = / · 共 (\d+) 次$/
+
 /** 去掉 detail 尾部的「· 共 N 次」，还原成合并前的原始对象描述。 */
-function stripCount(detail: string | undefined): string | undefined {
+export function stripCount(detail: string | undefined): string | undefined {
   if (detail === undefined) return undefined
-  return detail.replace(/ · 共 \d+ 次$/, '')
+  return detail.replace(COUNT_SUFFIX, '')
+}
+
+/**
+ * 取出 detail 尾部的次数短语（如「共 7 次」），无则 null。
+ *
+ * 供简报模式把次数从对象字符串里拆出来单独排版——次数是折叠产物，
+ * 它的重要性低于「改了哪个文件」，混在对象里会被一起压成小字。
+ */
+export function countOf(detail: string | undefined): string | null {
+  if (detail === undefined) return undefined
+  const matched = COUNT_SUFFIX.exec(detail)
+  return matched === null ? null : `共 ${matched[1]} 次`
 }

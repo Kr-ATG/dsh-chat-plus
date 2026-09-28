@@ -689,8 +689,17 @@ if (krEnabled) {
       fail('简要模式必须打 data-brief（无图标排布靠它选样式）')
     } else if (!/\{!brief && \(/.test(cardSrc)) {
       fail('简要模式必须整枚跳过 .kr-plain-step__icon 的渲染')
-    } else if (!/const label = brief/.test(cardSrc)) {
+    } else if (!/<span className="kr-plain-step__verb">\{step\.verb\}<\/span>/.test(cardSrc)) {
+      // 断言渲染结果而不是变量名：早先查的是 `const label = brief`，那是实现
+      // 细节，拆成三段 span 后变量名一变断言就误报，而「动词进文字」这件事
+      // 其实一直是对的。改查动词那一枚 span 真的被渲染出来。
       fail('简要模式必须把动词写回文字（没图标时"plain-language.ts"分不出改还是读）')
+    } else if (!/<span className="kr-plain-step__object">\{base\}<\/span>/.test(cardSrc)) {
+      fail('简要模式的对象（文件名等）必须是独立的一段，词重量级不同但同色可读')
+    } else if (!/<span className="kr-plain-step__count">\{count\}<\/span>/.test(cardSrc)) {
+      fail('折叠次数必须从对象字符串里拆出来单独排（混在一起会被一起压成小字）')
+    } else if (!/\.kr-plain-step__count \{/.test(code)) {
+      fail('.kr-plain-step__count 缺少样式，药丸会退回无背景的裸文字')
     } else if (!/\.kr-plain-step\[data-brief="true"\]\[data-status="failed"\]/.test(code)) {
       fail('简要模式的失败行必须仍有可见标记（左缘 2px 红条）')
     } else {

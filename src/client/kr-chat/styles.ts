@@ -1074,6 +1074,45 @@ body[data-kr-resizing="true"] * {
   color: var(--dsw-alias-label-primary);
 }
 
+/*
+ * 简报行的三段层次。
+ *
+ * 曾经动词、对象、次数是同一串字（形如「修改 triad-modal-animation.ts ·
+ * 共 7 次」），看上去前半截亮、后半截暗 —— 那不是配色做的层次，而是 CJK
+ * 笔画密与拉丁字形细的天然视觉重量差，字号字重完全一致却让文件名和次数被
+ * 顺带压到读不清。层次得排出来，不能靠字体撞出来。
+ *
+ * 三段同色、只差字重与尺寸：动词最重（它是「做了什么」），对象同色略轻
+ * （它是「对什么做的」，信息量次一等但必须读得清），次数提为彩色药丸
+ * （折叠产物，归到和子智能体计数同一套语言里）。药丸沿用 fresh-wipe
+ * 入场，减弱动效时一并关掉。
+ *
+ * 本段注释内不得出现反引号：整张表是模板字符串的正文，一个反引号就会把
+ * 模板提前闭合，剩下的 CSS 变成 JS 表达式被求值，整张表在运行时静默失效。
+ */
+.kr-plain-step__verb {
+  font-weight: 600;
+}
+
+.kr-plain-step__object {
+  font-weight: 400;
+  margin-left: 0.4em;
+}
+
+.kr-plain-step__count {
+  flex: none;
+  margin-left: 0.45em;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 15px;
+  font-weight: 500;
+  color: var(--kr-accent);
+  background: color-mix(in srgb, var(--kr-accent) 18%, transparent);
+  font-variant-numeric: tabular-nums;
+  animation: kr-fresh-wipe .28s ease both;
+}
+
 .kr-plain-step[data-brief="true"][data-status="failed"] {
   padding-left: 10px;
   box-shadow: inset 2px 0 0 var(--kr-error);
@@ -1289,6 +1328,7 @@ body[data-kr-resizing="true"] * {
 
 @media (prefers-reduced-motion: reduce) {
   .kr-plain-subs,
+  .kr-plain-step__count,
   .kr-plain-step__subcount,
   .kr-plain-sub[data-running="true"] .kr-plain-sub__dot {
     animation: none;

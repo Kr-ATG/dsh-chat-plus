@@ -21,7 +21,7 @@ import type { CSSProperties, ReactElement } from 'react'
 import { useHeightAnimation, useMotionAllowed, useSteppedFollow } from '../motion-utils.ts'
 import { formatDuration } from '../tool-summary/tool-stats.ts'
 import type { PlainIconKey, PlainStep } from './plain-language.ts'
-import { condenseSteps, type PlainStepView, type PlainTimeline } from './plain-timeline.ts'
+import { condenseSteps, countOf, stripCount, type PlainStepView, type PlainTimeline } from './plain-timeline.ts'
 import { useSubagentCatalog, type SubagentCatalogView } from './subagent-catalog.ts'
 
 /**
@@ -212,13 +212,22 @@ function StepRow({ step, index, catalog, brief }: {
    * 简要模式没有图标，动词就没人说了——一行光写"plain-language.ts"用户根本读不出
    * 是改了它还是读了它。所以 brief 时把动词补回文字（`修改 plain-language.ts`），
    * 靠文字里的间隔号断句，不再靠图标承担。
+   *
+   * brief 下再拆成三段：动词、对象、次数。原来三者是同一个 span 的同一串字，
+   * 读起来「修改文件」重、「triad-modal-animation.ts · 共 7 次」轻——那不是配色
+   * 故意做的层次，只是 CJK 笔画密而拉丁字形细，视觉重量天然压在前半截，
+   * 文件名与次数被顺带压到了"看不清"。拆开后各自有独立的字重与尺寸：
+   * 动词最重、对象同色略轻、次数提为彩色药丸。层次是排出来的，不是撞出来的。
+   *
+   * 折叠时 `condenseSteps` 会在 detail 尾部贴「· 共 N 次」（对象为空时整条
+   * 就是「共 N 次」），这里按同一条分隔规则拆开：分隔符随次数药丸走，不再
+   * 把「共 N 次」混在对象字符串中间。
    */
-  const label = brief
-    ? (step.detail === undefined || step.detail === ''
-      ? step.verb
-      : `${step.verb} ${step.detail}`)
-    : (step.detail === undefined || step.detail === '' ? step.verb : step.detail)
-  const title = label
+  const base = brief ? stripCount(step.detail) : step.detail
+  const title = brief
+    ? (base === undefined || base === '' ? step.verb : `${step.verb} ${base}`)
+    : (base === undefined || base === '' ? step.verb : base)
+  const count = brief && step.detail !== undefined ? countOf(step.detail) : null
   const failed = step.status === 'failed'
   return (
     <div
@@ -245,7 +254,15 @@ function StepRow({ step, index, catalog, brief }: {
           <Icon name={step.icon} />
         </span>
       )}
-      <span className="kr-plain-step__title" title={title}>{title}</span>
+      {brief ? (
+        <span className="kr-plain-step__title" title={title}>
+          <span className="kr-plain-step__verb">{step.verb}</span>
+          {base !== undefined && base !== '' && <span className="kr-plain-step__object">{base}</span>}
+          {count !== null && <span className="kr-plain-step__count">{count}</span>}
+        </span>
+      ) : (
+        <span className="kr-plain-step__title" title={title}>{title}</span>
+      )}
       {/*
        * 失败原因：**人话**那一句，不是原始报错。
        *
