@@ -7,9 +7,21 @@
  * ⚠ 注入式 CSS 注释红线：注释内部严禁出现「星号紧跟正斜杠」的两字符闭合序列
  * （包括 token 名里混写星号再跟正斜杠的写法），否则注释提前闭合，
  * 残骸文本会把下一条规则拖成非法选择器整条丢弃。
- */
+ *
+ * ⚠ 这段样式必须待在**函数体内**、由 injectStyles() 在调用时才求值。早先它是
+ * 模块级的顶层常量，esbuild 把它降成 bundle 里的一个 var。
+ *
+ * ⚠⚠ 模板字符串里**绝对不能出现反引号**——包括写在 CSS 注释里的。esbuild
+ * 不会把注释里的反引号转义，它会让整段模板在该处提前闭合，剩余正文被当成 JS
+ * 表达式求值，return 的值变成布尔 false。现场症状极具迷惑性：页面里那张
+ * style#dsh-chat-flow-styles 确实建出来了，textContent 却是字符串 "false"，
+ * 整张表（对话流卡片 + 头部标签排版）静默全失，而元素与选择器都挑不出毛病，
+ * 肉眼看就是「改了没反应」。同仓 tool-summary/styles.ts 写法相同却一直正常，
+ * 差别只在于那份正文里没出现过反引号。注释一律改用「直接子级」等文字表述。 */
 
-const CSS = `
+/** 注入用的主样式表文本（调用时求值，见文件头说明）。 */
+function buildCss(): string {
+  return `
 /* 空白槽位折叠：聚合后工具/思考节点留下的空 [data-slot] 不再产生空白条。 */
 [data-chat-flow-key]:has(> [data-slot]:empty) {
   display: none;
@@ -886,17 +898,26 @@ const CSS = `
 .dtt__card--step { border: none !important; }
 body[data-ds-dark-theme] .dtt__card--reply { box-shadow: 0 12px 32px rgba(0,0,0,.55) !important; border-color: rgba(255,255,255,.10) !important; }
 
-/* ══ 会话头部视图标签（对话 / 轨迹）移到右上角 ═══════════════════════════
-   官方 ui-conversation 把 tablist 作为 header 的第二个块级子元素，独占标题行
-   下方一整条（header 实测 76px）。这里把 header 改成单行 flex：标题行
-   flex:1 1 auto + min-width:0 负责收缩截断，tablist flex:none 靠 margin-left:auto
-   钉到右上角，与标题垂直同行；header 收回 45px，省下的 31px 全还给正文。
-   选择器只用稳定钩子：header 标签、role=tablist、CSS Module 的 _titleRow /
-   _tab 后缀（前缀 wSkVaW_ 是构建 hash，会变，一律不写死）。
+/* ══ 会话头部视图标签（KR对话 / 对话 / 轨迹）排版 ═══════════════════════
+   0.1.5-rc.2 的 header 实测是 display:grid、两行共 77px：
+     header
+       ├─ .headerLeading            （空的，0 宽）
+       └─ div（官方已设 display:contents）—— 注意是 DOM 里的真实包裹层
+            ├─ .titleRow > (.titleCluster, .headerUtilities, .headerCorner)
+            └─ .tabs[role=tablist]
+   标签组挪到「在应用中打开」分体按钮（坐在 .headerUtilities 里）的左侧，
+   header 同时收回 44px 单行，省下的 33px 全还给正文。
+
+   ⚠ 这套选择器全部是**后代**而不是「直接子级」组合子：官方把 titleRow 与
+   tablist 又包了一层 div（且已设 display:contents）。布局上它们等价于 header
+   的直接 item，但 CSS 的直接子级组合子匹配的是 DOM 父子 —— 早先那版全用直接
+   子级，在 0.1.5-rc.2 上一条都没命中，标签仍在第二行左侧（新版已多出
+   .headerLeading 包裹层，唯独 _titleRow / _tab 这些后缀仍是稳定钩子）。
    单行统一高度 44px + 垂直居中，与桌面壳窗口控制按钮中心线（y=22px）精准平齐。 */
-header:has(> [class*='_titleRow']) {
+header:has([class*='_titleRow']) {
   display: flex;
   align-items: center;
+  gap: 0;
   min-height: 44px;
   height: 44px;
   padding-top: 0;
@@ -904,34 +925,64 @@ header:has(> [class*='_titleRow']) {
   box-sizing: border-box;
 }
 
-header:has(> [role='tablist']) {
-  gap: 18px;
+/* 视图标签插到「在应用中打开」分体按钮左侧。跨父级搬 DOM 不可行：官方按
+   tabs.length > 1 增删 tablist，React 记的 host parent 恒定，搬走后它卸载时
+   removeChild 会 NotFoundError 把整棵 header 树带崩。所以改用 display:contents
+   把 .titleRow 摊平（它没有伪元素），三个子块直接参与 header 的 flex，再按
+   order 把 tablist 插到 .titleCluster 之后、.headerUtilities 之前。
+   零 DOM 改动、零 React 风险；单视图（无 tablist）时整组规则不生效。
+   间距不用 header 的 gap —— .headerLeading 那个 0 宽的占位 item 也会吃到 gap
+   把整行右推；改成各块自带 margin，间距只落在真正相邻的两段之间。 */
+header:has([role='tablist']) [class*='_titleRow'] {
+  display: contents;
 }
 
-header:has(> [role='tablist']) > [class*='_titleRow'] {
+header:has([role='tablist']) [class*='_titleRow'] > [class*='_titleCluster'] {
+  order: 1;
   flex: 1 1 auto;
   min-width: 0;
+  margin-right: 18px;
 }
 
-header:has(> [role='tablist']) > [role='tablist'] {
+header:has([role='tablist']) [role='tablist'] {
+  order: 2;
   flex: none;
   gap: 22px;
-  margin: 0 0 0 auto;
+  margin: 0 18px 0 0;
   padding-left: 0;
+  animation: dsh-header-tabs-in .3s cubic-bezier(.2, .8, .2, 1) both;
+}
+
+header:has([role='tablist']) [class*='_titleRow'] > [class*='_headerUtilities'] {
+  order: 3;
+  /* 官方的 20px 是「标签独占第二行」时期的右侧留白；标签插进来后由 tablist 的
+     margin-right 统一给出 18px，标题—标签—工具区三段才等距。 */
+  margin-left: 0;
+}
+
+header:has([role='tablist']) [class*='_titleRow'] > [class*='_headerCorner'] {
+  order: 4;
+}
+
+@keyframes dsh-header-tabs-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
 }
 
 /* 标签本体：下划线收回到贴着文字（官方 11px 底衬是给整行贴边用的），
    hover 提色 + 下划线从中心展开，选中态常驻蓝色下划线。 */
-header > [role='tablist'] > [class*='_tab'] {
+header [role='tablist'] > [class*='_tab'] {
   padding: 2px 0 8px;
-  transition: color .18s ease;
+  /* 微浮起与提色同步走，抬升 1px 刚好压在下划线上沿之外，不糊掉指示条。 */
+  transition: color .18s ease, transform .18s cubic-bezier(.2, .8, .2, 1);
 }
 
-header > [role='tablist'] > [class*='_tab']:hover {
+header [role='tablist'] > [class*='_tab']:hover {
   color: var(--dsw-alias-label-primary);
+  transform: translateY(-1px);
 }
 
-header > [role='tablist'] > [class*='_tab']::after {
+header [role='tablist'] > [class*='_tab']::after {
   right: 0;
   bottom: 2px;
   left: 0;
@@ -940,31 +991,43 @@ header > [role='tablist'] > [class*='_tab']::after {
   transition: transform .22s cubic-bezier(.2, .8, .2, 1), background-color .18s ease;
 }
 
-header > [role='tablist'] > [class*='_tab']:hover::after {
+header [role='tablist'] > [class*='_tab']:hover::after {
   background: var(--dsw-alias-border-l2, rgba(127,127,127,.28));
   transform: scaleX(1);
 }
 
-header > [role='tablist'] > [class*='_tab'][class*='_tabActive']::after {
+header [role='tablist'] > [class*='_tab'][class*='_tabActive']::after {
   background: var(--dsw-alias-state-business-primary, #4176e6);
   transform: scaleX(1);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  header > [role='tablist'] > [class*='_tab'],
-  header > [role='tablist'] > [class*='_tab']::after { transition: none; }
+  header [role='tablist'] > [class*='_tab'],
+  header [role='tablist'] > [class*='_tab']::after { transition: none; }
+  header [role='tablist'] > [class*='_tab']:hover { transform: none; }
+  header:has([role='tablist']) [role='tablist'] { animation: none; }
 }
 
 /* ══ 壳窗口控制：全视口原样呈现（不再为右上角保留留位空档） ═════════════════ */
 `
+}
 
 /** Inject the stylesheet once. */
 export function injectStyles(): void {
   if (typeof document === 'undefined') return
-  if (document.getElementById('dsh-chat-flow-styles') !== null) return
+  const id = 'dsh-chat-flow-styles'
+  const existing = document.getElementById(id)
+  const sheet = buildCss()
+  if (existing !== null) {
+    // 幂等注入的例外：同名节点存在但内容不是本表（历史版本写坏过，或被别的
+    // 代码抢先占位），就地换成正确内容，而不是 return 之后让整表静默缺席。
+    if ((existing.textContent ?? '').length > 1000) return
+    existing.textContent = sheet
+    return
+  }
   const style = document.createElement('style')
-  style.id = 'dsh-chat-flow-styles'
-  style.textContent = CSS
+  style.id = id
+  style.textContent = sheet
   document.head.appendChild(style)
 }
 

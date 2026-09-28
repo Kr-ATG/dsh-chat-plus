@@ -75,9 +75,12 @@ body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-turn] a {
 }
 
 /* ══ 头部 KR 对话分类标签（与官方原生标签保持完全一致的块级排版与基线） ════════ */
+/* padding 与 styles.ts 里 header [role=tablist] > [class*='_tab'] 的覆盖值对齐
+   （2px 上 / 8px 下，line-height 16 → 总高 26），三者基线才会真正齐平；
+   hover 的 -1px 抬升也跟着官方那两个标签同步，一个动效口径。 */
 .kr-tab-btn {
   display: block;
-  padding: 0 0 9px;
+  padding: 2px 0 8px;
   border: none;
   background: transparent;
   font-family: inherit;
@@ -86,7 +89,7 @@ body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-turn] a {
   line-height: 16px;
   cursor: pointer;
   position: relative;
-  transition: color .18s ease;
+  transition: color .18s ease, transform .18s cubic-bezier(.2, .8, .2, 1);
   color: var(--dsw-alias-label-tertiary);
   outline: none;
   user-select: none;
@@ -96,7 +99,7 @@ body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-turn] a {
   content: '';
   position: absolute;
   right: 0;
-  bottom: -1px;
+  bottom: 2px;
   left: 0;
   height: 2px;
   border-radius: 2px;
@@ -108,6 +111,7 @@ body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-turn] a {
 
 .kr-tab-btn:hover {
   color: var(--dsw-alias-label-primary);
+  transform: translateY(-1px);
 }
 
 .kr-tab-btn:hover::after {
@@ -123,6 +127,11 @@ body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-turn] a {
 .kr-tab-btn--active::after {
   background: var(--dsw-alias-state-business-primary, #4176e6) !important;
   transform: scaleX(1) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-tab-btn, .kr-tab-btn::after { transition: none; }
+  .kr-tab-btn:hover { transform: none; }
 }
 
 /* 当处于 KR 模式时，原生的“对话”与“轨迹”按钮不要显示激活高亮与下划线 */
@@ -1441,8 +1450,9 @@ body[data-kr-resizing="true"] * {
    整块已删除：大盘改为在 KR 对话里常态常驻，不需要"要不要它"的开关。
    （它此前是 header [role="tablist"] 的最后一个子节点，margin-left:auto 顶到
    最右端；更早一版是 absolute + 阴影 + backdrop-filter 的浮动胶囊，压正文。）
-   连带删除的还有：store.panelOpen 状态、KrAgentPanel 顶栏的「收起大盘 ×」、
-   以及标签行右侧那块被 margin-left:auto 腾出来的空白。 */
+   连带删除的还有：store.panelOpen 状态、KrAgentPanel 顶栏的「收起大盘 ×」。
+   —— 标签组如今也不再靠 margin-left:auto 顶右端了（见 styles.ts：标签排到
+   「在应用中打开」分体按钮左侧，靠 order 定序、间距交给 header 的 gap）。 */
 
 @keyframes kr-fade-in {
   from { opacity: 0; transform: translateY(-4px); }

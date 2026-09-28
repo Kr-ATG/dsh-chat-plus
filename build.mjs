@@ -187,7 +187,74 @@ function assertHostExternals(outfile) {
   return [...specifiers]
 }
 
+/**
+ * 注入式 CSS 字符串守卫：产物里每个「赋值给标识符的模板字面量」都必须求值为
+ * 字符串，且长度够大（真样式表至少几千字符）。
+ *
+ * 起因：TypeScript/esbuild **不会**转义写在模板字面量内部的反引号——包括
+ * 写在 CSS 注释里的。一旦某条注释里出现一个反引号，模板就在那里提前闭合，
+ * 剩下的正文被当作 JS 表达式求值，整段变成一个布尔比较（`false`）。产物语法
+ * 完全合法，构建不报错、冒烟不报错，页面里那张 style 元素也真的建出来了，
+ * 只是 textContent 是字符串 "false"：整张表静默全失，肉眼看就是「改了没反应」。
+ * 这里逐个求值把它变成构建期硬失败。
+ *
+ * @param {string} outfile client 产物路径
+ * @returns {number} 检查过的模板字面量数量
+ */
+function assertInjectedCssStrings(outfile) {
+  const source = readFileSync(outfile, 'utf8')
+  const TICK = String.fromCharCode(96)
+  const violations = []
+  let checked = 0
+  for (let i = 0; i < source.length; i++) {
+    if (source[i] !== TICK) continue
+    // 只看「紧跟在 = 或 return 之后的反引号」，其余（属性键、注释里的）跳过。
+    const before = source.slice(Math.max(0, i - 24), i)
+    if (!/=\s*$/.test(before) && !/return\s*$/.test(before)) continue
+    // 配对扫描：跳过 \` 转义，直到未转义的收尾反引号。
+    let j = i + 1
+    let closed = -1
+    while (j < source.length) {
+      if (source[j] === '\\') { j += 2; continue }
+      if (source[j] === TICK) { closed = j; break }
+      j++
+    }
+    if (closed < 0) continue
+    const literal = source.slice(i, closed + 1)
+    // 含插值的模板（`${…}`）是正常的运行时字符串，不是注入式 CSS 常量：
+    // 它们本来就该在调用时求值，跳过。
+    if (literal.includes('${')) { i = closed; continue }
+    // 只看够大的那种：真正的样式表至少几千字符，短模板不构成风险。
+    if (literal.length < 200) { i = closed; continue }
+    checked++
+    let value
+    try {
+      // eslint-disable-next-line no-eval -- 构建期对自家产物求值，是本守卫的判据本身
+      value = (0, eval)(literal)
+    } catch (error) {
+      violations.push(`  - offset ${i}: 模板字面量求值抛错 ${String(error)}`)
+      i = closed
+      continue
+    }
+    if (typeof value !== 'string') {
+      violations.push(`  - offset ${i}: 求值得到 ${typeof value}（${String(value).slice(0, 32)}），`
+        + '模板很可能被注释里的反引号提前闭合了')
+    }
+    i = closed
+  }
+  if (violations.length > 0) {
+    throw new Error(
+      'dsh-chat-plus: client 产物里有求值不出字符串的模板字面量。\n'
+      + violations.join('\n')
+      + '\n\n注入式 CSS 的正文与注释里都不能出现反引号 ` —— 它会让模板提前闭合，\n'
+      + '整张样式表在运行时静默变成 false。注释请改用「直接子级」这类文字表述。\n',
+    )
+  }
+  return checked
+}
+
 await Promise.all([esbuild.build(clientBundle), esbuild.build(hostBundle)])
 const hostExternals = assertHostExternals(resolve(HERE, 'lib/index.js'))
+assertInjectedCssStrings(resolve(HERE, 'lib/client.js'))
 console.log('[dsh-chat-plus] built lib/index.js + lib/client.js')
 console.log(`[dsh-chat-plus] host runtime imports: ${hostExternals.length === 0 ? '(none)' : hostExternals.join(', ')}`)
