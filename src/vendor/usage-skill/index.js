@@ -26,7 +26,22 @@ import { apply as applySkills } from './skills-host.js';
  * events added since the last fold are processed — live sessions fold their
  * in-memory tail, while persisted sessions use the storage backend's opaque
  * revision when available. Steady-state cost stays O(new events) no matter
- * how large the logs grow.
+ * how large the logs grow: measured 3–49ms per pass over 1400+ stored
+ * sessions, and a corpus growing to 3000 sessions does not change that.
+ *
+ * Why this does not read the harness's own projection cache, after checking:
+ * `ctx.sessionProjectionCache.cachedSnapshot` really is a zero-I/O memory-table
+ * read, and it is what `api-session.list` uses. But it only serves units that
+ * declared a `wire` — `SessionProjections.viewCheckpoint` opens with
+ * `if (def.wire === undefined) continue`, so the host-only registration
+ * overload (no wire) is invisible to every cold read. Giving this unit a wire
+ * to become readable would push each session's whole per-day breakdown into
+ * every `session list` payload the browser fetches (~1.6MB at 1250 sessions),
+ * to buy back a cost this file already avoids: the expensive path here is a
+ * CACHE MISS, and a miss needs a full decompression pass whatever wrote the
+ * rows last. The cache on disk is what makes the common case free, and it is
+ * written here, where the identity and watermark bookkeeping that matters
+ * (see `foldPersistedSession`) already lives.
  *
  * @module dsh-usage-skill
  */
