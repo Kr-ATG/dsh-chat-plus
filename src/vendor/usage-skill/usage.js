@@ -126,7 +126,7 @@ function modelOf(event) {
 	return void 0;
 }
 
-/** Day entry: totals plus a per-model bucket map, request count, and step intervals. */
+/** Day entry: totals plus a per-model bucket map, request count. */
 function entryOf(byDay, day) {
 	let entry = byDay.get(day);
 	if (entry === void 0) {
@@ -134,7 +134,6 @@ function entryOf(byDay, day) {
 			totals: zeroBuckets(),
 			models: new Map(),
 			requests: 0,
-			intervals: [],
 			compacted: 0
 		};
 		byDay.set(day, entry);
@@ -157,20 +156,6 @@ export function lastNaturalDays(endDay, count) {
 	const days = [];
 	for (let offset = count - 1; offset >= 0; offset -= 1) days.push(shiftDay(endDay, -offset));
 	return days;
-}
-
-/** Hour entry: totals plus request count and work duration (no per-model breakdown). */
-function hourEntryOf(byHour, hour) {
-	let entry = byHour.get(hour);
-	if (entry === void 0) {
-		entry = {
-			totals: zeroBuckets(),
-			requests: 0,
-			workMs: 0
-		};
-		byHour.set(hour, entry);
-	}
-	return entry;
 }
 
 /**
@@ -222,35 +207,26 @@ export function applyUsageDelta(state, events) {
 			if (Number.isFinite(shadowed) && shadowed > 0) entryOf(state.days, dayKey(event.time)).compacted += shadowed;
 		}
 		// 调用次数：每一条 assistant/message 计一次模型调用（与 usage 无关，
-		// 无 token 上报的响应同样计入）。天级与小时级同步累计。
+		// 无 token 上报的响应同样计入）。
 		if (event.type === "assistant/message") {
 			entryOf(state.days, dayKey(event.time)).requests += 1;
-			hourEntryOf(state.hours, hourKey(event.time)).requests += 1;
 		}
 		// 工作时长：step/start 与 step/end 配对，跨 fold 边界的未闭合 step
-		// 由 state.openSteps 携带；时长归到 step/end 所在时刻（天级与小时级）。
+		// 由 state.openSteps 携带。step 区间本身不再留存——它只用来算 workMs，
+		// 而 workMs 没有任何消费者；每个 step 留一条 [start,end] 却是持久化
+		// 缓存里最大的一块（4.5MB 的主体），并且每轮聚合都要把它们拷进全局
+		// 天桶再排序一遍。openSteps 仍要留：它只有未闭合的 step，量级是常数。
 		if (event.type === "step/start") {
 			state.openSteps.set(`${event.data.turn}:${event.data.step}`, event.time);
 		} else if (event.type === "step/end") {
-			const key = `${event.data.turn}:${event.data.step}`;
-			const start = state.openSteps.get(key);
-			if (start !== void 0) {
-				const workMs = Math.max(0, event.time - start);
-				// 天级记录 step 区间（渲染时去重叠合并，避免并行会话累加超过墙钟时长）；
-				// 小时级保留累计耗时（小时趋势图不展示工作时长，累计口径即可）。
-				if (event.time > start) entryOf(state.days, dayKey(event.time)).intervals.push([start, event.time]);
-				hourEntryOf(state.hours, hourKey(event.time)).workMs += workMs;
-				state.openSteps.delete(key);
-			}
+			state.openSteps.delete(`${event.data.turn}:${event.data.step}`);
 		}
 		const sample = sampleOf(event);
 		if (sample === void 0) continue;
 		const buckets = bucketsOf(sample.usage);
 		const model = modelOf(event) ?? currentModel ?? "unknown/unknown";
 		const day = dayKey(event.time);
-		const hour = hourKey(event.time);
 		const entry = entryOf(state.days, day);
-		const hourEntry = hourEntryOf(state.hours, hour);
 		if (last !== null && last.key === sample.key) {
 			// Same turn/step re-reported: replace instead of double counting.
 			const previous = state.days.get(last.day);
@@ -259,8 +235,6 @@ export function applyUsageDelta(state, events) {
 				const previousModel = previous.models.get(last.model);
 				if (previousModel !== void 0) subtractFrom(previousModel, last.buckets);
 			}
-			const previousHour = state.hours.get(last.hour);
-			if (previousHour !== void 0) subtractFrom(previousHour.totals, last.buckets);
 		}
 		addInto(entry.totals, buckets);
 		let modelBucket = entry.models.get(model);
@@ -269,8 +243,7 @@ export function applyUsageDelta(state, events) {
 			entry.models.set(model, modelBucket);
 		}
 		addInto(modelBucket, buckets);
-		addInto(hourEntry.totals, buckets);
-		last = { key: sample.key, day, hour, model, buckets };
+		last = { key: sample.key, day, hour: hourKey(event.time), model, buckets };
 	}
 	state.lastSample = last;
 	state.currentModel = currentModel;
@@ -299,7 +272,6 @@ export function mergeInto(byDay, sessionDays) {
 		addInto(target.totals, entry.totals);
 		target.requests += entry.requests ?? 0;
 		target.compacted += entry.compacted ?? 0;
-		if (entry.intervals !== void 0 && entry.intervals.length > 0) target.intervals.push(...entry.intervals);
 		for (const [model, buckets] of entry.models) {
 			let modelBucket = target.models.get(model);
 			if (modelBucket === void 0) {
@@ -312,23 +284,12 @@ export function mergeInto(byDay, sessionDays) {
 }
 
 /**
- * Merge one session's folded hours into a global per-hour map.
- * @param byHour - global hour map to mutate.
- * @param sessionHours - session hour map.
- */
-export function mergeHoursInto(byHour, sessionHours) {
-	for (const [hour, entry] of sessionHours) {
-		const target = hourEntryOf(byHour, hour);
-		addInto(target.totals, entry.totals);
-		target.requests += entry.requests ?? 0;
-		target.workMs += entry.workMs ?? 0;
-	}
-}
-
-/**
  * Merge overlapping `[start, end]` intervals (毫秒) and return the total
  * non-overlapping duration — 并行会话的 step 时段重叠时只计一次，使一天的工作
  * 时长不会超过 24 小时。
+ *
+ * Retained as a utility, no longer on any aggregation path: the per-step
+ * interval lists it consumed are gone, so nothing calls it during a pass.
  */
 export function mergedDuration(intervals) {
 	if (intervals === void 0 || intervals.length === 0) return 0;
@@ -362,13 +323,15 @@ export function consumeEvents(byDay, events) {
 /**
  * Render a global per-day map into the wire shape for the usage endpoint.
  * @param byDay - day → entry map.
- * @param byHour - hour → entry map (optional; hourly granularity for short ranges).
+ * @param _byHour - retired hourly map; accepted and ignored so existing call
+ *   sites keep their shape. Nothing has consumed `hours` since the workbench
+ *   was folded into this card, and it was 72% of the response body (every hour
+ *   bucket ever recorded, forever) plus a second full-size fold to maintain.
  * @param updatedAt - computation timestamp.
- * @returns `{ days, hours, total, updatedAt }` with `days`/`hours` sorted
- *   ascending; each day carries `models` (descending by tokens) and a
- *   `cacheHitRate` percent.
+ * @returns `{ days, total, updatedAt }` with `days` sorted ascending; each day
+ *   carries `models` (descending by tokens) and a `cacheHitRate` percent.
  */
-export function renderUsage(byDay, byHour, updatedAt) {
+export function renderUsage(byDay, _byHour, updatedAt) {
 	const days = [...byDay.entries()]
 		.map(([date, entry]) => {
 			const models = [...entry.models.entries()]
@@ -385,41 +348,26 @@ export function renderUsage(byDay, byHour, updatedAt) {
 				tokens: totalTokens(entry.totals),
 				cacheHitRate: cacheHitRate(entry.totals),
 				requests: entry.requests ?? 0,
-				workMs: mergedDuration(entry.intervals),
 				compacted: entry.compacted ?? 0,
 				models
 			};
 		})
 		.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-	const hours = [...(byHour ?? new Map()).entries()]
-		.map(([hour, entry]) => ({
-			hour,
-			...entry.totals,
-			tokens: totalTokens(entry.totals),
-			cacheHitRate: cacheHitRate(entry.totals),
-			requests: entry.requests ?? 0,
-			workMs: entry.workMs ?? 0
-		}))
-		.sort((a, b) => (a.hour < b.hour ? -1 : a.hour > b.hour ? 1 : 0));
 	const total = zeroBuckets();
 	let totalRequests = 0;
-	let totalWorkMs = 0;
 	let totalCompacted = 0;
 	for (const [, entry] of byDay) {
 		addInto(total, entry.totals);
 		totalRequests += entry.requests ?? 0;
-		totalWorkMs += mergedDuration(entry.intervals);
 		totalCompacted += entry.compacted ?? 0;
 	}
 	return {
 		days,
-		hours,
 		total: {
 			...total,
 			tokens: totalTokens(total),
 			cacheHitRate: cacheHitRate(total),
 			requests: totalRequests,
-			workMs: totalWorkMs,
 			compacted: totalCompacted
 		},
 		updatedAt

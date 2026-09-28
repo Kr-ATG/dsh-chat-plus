@@ -39,6 +39,9 @@ const CARD_SIZE_WITH_DAY = { width: 648, height: 560 }
 
 const STYLE_ID = 'dsh-usage-compact-styles'
 
+/** 拿到陈旧快照后的重试间隔：host 后台一轮聚合的自适应间隔是 30s~5min，1.5s 起步轮询能几乎立刻接上新值，又不会在语料很大时空转。 */
+const STALE_POLL_MS = 1500
+
 /**
  * 紧凑用量卡样式。刻意局部注入而不进 hub.tsx：这份语言只服务这一个卡片，
  * 与工作台共享层解耦，未来再加卡片也不会把样式表撑成大杂烩。
@@ -48,6 +51,11 @@ const SHEET = `
 .usm-uc { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; overflow-y: auto; }
 .usm-uc-top { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .usm-uc-meta { flex: 1 1 auto; min-width: 0; text-align: right; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary, #81858c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.usm-uc-sync { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; line-height: 16px; color: var(--dsw-alias-state-business-primary, #4176e6); white-space: nowrap; animation: usm-sync-in 180ms ease-out; }
+.usm-uc-sync-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: usm-sync-pulse 1.1s ease-in-out infinite; }
+@keyframes usm-sync-in { from { opacity: 0; transform: translateX(4px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes usm-sync-pulse { 0%, 100% { opacity: 0.35; transform: scale(0.75); } 50% { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .usm-uc-sync { animation: none; } .usm-uc-sync-dot { animation: none; opacity: 0.8; } }
 .usm-uc-stats { flex: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .usm-uc-stat { min-width: 0; display: flex; flex-direction: column; gap: 1px; box-sizing: border-box; border: 1px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.06)); border-radius: 10px; background: var(--dsw-alias-bg-base, #fff); padding: 7px 9px; }
 .usm-uc-stat-head { display: flex; align-items: center; gap: 4px; min-width: 0; color: var(--dsw-alias-label-secondary, #8f96a3); }
@@ -112,6 +120,7 @@ export function UsagePanel({ closing = false, onClose, anchor = null }: UsagePan
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [stale, setStale] = useState(false)
   const [tick, setTick] = useState(0)
   const [provider, setProvider] = useState<string | null>(null)
   const [model, setModel] = useState<string | null>(null)
@@ -121,20 +130,32 @@ export function UsagePanel({ closing = false, onClose, anchor = null }: UsagePan
 
   useEffect(() => ensureCompactStyles(), [])
 
+  /**
+   * 拉数据。拿到的可能是 host 的「陈旧快照」——进程刚起来、或后台重算还没
+   * 跑完时，host 会立刻把持久化的折叠态返给我们（stale=true）而不让我们
+   * 干等语料重扫。遇到这种就自己轮询下去，直到拿到新鲜的一轮，面板始终
+   * 有内容可看，也不需要用户手动点刷新。
+   */
   useEffect(() => {
     let alive = true
+    let timer: ReturnType<typeof setTimeout> | null = null
     setError(null)
-    usageApi.usage({ force: tick > 0 }).then((p) => {
-      if (!alive) return
-      if (p.ok !== true) throw new Error('用量数据加载失败')
-      setDays(p.days)
-      setRefreshing(false)
-    }).catch((e: unknown) => {
-      if (!alive) return
-      setRefreshing(false)
-      setError(e instanceof Error ? e.message : String(e))
-    })
-    return () => { alive = false }
+    const load = (): void => {
+      usageApi.usage().then((p) => {
+        if (!alive) return
+        if (p.ok !== true) throw new Error('用量数据加载失败')
+        setDays(p.days)
+        setRefreshing(false)
+        setStale(p.stale === true)
+        if (p.stale === true) timer = setTimeout(load, STALE_POLL_MS)
+      }).catch((e: unknown) => {
+        if (!alive) return
+        setRefreshing(false)
+        setError(e instanceof Error ? e.message : String(e))
+      })
+    }
+    load()
+    return () => { alive = false; if (timer !== null) clearTimeout(timer) }
   }, [tick])
 
   const { range, label: rangeLabel } = resolveRange(preset, custom)
@@ -148,7 +169,7 @@ export function UsagePanel({ closing = false, onClose, anchor = null }: UsagePan
     setSelectedDay(null)
   }, [inRangeDays])
 
-  /** 头部刷新：让 host 同步重算一轮，按钮转到数据回来为止。 */
+  /** 头部刷新：重取一次快照，host 在后台重算，按钮转到数据回来为止。 */
   const doRefresh = (): void => {
     setRefreshing(true)
     setTick(t => t + 1)
@@ -178,6 +199,7 @@ export function UsagePanel({ closing = false, onClose, anchor = null }: UsagePan
       selectedDay={selectedDay}
       onSelectDay={setSelectedDay}
       isMobile={isMobile}
+      stale={stale}
     />
   })()
 
@@ -210,7 +232,7 @@ export function UsagePanel({ closing = false, onClose, anchor = null }: UsagePan
 }
 
 /** 卡片主体：查询行 + 汇总四格 + 热力图 + 当日明细。 */
-function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChangeCustom, provider, model, onChangeProvider, onChangeModel, metric, onMetric, mode, onMode, selectedDay, onSelectDay, isMobile }: {
+function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChangeCustom, provider, model, onChangeProvider, onChangeModel, metric, onMetric, mode, onMode, selectedDay, onSelectDay, isMobile, stale }: {
   days: UsageDay[]
   range: DateRange
   rangeLabel: string
@@ -229,6 +251,7 @@ function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChang
   selectedDay: string | null
   onSelectDay: (date: string | null) => void
   isMobile: boolean
+  stale: boolean
 }): JSX.Element {
   const inRange = filterDays(days, range)
   // 下拉选项来自「范围 ∩ 全量」：范围决定看哪几天，选项本身要能选到该范围内
@@ -266,6 +289,12 @@ function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChang
           onChangeProvider={(next) => { onChangeProvider(next); onChangeModel(null) }}
           onChangeModel={onChangeModel}
         />
+        {stale && (
+          <span className="usm-uc-sync" role="status" aria-live="polite">
+            <span className="usm-uc-sync-dot" />
+            后台更新中
+          </span>
+        )}
         <span className="usm-uc-meta">共 {inRange.length} 天 · 有量 {activeDays} 天 · {modelCount.size} 个模型</span>
       </div>
       <div className="usm-uc-stats" role="group" aria-label={`${rangeLabel} token 消耗`} style={isMobile ? { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } : undefined}>

@@ -17,13 +17,20 @@ export interface UsageDay {
   cacheHitRate: number
   /** 当天模型调用次数（assistant/message 计数）。 */
   requests?: number
-  /** 当天累计工作时长（step 耗时，毫秒）。 */
-  workMs?: number
   models?: Array<{ model: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; tokens: number; cacheHitRate: number }>
 }
 
 /** /api/usage-stats/usage 响应体。 */
-export interface UsagePayload { ok: boolean; days: UsageDay[]; hours?: unknown[]; updatedAt?: number }
+export interface UsagePayload {
+  ok: boolean
+  days: UsageDay[]
+  updatedAt?: number
+  /**
+   * true = 这是 host 持久化折叠态的快照，后台重算仍在进行。客户端应当继续
+   * 显示这份数据并稍后重取，而不是把它当成最终结果。
+   */
+  stale?: boolean
+}
 
 /** 区间合计：输入 / 输出 / 缓存（读+写）/ 总量。 */
 export function sumTokens(days: UsageDay[]): { input: number; output: number; cache: number; total: number } {

@@ -34,7 +34,7 @@ import { apply as applySkills } from './skills-host.js';
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { applyUsageDelta, createUsageState, mergeHoursInto, mergeInto, renderSignal, renderUsage, totalTokens, zeroBuckets } from "./usage.js";
+import { applyUsageDelta, createUsageState, mergeInto, renderSignal, renderUsage, totalTokens, zeroBuckets } from "./usage.js";
 import { ACCOUNT_REFRESH_MS, createAccountService, validateAccountConfig } from "./accounts.js";
 import { queryDeepseekBilling } from "./deepseek-billing.js";
 
@@ -55,10 +55,12 @@ const ACCOUNT_PATH = "/api/usage-stats/account";
 const CREDENTIALS_PATH = "/api/usage-stats/credentials";
 const BILLING_PATH = "/api/usage-stats/deepseek-billing";
 const UPSTREAM_TIMEOUT_MS = 15000;
-// v6: day entries gain `compacted` (compaction shadow-priced tokens) and
-// session states gain `title` — bump forces one full refold so historical
-// compaction events and titles are folded in.
-const CACHE_VERSION = 6;
+// v7: the per-hour fold and the per-step interval lists are gone. Neither fed
+// anything a client reads — together they were 72% of the response body and
+// the bulk of the 4.5MB persisted cache, re-serialized and re-merged on every
+// aggregation pass. Bumping forces one full refold, after which the cache
+// settles at a few hundred KB and each pass stops paying for them.
+const CACHE_VERSION = 7;
 
 /** Credential references the in-panel editor may write (SenseNova console login). */
 const WRITABLE_CREDENTIAL_REFS = new Set(["SENSENOVA_USERNAME", "SENSENOVA_PASSWORD", "SENSENOVA_CONSOLE_TOKEN", "DEEPSEEK_USER_TOKEN"]);
@@ -185,16 +187,7 @@ function serializeSession(state) {
 			totals: { ...entry.totals },
 			models,
 			requests: entry.requests ?? 0,
-			intervals: entry.intervals ?? [],
 			compacted: entry.compacted ?? 0
-		};
-	}
-	const hours = {};
-	for (const [hour, entry] of state.hours ?? []) {
-		hours[hour] = {
-			totals: { ...entry.totals },
-			requests: entry.requests ?? 0,
-			workMs: entry.workMs ?? 0
 		};
 	}
 	return {
@@ -203,7 +196,6 @@ function serializeSession(state) {
 		...(state.revision === void 0 ? {} : { revision: state.revision }),
 		...(typeof state.title === "string" ? { title: state.title } : {}),
 		days,
-		hours,
 		lastSample: state.lastSample === null ? null : {
 			key: state.lastSample.key,
 			day: state.lastSample.day,
@@ -227,7 +219,7 @@ function parseSession(raw) {
 	if (raw.days !== null && typeof raw.days === "object") {
 		for (const [date, entry] of Object.entries(raw.days)) {
 			if (entry === null || typeof entry !== "object") continue;
-			const target = { totals: zeroBuckets(), models: new Map(), requests: 0, intervals: [], compacted: 0 };
+			const target = { totals: zeroBuckets(), models: new Map(), requests: 0, compacted: 0 };
 			const totals = entry.totals;
 			if (totals !== null && typeof totals === "object") {
 				target.totals.inputTokens = Number.isFinite(totals.inputTokens) ? totals.inputTokens : 0;
@@ -237,13 +229,6 @@ function parseSession(raw) {
 			}
 			if (Number.isFinite(entry.requests)) target.requests = entry.requests;
 			if (Number.isFinite(entry.compacted)) target.compacted = entry.compacted;
-			if (Array.isArray(entry.intervals)) {
-				for (const iv of entry.intervals) {
-					if (Array.isArray(iv) && iv.length >= 2 && Number.isFinite(iv[0]) && Number.isFinite(iv[1]) && iv[1] > iv[0]) {
-						target.intervals.push([iv[0], iv[1]]);
-					}
-				}
-			}
 			if (entry.models !== null && typeof entry.models === "object") {
 				for (const [model, buckets] of Object.entries(entry.models)) {
 					if (buckets === null || typeof buckets !== "object") continue;
@@ -256,22 +241,6 @@ function parseSession(raw) {
 				}
 			}
 			state.days.set(date, target);
-		}
-	}
-	if (raw.hours !== null && typeof raw.hours === "object") {
-		for (const [hour, entry] of Object.entries(raw.hours)) {
-			if (entry === null || typeof entry !== "object") continue;
-			const target = { totals: zeroBuckets(), requests: 0, workMs: 0 };
-			const totals = entry.totals;
-			if (totals !== null && typeof totals === "object") {
-				target.totals.inputTokens = Number.isFinite(totals.inputTokens) ? totals.inputTokens : 0;
-				target.totals.outputTokens = Number.isFinite(totals.outputTokens) ? totals.outputTokens : 0;
-				target.totals.cacheReadTokens = Number.isFinite(totals.cacheReadTokens) ? totals.cacheReadTokens : 0;
-				target.totals.cacheWriteTokens = Number.isFinite(totals.cacheWriteTokens) ? totals.cacheWriteTokens : 0;
-			}
-			if (Number.isFinite(entry.requests)) target.requests = entry.requests;
-			if (Number.isFinite(entry.workMs)) target.workMs = entry.workMs;
-			state.hours.set(hour, target);
 		}
 	}
 	if (raw.lastSample !== null && raw.lastSample !== void 0 && typeof raw.lastSample === "object" && typeof raw.lastSample.key === "string" && typeof raw.lastSample.day === "string") {
@@ -345,6 +314,29 @@ function withLock(run) {
 	});
 	return inflight;
 }
+
+/** Single-flight guard for the persisted-snapshot warm-up. */
+let warmPromise = null;
+
+/**
+ * Populate {@link cachedUsageResult} from the persisted fold state alone.
+ *
+ * Runs before (and outside) {@link withLock} on purpose: it must not queue
+ * behind an in-flight corpus scan, because its whole job is to give the caller
+ * an answer while that scan is still running. `lastCollectTime` stays at 0 so
+ * the warm snapshot is immediately considered overdue and the next non-forced
+ * call schedules a real recompute instead of serving it for the full TTL.
+ */
+function warmSnapshot() {
+	if (cachedUsageResult !== null) return Promise.resolve();
+	warmPromise ??= (async () => {
+		const cache = await loadCache();
+		if (cachedUsageResult === null) cachedUsageResult = renderCachedSnapshot(cache);
+	})().finally(() => {
+		warmPromise = null;
+	});
+	return warmPromise;
+}
 //#endregion
 
 /**
@@ -395,6 +387,30 @@ let lastCollectTime = 0;
 const USAGE_COLLECT_TTL_MS = 15000;
 
 /**
+ * Render whatever the persisted fold state already holds, without touching a
+ * single session log.
+ *
+ * `usage-stats-cache.json` is a complete answer to "what did I spend" as of
+ * the last run — it is exactly the input {@link collectUsageLocked} feeds into
+ * `renderUsage`. Serving it before the corpus has been re-scanned is what
+ * makes the panel open instantly: the first request after a process start
+ * otherwise queues behind a full re-fold, which walks 1400+ session logs and
+ * costs tens of seconds on this corpus.
+ *
+ * The snapshot is marked `stale` so the client can keep it on screen and
+ * refresh itself once the real re-fold lands, instead of showing it as
+ * authoritative.
+ *
+ * @param cache - the loaded fold cache.
+ * @returns the wire shape, flagged stale.
+ */
+function renderCachedSnapshot(cache) {
+	const byDay = new Map();
+	for (const state of Object.values(cache.sessions)) mergeInto(byDay, state.days);
+	return { ...renderUsage(byDay, null, Date.now()), stale: true };
+}
+
+/**
  * Compare whether two revisions correspond to the same physical file state.
  * DSH appends a corpus-wide hash (`:hash`) to historical format revisions (v3/v2/v1),
  * which changes whenever ANY session in the workspace is touched or created.
@@ -435,6 +451,12 @@ export async function collectUsage(ctx, force = false) {
 	if (!force && cachedUsageResult !== null && Date.now() - lastCollectTime < USAGE_COLLECT_TTL_MS) {
 		return cachedUsageResult;
 	}
+	// 冷启动：进程刚起来时 cachedUsageResult 还没有值。此处先花几毫秒把磁盘上
+	// 已有的折叠态渲染成快照（不碰任何会话日志），让第一个请求直接拿到数据，
+	// 而不是排在语料重扫后面干等几十秒。
+	if (!force && cachedUsageResult === null) {
+		await warmSnapshot();
+	}
 	// 已经有旧快照时，调用方绝不排队等重算：先把旧值给出去，刷新丢后台。
 	// 聚合要遍历全部会话日志（上千会话时是分钟级），挂在请求路径上等于面板
 	// 「点了跟没点一样」。force（refresh=1）仍然同步等——那是用户主动要新数据。
@@ -466,7 +488,6 @@ async function collectUsageLocked(ctx) {
 			if (state.kind !== "live") {
 				// Live/persisted transition: refold the whole in-memory log.
 				state.days = new Map();
-				state.hours = new Map();
 				state.openSteps = new Map();
 				state.lastSample = null;
 				state.currentModel = null;
@@ -527,7 +548,6 @@ async function collectUsageLocked(ctx) {
 				const events = await readPersistedEvents(persistence, id, fromSeq);
 				if (!wasPersisted) {
 					state.days = new Map();
-					state.hours = new Map();
 					state.openSteps = new Map();
 					state.lastSample = null;
 					state.currentModel = null;
@@ -543,7 +563,6 @@ async function collectUsageLocked(ctx) {
 				} else if (state.consumed > 0 && fresh[0].seq !== state.consumed + 1) {
 					// 确实有新事件却接不上：日志被截断/重写，从头重折。
 					state.days = new Map();
-					state.hours = new Map();
 					state.openSteps = new Map();
 					state.lastSample = null;
 					state.currentModel = null;
@@ -568,17 +587,16 @@ async function collectUsageLocked(ctx) {
 		if (!attached.has(id) && !persistedIds.has(id)) delete cache.sessions[id];
 	}
 	const byDay = new Map();
-	const byHour = new Map();
-	for (const state of Object.values(cache.sessions)) {
-		mergeInto(byDay, state.days);
-		mergeHoursInto(byHour, state.hours);
-	}
-	// Keep the atomic cache write inside the single-flight section. Otherwise
-	// overlapping saves can race on the same temporary file.
-	await saveCache(ctx, cache);
-	const rendered = renderUsage(byDay, byHour, Date.now());
+	for (const state of Object.values(cache.sessions)) mergeInto(byDay, state.days);
+	const rendered = renderUsage(byDay, null, Date.now());
 	cachedUsageResult = rendered;
 	lastCollectTime = Date.now();
+	// Keep the atomic cache write inside the single-flight section: two passes
+	// racing on the same temp file is the one failure mode that would corrupt
+	// the file. It stays on the request path deliberately — with the hourly and
+	// interval folds gone the cache is a few hundred KB, so this costs single-
+	// digit milliseconds and buys crash-safety for every counted token.
+	await saveCache(ctx, cache);
 	return rendered;
 }
 
@@ -650,8 +668,8 @@ async function handleSignal(ctx, req, res) {
 /**
  * GET /api/usage-stats/day-sessions?date=YYYY-MM-DD — the sessions that saw
  * usage on one local-calendar day, descending by tokens. Titles come from the
- * folded `session/title` events; activity bounds from that day's step
- * intervals.
+ * folded `session/title` events. `firstAt`/`lastAt` are always null: they used
+ * to come from that day's step intervals, which are no longer retained.
  */
 async function handleDaySessions(ctx, req, res) {
 	if (rejectForeignCaller(req, res)) return;
@@ -671,20 +689,13 @@ async function handleDaySessions(ctx, req, res) {
 				if (entry === void 0) continue;
 				const tokens = totalTokens(entry.totals);
 				if (!(tokens > 0)) continue;
-				let firstAt = null;
-				let lastAt = null;
-				for (const interval of entry.intervals ?? []) {
-					if (!Array.isArray(interval) || interval.length < 2) continue;
-					if (firstAt === null || interval[0] < firstAt) firstAt = interval[0];
-					if (lastAt === null || interval[1] > lastAt) lastAt = interval[1];
-				}
 				sessions.push({
 					id,
 					title: typeof state.title === "string" && state.title.length > 0 ? state.title : null,
 					tokens,
 					requests: entry.requests ?? 0,
-					firstAt,
-					lastAt
+					firstAt: null,
+					lastAt: null
 				});
 			}
 			sessions.sort((a, b) => b.tokens - a.tokens);
