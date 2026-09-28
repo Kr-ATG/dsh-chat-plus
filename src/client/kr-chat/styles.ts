@@ -2188,44 +2188,6 @@ body[data-ds-dark-theme] .kr-agent-mini-shell {
   50% { opacity: 1; }
 }
 
-/*
- * 本轮用时读数：跟在动作名与三点之后，是这张卡上唯一的一枚「读数」。
- *
- * 之前它住在右栏大盘（footer 顶部、滚动区顶部都试过），两处都不对：它讲的是
- * 「这一轮跑了多久」，而右栏讲的是「这一轮做了什么」，挤在同一栏里必然被当成
- * 某张卡的附属说明。跟着「Agent 正在…」这张卡走，所见即所测。
- *
- * 形制上只留数字：胶囊底色与时钟图标都试过，被判定为"不好看"——这行文字本来
- * 就在讲「Agent 正在分析」，再给它套一枚底色等于把读数抬成第二主角。裸数字
- * 挂在三点后面，动作名照旧是这行唯一的主角。
- *
- * 三条克制：
- *  1. **只显示真实测到的值**：turnStart 拿不到就整枚不渲染，绝不猜。
- *  2. **数字不动画**：每帧显影等于每秒喊一次「变了」；等宽数字（tabular-nums）
- *     保证 1m 9s → 1m 10s 宽度不跳，后面的元素不会被顶走。
- *  3. **flex: none**。卡片变窄时可以让动作名省略，用时读数必须完整——它是这条
- *     线上唯一不能被截断的信息。
- *
- * 运行中与结束的差别只给字色一档（0.2s 过渡，不闪烁）。数值每秒变，呼吸点走
- * 另一套节奏，两者互不干扰。
- */
-.kr-elapsed {
-  flex: none;
-  /* 与三点之间留一道呼吸：挨太近会被读成动作名的一部分（「正在分析1m23s」）。 */
-  margin-left: .62em;
-  font-family: var(--kr-card-font);
-  font-size: calc(11.5px * var(--kr-text-scale, 1));
-  line-height: calc(18px * var(--kr-text-scale, 1));
-  font-variant-numeric: tabular-nums;
-  letter-spacing: .01em;
-  color: var(--dsw-alias-label-tertiary);
-  transition: color 0.2s ease;
-}
-
-.kr-elapsed[data-running="true"] {
-  color: var(--dsw-alias-label-secondary);
-}
-
 /* ══ 流式文本的平滑显影 ═══════════════════════════════════════════════════
  *
  * 思考流是按块到达的，一整行字常在同一次更新里凭空出现。KrFreshText 把文本

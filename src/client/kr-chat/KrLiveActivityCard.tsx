@@ -5,11 +5,6 @@
  * 左侧消息流 —— 那些右栏「任务概览 / 思考过程 / 操作面板」大盘已经各有其位，
  * 同一件事在对话流里再抄一份只会让人读到两遍。
  *
- * 这行末尾挂着一枚**用时读数**（`.kr-elapsed`，裸数字）。它以前住在右栏大盘，
- * 试过 footer 顶部与滚动区顶部两处都不对——右栏讲「这一轮做了什么」，用时讲
- * 「这一轮跑了多久」，两件事挤在同一栏里读数必然被当成某张卡的附属说明。
- * 用时跟着动作走，所见即所测。
- *
  * 头像可点击上传并持久化到 localStorage；图片会裁切为 128×128。
  * 卡片文字大小同样在头像菜单里调，落在 --kr-text-scale 上即时生效。
  */
@@ -19,8 +14,7 @@ import { createPortal } from 'react-dom'
 import type { ChatNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
-import { callName, formatDuration, isRunning } from '../tool-summary/tool-stats.ts'
-import { useNow } from '../tool-summary/use-now.ts'
+import { callName, isRunning } from '../tool-summary/tool-stats.ts'
 import { useCrossfadeText, useMotionAllowed } from '../motion-utils.ts'
 
 const EXIT_MS = 980
@@ -155,7 +149,6 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
   turn,
   reasoning,
   tools,
-  turnStart,
   active,
   closing,
   committed,
@@ -164,7 +157,6 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
   readonly turn: number
   readonly reasoning: readonly KrActivityReasoningItem[]
   readonly tools: readonly ChatNode<'tool-call'>[]
-  readonly turnStart?: number | undefined
   readonly active: boolean
   readonly closing: boolean
   readonly committed: boolean
@@ -203,26 +195,6 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
         : active ? 'Agent 正在分析' : 'Agent 正在整理结果'
   // 动作名换成交叉淡入淡出：旧层保留着淡出，新层同时淡入。
   const actionLayers = useCrossfadeText(action, motion)
-
-  /*
-   * 本轮用时读数：挂在动作名与三点之后，跟这张卡同生共死。
-   *
-   * 之前它住在右栏大盘里（footer 顶部，又试过滚动区顶部 sticky），两处都别扭：
-   * 它讲的是「这一轮跑了多久」，而右栏讲的是「这一轮做了什么」，两件事挤在
-   * 同一栏里，读数反而被当成某张卡的附属说明。这张卡恰恰就是"这一轮正在发生"
-   * 的载体——用时跟着动作名走，所见即所测。
-   *
-   * 三条克制：
-   *  1. **只显示真实测到的值**：turnStart 拿不到就整枚不渲染，绝不猜。
-   *  2. **数字不动画**：每帧显影/滚动等于每秒喊一次「变了」。等宽数字保证
-   *     1m 9s → 1m 10s 时读数宽度不跳、后面的元素不被顶走。
-   *  3. **不参与 aria-live**（见下面那枚 span 的 aria-hidden 注释）。
-   */
-  const ticking = active && !closing
-  const now = useNow(ticking)
-  const elapsedText = typeof turnStart === 'number'
-    ? formatDuration(Math.max(0, now - turnStart))
-    : null
 
   useEffect(() => {
     const onStorage = (event: StorageEvent): void => {
@@ -387,25 +359,6 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
           <span className="kr-agent-dots" aria-hidden>
             <i /><i /><i />
           </span>
-          {/*
-           * 用时读数。
-           *
-           * aria-hidden 是必须的：整张 section 是 aria-live="polite" 的 live
-           * region（动作名换字时要播报），而这个读数每秒变一次 —— 留在 live 树里
-           * 就变成读屏每秒念一遍「1分24秒」，整轮下来是一段不断的报数噪音。
-           * 遮掉它之后，live region 只会播真正有意义的动作切换；要看时长的人
-           * 有 title 悬浮提示，回合结束后的总结卡上也有最终用时。
-           */}
-          {elapsedText !== null && (
-            <span
-              className="kr-elapsed"
-              data-running={ticking ? 'true' : undefined}
-              title="本轮已用时"
-              aria-hidden="true"
-            >
-              {elapsedText}
-            </span>
-          )}
         </div>
 
         <input
@@ -467,7 +420,6 @@ interface KrActivityCardGateProps {
   readonly turn: number
   readonly reasoning: readonly KrActivityReasoningItem[]
   readonly tools: readonly ChatNode<'tool-call'>[]
-  readonly turnStart?: number | undefined
   readonly active: boolean
   readonly closing: boolean
   readonly committed: boolean
@@ -478,7 +430,6 @@ export const KrActivityCardGate = memo(function KrActivityCardGate({
   turn,
   reasoning,
   tools,
-  turnStart,
   active,
   closing,
   committed,
@@ -506,7 +457,6 @@ export const KrActivityCardGate = memo(function KrActivityCardGate({
       turn={turn}
       reasoning={reasoning}
       tools={tools}
-      turnStart={turnStart}
       active={active}
       closing={closing}
       committed={committed}
