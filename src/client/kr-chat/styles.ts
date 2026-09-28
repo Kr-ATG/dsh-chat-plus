@@ -653,6 +653,12 @@ body[data-kr-resizing="true"] * {
   user-select: none;
 }
 
+/* 一键删除请求在飞：整行不可折叠（点了也不该把正在退场的列表收起来），
+   指针同步退回箭头，避免「能点」的假承诺。 */
+.kr-card__header[data-busy="true"] {
+  cursor: default;
+}
+
 .kr-card__icon {
   width: 18px;
   height: 18px;
@@ -667,6 +673,18 @@ body[data-kr-resizing="true"] * {
   font-weight: 600;
   color: var(--dsw-alias-label-primary);
   flex: 1;
+}
+
+/*
+ * 记忆卡标题行的「一键删除」占掉了标题右侧原本由「N 条」独占的位置，窄栏下
+ * 标题 + 条数 + 按钮三件东西会挤：让标题可收缩（min-width: 0）并允许省略号，
+ * 把空间优先留给两枚固定短文本。这条只对记忆卡生效，其余卡片的标题行没有第三件。
+ */
+.kr-card--memory .kr-card__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /*
@@ -2055,6 +2073,118 @@ body[data-kr-resizing="true"] * {
   color: var(--dsw-alias-label-tertiary);
 }
 
+/*
+ * 标题行最右端的一键删除（删本会话新增全集）。
+ *
+ * 常态**隐藏**，指针落到卡片上或键盘聚焦时才浮现：它删的是整批记忆，属于破坏性
+ * 操作，不该在标题行常驻跟「N 条」抢注意力。浮现方式与行尾那枚垃圾桶同款
+ * （淡入 + 3px 右移归位），这样「同一种删除」在两处的手感是一致的。
+ */
+.kr-memory__clear {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.kr-memory__clear-act {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateX(3px);
+  transition: opacity 0.16s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s ease, color 0.15s ease;
+}
+
+.kr-card:hover .kr-memory__clear-act,
+.kr-memory__clear-act:focus-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.kr-memory__clear-act:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.16));
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 触屏没有 hover，一键删除常显（否则永远点不到） */
+@media (hover: none) {
+  .kr-memory__clear-act {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 请求中：一枚不可点的文字，替掉那枚垃圾桶——让「正在删」这件事在标题行上可见 */
+.kr-memory__clear-busy {
+  flex: none;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+/*
+ * 行内错误（分区级「删除失败」与标题行级「一键删除失败」共用一套外观）。
+ * 以前这条 div 一直没有样式，靠继承的行高裸着；既然现在折叠态下也可能出现
+ * （一键删除失败），给它一个明确的两行内距与断行规则。
+ */
+.kr-memory__err {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 1px 2px 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary);
+  word-break: break-word;
+}
+
+.kr-memory__err > span {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+ * 一键删除的错峰退场：整行淡出 + 轻微右移，删多条时读起来是「一条条被抹掉」，
+ * 而不是整块闪没。animation-delay 由行索引现算（见 KrMemoryCard 的 staggerDelay），
+ * 内联在 style 上；这里的 animation 覆盖 .kr-memory__row 的入场动画。
+ */
+.kr-memory__row[data-leaving="true"] {
+  animation: kr-memory-row-out 0.22s cubic-bezier(0.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+
+@keyframes kr-memory-row-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(10px); }
+}
+
+/*
+ * 一键删除成功后卡片自身的收拢退场。
+ *
+ * 删完最后一条时本会话新增归零，卡片本来就该整张消失（.kr-panel__memory-dock:empty
+ * 会连带把 footer 的 padding 收掉）。直接卸载的话是「啪一下没了」；这里让它先
+ * 淡出并轻微下沉 260ms 再卸载，与上面那批行的退场接成一条完整的收尾动作。
+ */
+.kr-card--memory[data-collapsing="true"] {
+  animation: kr-memory-card-out 0.26s cubic-bezier(0.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+
+@keyframes kr-memory-card-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(6px) scale(0.985); }
+}
+
   color: var(--dsw-alias-label-primary);
 }
 
@@ -2063,6 +2193,11 @@ body[data-kr-resizing="true"] * {
   .kr-memory__act { transition: opacity 0.12s linear; transform: none; }
   .kr-memory__flag:active { transform: none; }
   .kr-memory__more { transition: color 0.12s linear, background-color 0.12s linear; }
+  /* 一键删除的两段退场（行错峰淡出 + 卡片收拢）在减弱动效下不播位移与淡出：
+     行的卸载与卡片的卸载照旧发生，只是不再有过渡帧。 */
+  .kr-memory__row[data-leaving="true"] { animation: none; }
+  .kr-card--memory[data-collapsing="true"] { animation: none; }
+  .kr-memory__clear-act { transition: opacity 0.12s linear; transform: none; }
 }
 
 /* ══ KR 极简 Agent 状态卡：只显示一句当前动作 + 可配置头像 ═══════════════ */

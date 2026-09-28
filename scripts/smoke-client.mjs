@@ -391,6 +391,25 @@ if (krEnabled) {
   } else {
     pass('记忆卡默认折叠，折叠态带「N 条」纯文字')
   }
+
+  // 标题行右上角的一键删除（删本会话新增全集）。四件事必须同时成立，缺一条这套
+  // 交互就有静默失效面：按钮在标题行里、点第一下只进确认态（真删走 clearSessionNew）、
+  // 确认态带自动回退、删光后卡片先收拢再卸载。
+  if (!memorySrc.includes('kr-memory__clear-act')) {
+    fail('记忆卡标题行必须挂一键删除按钮（.kr-memory__clear-act）')
+  } else if (!memorySrc.includes('const [clearPhase, setClearPhase] = useState<ClearPhase>(\'idle\')')) {
+    fail('一键删除必须有 idle / confirm / deleting 三段状态（clearPhase）')
+  } else if (!/CLEAR_CONFIRM_MS = \d+/.test(memorySrc) || !memorySrc.includes('setClearPhase(\'confirm\')')) {
+    fail('一键删除必须先二次确认，且确认态带自动回退（CLEAR_CONFIRM_MS）')
+  } else if (!memorySrc.includes('data-leaving') || !/kr-memory-row-out/.test(code)) {
+    fail('一键删除必须带行级错峰退场（data-leaving + kr-memory-row-out）')
+  } else if (!memorySrc.includes('data-collapsing') || !/kr-memory-card-out/.test(code)) {
+    fail('删光后卡片必须收拢退场（data-collapsing + kr-memory-card-out）')
+  } else if (!/\.kr-memory__clear-act \{[^}]*opacity: 0/.test(code)) {
+    fail('.kr-memory__clear-act 必须常态隐藏、hover/聚焦才浮现（破坏性操作不常驻）')
+  } else {
+    pass('记忆卡标题行一键删除：二次确认 + 自动回退 + 行错峰退场 + 卡片收拢')
+  }
 }
 
 // 用时读数已从对话流那张「Agent 正在…」活动卡上撤掉：卡片只讲「正在做什么」，

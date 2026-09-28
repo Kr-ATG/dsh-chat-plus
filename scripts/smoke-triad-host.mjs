@@ -129,13 +129,19 @@ const ctx = {
 // 的 `ctx.inject([...], cb)` 回调是同步的、不返回 promise。所以工作台里凡是被
 // await 的挂载（usage/skills、skill-toggles、skill-health、mcp-*）在同步 apply 期间
 // **根本没跑完**——routes 里看不到它们不是缺陷，是同步回调的固有语义。
-// 这里把 apply 的 promise 等一拍（microtask 排干）再断言，让 smoke 反映真实挂载结果。
-const applySettled = new Promise((resolve) => setImmediate(resolve))
+//
+// 等待方式必须是**真实时间**的轮询，不能只等一个 setImmediate（微任务拍）：
+// 那些挂载里有真的 await（读文件、读注册表），一个微任务拍回来时它们只走到
+// 第一个 await 就停了，于是下面 7 组路由断言会全部误报 FAIL（实测：同一个
+// bundle 等 400ms 后全部挂上）。这里轮询到 /api/dsh-memory 出现为止，最多 3s。
 try {
   mod.apply(ctx, {})
   pass('apply(ctx) completed without throwing')
-  await applySettled
-  pass('deferred async mounts (usage/skills/toggles) settled')
+  const deadline = Date.now() + 3000
+  while (Date.now() < deadline && ![...routes.keys()].some((p) => p.startsWith('/api/dsh-memory'))) {
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  pass('deferred async mounts (memory/usage/skills/toggles/mcp) settled')
 } catch (error) {
   fail(`apply(ctx) threw: ${error?.stack ?? error}`)
 }

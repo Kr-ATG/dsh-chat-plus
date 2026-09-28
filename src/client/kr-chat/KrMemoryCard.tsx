@@ -23,18 +23,23 @@
  *     「进入会话的时间基线」猜（localStorage + 5 分钟时钟冗余），时钟偏差、刷新
  *     时机、切会话都会把别的会话的记忆误判成本会话的，已被替换。
  *
- *  3. **行内单条删除，不再有批量多选**：分区行只放「小圆点 + 名称 + 计数 +
- *     目录」，「展开其余 N 条」下沉到列表底部居中一行；卡片标题行只留「图标 +
- *     名称 + 总数」。删除是行尾 hover 才浮现的垃圾桶，点一下该行原地变确认态。
+ *  3. **行内单条删除 + 标题行「一键清掉本会话新增」**：分区行只放「小圆点 +
+ *     名称 + 计数 + 目录」，「展开其余 N 条」下沉到列表底部居中一行；卡片标题行
+ *     留「图标 + 名称 + 总数」，最右端再挂一枚 hover 才浮现的垃圾桶 —— 它删的是
+ *     **本会话新增的全集**（这张卡的全部内容），点一下标题行原地变确认态，确认后
+ *     条目错峰退场、卡片收拢消失。行尾那枚垃圾桶仍然只删它自己那一行。
  *     原来那套「选择 → 每行 checkbox → 已选 N 条 → 删除 → 确认 → 取消」的六层
  *     状态压在一条 400px 的标题行上，是「乱」的主因；批量删记忆的记忆工作台
  *     （triad 面板）里有完整实现，右栏是轻量视图，不该承担管理职责。
  *     置顶收成属性行里的一枚可点星标，顺手消掉原来那条 11px 的置顶空槽。
  *
+ *     host 侧零改动：一键删除复用面板那套 `POST /delete-batch`（一次事务删完、
+ *     一次编译产物、逐条 appendChange 审计），所以这次升级只需刷新页面。
+ *
  * 之所以把「内容变了要重新测量」上报给 KrAgentPanel：记忆卡条目数直接决定右栏
  * 溢出程度，而挤压自适应（use-adaptive-rows.ts）需要知道这件事才重算思考卡行数。
  */
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   deleteMemoryBatch,
   listMemory,
@@ -54,6 +59,35 @@ type SectionKey = 'workspace' | 'global'
  *  则条数不够撑不满，两边一起抬记忆卡的默认高度才真翻一倍。 */
 const SECTION_PREVIEW_COUNT = 6
 
+/**
+ * 标题行「一键删除」的确认态自动回退窗口（毫秒）。
+ *
+ * 这枚按钮删的是**整卡全部本会话新增**（当前会话的新记忆全集），比行内单条删除
+ * 重得多，所以复用的是同一套「就地二次确认」而不是弹窗。但标题行那枚按钮是
+ * hover 才浮现的，确认态留在原地时用户可能没注意到它一直亮着，几分钟后顺手点
+ * 一下就把整批删了——6 秒后自动回到待命态，把误触窗口压到「确实看着它点的」。
+ */
+const CLEAR_CONFIRM_MS = 6000
+
+/** 一键删除时每行错峰退场的间隔（毫秒）。 */
+const CLEAR_STAGGER_MS = 45
+
+/** 单行退场动画时长（毫秒），与 .kr-memory__row[data-leaving] 的 animation 成对。 */
+const CLEAR_ROW_MS = 220
+
+/** 卡片自身收拢退场的时长（毫秒），与 .kr-card--memory[data-collapsing] 成对。 */
+const CARD_COLLAPSE_MS = 260
+
+/** 第 N 行错峰退场的延后量：删多条时读起来是「一条条被抹掉」而不是整块闪没。 */
+function staggerDelay(index: number): number {
+  return index * CLEAR_STAGGER_MS
+}
+
+/** 一键删除的最短等待：让退场动画播完，但封顶 900ms（条数多时不再线性拉长）。 */
+function clearAnimationMs(count: number): number {
+  return Math.min(900, CLEAR_ROW_MS + Math.max(0, count - 1) * CLEAR_STAGGER_MS)
+}
+
 /** 单个分区的交互态（请求中 / 行内报错 / 展开）。 */
 interface SectionState {
   busy: boolean
@@ -67,6 +101,18 @@ const EMPTY_SECTION: SectionState = {
   error: '',
   showAll: false,
 }
+
+/**
+ * 标题行「一键删除」的状态机。
+ *
+ *   idle     常态：一枚 hover 才浮现的垃圾桶
+ *   confirm  确认态：标题行右侧换成「删除本会话新增？确认 取消」
+ *   deleting 请求中：按钮置灰显示「删除中…」，条目已开始错峰退场
+ *
+ * 错误单独放在 error（不塞进 phase）：删除失败要能退回 idle 并把整批条目原样
+ * 放回，同时把 host 给的文案显示出来——确认态和错误态是两件事，不该互相覆盖。
+ */
+type ClearPhase = 'idle' | 'confirm' | 'deleting'
 
 /**
  * 替换 records[key]。
@@ -251,6 +297,39 @@ export const KrMemoryCard = memo(function KrMemoryCard({
    * 多选 checkbox，也没有「已选 N 条」那种要跨行维护的中间态。
    */
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  /**
+   * 标题行一键删除（本会话新增全集）的状态。
+   *
+   * 删的就是这张卡当前显示的那批条目：sessionNewEntries 的两个分区合集，条数
+   * 与标题行「N 条」严格一致。分区是渲染期现算的，所以真正的 id 集合在点击那
+   * 一刻现取（clearSessionNew 里读 ref），不另存一份可能与渲染脱节的镜像。
+   */
+  const [clearPhase, setClearPhase] = useState<ClearPhase>('idle')
+  const [clearError, setClearError] = useState('')
+  /** 正在退场的行 id（错峰动画期间仍留在 DOM 里，动画播完才从数据里摘掉）。 */
+  const [leavingIds, setLeavingIds] = useState<ReadonlySet<string>>(() => new Set())
+  /** 一键删除请求在飞（用于冻结 20s 轮询，见下方轮询处的说明）。 */
+  const clearBusyRef = useRef(false)
+  /**
+   * 会话代次。
+   *
+   * 一键删除要等退场动画播完才真正改数据（几百毫秒），而这期间用户可能切走会话：
+   * 闭包里那个 sessionKey 已经过期，照它算「本会话新增」会删错会话的记忆。
+   * 每次会话切换把代次 +1，异步回调（动画后的取 id、请求回来后的收尾）一律先
+   * 比对代次，不一致就整体放弃 —— 宁可这次删除没生效，也不能删错东西。
+   */
+  const sessionGenRef = useRef(0)
+  const clearConfirmTimerRef = useRef<number | null>(null)
+  const collapseTimerRef = useRef<number | null>(null)
+  /**
+   * 一键删除成功后卡片自身的收拢退场。
+   *
+   * 删掉最后一条时本会话新增归零，卡片本来就该整张消失（dock 的 :empty 会连带
+   * 把 footer 的 padding 收掉）。直接卸载是「啪一下没了」，这里让它先淡出下沉
+   * 260ms 再卸载——但**保持挂载**得有个开关：归零那一刻若直接命中
+   * `newEntryCount === 0` 的 return null，动画根本没机会播。
+   */
+  const [collapsing, setCollapsing] = useState(false)
 
   // 会话身份变化才重新拉记忆（subscriber 在流式期间每秒触发多次，绝不能跟着重拉）。
   useEffect(() => {
@@ -262,13 +341,24 @@ export const KrMemoryCard = memo(function KrMemoryCard({
 
   // 会话切换：清掉上一个会话/工作区的记忆，等新数据到位再渲染。绝不能复用
   // 旧 state——那半秒里右栏挂的会是别的项目的记忆，还可能被误删。
+  // 一键删除的中间态（确认态 / 退场动画 / 错误行）同样一并清掉：它们全是按
+  // 上一个会话的条目算出来的，跟到新会话里就是悬空的。
   useEffect(() => {
+    sessionGenRef.current += 1
+    if (collapseTimerRef.current !== null) {
+      window.clearTimeout(collapseTimerRef.current)
+      collapseTimerRef.current = null
+    }
+    setCollapsing(false)
     setEntries([])
     setProjects([])
     setWorkspaceHash(null)
     setOpenedIds(new Set<string>())
     setPendingDeleteId(null)
     setSections({ workspace: EMPTY_SECTION, global: EMPTY_SECTION })
+    setClearPhase('idle')
+    setClearError('')
+    setLeavingIds(new Set<string>())
   }, [sessionKey])
 
   // 拉全量 + 解析当前工作区。reloadToken 用于删除成功后与 host 对齐。
@@ -320,16 +410,26 @@ export const KrMemoryCard = memo(function KrMemoryCard({
    * 三道约束把它压到几乎无感：页面不可见时不发请求（后台标签页别空转）；20s
    * 一轮而不是更密；拿到结果先逐条比对 id/updatedAt/pinned，没变就原样返回
    * 旧数组引用，React 不会重渲染，更不会触发大盘重测高度。
+   *
+   * 第四道（一键删除引入）：请求在飞的那一拍整轮跳过。删除是「先播退场动画、
+   * 再改数据」，若这期间轮询先回来，会把正在退场的条目原样带回来——行闪一下
+   * 又消失。宁可漏一拍轮询，也不要这个闪回。
    */
   useEffect(() => {
     if (status !== 'ready') return
     let cancelled = false
     const timer = window.setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      if (clearBusyRef.current) return
       void listMemory()
         .then((response) => {
           if (cancelled) return
-          setEntries((previous) => (sameEntrySet(previous, response.entries) ? previous : response.entries))
+          // 用 applyEntries 而不是裸 setEntries：一键删除在飞时整轮丢弃，
+          // 否则正在退场的行会被这轮结果带回来闪一下（见 applyEntries）。
+          setEntries((previous) => {
+            if (clearBusyRef.current) return previous
+            return sameEntrySet(previous, response.entries) ? previous : response.entries
+          })
         })
         .catch(() => { /* 轮询失败静默：下轮再来，不打断阅读 */ })
     }, 20_000)
@@ -355,6 +455,15 @@ export const KrMemoryCard = memo(function KrMemoryCard({
     () => entries.filter((entry) => entry.scope === 'global').sort(byUpdatedDesc),
     [entries],
   )
+
+  // 一键删除请求在飞时冻结 entries：这期间（先播动画、再发请求）任何一次 setEntries
+  // 都会让正在退场的行闪回来。轮询那条路径在 setEntries 里直接短路（见下），这里
+  // 供单条删除的失败回滚用。之所以放在 globalEntries 之后：useCallback 属于 Hook，
+  // 与别的 Hook 挨在一起读更顺，但顺序上仍必须在下面那条 early return 之前。
+  const applyEntries = useCallback((next: readonly MemoryEntryView[]) => {
+    if (clearBusyRef.current) return
+    setEntries(next)
+  }, [])
 
   /**
    * 「本会话新增」子集：按条目溯源判定。
@@ -417,7 +526,9 @@ export const KrMemoryCard = memo(function KrMemoryCard({
   /** 单条删除：乐观摘掉本地条目 → 请求 → 失败整份回滚并留在该行确认态。 */
   const confirmDelete = useCallback(async (entry: MemoryEntryView) => {
     const key: SectionKey = entry.scope === 'global' ? 'global' : 'workspace'
-    if (sections[key].busy) return
+    // 一键删除在飞时整卡正在退场，这期间不接受行级删除：两批请求叠在一起，
+    // 失败回滚会把刚删掉的行又插回来。
+    if (sections[key].busy || clearBusyRef.current) return
     const snapshot = entries
     setPendingDeleteId(null)
     setEntries((previous) => previous.filter((item) => item.id !== entry.id))
@@ -428,17 +539,20 @@ export const KrMemoryCard = memo(function KrMemoryCard({
       // 与 host 对齐（missing / 并发删除造成的差异），顺带刷新置顶态
       setReloadToken((value) => value + 1)
     } catch (error) {
-      setEntries(snapshot)
+      applyEntries(snapshot)
       patchSection(key, {
         busy: false,
         error: error instanceof Error ? error.message : '删除失败',
       })
-      setPendingDeleteId(entry.id)
+      // 一键删除在飞时不还原这一行的确认态：那一行此刻已经不在列表里
+      // （整批都在退场），把 pendingDeleteId 指过去只会留下一个指向空气的 id。
+      if (!clearBusyRef.current) setPendingDeleteId(entry.id)
     }
-  }, [entries, patchSection, sections])
+  }, [applyEntries, entries, patchSection, sections])
 
   /** 单条置顶（可选能力；host 不支持时只报一行错，不影响其余交互）。 */
   const togglePin = useCallback(async (entry: MemoryEntryView) => {
+    if (clearBusyRef.current) return
     const nextPinned = !entry.pinned
     const key: SectionKey = entry.scope === 'global' ? 'global' : 'workspace'
     // 乐观更新：先翻图标，失败再翻回来
@@ -446,10 +560,130 @@ export const KrMemoryCard = memo(function KrMemoryCard({
     try {
       await pinMemoryEntry(entry.id, nextPinned)
     } catch (error) {
+      // 只翻回这一条的 pinned（不用整份快照回滚：这期间轮询可能已经带回了新条目）
       setEntries((previous) => previous.map((item) => (item.id === entry.id ? { ...item, pinned: entry.pinned } : item)))
       patchSection(key, { error: error instanceof Error ? error.message : '置顶失败' })
     }
   }, [patchSection])
+
+  /** 清掉确认态的自动回退定时器（进删除 / 取消 / 切会话时都要先收掉）。 */
+  const cancelClearConfirmTimer = useCallback(() => {
+    if (clearConfirmTimerRef.current !== null) {
+      window.clearTimeout(clearConfirmTimerRef.current)
+      clearConfirmTimerRef.current = null
+    }
+  }, [])
+
+  /** 取消一键删除：收回确认态与提示，什么都不改。 */
+  const cancelClear = useCallback(() => {
+    cancelClearConfirmTimer()
+    setClearPhase('idle')
+    setClearError('')
+  }, [cancelClearConfirmTimer])
+
+  /**
+   * 请求一键删除：标题行那枚垃圾桶点第一下只进确认态，这里才是真删。
+   *
+   * 时序刻意分成两段——**先播退场动画、动画走完再改数据**：
+   *  - 进 deleting 态、把这批行标成 leaving，行按索引错峰淡出右移，读起来是
+   *    「一条条被抹掉」；
+   *  - 动画跑完（条数越多等得越久，但封顶 900ms）才把请求发出去，成功即把这批
+   *    条目从 state 摘掉 —— 摘掉那一刻行早就淡到透明了，视觉上接得上。
+   *
+   * 为什么不等请求回来再播动画：请求失败时动画已经播完，就得把这些行重新插回来，
+   * 那一下「删掉的东西又长回来」比不播动画更吓人。现在失败是**整批原样放回**
+   * 并在标题行留一行错误文案，条目本身从头到尾没离开过屏幕。
+   *
+   * 取 id 走 sessionGenRef 代次校验：动画这段窗口里用户切了会话就整体放弃，
+   * 绝不拿过期 sessionKey 算出来的集合去删。
+   */
+  const clearSessionNew = useCallback(async () => {
+    if (clearBusyRef.current) return
+    const generation = sessionGenRef.current
+    const ids = [...sessionNewEntries.workspace, ...sessionNewEntries.global].map((entry) => entry.id)
+    cancelClearConfirmTimer()
+    if (ids.length === 0) {
+      setClearPhase('idle')
+      return
+    }
+    // 删完之后卡片必然归零：ids 就是两个分区拼起来的全集，删掉它等于本会话新增
+    // 一条不剩。所以「是否全删光」不需要另算一个布尔（算了也恒为真），直接进收拢。
+    clearBusyRef.current = true
+    setClearPhase('deleting')
+    setClearError('')
+    setPendingDeleteId(null)
+    setLeavingIds(new Set(ids))
+    // 这里**不能**顺手 setCollapsed(true)：折叠会让 body 立刻卸载，那批正在错峰
+    // 退场的行连一帧都播不出来（展开态下点一键删除，看到的就是列表凭空消失）。
+    // 收起动作交给数据本身——条目摘掉后分区自然不渲染，卡片随后走收拢退场。
+
+    await new Promise<void>((resolvePromise) => {
+      window.setTimeout(resolvePromise, clearAnimationMs(ids.length))
+    })
+
+    // 退场动画期间切了会话：这批 id 属于上一个会话，整批作废（动画白播，
+    // 但下一个会话的卡片是全新状态，不留任何中间态）。
+    if (sessionGenRef.current !== generation) {
+      clearBusyRef.current = false
+      setLeavingIds(new Set<string>())
+      setClearPhase('idle')
+      return
+    }
+
+    try {
+      await deleteMemoryBatch(ids)
+      if (sessionGenRef.current === generation) {
+        const gone = new Set(ids)
+        setEntries((previous) => previous.filter((entry) => !gone.has(entry.id)))
+        setSections({ workspace: EMPTY_SECTION, global: EMPTY_SECTION })
+        setOpenedIds((previous) => {
+          const next = new Set(previous)
+          for (const id of ids) next.delete(id)
+          return next
+        })
+        setLeavingIds(new Set<string>())
+        setClearPhase('idle')
+        // 卡片自身收拢退场：保持挂载 260ms 让动画播完再真正卸载（见 collapsing 的说明）。
+        setCollapsing(true)
+        collapseTimerRef.current = window.setTimeout(() => {
+          collapseTimerRef.current = null
+          setCollapsing(false)
+        }, CARD_COLLAPSE_MS)
+        // 与 host 对齐：missing / 并发删除 / 别的客户端同时写，都以 host 为准
+        setReloadToken((value) => value + 1)
+      }
+    } catch (error) {
+      if (sessionGenRef.current === generation) {
+        setClearError(error instanceof Error ? error.message : '删除失败')
+        setClearPhase('idle')
+        setLeavingIds(new Set<string>())
+      }
+    } finally {
+      clearBusyRef.current = false
+    }
+  }, [cancelClearConfirmTimer, sessionNewEntries])
+
+  /** 点标题行那枚垃圾桶：先进确认态，并起一个自动回退定时器。 */
+  const armClear = useCallback(() => {
+    // 有行正处在确认态就先收掉：两处确认态同时亮着，用户分不清「确认」会删哪一批。
+    setPendingDeleteId(null)
+    setClearError('')
+    setClearPhase('confirm')
+    cancelClearConfirmTimer()
+    clearConfirmTimerRef.current = window.setTimeout(() => {
+      clearConfirmTimerRef.current = null
+      setClearPhase('idle')
+    }, CLEAR_CONFIRM_MS)
+  }, [cancelClearConfirmTimer])
+
+  // 组件卸载：把两个定时器收掉（确认态的自动回退、卡片的收拢退场）。退场等待
+  // 那个是 Promise 里的裸 setTimeout，卸载后仍会 resolve —— 回调里的 setState 在
+  // React 18 下是无害 no-op，但它会继续 await 完 deleteMemoryBatch，所以真正需要
+  // 拦的是 clearBusyRef 与代次校验，这里只负责把两个定时器清干净。
+  useEffect(() => () => {
+    if (clearConfirmTimerRef.current !== null) window.clearTimeout(clearConfirmTimerRef.current)
+    if (collapseTimerRef.current !== null) window.clearTimeout(collapseTimerRef.current)
+  }, [])
 
   /**
    * 首屏加载中（一条都还没拿到）时不渲染：宁可这一拍右栏少一张卡，也不要闪
@@ -459,10 +693,24 @@ export const KrMemoryCard = memo(function KrMemoryCard({
 
   const newEntryCount = sessionNewEntries.workspace.length + sessionNewEntries.global.length
 
+  /**
+   * 标题行上显示 / 朗读的条数。
+   *
+   * 一键删光的那一刻 newEntryCount 归零，而卡片还要挂着播 260ms 的收拢退场——
+   * 直接用 0 会让那半秒里标题行写着「0 条」、按钮的 title 变成「删除本会话新增的
+   * 0 条记忆」。记住最后一个正值，收拢期间沿用，等卡片真正卸载。
+   */
+  const lastCountRef = useRef(0)
+  if (newEntryCount > 0) lastCountRef.current = newEntryCount
+  const displayCount = newEntryCount > 0 ? newEntryCount : lastCountRef.current
+
   // 三种「不出现在屏上」：加载中（不闪空卡）、模块不可用（只剩一行诊断文字，
   // host 侧异常另有 console.warn）、本会话没有新增记忆（这张卡的全部意义）。
   // return null 后 dock 变空，.kr-panel__memory-dock:empty 负责把 footer 收掉。
-  if (firstLoading || status === 'unavailable' || newEntryCount === 0) {
+  //
+  // 唯一的例外是 collapsing：一键删光之后卡片要先播完 260ms 的收拢退场再卸载，
+  // 否则归零那一拍就命中这里，动画根本没有机会出现（那一下就是「啪一下没了」）。
+  if ((firstLoading || status === 'unavailable' || newEntryCount === 0) && !collapsing) {
     return null
   }
 
@@ -494,23 +742,28 @@ export const KrMemoryCard = memo(function KrMemoryCard({
         {state.error !== '' && <div className="kr-memory__err">{state.error}</div>}
 
         <div className="kr-memory__list">
-          {visible.map((entry) => {
+          {visible.map((entry, index) => {
             const opened = openedIds.has(entry.id)
             const confirming = pendingDeleteId === entry.id
+            const leaving = leavingIds.has(entry.id)
             const kind = memoryKindLabel(entry.kind)
             return (
               <div
                 className="kr-memory__row"
                 key={entry.id}
                 data-confirming={confirming ? 'true' : undefined}
+                data-leaving={leaving ? 'true' : undefined}
+                // 错峰退场：第 N 行晚 N×45ms 开始淡出（封顶 900ms 与请求等待一致），
+                // 删多条时读起来是「一条条被抹掉」，而不是整块闪没。
+                style={leaving ? { animationDelay: `${String(staggerDelay(index))}ms` } : undefined}
                 role="button"
                 tabIndex={0}
                 title={opened ? undefined : entry.content}
-                onClick={() => { if (!confirming) toggleOpened(entry.id) }}
+                onClick={() => { if (!confirming && !leaving) toggleOpened(entry.id) }}
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter' && event.key !== ' ') return
                   event.preventDefault()
-                  if (!confirming) toggleOpened(entry.id)
+                  if (!confirming && !leaving) toggleOpened(entry.id)
                 }}
               >
                 <div className="kr-memory__body-col">
@@ -603,8 +856,16 @@ export const KrMemoryCard = memo(function KrMemoryCard({
   }
 
   return (
-    <div className="kr-card kr-card--memory" data-squeezed={squeezed ? 'true' : undefined}>
-      <div className="kr-card__header" onClick={() => setCollapsed(!collapsed)}>
+    <div
+      className="kr-card kr-card--memory"
+      data-squeezed={squeezed ? 'true' : undefined}
+      data-collapsing={collapsing ? 'true' : undefined}
+    >
+      <div
+        className="kr-card__header"
+        data-busy={clearPhase === 'deleting' ? 'true' : undefined}
+        onClick={() => { if (clearPhase !== 'deleting' && !collapsing) setCollapsed(!collapsed) }}
+      >
         <span className="kr-card__icon">
           {/* 大脑/记忆线框图标，与任务/思考/工具三张卡同规格（16px 线性） */}
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
@@ -618,13 +879,73 @@ export const KrMemoryCard = memo(function KrMemoryCard({
             只报各批条数，两者不再互相重复。
             条数是**纯文字**而不是带底色的徽标（按用户要求，与其它卡片一致）：
             带单位（「3 条」而不是光一个 3），因为卡片常态是折叠的，这行字是折叠
-            状态下唯一的正文，写清楚「几条」比让人数数字更省一步理解。 */}
-        <span className="kr-card__meta">{newEntryCount} 条</span>
+            状态下唯一的正文，写清楚「几条」比让人数数字更省一步理解。
+            确认态下暂时撤掉它：那会儿右侧写的是「删除这 3 条？」，同一句话里的
+            条数出现两遍就成了「3 条 删除这 3 条？」，挤在一起还读着重复。 */}
+        {clearPhase !== 'confirm' && <span className="kr-card__meta">{displayCount} 条</span>}
+
+        {/* 标题行最右端：一键删掉**本会话新增的全部记忆**（就是这张卡列出的那批，
+            条数与左边那行「N 条」严格一致）。
+            为什么值得单独放一枚：这张卡是「本会话写了什么」的速览，会话结束时
+            最常见的诉求就是「这些临时记的别留下」，逐条点垃圾桶在十几条时要十几下。
+            交互沿用行内那套就地二次确认（不弹窗、不跳走），区别是这枚按钮**常态
+            隐藏、hover 才浮现**：它是破坏性操作，不该在标题行常驻抢注意力。
+            确认态另带 6s 自动回退（见 CLEAR_CONFIRM_MS）。 */}
+        <span
+          className="kr-memory__clear"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {clearPhase === 'idle' && !collapsing && (
+            <button
+              type="button"
+              className="kr-memory__clear-act"
+              title={`删除本会话新增的 ${displayCount} 条记忆`}
+              aria-label={`删除本会话新增的 ${displayCount} 条记忆`}
+              onClick={armClear}
+            >
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M2.9 4.3h10.2M6.4 4.3V3.1a.9.9 0 0 1 .9-.9h1.4a.9.9 0 0 1 .9.9v1.2M4.4 4.3l.5 8.4a1 1 0 0 0 1 .9h4.2a1 1 0 0 0 1-.9l.5-8.4" />
+              </svg>
+            </button>
+          )}
+          {clearPhase === 'confirm' && (
+            <>
+              <span className="kr-memory__ask">删除这 {displayCount} 条？</span>
+              <button
+                type="button"
+                className="kr-memory__link kr-memory__link--danger"
+                onClick={() => { void clearSessionNew() }}
+              >
+                确认
+              </button>
+              <button type="button" className="kr-memory__link" onClick={cancelClear}>
+                取消
+              </button>
+            </>
+          )}
+          {clearPhase === 'deleting' && (
+            <span className="kr-memory__clear-busy">删除中…</span>
+          )}
+        </span>
       </div>
 
+      {/* 一键删除失败：错误留在标题行下面一行（折叠态也看得见），条目本身一条没少
+          —— 失败路径从头到尾没动过数据，所以这里只需要说清「没删成、原因是这个」。 */}
+      {clearError !== '' && (
+        <div className="kr-memory__err kr-memory__err--clear">
+          <span>{clearError}</span>
+          <button type="button" className="kr-memory__link" onClick={() => setClearError('')}>
+            知道了
+          </button>
+        </div>
+      )}
+
+
       {/* 到这里必有本会话新增（否则组件早已 return null），所以只剩两种分区
-          组合，且都可以直接铺开渲染，不需要任何空态分支。 */}
-      {!collapsed && (
+          组合，且都可以直接铺开渲染，不需要任何空态分支。
+          收拢退场（collapsing）时不渲染 body：那时条目已归零，留着只会渲染一个
+          空容器把卡片撑在「标题行 + 空白」上，收拢动作看起来像卡了一下。 */}
+      {!collapsed && !collapsing && (
         <div className="kr-memory__body">
           {sessionNewEntries.workspace.length > 0 && renderSection('workspace')}
           {sessionNewEntries.global.length > 0 && renderSection('global')}
