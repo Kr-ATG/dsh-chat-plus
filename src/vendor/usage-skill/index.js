@@ -387,6 +387,91 @@ let lastCollectTime = 0;
 const USAGE_COLLECT_TTL_MS = 15000;
 
 /**
+ * How many session logs may be open at once during a fold pass.
+ *
+ * The backend stores one zstd frame per event, so reading a log is whole-file
+ * work no matter how few events are new. Eight in flight keeps the descriptor
+ * table and peak plaintext memory bounded while still overlapping enough I/O
+ * to stop a cold pass from being a multi-minute wall clock.
+ */
+const FOLD_CONCURRENCY = 8;
+
+/**
+ * Run `worker` over `items` with at most `limit` in flight, preserving nothing
+ * about order (callers here fold independent sessions, so order is irrelevant).
+ * @param items - work items.
+ * @param limit - maximum concurrent workers.
+ * @param worker - one item to process.
+ */
+async function runPooled(items, limit, worker) {
+	let next = 0;
+	const size = Math.max(1, Math.min(limit, items.length));
+	const runners = [];
+	for (let slot = 0; slot < size; slot += 1) {
+		runners.push((async () => {
+			for (;;) {
+				const index = next;
+				next += 1;
+				if (index >= items.length) return;
+				await worker(items[index]);
+			}
+		})());
+	}
+	await Promise.all(runners);
+}
+
+/**
+ * Fold one persisted session's new events onto its stored state.
+ *
+ * The returned state is the same object as `previous` when one was supplied,
+ * so a failed caller leaves the cached fold untouched.
+ *
+ * @param persistence - the `sessionPersistence` service.
+ * @param id - stored session id.
+ * @param revision - opaque revision reported for this session, when known.
+ * @param previous - the existing fold state, or undefined for a new session.
+ * @returns the fold state to store.
+ */
+async function foldPersistedSession(persistence, id, revision, previous) {
+	const state = previous ?? createUsageState();
+	const wasPersisted = state.kind === "persisted";
+	const fromSeq = wasPersisted ? state.consumed ?? 0 : 0;
+	const events = await readPersistedEvents(persistence, id, fromSeq);
+	if (!wasPersisted) {
+		state.days = new Map();
+		state.openSteps = new Map();
+		state.lastSample = null;
+		state.currentModel = null;
+		state.consumed = 0;
+		state.title = null;
+	}
+	const fresh = wasPersisted ? events.filter((event) => event.seq > (state.consumed ?? 0)) : events;
+	if (fresh.length === 0) {
+		// 没有新事件：绝大多数会话每轮聚合都落在这里。空 delta 不携带
+		// 「日志被截断」的信息——过去把它算成不连续，于是每个安静
+		// 会话每轮都从头重读自己的完整日志（上千会话时是分钟级的
+		// 墙钟，而数据一个字节都不会变）。折叠态保持不动。
+	} else if (state.consumed > 0 && fresh[0].seq !== state.consumed + 1) {
+		// 确实有新事件却接不上：日志被截断/重写，从头重折。
+		state.days = new Map();
+		state.openSteps = new Map();
+		state.lastSample = null;
+		state.currentModel = null;
+		state.consumed = 0;
+		state.title = null;
+		const allEvents = await readPersistedEvents(persistence, id, 0);
+		applyUsageDelta(state, allEvents);
+		state.consumed = allEvents.length > 0 ? allEvents[allEvents.length - 1].seq : 0;
+	} else {
+		applyUsageDelta(state, fresh);
+		state.consumed = fresh[fresh.length - 1].seq;
+	}
+	state.kind = "persisted";
+	if (revision !== void 0) state.revision = revision;
+	return state;
+}
+
+/**
  * Render whatever the persisted fold state already holds, without touching a
  * single session log.
  *
@@ -532,56 +617,36 @@ async function collectUsageLocked(ctx) {
 			if (typeof id !== "string" || id.length === 0) continue;
 			entries.push({ id, revision: item.revision });
 		}
+		for (const { id, revision } of entries) persistedIds.add(id);
+		// Sessions whose opaque revision is unchanged keep their folded state
+		// untouched — that is the steady state, and it costs no I/O at all.
+		const stale = [];
 		for (const { id, revision } of entries) {
-			persistedIds.add(id);
 			if (attached.has(id)) continue;
 			const previous = cache.sessions[id];
-			// Unchanged opaque revision: keep the folded state, no I/O.
 			if (previous !== void 0 && previous.kind === "persisted" && revision !== void 0 && sameFileRevision(previous.revision, revision)) {
 				if (previous.revision !== revision) previous.revision = revision;
 				continue;
 			}
+			stale.push({ id, revision, previous });
+		}
+		// Fold concurrently. Each worker reads one log and writes only
+		// `cache.sessions[id]`, so sessions stay independent and the merged
+		// result is order-insensitive (all arithmetic is integral). The serial
+		// form made a cold or invalidated pass a 5–20 minute wall clock over
+		// this corpus, and the panel is unusable for every one of those
+		// minutes. Concurrency is capped: each open log can expand to tens of
+		// megabytes of plaintext, and 1250 simultaneous opens would exhaust
+		// the descriptor table long before it finished faster.
+		await runPooled(stale, FOLD_CONCURRENCY, async ({ id, revision, previous }) => {
 			try {
-				const state = previous ?? createUsageState();
-				const wasPersisted = state.kind === "persisted";
-				const fromSeq = wasPersisted ? state.consumed ?? 0 : 0;
-				const events = await readPersistedEvents(persistence, id, fromSeq);
-				if (!wasPersisted) {
-					state.days = new Map();
-					state.openSteps = new Map();
-					state.lastSample = null;
-					state.currentModel = null;
-					state.consumed = 0;
-					state.title = null;
-				}
-				const fresh = wasPersisted ? events.filter((event) => event.seq > (state.consumed ?? 0)) : events;
-				if (fresh.length === 0) {
-					// 没有新事件：绝大多数会话每轮聚合都落在这里。空 delta 不携带
-					// 「日志被截断」的信息——过去把它算成不连续，于是每个安静
-					// 会话每轮都从头重读自己的完整日志（上千会话时是分钟级的
-					// 墙钟，而数据一个字节都不会变）。折叠态保持不动。
-				} else if (state.consumed > 0 && fresh[0].seq !== state.consumed + 1) {
-					// 确实有新事件却接不上：日志被截断/重写，从头重折。
-					state.days = new Map();
-					state.openSteps = new Map();
-					state.lastSample = null;
-					state.currentModel = null;
-					state.consumed = 0;
-					state.title = null;
-					const allEvents = await readPersistedEvents(persistence, id, 0);
-					applyUsageDelta(state, allEvents);
-					state.consumed = allEvents.length > 0 ? allEvents[allEvents.length - 1].seq : 0;
-				} else {
-					applyUsageDelta(state, fresh);
-					state.consumed = fresh[fresh.length - 1].seq;
-				}
-				state.kind = "persisted";
-				if (revision !== void 0) state.revision = revision;
-				cache.sessions[id] = state;
+				cache.sessions[id] = await foldPersistedSession(persistence, id, revision, previous);
 			} catch (error) {
+				// A failed per-session read keeps the previous fold — it must
+				// never erase history from the cache.
 				ctx.logger.warn(`usage-stats: reading persisted session "${id}" failed: ${String(error)}`);
 			}
-		}
+		});
 	}
 	for (const id of Object.keys(cache.sessions)) {
 		if (!attached.has(id) && !persistedIds.has(id)) delete cache.sessions[id];

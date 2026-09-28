@@ -89,21 +89,61 @@ function subtractFrom(target, source) {
 	return target;
 }
 
-/** Extract the usage sample an event carries, if any. */
-function sampleOf(event) {
-	if (event.type === "assistant/chunk" && event.data?.chunk?.type === "usage") {
-		return {
-			key: `${event.data.turn}:${event.data.step}`,
-			usage: event.data.chunk.usage
-		};
+/**
+ * The last raw chunk of one never-packed type in a durable Assistant
+ * settlement, scanning backwards — the same lookup the harness's own
+ * `lastAssistantStreamChunk` performs.
+ *
+ * @param stream - the settlement's compact stream records.
+ * @returns the final `usage` chunk, or undefined when the stream carries none.
+ */
+function lastUsageChunkOf(stream) {
+	if (!Array.isArray(stream)) return void 0;
+	for (let index = stream.length - 1; index >= 0; index -= 1) {
+		const record = stream[index];
+		if (record !== null && typeof record === "object" && record.type === "chunk" && record.chunk?.type === "usage") {
+			return record.chunk.usage;
+		}
 	}
+	return void 0;
+}
+
+/**
+ * Extract the usage sample one durable Assistant settlement reports, if any.
+ *
+ * This mirrors the harness's own `tokenUsage` projection exactly, and the
+ * agreement is load-bearing: that projection is what the session header and
+ * the workspace UI show, so any divergence here reads as a broken counter.
+ * Two rules the earlier version of this file got wrong, both of which made
+ * totals come out LOW:
+ *
+ *  - Only settlements count. `assistant/message` (preferring its own `usage`
+ *    field) and `assistant/attempt` both qualify; a bare `assistant/chunk`
+ *    does not. Chunks are mid-stream state, and a settlement re-reports the
+ *    same sample the last chunk already carried — folding them independently
+ *    double-counts an attempt that never settled and mis-attributes one that
+ *    did. `assistant/attempt` is where an abandoned or retried attempt lands,
+ *    so ignoring it silently dropped real billable calls.
+ *  - `llm/retry-started` is handled by the caller, which closes the
+ *    replacement slot; see {@link applyUsageDelta}.
+ *
+ * @param event - one session event.
+ * @returns the sample and its `turn:step` key, or undefined.
+ */
+function sampleOf(event) {
 	if (event.type === "assistant/message" && event.data?.usage !== void 0) {
 		return {
 			key: `${event.data.turn}:${event.data.step}`,
 			usage: event.data.usage
 		};
 	}
-	return void 0;
+	if (event.type !== "assistant/message" && event.type !== "assistant/attempt") return void 0;
+	const usage = lastUsageChunkOf(event.data?.stream);
+	if (usage === void 0) return void 0;
+	return {
+		key: `${event.data.turn}:${event.data.step}`,
+		usage
+	};
 }
 
 /**
@@ -205,6 +245,14 @@ export function applyUsageDelta(state, events) {
 		if (event.type === "compaction/summary" || event.type === "compaction/prune") {
 			const shadowed = event.data?.shadowedTokenCount;
 			if (Number.isFinite(shadowed) && shadowed > 0) entryOf(state.days, dayKey(event.time)).compacted += shadowed;
+		}
+		// 重试：新的 attempt 会为同一个 (turn, step) 再报一次 usage，但那是第二次
+		// 真实调用、第一次的 token 也照样计费。不关掉替换槽的话，新样本会被当成
+		// 「同一轮的重新上报」而减掉旧值——重试一次就凭空少算一份用量。官方
+		// tokenUsage 投影用同一条规则（usage-projection.ts 的 llm/retry-started
+		// 分支），这里跟着它走，两个数字才对得上。
+		if (event.type === "llm/retry-started") {
+			if (last !== null && last.key === `${event.data.turn}:${event.data.step}`) last = null;
 		}
 		// 调用次数：每一条 assistant/message 计一次模型调用（与 usage 无关，
 		// 无 token 上报的响应同样计入）。
