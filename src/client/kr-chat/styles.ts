@@ -952,6 +952,18 @@ body[data-kr-resizing="true"] * {
   --kr-card-border: var(--dsw-alias-border-l1, rgba(0, 0, 0, .06));
   --kr-card-hover: var(--dsw-alias-border-l2, rgba(0, 0, 0, .16));
   --kr-hover-bg: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, .06));
+  /*
+   * 阴影：**这张卡不再用阴影**（2026-09-29 按用户要求改成左竖线）。
+   *
+   * 曾试过把浅色阴影加深一档（贴地 .04→.10），但白底上的投影无论怎么加，
+   * 都会让思考卡读成「另一张浮起来的白卡」，与下方总结卡抢同一层级；而浅色
+   * 主题下对话区底色与卡片底色本来就是同一个纯白（--dsw-alias-bg-base 与
+   * --dsw-alias-bg-layer-1 都指向 --dsw-static-neutral-bluish-00），靠投影
+   * 分层本身就是错的路子。改由**左边缘一条竖线**承担边界（见下一条规则）。
+   *
+   * 变量本身保留原口径：.kr-card 基类仍读它，内联态在下面显式压成 none，
+   * 万一以后要退回浮起卡形态，这里不用再翻一遍历史。
+   */
   --kr-card-shadow: var(--kr-float-shadow, 0 1px 2px rgba(15, 17, 21, .04), 0 8px 24px -18px rgba(15, 17, 21, .28));
   --kr-card-shadow-hover: 0 2px 4px rgba(15, 17, 21, .06), 0 12px 22px -14px rgba(15, 17, 21, .26);
   font-family: var(--dsw-font-family, inherit);
@@ -969,6 +981,67 @@ body[data-kr-resizing="true"] * {
   gap: 6px;
 }
 
+/*
+ * 内联态：**左侧一条竖线，无投影、无描边、无底色**（2026-09-29 按用户要求）。
+ *
+ * 这是这张卡在对话流里的最终形态：它不再是「一张浮在白底上的卡」，而是
+ * 「一段被竖线圈起来的思考」。做法与同一对话流里的 .dtt__card--step 同源
+ * （左侧 2px 竖线），保持同一条消息列里的语言一致；也回到项目既有的那条
+ * 口径——对话流卡片去全部底色，只留文字、线条与动效。
+ *
+ * 三个决定：
+ * 1. **竖线用 border-left 而不是伪元素**。卡片是 content-box，border-left
+ *    会随卡片高度整条拉满（含折叠态），不需要额外的 absolute 定位与高度同步。
+ * 2. **底色透明**。浅色主题下卡片底色与对话区底色本来就是同一个纯白
+ *    （--dsw-alias-bg-base 与 --dsw-alias-bg-layer-1 都指向
+ *    --dsw-static-neutral-bluish-00），铺任何底色都是在白底上再铺一层白；
+ *    边界交给竖线，层级交给字号与留白。
+ * 3. **圆角只留右侧**（0 12px 12px 0）。左边是竖线，四角全圆会让竖线两端
+ *    各露出一道缺口；右圆左直是「附着在竖线上的一块内容」的正确画法。
+ */
+.kr-card--reasoning[data-inline] {
+  --kr-reasoning-rail: var(--dsw-alias-border-l2, rgba(0, 0, 0, .10));
+  box-shadow: none;
+  border: none;
+  border-left: 2px solid var(--kr-reasoning-rail);
+  border-radius: 0 12px 12px 0;
+  background: transparent;
+  /* 基类的 transition 管 border-color / box-shadow / transform；这里补上
+     底色与竖线色的过渡，hover 的反馈才是「渐次加深」而不是「啪一下换色」。 */
+  transition:
+    background-color .18s ease,
+    border-left-color .18s ease,
+    box-shadow .22s cubic-bezier(.16, 1, .3, 1),
+    transform .22s cubic-bezier(.16, 1, .3, 1);
+}
+
+/*
+ * hover：**只加深竖线 + 极淡底色**，卡片不上浮也不加投影。
+ *
+ * 没有投影时再写 translateY 只会让它显得在抖；竖线由 10% 提到 22%（浅色下
+ * 是更实的一道灰、深色下是更亮的一道白），配合 4% 的底色，给出「这一块能点
+ * （点标题折叠/展开）」的反馈。底色用文字色的中性纱，两个主题自动反相。
+ */
+.kr-card--reasoning[data-inline]:hover {
+  box-shadow: none;
+  transform: none;
+  border-left-color: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 22%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 4%, transparent);
+}
+
+/*
+ * 折叠态：只留标题行 + 一枚 chevron。
+ *
+ * 只收上下内距，**左右保持与展开态完全一致**（12px）：竖线是 border-left，
+ * 落在 padding box 之外，所以两态的正文左缘都等于「容器左 + 2px 竖线 +
+ * 12px 内距」。这里若顺手把左内距也加 2px 去「补竖线」，标题会在展开/折叠
+ * 之间横向跳一格——展开动画正跑到一半时最明显。
+ */
+.kr-card--reasoning[data-inline]:not([data-open]) {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
 /* 内联态的字级跟着正文走：右栏 12px 是窄栏里塞更多行的取舍，对话流里
    思考与回答同列，差一级会读成两种东西。 */
 .kr-card--reasoning[data-inline] .kr-reasoning-list {
@@ -976,10 +1049,15 @@ body[data-kr-resizing="true"] * {
   line-height: 1.6;
 }
 
-/* 折叠态：只留标题行 + 一枚 chevron，不再有上下 padding 撑出空盒。 */
-.kr-card--reasoning[data-inline]:not([data-open]) {
-  padding-top: 4px;
-  padding-bottom: 4px;
+/* 深色分支不需要单独写竖线与底色：两者都引用带主题感知的 --dsw-alias-*
+   token（border-l2 深色下是 12% 白，label-primary 是近白）。这里只把圆角
+   再声明一次，避免继承基类的 10px。 */
+body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
+  border-radius: 0 12px 12px 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-card--reasoning[data-inline] { transition: none; }
 }
 
 .kr-reasoning-chevron {
