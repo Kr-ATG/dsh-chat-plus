@@ -30,7 +30,7 @@ import { argFields, toolArgsRaw } from '../tool-summary/activity-view-model.ts'
 /** 产出物的类别。决定行首那枚 SVG 缩略图长什么样。 */
 export type OutputKind =
   | 'image' | 'video' | 'audio' | 'model3d'
-  | 'doc' | 'pdf' | 'sheet' | 'slide' | 'archive'
+  | 'doc' | 'pdf' | 'sheet' | 'slide' | 'archive' | 'page'
   | 'code' | 'other'
 
 export interface OutputItem {
@@ -44,6 +44,19 @@ export interface OutputItem {
   /** 文件名（上屏文案，只留最后一段）。 */
   readonly name: string
   readonly kind: OutputKind
+}
+
+/**
+ * 内部提取结果：OutputItem + 一条来源标记。
+ *
+ * `delivered` 只在 `present` 上为真 —— 它是模型**显式声明交付**的那几个文件，
+ * 是这批产出里唯一的权威路径。之所以要这条标记：同一个文件在会话里往往先落到
+ * 临时位置、再被搬到最终位置（download 到 `_tmp/` 后 move 到 `docs/` 是常见
+ * 形态），两条路径的 basename 相同、完整路径不同，不去重就会在卡里并排留一条
+ * 已经失效的旧路径，用户点到就是「文件不存在」。
+ */
+interface ExtractedItem extends OutputItem {
+  readonly delivered: boolean
 }
 
 export interface OutputsView {
@@ -64,8 +77,10 @@ const EMPTY_VIEW: OutputsView = { items: [], code: [] }
  *  · **gif 归 video**：它是「会动的」，给一枚播放符号比给山峰更贴它的语义。
  *    截图里那两个 `talos-*-motion.gif` 正是运镜动画。
  *  · **svg 归 image**：它同时也是 XML，但对用户来说那就是一张图。
- *  · **html 归 code**：对用户它是一个能打开的页面，但产出物这张卡的「成品」
- *    口径是「媒体与文档」，一个 .html 演示页在语义上仍是源码。宁可少列。
+ *  · **html 归 page**：对用户它是一个**能打开的页面**（演示页、报告页、交互原型），
+ *    不是一段源码。归进 code 会被折进「另有 N 个代码文件」那一行 —— 用户做出来
+ *    的东西就此消失在一个计数里。这是它和 .ts/.css 的根本区别：那些是"做页面的
+ *    材料"，.html 是"做出来的页面本身"。
  *
  * 不在表内的扩展名一律 `other`，**不列也不计数** —— 认不出来就不占行。
  */
@@ -87,6 +102,8 @@ const KIND_BY_EXT: Readonly<Record<string, OutputKind>> = {
   // 表格 / 演示
   csv: 'sheet', tsv: 'sheet', xls: 'sheet', xlsx: 'sheet', ods: 'sheet',
   ppt: 'slide', pptx: 'slide', odp: 'slide',
+  // 可打开的页面（演示页 / 报告页 / 交互原型）：成品，不是源码。
+  html: 'page', htm: 'page', xhtml: 'page',
   // 压缩包
   zip: 'archive', '7z': 'archive', rar: 'archive', tar: 'archive',
   gz: 'archive', bz2: 'archive', xz: 'archive',
@@ -98,7 +115,7 @@ const KIND_BY_EXT: Readonly<Record<string, OutputKind>> = {
   php: 'code', sh: 'code', bash: 'code', zsh: 'code', ps1: 'code', bat: 'code',
   cmd: 'code', sql: 'code', xml: 'code', yaml: 'code', yml: 'code', toml: 'code',
   ini: 'code', cfg: 'code', conf: 'code', css: 'code', scss: 'code', less: 'code',
-  html: 'code', htm: 'code', vue: 'code', svelte: 'code', astro: 'code',
+  vue: 'code', svelte: 'code', astro: 'code',
   lua: 'code', r: 'code', dart: 'code', scala: 'code', clj: 'code', ex: 'code',
   exs: 'code', erl: 'code', hs: 'code', ml: 'code', nim: 'code', zig: 'code',
   ipynb: 'code',
@@ -301,7 +318,7 @@ function normalizeToolName(name: string): string {
  * 最贵的一步（正则逐条跑）。节点对象在 React 不可变更新下引用稳定，所以按
  * 对象缓存是安全的：只有新增或真的变了的节点会被重算。
  */
-const perNodeCache = new WeakMap<object, readonly OutputItem[]>()
+const perNodeCache = new WeakMap<object, readonly ExtractedItem[]>()
 
 /* ── 提取 ─────────────────────────────────────────────────────────────── */
 
@@ -325,19 +342,39 @@ function argString(args: Record<string, unknown>, ...keys: string[]): string | u
   return undefined
 }
 
-/** 参数里所有字符串路径（数组全取，用于 present 的多文件形态）。 */
+/**
+ * 参数里所有字符串路径（数组全取，用于 present 的多文件形态）。
+ *
+ * 两种形态都要认：
+ *  · **字符串数组** —— `paths: ['a.png', 'b.png']`；
+ *  · **对象数组** —— `present` 的 `files: [{ path, description }]`。这是官方
+ *    present 工具的唯一入参形态，不认对象就等于**交付物永远进不了这张卡**：
+ *    卡里只剩下 download 的中转路径（`_tmp/…`），用户点开的是已经被搬走的旧位置。
+ */
 function argPaths(args: Record<string, unknown>, ...keys: string[]): string[] {
   const out: string[] = []
-  for (const key of keys) {
-    const value = args[key]
-    if (typeof value === 'string' && value.trim() !== '') out.push(value.trim())
-    else if (Array.isArray(value)) {
-      for (const item of value) {
-        if (typeof item === 'string' && item.trim() !== '') out.push(item.trim())
-      }
+  const take = (value: unknown): void => {
+    if (typeof value === 'string') {
+      if (value.trim() !== '') out.push(value.trim())
+      return
     }
+    if (Array.isArray(value)) {
+      for (const item of value) take(item)
+      return
+    }
+    // present 的 files 是 `{ path, description }`：只取路径字段，描述不上屏。
+    const record = recordOf(value)
+    if (record !== null) take(record.path ?? record.file_path ?? record.filePath)
   }
+  for (const key of keys) take(args[key])
   return out
+}
+
+/** 对象判定（数组不算对象）。 */
+function recordOf(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
 }
 
 /**
@@ -404,19 +441,21 @@ function pathsFromResult(text: string, command = ''): string[] {
 }
 
 /** 一条调用 → 产出物条目（可能 0 条）。 */
-function extractFromBlock(block: ToolCallBlock): readonly OutputItem[] {
+function extractFromBlock(block: ToolCallBlock): readonly ExtractedItem[] {
   if (isRunning(block)) return []
   if (block.isError) return []
   const raw = callName(block)
   const name = normalizeToolName(raw)
   if (name === '' || DELETING_TOOLS.has(name)) return []
 
+  // present 是**显式交付**：它的参数就是最终交付位置，权威性高于任何中转落盘。
+  const delivered = name === 'present'
   const paths: string[] = []
   const args = argFields(toolArgsRaw(block))
 
   // 路 1：参数里声明的目标路径（最准，优先）。
   if (ARG_PATH_TOOLS.has(name)) {
-    // present 的多文件形态：path / paths / files 都可能是路径。
+    // present 的多文件形态：files 是 `{ path, description }[]`，path / paths 是裸字符串。
     const declared = argPaths(args, 'file_path', 'filePath', 'path', 'paths', 'files', 'output', 'dest')
     for (const item of declared) paths.push(item)
   }
@@ -428,7 +467,7 @@ function extractFromBlock(block: ToolCallBlock): readonly OutputItem[] {
     for (const item of pathsFromResult(resultText(block), command)) paths.push(item)
   }
 
-  const out: OutputItem[] = []
+  const out: ExtractedItem[] = []
   const seen = new Set<string>()
   for (const item of paths) {
     const path = normalizeOutputPath(item)
@@ -440,22 +479,22 @@ function extractFromBlock(block: ToolCallBlock): readonly OutputItem[] {
     const key = dedupeKey(path)
     if (seen.has(key)) continue
     seen.add(key)
-    out.push({ path, name: outputNameOf(path), kind })
+    out.push({ path, name: outputNameOf(path), kind, delivered })
     if (out.length >= MAX_PER_CALL) break
   }
   return out
 }
 
 /** 一个工具节点 → 产出物条目（带缓存）。 */
-function extractFromNode(tool: unknown): readonly OutputItem[] {
+function extractFromNode(tool: unknown): readonly ExtractedItem[] {
   if (typeof tool !== 'object' || tool === null) return []
   const cached = perNodeCache.get(tool)
   if (cached !== undefined) return cached
   const root = (tool as { data?: { root?: ToolCallBlock } }).data?.root
-  let result: readonly OutputItem[] = []
+  let result: readonly ExtractedItem[] = []
   if (root !== undefined) {
     try {
-      const out: OutputItem[] = []
+      const out: ExtractedItem[] = []
       for (const block of collectBlocks(root)) {
         for (const item of extractFromBlock(block)) out.push(item)
       }
@@ -474,16 +513,26 @@ function extractFromNode(tool: unknown): readonly OutputItem[] {
 /**
  * 收集会话产出物。
  *
+ * 去重分两层：
+ *  1. **完整路径**去重（大小写与分隔符归一）；
+ *  2. **同名交付优先** —— 同一个文件在会话里往往先落到中转位置、再被搬到最终
+ *     位置（download 到 `_tmp/` 后 move 到 `docs/`）。两条路径 basename 相同、
+ *     完整路径不同，只按第 1 层去重就会在卡里并排留一条**已经失效**的旧路径，
+ *     用户点到就是「文件不存在」。所以 `present` 声明的交付路径会**顶掉**同名
+ *     的非交付路径；两条都是交付（或都不是）时视为两个真实文件，都保留。
+ *
  * @param toolNodes - 会话里的 tool-call 节点（顺序即首见顺序，调用方按
  *   anchorSeq 升序给；见 collectSessionToolNodes）。
  * @returns 成品与代码文件两份清单。
  */
 export function collectOutputs(toolNodes: readonly unknown[]): OutputsView {
   if (toolNodes.length === 0) return EMPTY_VIEW
-  const items: OutputItem[] = []
+  const items: ExtractedItem[] = []
   const code: string[] = []
-  const seenItem = new Set<string>()
+  const seenPath = new Set<string>()
   const seenCode = new Set<string>()
+  /** basename（小写）→ items 下标：用于「交付路径顶掉同名中转路径」。 */
+  const baseIndex = new Map<string, number>()
 
   for (const tool of toolNodes) {
     for (const entry of extractFromNode(tool)) {
@@ -494,9 +543,26 @@ export function collectOutputs(toolNodes: readonly unknown[]): OutputsView {
         code.push(entry.path)
         continue
       }
-      if (seenItem.has(key)) continue
-      seenItem.add(key)
+      if (seenPath.has(key)) continue
+
+      const base = entry.name.toLowerCase()
+      const prior = baseIndex.get(base)
+      if (prior !== undefined) {
+        const kept = items[prior]
+        if (kept !== undefined && kept.delivered !== entry.delivered) {
+          if (entry.delivered) {
+            // 显式交付顶掉同名中转路径：原地替换，保住首见顺序。
+            items[prior] = entry
+          }
+          // 反向（已有交付、又来一条中转）直接丢弃，不上屏。
+          seenPath.add(key)
+          continue
+        }
+      }
+
+      baseIndex.set(base, items.length)
       items.push(entry)
+      seenPath.add(key)
     }
   }
   return { items, code }

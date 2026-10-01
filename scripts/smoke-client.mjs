@@ -1058,6 +1058,14 @@ if (krEnabled) {
   } else if (!/ts: 'code'/.test(outputsSrc) || !/py: 'code'/.test(outputsSrc)
     || !/KIND_BY_EXT\[extOf\(path\)\] \?\? 'other'/.test(outputsSrc)) {
     fail('outputs.ts 必须把代码类归 code，认不出的扩展名归 other（不列也不计数）')
+  } else if (!/html: 'page'/.test(outputsSrc) || /html: 'code'/.test(outputsSrc)) {
+    // 用户报的 BUG：做出来的 .html 演示页被折进「另有 N 个代码文件」，成品就此
+    // 消失在一个计数里。.html 对用户是"能打开的页面"（成果），.ts/.css 才是"做
+    // 页面的材料"，两者不能同类。
+    fail('outputs.ts 必须把 html/htm 归 page（能打开的页面），不得归 code —— '
+      + '归 code 会把做出来的演示页折进「另有 N 个代码文件」计数里')
+  } else if (!/case 'page':/.test(outputsCode)) {
+    fail('缩略图必须为 page 类别分派一枚图形（浏览器窗口），不能落进 default 的通用文档形')
   } else if (!/SPILL_PATH_RE/.test(outputsSrc) || !/dsh-spill-/.test(outputsSrc)) {
     // 用户报的 BUG：卡里出现了 `*-pwsh.txt`。那是 DSH 把超长工具结果落到
     // %TEMP%/dsh-spill-*/session-*/ 的临时文件，路径必然出现在结果文本里。
@@ -1066,8 +1074,20 @@ if (krEnabled) {
     // 用户报的 BUG 的另一半：目录列表会把**别的会话生成的文件**也列出来。
     fail('结果路必须只在「落盘说明」上下文里取路径：Get-ChildItem / ls -R / git status '
       + '会把已有文件（含别的会话的）列出来，无差别扫描就会把它们当成本次产出')
+  } else if (!/record\.path \?\? record\.file_path \?\? record\.filePath/.test(outputsSrc)) {
+    // 用户报的 BUG：产出物卡里那条 present 交付的 PDF 点开是「文件不存在」。
+    // 根因是 present 的入参是 `files: [{ path, description }]` 对象数组，
+    // argPaths 只认字符串/字符串数组 → 交付路径整批没进卡，卡里只剩 download
+    // 的中转路径（_tmp/…），文件被搬走后点开必然 404。
+    fail('outputs.ts 的 argPaths 必须认 present 的对象数组形态（files: [{ path, description }]），'
+      + '否则交付物永远进不了产出物卡')
+  } else if (!/delivered/.test(outputsSrc) || !/kept\.delivered !== entry\.delivered/.test(outputsSrc)) {
+    // 同一个文件先落中转位置、再搬到最终位置（download 到 _tmp 后 move 到 docs）
+    // 时，两条路径 basename 相同、完整路径不同；只按完整路径去重会并排留一条
+    // 已经失效的旧路径。present 的交付路径必须能顶掉同名中转路径。
+    fail('outputs.ts 必须让 present 的交付路径顶掉同名的中转路径（否则卡里留下已失效的 _tmp 路径）')
   } else {
-    pass('outputs.ts：参数/结果两路工具集分离 + spill 排除 + 落盘说明闸门')
+    pass('outputs.ts：参数/结果两路工具集分离 + spill 排除 + 落盘说明闸门 + 交付路径优先')
   }
 }
 

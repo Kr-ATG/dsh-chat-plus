@@ -139,6 +139,18 @@ function Thumb({ kind }: { readonly kind: OutputKind }): ReactElement {
           <rect x="12.2" y="13.6" width="3.6" height="3.4" rx="1" fill="currentColor" stroke="none" />
         </svg>
       )
+    // 可打开的页面：浏览器窗口 + 地址栏。与 code 的尖括号刻意区分 ——
+    // .html 交付的是"一个能打开的页面"，不是"一段源码"。
+    case 'page':
+      return (
+        <svg {...common}>
+          <rect x="3.5" y="6" width="21" height="16" rx="2.6" opacity=".28" fill="currentColor" stroke="none" />
+          <rect x="3.5" y="6" width="21" height="16" rx="2.6" />
+          <path d="M3.5 11.2h21" opacity=".7" />
+          <circle cx="7" cy="8.6" r=".9" fill="currentColor" stroke="none" />
+          <path d="M7 14.6h9M7 18h13" opacity=".7" />
+        </svg>
+      )
     // 代码：尖括号 + 斜杠。
     case 'code':
       return (

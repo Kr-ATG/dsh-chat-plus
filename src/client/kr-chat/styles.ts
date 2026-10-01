@@ -1883,6 +1883,13 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   color: color-mix(in srgb, var(--kr-error) 66%, var(--dsw-alias-label-secondary));
 }
 
+/* 可打开的页面：与 code 共用中性档但走 accent 一脉 —— 扫一列时"哪些是能打开的
+   页面、哪些只是源文件"一眼分得开（页面是成果，源码是材料）。 */
+.kr-out-row[data-kind="page"] .kr-out-row__thumb {
+  background: color-mix(in srgb, var(--kr-accent) 10%, transparent);
+  color: color-mix(in srgb, var(--kr-accent) 70%, var(--dsw-alias-label-secondary));
+}
+
 /* 文件名：主文字色 + 500 字重，是这一行的主体。 */
 .kr-out-row__name {
   flex: 1 1 auto;
