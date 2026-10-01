@@ -1806,7 +1806,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: background-color .12s ease;
+  transition: background-color .12s ease, opacity .18s ease;
   /* 错峰入场：与操作面板同一套节奏（新行从下方 6px 淡入），
      两张卡的「有东西出现」读起来是一件事。 */
   animation: kr-out-row-in .3s cubic-bezier(.16, 1, .3, 1) both;
@@ -1925,6 +1925,23 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   opacity: 1;
   transform: none;
 }
+
+/*
+ * 「核对中」的行（挂载后已上屏、还没问过磁盘）。
+ *
+ * 只有一点点低对比度，**不是**灰掉、更不是红色警告：绝大多数文件是活的，这一
+ * 瞬间的待定态不该看起来像出了事。核对结论为「不存在」的行根本不会渲染到这里
+ * —— 它已被从清单里剔除（见 KrOutputsCard 的 gonePaths）。
+ *
+ * 用 opacity 而不是改颜色：这一行的缩略图有按 data-kind 分的底色，逐个改色值
+ * 要维护九套；整体压一点点对所有类型一视同仁，深色主题下也不会变成一坨。
+ */
+.kr-out-row[data-pending="true"] {
+  opacity: .72;
+}
+
+/* 核对完成（确认存在）后回满：给它一个 180ms 的回归，读起来是「确认过了」，
+   而不是「刚才怎么灰了一下」。opacity 的过渡合并在 .kr-out-row 的 transition 里。 */
 
 /*
  * 代码文件折行。

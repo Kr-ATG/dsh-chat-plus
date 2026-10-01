@@ -988,8 +988,23 @@ if (krEnabled) {
     fail('plain-language 必须产出 filePath（规则声明 + 从结果兜底捞）')
   } else if (!/filePath: \(a\) => filePathOf\(a, 'file_path', 'path', 'filePath'\)/.test(langSrc)) {
     fail('写/改/读文件这类规则必须声明 filePath（否则产出行没有可点的文件）')
-  } else if (!/RESULT_PATH_RE/.test(langSrc) || !/matches\[matches\.length - 1\]/.test(langSrc)) {
-    fail('从结果捞路径必须只认已知产出物扩展名，且取最后一个（落盘位置通常在末尾）')
+  } else if (!/RESULT_PATH_RE/.test(langSrc) || /BARE_RESULT_PATH_RE/.test(langSrc)) {
+    // 2026-10-01：相对路径与裸斜杠整类不收（与 outputs.ts 同一口径）。前者基准是
+    // 命令当时的 cwd（客户端拿不到），后者与 URL 的 path 段语法同构无法区分 ——
+    // 两边判据必须一致，否则同一份工具输出在两张卡上会得到不同的路径。
+    fail('从结果捞路径只能认盘符前缀（RESULT_PATH_RE），不得再有裸路径分支：'
+      + '相对路径基准不可知、裸斜杠会收下 URL path 段')
+  } else if (!/let last: string \| undefined/.test(langSrc)) {
+    fail('从结果捞路径必须取最后一个命中（落盘位置通常在末尾）')
+  } else if (/[A-Z_]*RESULT_PATH_RE = [^\n]*\\\.\{0,2\}/.test(langSrc)
+    || /[A-Z_]*RESULT_PATH_RE = [^\n]*\\\\\.\{1,2\}/.test(langSrc)) {
+    // 用户 2026-10-01 报的「产出物路径不全」：旧正则的前缀是 `\.{0,2}[\\/]`（零个
+    // 点也允许），于是 `Saved: out/report.pdf` 被从中间的斜杠起匹配，截出一条
+    // 点开必然 404 的 `/report.pdf`。后来连 `\.{1,2}[\\/]` 也去掉了 —— 相对路径
+    // 整体不收。这条断言把两种写法都钉死，防它们再回来。
+    // 只查**正则声明那一行**，注释里复述旧写法不算违规。
+    fail('plain-language 的路径前缀只能是盘符：`\\.{0,2}[\\\\/]` 会把 out/report.pdf '
+      + '从中间的斜杠起匹配截出 /report.pdf；`\\.{1,2}[\\\\/]` 同样要不得（相对路径基准不可知）')
   } else {
     pass('plain-language：filePath 规则声明 + 结果兜底（只认产出物扩展名）')
   }
@@ -1074,6 +1089,101 @@ if (krEnabled) {
     // 用户报的 BUG 的另一半：目录列表会把**别的会话生成的文件**也列出来。
     fail('结果路必须只在「落盘说明」上下文里取路径：Get-ChildItem / ls -R / git status '
       + '会把已有文件（含别的会话的）列出来，无差别扫描就会把它们当成本次产出')
+  } else if (/const BARE_PATH_RE\s*=/.test(outputsSrc) || /function scanBare\s*\(/.test(outputsSrc)
+    || /scanBare\(line\)/.test(outputsSrc)) {
+    // 2026-10-01：相对路径整类不收。基准目录是**命令执行时的 cwd**，客户端拿不到
+    // （`cd sub && python x.py` 里的 out/a.png 落在 sub/ 下），按会话工作区拼出来的
+    // 路径指向别处的文件 —— 实测那 3 条 ../ui-chat/README.zh.md 全是文档正文里的
+    // 相对链接，没有一条是产出。要收这类产出，模型得用绝对路径或 present 交付。
+    fail('outputs.ts 不得再保留裸相对路径正则（BARE_PATH_RE / scanBare）：'
+      + '相对路径的基准是命令当时的 cwd，按会话工作区解析会指向别处的文件')
+  } else if (!/hasSeparator/.test(outputsSrc)) {
+    fail('outputs.ts 必须用 hasSeparator 挡掉正文里的纯文件名引用（report.md 不是产出）')
+  } else if (!/SLASH_PATH_RE/.test(outputsSrc) || !/\(\?<!\[A-Za-z\]:\)/.test(outputsSrc)) {
+    // 用户 2026-10-01 报的「产出物路径不全」：卡里出现 `/report.pdf`、`/报告.pdf`。
+    // 根因是 RESULT_PATH_RE 的左边界是**排除式黑名单**，放行了 `|`、`=` 这类
+    // 格式化分隔符 —— 于是 `items: [ 'pdf|/report.pdf' ]` 里的 `out/report.pdf`
+    // 被从中间的斜杠起匹配，截出一条点开必然 404 的残片。修法是把裸斜杠前缀
+    // 拆成独立的 SLASH_PATH_RE，左边界改**白名单**（只认行首/空白/引号/括号/标点）。
+    // lookbehind 挡掉盘符后的斜杠，否则 `D:/out/a.png` 会再被截成 `/out/a.png`。
+    fail('outputs.ts 必须把裸斜杠前缀拆成 SLASH_PATH_RE（白名单左边界 + 盘符 lookbehind）：'
+      + '排除式左边界会把 `pdf|/report.pdf` 里的相对路径截成残片')
+  } else if (/scan\(scrubbed, ALL_PREFIX_RE\)/.test(outputsSrc)) {
+    // 用户 2026-10-01 报的「产物点开路径永远不对」：卡里那条 index.html 来自
+    // `GET /index.html -> 404` —— 一条探测 URL 的命令，斜杠被 token 切分吃掉后
+    // 「index.html 在命令里被写出」成立，证据 2 就把它收成了产出物，右栏打开
+    // 空 tab、路径行原样显示 `/index.html`。裸斜杠与 URL path 段语法同构，
+    // 无法区分，所以证据 2 整类禁掉它；证据 1（落盘说明）保留。
+    fail('证据 2 不得扫 ALL_PREFIX_RE：`GET /index.html -> 404` 这类 URL 探活结果'
+      + '会被收成产出物（斜杠路径与 URL path 段同构，无法区分）')
+  } else if (!/DECLARED_PREFIX_RE = \[RESULT_PATH_RE\]/.test(outputsSrc)
+    || !/ALL_PREFIX_RE = \[RESULT_PATH_RE, SLASH_PATH_RE\]/.test(outputsSrc)) {
+    fail('两条证据必须各用各的正则集：证据 1 走 ALL_PREFIX_RE，证据 2 走 DECLARED_PREFIX_RE')
+  } else if (!/scan\(scrubbed, DECLARED_PREFIX_RE\)/.test(outputsSrc)) {
+    fail('证据 2 必须显式用 DECLARED_PREFIX_RE 扫（漏了它就会退回全量扫描，URL 残片复发）')
+  } else if (!/looksLikeOwnPathLine/.test(outputsSrc) || !/isCommentLikeLine/.test(outputsSrc)) {
+    // 2026-10-01 端到端实测（headless Chrome 连真实宿主）：读插件源码时，注释行
+    // 「脚本自己落盘」命中动词闸门 → 下一行 ` * 理由是 \`/index.html\` …` 被当成
+    // 落盘上下文 → 那个与产出无关的 /index.html 进了卡（点开正是空白 tab）。
+    // 两道门：① 注释/引用行不参与落盘上下文；② 下一行必须自己就像绝对路径。
+    fail('落盘上下文必须排除注释/引用行（isCommentLikeLine），且「下一行」必须自己'
+      + '就像绝对路径（looksLikeOwnPathLine）—— 否则读源码/文档时示例路径会被收成产出')
+  } else if (!/save\.sameLine/.test(outputsSrc) || !/save\.nextLine/.test(outputsSrc)) {
+    fail('证据 1 必须把「同一行」与「下一行」分开处理（同一行走全集，下一行收窄）')
+  } else if (!/TRANSIENT_DIR_RE/.test(outputsSrc) || !/isTransientOutputPath/.test(outputsSrc)
+    || !/!delivered && isTransientOutputPath\(path\)/.test(outputsSrc)) {
+    // 用户 2026-10-01：33/80 条失效路径来自 `_tmp/` —— 那是一致性中转约定目录，
+    // dsh-webui 清理器会定期清空它，列出来注定点不开。模型显式交付（present）
+    // 的例外：那是它自己声明的最终位置。
+    fail('outputs.ts 必须排除一次性中转目录 `_tmp/`（非交付路径），'
+      + '并放行 present 显式交付的同目录路径')
+  } else if (!/export type ProbeResult/.test(readFileSync(resolve(ROOT, 'src/client/open-preview.ts'), 'utf8'))
+    || !/probeWorkspaceFile/.test(readFileSync(resolve(ROOT, 'src/client/open-preview.ts'), 'utf8'))
+    || !/probeWorkspaceFiles/.test(readFileSync(resolve(ROOT, 'src/client/open-preview.ts'), 'utf8'))) {
+    // 用户 2026-10-01：点开永远不对的**表层**原因 —— 官方右栏对不存在的路径不报错，
+    // 只开一个空白 tab。所以打开前必须 stat 一次，把 missing 与「探测失败」分开。
+    fail('open-preview.ts 必须导出三态探测（exists / missing / unknown）：'
+      + '把探测失败也当成 missing 会让整卡在宿主降级时集体置灰')
+  } else if (!/workspace-file\/not-found/.test(readFileSync(resolve(ROOT, 'src/client/open-preview.ts'), 'utf8'))) {
+    fail('探测必须按 Host 的 not-found / not-regular-file 错误码判定 missing，'
+      + '其余错误一律 unknown')
+  } else if (!/probeWorkspaceFile\(path, \{ sessionId \}\)/.test(outputsCardSrc)) {
+    fail('产出物卡点击前必须 probeWorkspaceFile 一次（missing 就不开 tab）')
+  } else if (!/gonePaths/.test(outputsCardSrc) || !/setGonePaths/.test(outputsCardSrc)) {
+    // 用户 2026-10-01 的要求：「已失效的究竟文件还存不存在呢，不存在还显示出来干嘛，
+    // 我要的是真实有效的」。所以核对确认不存在的条目**直接从清单剔除**，不置灰、
+    // 不留行 —— 这张卡的全部价值是「点一下就看见」，列一条点不开的就是在骗人。
+    fail('产出物卡必须把核对确认不存在的条目从清单里剔除（gonePaths）：'
+      + '用户要的是真实有效的产出，不是一条点不开的「已失效」')
+  } else if (!/rawItems\.filter\(\(item\) => !gonePaths\.has\(item\.path\)\)/.test(outputsCardSrc)) {
+    fail('过滤必须作用在渲染清单上（items = rawItems.filter(不在 gonePaths)）')
+  } else if (/data-stale/.test(outputsCode) || /kr-out-row__stale/.test(outputsCode)) {
+    // 置灰保留那一版已被用户否掉：卡里不该再有失效态的行。
+    fail('产出物卡不得再渲染失效态行（data-stale / kr-out-row__stale 应已移除）')
+  } else if (!/data-pending/.test(outputsCode)) {
+    fail('核对尚未出结论的行要有 data-pending（轻微待定态），不能什么都不显示')
+  } else if (!/verdict === 'missing'/.test(outputsCardSrc) || !/unknown/.test(outputsCardSrc)) {
+    fail('只有 missing 才剔除：unknown（探测失败）必须保留 —— '
+      + '宿主降级时把整卡清空比留一条可能点不开的更糟')
+  } else if (!/allGone/.test(outputsCardSrc) || !/都已不在磁盘上/.test(outputsCardSrc)) {
+    fail('全被核对掉时要有专门空态（「都已不在磁盘上」），不能和「还没产出」说同一句话')
+  } else if (!/kr-out-row\[data-pending="true"\]/.test(code)) {
+    fail('待定态必须有不透明度样式（.kr-out-row[data-pending="true"]）')
+  } else if (!/hasWriteIntent/.test(outputsSrc) || !/WRITE_INTENT_RE/.test(outputsSrc)) {
+    // 2026-10-01 端到端实测：一条脚本写了 `"stat": "AGENTS.md"` 又把
+    // `"abs": "D:\\AI\\Dsh\\AGENTS.md"` 打到结果里 —— 名字在命令里、路径在结果里，
+    // 两道闸门全过，一个**只读**的 AGENTS.md 被当成了产出物。证据 2 必须再要求
+    // 命令带写入语义（重定向 / -OutFile / Set-Content / savefig / ffmpeg…），
+    // 否则 Test-Path、Get-Item、Select-String 这类读操作也会把文件名"写出来"。
+    fail('证据 2 必须要求命令带写入语义（hasWriteIntent / WRITE_INTENT_RE）：'
+      + '光看「文件名被写出」无法区分「打印」与「落盘」')
+  } else if (!/if \(!hasWriteIntent\(command\)\) return names/.test(outputsSrc)) {
+    fail('namesInCommand 必须先过写入语义闸门再收集文件名（顺序反了等于没加）')
+  } else if (!/output\\s\+file|to\\s\+\[/.test(outputsSrc) || !/mp4\|mkv\|mov/.test(outputsSrc)) {
+    // ffmpeg 的落盘行是 `Output #0, mp4, to 'out/video.mp4':`，没有 saved/导出
+    // 这类词；漏了它整批 ffmpeg 产出都进不了卡。
+    fail('SAVE_VERB_RE 必须认 ffmpeg 的落盘形态（`... to \'out/video.mp4\':`），'
+      + '否则 ffmpeg 产出整批漏报')
   } else if (!/record\.path \?\? record\.file_path \?\? record\.filePath/.test(outputsSrc)) {
     // 用户报的 BUG：产出物卡里那条 present 交付的 PDF 点开是「文件不存在」。
     // 根因是 present 的入参是 `files: [{ path, description }]` 对象数组，

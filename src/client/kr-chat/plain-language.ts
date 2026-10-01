@@ -625,19 +625,42 @@ export function humanIssue(errorText: string | undefined): string | undefined {
   return hit?.[1]
 }
 
-/** 从工具返回文本里认出「产出文件在哪」的那一个路径。 */
-const RESULT_PATH_RE = /(?:[A-Za-z]:[\\/]|\.{0,2}[\\/])[^\s"'`,;，。；、）)\]}>]+\.(?:png|jpe?g|webp|gif|bmp|avif|svg|ico|md|markdown|txt|log|json|jsonl|ya?ml|csv|tsv|html?|pdf|docx?|xlsx?|pptx?|mp[34]|wav|webm|mov|zip|7z|tar|gz)\b/gi
+/**
+ * 从工具返回文本里认出「产出文件在哪」的那一个路径。
+ *
+ * 与 outputs.ts 同一套判据（两边必须一致，否则同一份工具输出在产出物卡和操作
+ * 面板上会得到两种路径）。2026-10-01 用户报「点击后侧边栏打开的路径永远不对」
+ * 之后，两边**一起**收紧到同一口径：
+ *
+ *  · **只认自证前缀**（盘符 `D:/`）—— 自带「我是绝对路径」的证据，允许出现在
+ *    token 中间（`items: [ 'image|D:/out/a.png' ]`）。
+ *  · **相对路径整类不收**（`./`、`../`、`out/report.pdf`）。它们的基准是**命令
+ *    执行时的 cwd**，客户端拿不到（`cd sub && python x.py` 里的 `out/a.png` 落在
+ *    `sub/` 下），按会话工作区解析会指向一个**别处的**文件。实测那批
+ *    `../ui-chat/README.zh.md` 全是文档正文里的相对链接，没有一条是产出。
+ *  · **裸斜杠前缀（`/`）也不收**。`GET /index.html -> 404` 这类 URL 探活结果与
+ *    Unix 绝对路径语法同构、无法区分，而本机（Windows）真产出必带盘符 —— 收它
+ *    只会把 URL 的 path 段收成产出物（用户截图里那条 `index.html` 就是这么来的）。
+ *  · 左边界取排除式黑名单（`(?:^|[^A-Za-z0-9_.\\/:-])`）：起点必须落在真正的
+ *    token 开头，不能在 `pdf|D:/a.png` 这种中间被切断。
+ */
+const PATH_EXT = 'png|jpe?g|webp|gif|bmp|avif|svg|ico|md|markdown|txt|log|json|jsonl|ya?ml|csv|tsv|html?|pdf|docx?|xlsx?|pptx?|mp[34]|wav|webm|mov|zip|7z|tar|gz'
+/** 自证前缀：只认盘符（相对路径与裸斜杠已整类去掉，理由见上）。 */
+const RESULT_PATH_RE = new RegExp(
+  '(?:^|[^A-Za-z0-9_.\\\\/:-])((?:[A-Za-z]:[\\\\/])[^"\'`,;，。；、）)\\]}>|*?`]+?\\.(?:' + PATH_EXT + ')\\b)',
+  'gi',
+)
 
 /**
  * 工具返回文本 → 产出文件的路径（认不出返回 undefined）。
  *
- * 只认**带已知产出物扩展名**的绝对/相对路径，且取最后一个：工具结果通常先
+ * 只认**带已知产出物扩展名的绝对路径（盘符）**，且取最后一个：工具结果通常先
  * 说做了什么、最后才给落盘位置（`已保存到 D:\...\shot.png`），最后一条最接近
  * 「这一轮的产物」。不认裸文件名（没有分隔符的不取，避免把正文里的 `report.md`
- * 这种引用当成产出）。
+ * 这种引用当成产出），也不认相对路径与裸斜杠前缀（理由见 RESULT_PATH_RE 的注释）。
  *
- * URL 必须显式抹掉：正则里的 `/` 前缀会把 `https://cdn/a.png` 从 `//cdn/a.png`
- * 起匹配出来，得到一个看着像相对路径、点开必然 404 的片段。
+ * URL 必须显式抹掉：裸斜杠分支会把 `https://cdn/a.png` 从 `//cdn/a.png` 起匹配
+ * 出来，得到一个看着像相对路径、点开必然 404 的片段。
  * @param resultText - 工具返回文本。
  * @returns 路径，或 undefined。
  */
@@ -649,9 +672,13 @@ function filePathFromResult(resultText: string | undefined): string | undefined 
       /[a-z][a-z\d+.-]*:\/\/[^\s"'`,;，。；、）)\]}>]*/gi,
       (match) => ' '.repeat(match.length),
     )
-    const matches = scrubbed.match(RESULT_PATH_RE)
-    if (matches === null || matches.length === 0) return undefined
-    const last = matches[matches.length - 1]
+    // 只扫自证前缀那一条（盘符），取**最后**命中的那一个：工具结果通常先说做了
+    // 什么、最后才给落盘位置，最后一条最接近「这一轮的产物」。
+    let last: string | undefined
+    for (const match of scrubbed.matchAll(RESULT_PATH_RE)) {
+      const captured = match[1]
+      if (captured !== undefined && captured !== '') last = captured
+    }
     if (last === undefined) return undefined
     // 去掉尾部可能粘上的句点（`x.png.` 这种句末标点）。
     return last.replace(/[.。]+$/, '') || undefined

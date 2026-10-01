@@ -21,7 +21,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { useHeightAnimation, useMotionAllowed } from '../motion-utils.ts'
-import { tryOpenInSidebar } from '../open-preview.ts'
+import { probeWorkspaceFile, probeWorkspaceFiles, tryOpenInSidebar } from '../open-preview.ts'
+import type { ProbeResult } from '../open-preview.ts'
 import { workspaceCwdOf } from '../client-ctx.ts'
 import type { OutputKind, OutputItem, OutputsView } from './outputs.ts'
 
@@ -195,12 +196,61 @@ export const KrOutputsCard = memo(function KrOutputsCard({
   const [codeOpen, setCodeOpen] = useState(false)
   const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(open, motion)
 
-  const items = outputs.items
-  const code = outputs.code
+  /*
+   * 核对结论：这张卡**只列磁盘上真实存在的文件**。
+   *
+   * 为什么必须核对（2026-10-01）：卡里的路径是从工具输出里**推断**出来的，
+   * 不是模型声明的交付 —— 推断会错（URL 路径段、命令当时的 cwd、已被清理的
+   * 中转目录、后来被移走的文件）。而官方右栏对不存在的路径不报错，只会开一个
+   * 空白 tab、路径行显示原始字符串，用户看到的就是「点开的位置永远不对」。
+   * 所以挂载后核对一遍，**确认不存在的直接不列** —— 这张卡的全部价值是
+   * 「点一下就看见」，列一条点不开的条目就是在骗人。
+   *
+   * 两份额外状态：
+   *   · `gonePaths` —— 已确认不存在，从清单里剔除，不再渲染；
+   *   · `checkedPaths` —— 已确认存在，用于把「核对中」的半透明态收掉。
+   * 两者都是**只增不减**：探测分批异步返回，后到的一批不该把先到的结论擦掉。
+   */
+  const [gonePaths, setGonePaths] = useState<ReadonlySet<string>>(() => new Set())
+  const [checkedPaths, setCheckedPaths] = useState<ReadonlySet<string>>(() => new Set())
+  /**
+   * 探测结论缓存：同一路径只探一次（含「挂载体检」那次）。
+   *
+   * **缓存自带会话标识**，不靠 effect 去清。原因：会话切换时 render 先于 effect
+   * 发生，`probeTargets` 在 render 期就会读这份缓存 —— 若它还是上一会话的结论，
+   * 新会话里同名相对路径会被直接跳过核对（同一路径查缓存 → 判定「已探过」），
+   * 从此永远不核对。带上 sid 后，跨会话的旧结论一律视为不存在。
+   */
+  const probeCacheRef = useRef<{ sid: string | null; map: Map<string, ProbeResult> }>(
+    { sid: sessionId, map: new Map() },
+  )
+  if (probeCacheRef.current.sid !== sessionId) {
+    probeCacheRef.current = { sid: sessionId, map: new Map() }
+  }
+  const probeCache = probeCacheRef.current.map
+
+  const rawItems = outputs.items
+  const rawCode = outputs.code
+  /** 过滤后的清单 —— 卡片的唯一真相源（计数、空态、渲染都读它）。 */
+  const items = useMemo(
+    () => rawItems.filter((item) => !gonePaths.has(item.path)),
+    [rawItems, gonePaths],
+  )
+  const code = useMemo(
+    () => rawCode.filter((path) => !gonePaths.has(path)),
+    [rawCode, gonePaths],
+  )
   const maxVisible = squeezed ? MAX_VISIBLE_SQUEEZED : MAX_VISIBLE
   const visible = showAll ? items : items.slice(0, maxVisible)
   const hiddenCount = items.length - visible.length
   const empty = items.length === 0 && code.length === 0
+  /** 全被核对掉（做过、但现在一个都不在了）：空态文案要说得不一样。 */
+  const allGone = empty && (rawItems.length > 0 || rawCode.length > 0)
+  /** 「核对中」＝ 还没有结论（既没确认存在，也没被剔除）。 */
+  const isPending = useCallback(
+    (path: string) => !gonePaths.has(path) && !checkedPaths.has(path),
+    [gonePaths, checkedPaths],
+  )
 
   /*
    * 内容收敛时把两个展开态收回默认。
@@ -209,8 +259,12 @@ export const KrOutputsCard = memo(function KrOutputsCard({
    * codeOpen 还留着上一份的状态：上一会话点开过「展开其余」，新会话一进来就是
    * 展开的，而用户从没在这里点过。用「成品数 + 代码数」做探针，两者同时归零
    * （= 换了一份空内容）或代码清单消失时收回。
+   *
+   * 探针读**原始** outputs，不是过滤后的 items —— 核对剔除几条会让过滤后长度
+   * 下降，若拿它当探针，用户刚点开「展开其余」就会被收回展开态（他没做任何事，
+   * 行却自己收起）。剔除是同一份内容的收窄，不是换了一份内容。
    */
-  const probe = `${items.length}:${code.length}`
+  const probe = `${rawItems.length}:${rawCode.length}`
   const lastProbeRef = useRef(probe)
   useEffect(() => {
     const last = lastProbeRef.current
@@ -218,18 +272,122 @@ export const KrOutputsCard = memo(function KrOutputsCard({
     if (last === probe) return
     // 只在「内容换了一份」时收回，条数增长（同一会话继续产出）不打扰用户。
     const [lastItems, lastCode] = last.split(':').map(Number)
-    if (items.length < (lastItems ?? 0) || code.length < (lastCode ?? 0)) {
+    if (rawItems.length < (lastItems ?? 0) || rawCode.length < (lastCode ?? 0)) {
       setShowAll(false)
       setCodeOpen(false)
     }
-  }, [probe, items.length, code.length])
+  }, [probe, rawItems.length, rawCode.length])
 
-  const openPath = useCallback((path: string) => {
-    // 静默失败：右栏服务不可用（旧宿主）时什么都不做，绝不弹错误框 ——
-    // 这一行本来只是加速通道，不是必经之路（与操作面板那枚入口同一约定）。
+  /*
+   * 挂载后核对一遍（并发、逐个降级）。
+   *
+   * 探**当前露出的那几条**（含代码清单展开后的），不是整份清单：这张卡默认只显示
+   * 6 行，替看不见的行付一次往返没有意义；用户点「展开其余」时那些行会进入
+   * visible 并触发本 effect 补探。
+   *
+   * 会话切换（sessionId 变）要把缓存与结论一起清掉 —— 同一个相对路径在两个会话
+   * 下指向不同文件，跨会话复用结论会剔错行。
+   */
+  /*
+   * 核对**当前露出的每一行**（含代码清单展开后的），不是整份清单。
+   *
+   * 「每一行」是硬要求：这张卡的契约是「看得见的条目都真实存在」，所以只要一行
+   * 会渲染出来，它就必须被核对过 —— 曾经按上限截断过 12 条，结果「展开其余」
+   * 之后超出的行永远停在待定态（半透明、没结论）。默认只显示 6 行，代价本来就小；
+   * 展开后行数虽多，但已核对过的会经 probeCacheRef 过滤掉，不会重复往返。
+   *
+   * 会话切换（sessionId 变）要把缓存与结论一起清掉 —— 同一个相对路径在两个会话
+   * 下指向不同文件，跨会话复用结论会剔错行。
+   */
+  const probeTargets = useMemo(() => {
+    const paths: string[] = []
+    for (const item of visible) paths.push(item.path)
+    if (codeOpen) for (const path of code) paths.push(path)
+    // 已有结论的不再探测：展开/收起会让 visible 反复变化，去重避免来回打请求。
+    // 依赖里带上 gonePaths/checkedPaths —— ref 变化不触发重算，而这两个 state
+    // 正是「结论已经拿到」的信号；漏了它们，收起再展开会对同一路径重复往返。
+    return paths.filter((path) => !probeCache.has(path))
+  }, [visible, codeOpen, code, gonePaths, checkedPaths, probeCache])
+  const probeKey = probeTargets.join('\u0000')
+
+  /*
+   * 会话切换：清掉结论（缓存已由上面的 sid 比对换新）。
+   *
+   * gonePaths/checkedPaths 是 state，必须显式清 —— 否则新会话里会被上一会话的
+   * 剔除名单误伤。
+   */
+  useEffect(() => {
+    setGonePaths(new Set())
+    setCheckedPaths(new Set())
+  }, [sessionId])
+
+  useEffect(() => {
+    if (probeTargets.length === 0) return
+    let cancelled = false
+    void (async () => {
+      const results = await probeWorkspaceFiles(probeTargets, { sessionId })
+      if (cancelled) return
+      const gone = new Set<string>()
+      const settled = new Set<string>()
+      for (const [path, verdict] of results) {
+        // 三种结论都算「问过了」：缓存挡住重复请求，settled 收掉待定的半透明态。
+        // unknown（宿主降级 / 载体中断）是「没探成」，不是「文件没了」—— 它**不剔除**
+        // （宁可留一条可能点不开的，也不能在探测失败时把用户的产出清空），但也不该
+        // 永远挂着待定外观：问过就是问过了，按可点处理，把决定权交回给右栏。
+        probeCache.set(path, verdict)
+        settled.add(path)
+        if (verdict === 'missing') gone.add(path)
+      }
+      if (gone.size > 0) {
+        setGonePaths((prev) => {
+          const next = new Set(prev)
+          for (const path of gone) next.add(path)
+          return next
+        })
+      }
+      if (settled.size > 0) {
+        setCheckedPaths((prev) => {
+          const next = new Set(prev)
+          for (const path of settled) next.add(path)
+          return next
+        })
+      }
+    })()
+    return () => { cancelled = true }
+    // probeTargets 每帧都是新数组，用拼好的 key 做依赖。
+  }, [probeKey, sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openPath = useCallback(async (path: string) => {
+    /*
+     * 打开前再确认一次（缓存命中就不重复请求）。
+     *
+     * 体检是挂载那一刻的快照，文件可能在之后被删/被移走；而官方右栏对不存在的
+     * 路径不报错，只会开一个空白 tab。所以点下去之前再问一次：确认不在就当场
+     * 把这行从清单里剔掉（它会自然消失），不开空 tab。
+     *
+     * 只有 `missing` 才剔除 —— `unknown` 照常打开，把决定权交回给右栏。
+     */
+    const known = probeCache.get(path)
+    const verdict: ProbeResult = known ?? await probeWorkspaceFile(path, { sessionId })
+    probeCache.set(path, verdict)
+    if (verdict === 'missing') {
+      setGonePaths((prev) => {
+        if (prev.has(path)) return prev
+        const next = new Set(prev)
+        next.add(path)
+        return next
+      })
+      return
+    }
+    // 问过了（exists 或 unknown）：收掉待定外观。
+    setCheckedPaths((prev) => (prev.has(path) ? prev : new Set(prev).add(path)))
     tryOpenInSidebar(path, { sessionId, cwd: workspaceCwdOf(sessionId) })
   }, [sessionId])
 
+  /*
+   * 计数读**过滤后**的清单（items / code），不是 outputs 原始值 —— 剔除的失效
+   * 条目不该被算进「N 项」，否则头部的数字和下面的行数对不上，用户数一遍就懵。
+   */
   const header = useMemo(() => {
     if (empty) return '0 项'
     if (code.length === 0) return `${items.length} 项`
@@ -277,7 +435,9 @@ export const KrOutputsCard = memo(function KrOutputsCard({
           {...(!open ? { inert: '' } : {})}
         >
           {empty ? (
-            <div className="kr-out-empty">本次会话还没有产出文件</div>
+            <div className="kr-out-empty">
+              {allGone ? '本次会话产出的文件都已不在磁盘上' : '本次会话还没有产出文件'}
+            </div>
           ) : (
             <>
               {visible.length > 0 && (
@@ -287,7 +447,7 @@ export const KrOutputsCard = memo(function KrOutputsCard({
                       key={item.path}
                       item={item}
                       index={index}
-                      sessionId={sessionId}
+                      pending={isPending(item.path)}
                       onOpen={openPath}
                     />
                   ))}
@@ -327,7 +487,7 @@ export const KrOutputsCard = memo(function KrOutputsCard({
                           key={path}
                           item={{ path, name: path.split(/[/\\]/).filter(Boolean).at(-1) ?? path, kind: 'code' }}
                           index={index}
-                          sessionId={sessionId}
+                          pending={isPending(path)}
                           onOpen={openPath}
                           nested
                         />
@@ -366,11 +526,15 @@ export const KrOutputsCard = memo(function KrOutputsCard({
  *
  * 悬停时右侧浮现一枚箭头（纯视觉、aria-hidden）：承担「这里能点」的提示，
  * 但不占按钮位、不进无障碍树 —— 读屏用户听到的是整行的 aria-label。
+ *
+ * `pending` 是**核对尚未出结论**：这一行刚上屏、还没问过磁盘。此时只要一点点
+ * 低对比度（`data-pending`）而不是置灰 —— 绝大多数文件是活的，一瞬间的待定态
+ * 不该看起来像出了事。结论是「不存在」的行根本不会走到这里（已被剔除）。
  */
-function OutputRow({ item, index, sessionId, onOpen, nested = false }: {
+function OutputRow({ item, index, pending = false, onOpen, nested = false }: {
   readonly item: OutputItem
   readonly index: number
-  readonly sessionId: string | null
+  readonly pending?: boolean
   readonly onOpen: (path: string) => void
   readonly nested?: boolean
 }): ReactElement {
@@ -379,6 +543,7 @@ function OutputRow({ item, index, sessionId, onOpen, nested = false }: {
       type="button"
       className="kr-out-row"
       data-kind={item.kind}
+      data-pending={pending ? 'true' : undefined}
       data-nested={nested ? 'true' : undefined}
       title={item.path}
       aria-label={`预览 ${item.name}`}

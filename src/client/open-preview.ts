@@ -68,6 +68,114 @@ interface SidebarRightLike {
   openResource?: (address: string, options?: unknown) => void
 }
 
+/* ── 路径存在性探测 ───────────────────────────────────────────────────── */
+
+/**
+ * 一次存在性探测的结论。
+ *
+ * 三态是刻意的：`unknown` 与 `missing` 必须分开。把「服务不可用 / 网络抖动 /
+ * 权限拒绝」也当成 missing，会让整张产出物卡在宿主降级时集体置灰 —— 用户看到
+ * 的是「我的文件全没了」，而实际只是探测没跑成。
+ */
+export type ProbeResult = 'exists' | 'missing' | 'unknown'
+
+/** Host 明确回答「这里没有这个文件」的错误码。 */
+const NOT_FOUND_CODES = new Set(['workspace-file/not-found', 'workspace-file/not-regular-file'])
+
+/** workspaceFiles 服务的最小面（只用到 stat）。 */
+interface WorkspaceFilesLike {
+  stat?: (scope: string, path: string, signal?: AbortSignal) => Promise<unknown>
+}
+
+/**
+ * 取官方 `workspaceFiles` 客户端服务。
+ *
+ * 两条路都要试：Gateway 把每个 Remote 命名空间注册成独立 Service（键名
+ * `remote.<namespace>`），而根 `remote` 服务本身也可能挂着同名命名空间属性。
+ * 只在其中一条上找，宿主版本一变就整个失效。
+ *
+ * ⚠ 每条路都必须单独 try/catch：cordis 的 ctx 是 Proxy，**读一个未在 inject
+ * 白名单里声明的属性会直接抛** `cannot get property "x" without inject`。
+ * 实测（2026-10-01，headless Chrome 连真实宿主）：`ctx.get('remote')` 本身成功，
+ * 但紧接着读 `remote.workspaceFiles` 就抛这个错 —— 不包住的话，第一条路一旦
+ * 失效，异常会从探测函数里穿出去，整张卡挂载时炸掉。
+ * @returns 服务，或 undefined。
+ */
+function workspaceFilesService(): WorkspaceFilesLike | undefined {
+  for (const name of ['remote.workspaceFiles', 'remote']) {
+    let candidate: Record<string, unknown> | undefined
+    try {
+      candidate = getService<Record<string, unknown>>(name)
+    } catch {
+      continue
+    }
+    if (candidate === undefined || candidate === null) continue
+    try {
+      if (typeof candidate.stat === 'function') return candidate as WorkspaceFilesLike
+      const nested = candidate.workspaceFiles
+      if (typeof nested === 'object' && nested !== null && typeof (nested as WorkspaceFilesLike).stat === 'function') {
+        return nested as WorkspaceFilesLike
+      }
+    } catch {
+      // 未 inject 的属性读了就抛：这条跳过，试下一条。
+      continue
+    }
+  }
+  return undefined
+}
+
+/**
+ * 探测一个路径当前是否真的存在（走官方 `workspaceFiles.stat`）。
+ *
+ * 为什么要探测：产出物卡里的路径是**从工具输出里推断**出来的，不是模型显式
+ * 声明的交付。推断会错（URL 路径段、命令当时的工作目录、`_tmp/` 中转已清理），
+ * 而官方右栏对不存在的路径只会打开一个空白 tab、路径行显示原始字符串 —— 用户
+ * 会以为「打开的位置不对」，实际是那个文件根本不在那儿。
+ *
+ * 全部失败路径都收敛成 `unknown`（绝不抛，也绝不误判成 missing）：探测只是
+ * 锦上添花，拿不到结论时按「可以点」处理，把决定权交回给右栏。
+ *
+ * @param path - 绝对路径或会话工作区相对路径。
+ * @param options.sessionId - 会话 id；缺省时不探测。
+ * @returns 探测结论。
+ */
+export async function probeWorkspaceFile(path: string, options?: {
+  readonly sessionId?: string | null | undefined
+}): Promise<ProbeResult> {
+  const target = typeof path === 'string' ? path.trim() : ''
+  const sessionId = typeof options?.sessionId === 'string' ? options.sessionId : ''
+  if (target === '' || sessionId === '') return 'unknown'
+
+  const files = workspaceFilesService()
+  if (files === undefined || typeof files.stat !== 'function') return 'unknown'
+
+  try {
+    const result = await files.stat(sessionId, target) as {
+      ok?: boolean
+      error?: { code?: string } | null
+    } | undefined
+    if (result === undefined || result === null || typeof result !== 'object') return 'unknown'
+    if (result.ok === true) return 'exists'
+    const code = result.error?.code
+    if (typeof code === 'string' && NOT_FOUND_CODES.has(code)) return 'missing'
+    // 其余错误（未知工作区、超限、载体中断…）都不是「文件没了」的证据。
+    return 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+/** 批量探测：并发跑，逐个降级。用于卡片挂载后给可见条目做一次体检。 */
+export async function probeWorkspaceFiles(paths: readonly string[], options?: {
+  readonly sessionId?: string | null | undefined
+}): Promise<ReadonlyMap<string, ProbeResult>> {
+  const out = new Map<string, ProbeResult>()
+  await Promise.all(paths.map(async (path) => {
+    out.set(path, await probeWorkspaceFile(path, options))
+  }))
+  return out
+}
+
 /** 一次打开的结果，供调用方决定是否降级。 */
 export interface OpenPreviewResult {
   /** 是否已交给右栏。 */

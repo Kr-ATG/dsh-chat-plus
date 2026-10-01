@@ -128,18 +128,116 @@ const EXT_ALTERNATION = Object.keys(KIND_BY_EXT)
   .join('|')
 
 /**
- * 结果文本里的成品路径。
+ * 结果文本里的成品路径（**自证前缀**那条：盘符、`./`、`../`）。
  *
- * 前缀必须是**盘符或分隔符**（`D:\`、`/`、`./`、`../`）：裸文件名不算 ——
- * 结果里到处是 `report.md` 这种引用，认了就会把正文当产出。
- * 尾部的 `\b` 保证 `.png` 不会被 `.png1` / `.png_old` 骗过。
+ * 结构：**左边界** + **必选前缀** + **路径正文** + **扩展名**。四处都是实测踩出来的：
+ *
+ * ① **左边界**是必需的第一道保险。没有它，正则会在 `out/report.pdf` 里从中间的
+ *    `/` 起匹配，捞出一条 `/report.pdf` —— 点开必然 404。边界取「不可能是路径
+ *    开头」的那一类字符，于是匹配只能从 token 的开头起算。
+ *
+ * ② **前缀必须是盘符**（`D:/`）。这一条是从「可选」收窄两次来的：可选时
+ *    `Saved: D:/out/a.png` 会从动词 `Saved:` 起一路吃掉空格和正文，得到
+ *    `Saved: D:/out/a.png` 这种带动词的假路径；强制前缀把起点钉死在真正的路径
+ *    开头。后来 `.`/`..` 前缀也被去掉（2026-10-01）—— 理由见下面「相对路径整类
+ *    不收」那段注释：相对路径的基准是**命令执行时的当前目录**，客户端无从得知。
+ *
+ * ③ **正文非贪婪且允许中间空格**：非贪婪保证 `D:/a.png D:/b.png` 切成两条而不是
+ *    吞成一条；允许空格是因为中文文件名常带空格（`我的 报告.pdf`），一律禁空格
+ *    会把这类真产出整批漏掉。空格只允许「后面还跟着非空格字符」的单个，连续
+ *    空格视为路径结束。
+ *
+ * ④ 尾部 `\b` 保证 `.png` 不会被 `.png1` / `.png_old` 骗过。
+ *
+ * ⑤ **裸斜杠前缀（`/`）不在这一条里** —— 它被拆到 SLASH_PATH_RE。原因见那条的
+ *    注释：盘符自带「这是路径开头」的自证，斜杠没有，夹在 token 中间时是切断
+ *    残片。这是 2026-10-01 修掉的第二个 `/report.pdf` 来源。
  */
+const PATH_CHARS = '[^"\'`,;，。；、）)\\]}>|*?\u0060\\s]'
+const PATH_BODY = `${PATH_CHARS}+?(?:\\s${PATH_CHARS}+?)*?`
 const RESULT_PATH_RE = new RegExp(
-  '(?:[A-Za-z]:[\\\\/]|\\.{0,2}[\\\\/])'
-  + '[^\\s"\'`,;，。；、）)\\]}>|*?\u0060]+?'
-  + '\\.(?:' + EXT_ALTERNATION + ')\\b',
+  '(?:^|[^A-Za-z0-9_.\\\\/:\\-])'
+  + '((?:[A-Za-z]:[\\\\/])'
+  + PATH_BODY
+  + '\\.(?:' + EXT_ALTERNATION + ')\\b)',
   'gi',
 )
+
+/**
+ * **裸斜杠前缀**（`/`、`\`）的成品路径 —— 只认出现在**明确边界**后的那一个。
+ *
+ * ⚠ 2026-10-01 起，这条**只在证据 1（落盘说明）里用**，不再参与证据 2。
+ * 理由是 `/index.html` 那个 BUG：一条探测 URL 的命令
+ * （`foreach($p in @("/","/index.html",…)){ Invoke-WebRequest "http://host$p" }`）
+ * 的结果行 `GET /index.html -> 404` 被证据 2 收下 —— 命令原文里确实"写出"了
+ * `index.html`（斜杠被 token 切分吃掉），于是卡里多出一条点开必然空白的产出物，
+ * 右栏路径行原样显示 `/index.html`。这**不是路径**，是 URL 的 path 段。
+ * 区分二者在语法上不可能（`GET /a.png` 与 `cat /a.png` 同构），所以在**证据 2**
+ * 这条更松的通道里整类禁掉：它本来兜的是「路径由变量拼出来」的脚本产出，而那类
+ * 产出必带盘符（Windows）或落在证据 1 的落盘说明里（Unix）。
+ * 证据 1 保留本条：`Saved: /tmp/out/v.mp4` 是模型自述的落盘，可信度高得多。
+ *
+ * 为什么必须与自证前缀那条分开：`/` 不像盘符那样能自证「我是路径的开头」。格式化
+ * 输出里到处是 `items: [ 'pdf|/report.pdf' ]`、`path=/result.csv` 这种形状 —— 那个
+ * 斜杠原本是相对路径 `out/report.pdf` 的分隔符，被切断后残留在分隔符（`|`、`=`）
+ * 后面。上一条的排除式左边界恰好把 `|`、`=` 这类「不可能是路径开头」的字符放行
+ * 了，于是卡片上出现一条点开必然 404 的假路径。这正是用户 2026-10-01 报的
+ * 「产出物路径不全」：`/report.pdf` 看着像路径，实际是残片。
+ *
+ * 判据改成白名单：左边界只能是行首、空白、引号、括号、逗号/分号这类**真分隔符**。
+ * Unix 绝对路径（`/var/log/report.pdf`、`to '/tmp/out/v.mp4':`）全部落在白名单里，
+ * 不受影响；而 `pdf|/report.pdf` 的 `|` 不在白名单，直接不进。
+ *
+ * 白名单**刻意不含冒号、等号与反引号**，三个都是实测踩出来的：
+ *  · 冒号与等号 —— `path=/result.csv`、`key:/report.pdf` 与「真 Unix 绝对路径」
+ *    （`--out=/data/x.pdf`）语法完全同构，无法区分；而前者在真实输出里是**残片**
+ *    （原路径 `out/result.csv` 被从中间的斜杠切开），后者在本机（Windows）产出里
+ *    根本不存在。按「宁可漏，不可错」去掉。
+ *  · 反引号 —— 它是 Markdown 的**引用标记**，不是路径边界：注释里那句
+ *    「捞出一条 \`/report.pdf\` —— 点开必然 404」讲的是示例，不是产出。放行反引号
+ *    会把这类说明性文字里的路径捞进卡（实测：git diff 的注释行就被捞过一次）。
+ *    真正的落盘说明不用反引号包裹（`Saved: out/x.pdf`、`to '/tmp/v.mp4':`）。
+ * 注意这三条都不影响盘符路径：`已保存：D:/out/x.png` 由上面那条自证前缀正则
+ * 处理，与白名单无关。
+ *
+ * `(?<![A-Za-z]:)` 是必需的：没有它，`D:/out/a.png` 会在盘符后的斜杠处被本条
+ * 重复匹配一次，得到 `/out/a.png` —— 修掉一个残片又造出另一个。盘符路径归上一条。
+ */
+const SLASH_PATH_RE = new RegExp(
+  '(?:^|[\\s"\'（(\\[，,;；])'
+  + '(?<![A-Za-z]:)'
+  + '([\\\\/]'
+  + PATH_BODY
+  + '\\.(?:' + EXT_ALTERNATION + ')\\b)',
+  'gi',
+)
+
+/**
+ * **相对路径整类不收**（2026-10-01）。
+ *
+ * 这里原来有一条 BARE_PATH_RE，专门在「落盘说明」那一行里补 `Saved: out/report.pdf`
+ * 这类无前缀相对路径。现在整条路删掉，理由是**基准目录客户端拿不到**：
+ *
+ *  · 相对路径相对的是**命令执行时的当前工作目录**，不是会话工作区。
+ *    `cd sub && python x.py` 里脚本写的 `out/a.png` 落在 `sub/out/a.png`，
+ *    而卡里按工作区拼成 `<cwd>/out/a.png` —— 指向一个**别处的**文件（存在时
+ *    打开错文件，不存在时打开空白页，两种都比"不显示"更糟）。
+ *  · 同一形态还有 `./` `../`（RESULT_PATH_RE 里也已去掉前缀）。实测数据里这类
+ *    条目**没有一条是产出**：`../ui-chat/README.zh.md` 是文档正文里的相对链接，
+ *    被工具结果原样回显后捞进来的。
+ *  · `open-preview` 那侧的 `fileAddressFor` 同样把相对路径当「相对会话工作区」
+ *    解析，两边假设不一致，修一边没用。
+ *
+ * 代价：脚本用相对路径落盘的产出会漏（`Saved: out/report.pdf` 不再上卡）。
+ * 这是刻意的取舍 —— 这张卡的全部价值是「点一下就看见」，列出点开是错文件的条目
+ * 比不列更伤。要收这类产出，模型应当用绝对路径或 `present` 显式交付（该工具
+ * 的路径走 ARG_PATH_TOOLS，不受本条影响）。
+ */
+
+/** 捕获到的路径是否真的像路径（至少含一个分隔符，排除正文里的纯文件名）。 */
+function hasSeparator(path: string): boolean {
+  return path.includes('/') || path.includes('\\')
+}
 
 /**
  * DSH 自己的 **spill 目录**（`%TEMP%/dsh-spill-<6 位>/session-<12 位 hex>/`）。
@@ -165,8 +263,14 @@ const SPILL_PATH_RE = /[/\\]dsh-spill-[^/\\]*[/\\]/i
  * 真正需要靠结果文本才能拿到路径的场景只有一类：**脚本自己落盘**
  * （Blender 渲染、Python 画图、ffmpeg 导出）—— 这类输出必然带一句落盘说明
  * （`Saved: '…'`、`已保存到 …`）。所以认这句说明就够，且不会误伤列表输出。
+ *
+ * 表里几个不显眼的形态都是实测补的：
+ *  · `Output #0, mp4, to 'out/video.mp4':` —— ffmpeg 的落盘行，没有 saved/导出
+ *    这类词，漏了它整批 ffmpeg 产出都进不了卡；
+ *  · `Figure saved to …` —— matplotlib 的写法，靠 `saved` 命中；
+ *  · `wrote out/result.csv` —— 自定义脚本的简写。
  */
-const SAVE_VERB_RE = /(?:保存(?:到|至|成|在|为)|已保存|写入(?:到|至|了)?|已写入|输出(?:到|至|了)|已输出|导出(?:到|至|了)?|已导出|生成(?:到|至|了)|已生成|落盘|下载到|另存为|\bsaved\b|\bwritten\b|\bexported\b|\bwrote\b|\boutput\s+file\b|\bgenerated\b|\bstored\s+at\b)/i
+const SAVE_VERB_RE = /(?:保存(?:到|至|成|在|为)|已保存|写入(?:到|至|了)?|已写入|输出(?:到|至|了)|已输出|导出(?:到|至|了)?|已导出|生成(?:到|至|了)|已生成|落盘|下载到|另存为|\bsaved\b|\bwritten\b|\bexported\b|\bwrote\b|\bwriting\b|\boutput\s+file\b|\bgenerated\b|\bstored\s+at\b|\bto\s+['"]?[^\s'"]+\.(?:mp4|mkv|mov|webm|mp3|wav|png|jpe?g|gif|pdf)\b)/i
 
 /**
  * 落盘说明所在的**行**才允许取路径；命中后连同**下一行**一起看。
@@ -174,18 +278,121 @@ const SAVE_VERB_RE = /(?:保存(?:到|至|成|在|为)|已保存|写入(?:到|�
  * 为什么带一行：`ffmpeg`、`blender` 这类工具常把说明与路径分行打印
  * （`Saved:` 换行后才是文件名）。多带一行能兜住，而"整份文本只要含动词就全取"
  * 又太松（列表输出里只要有一行提到"保存"就全放行了）。
+ *
+ * ⚠ 下一行的**前缀路**（盘符/斜杠）不再无条件放行 —— 见 pathsInSaveContext 的
+ * 返回值与调用点。2026-10-01 实测：读源码时注释行写着「脚本自己落盘」，它命中
+ * 动词闸门，而**下一行**恰好是 ` * 理由是 \`/index.html\` 那个 BUG` —— 于是这个
+ * 与产出毫无关系的 `/index.html` 进了卡，点开正是用户报的「空白 tab」。
+ * 分行动印（`Saved:` 单独一行、路径在下一行）保留，但它必须自己像路径。
  */
-function pathsInSaveContext(text: string): string[] {
+function pathsInSaveContext(text: string): { readonly sameLine: readonly string[]; readonly nextLine: readonly string[] } {
   const lines = text.split('\n')
-  const picked: string[] = []
+  const sameLine: string[] = []
+  const nextLine: string[] = []
   for (const [index, line] of lines.entries()) {
     if (!SAVE_VERB_RE.test(line)) continue
-    picked.push(line)
+    // 注释/引用行整行跳过：读源码、读文档时正文里满是「落盘 / 写入 / 导出」，
+    // 而它们所在的注释行常在同一行里就带着示例路径（`* 例：已保存到 D:/a.png`）。
+    // 真实的落盘输出不会以注释标记开头。
+    if (isCommentLikeLine(line)) continue
+    sameLine.push(line)
     const next = lines[index + 1]
-    if (next !== undefined) picked.push(next)
+    if (next !== undefined) nextLine.push(next)
   }
-  return picked
+  return { sameLine, nextLine }
 }
+
+/**
+ * 这一行是否以注释/引用标记开头（代码注释、Markdown 引用块、HTML 注释）。
+ *
+ * ⚠ 必须先剥掉**检索输出的行号前缀**。2026-10-01 端到端实测：grep 的命中行是
+ * `190:    * 都不落盘：…`，那个 `190:` 让整行不再以 `*` 开头，于是这道门放行、
+ * 落盘动词又命中，随后的源码行被当成落盘上下文 —— 读自己源码时卡里就多出
+ * 一堆 `D:/out/a.png`、`/报告.pdf` 这类**文档示例路径**。
+ * 行号形态按 ripgrep / grep -n / Select-String 三种实际输出取：`数字:`、`数字-`、
+ * `路径:数字:`。
+ * @param line - 结果文本里的一行。
+ * @returns 是否是注释/引用行。
+ */
+function isCommentLikeLine(line: string): boolean {
+  const stripped = line
+    .trim()
+    // `190:` / `190-`（grep -n、ripgrep 的上下文行用 `-`）
+    .replace(/^\d+[:\-]/, '')
+    // `src/x.ts:190:` / `src\x.ts:190:`（Select-String、ripgrep 带文件名）
+    .replace(/^[^\s:]+:\d+[:\-]/, '')
+    .trim()
+  return /^(?:\*|\/\/|#|<!--|--)/.test(stripped)
+}
+
+/**
+ * 一行文本是否**自己就写着一条绝对路径**（盘符或斜杠开头）。
+ *
+ * 给「落盘说明的下一行」用的判据：分行动印确实存在（`Saved:` 换行后是路径），
+ * 但只有这一行本身像路径，才认它。否则读源码/读文档时任何含「落盘 / 写入 /
+ * 导出」的说明行都会把下一行的示例路径拖进卡。
+ *
+ * 判据取「自证前缀」而**不是** `scan()` 的全集：裸斜杠在正文里到处是
+ * （Markdown 链接、URL path 段、代码注释），必须靠动词那句的自证来兜。
+ */
+function looksLikeOwnPathLine(line: string): boolean {
+  const trimmed = line.trim()
+  if (trimmed === '') return false
+  // 以注释/引用标记开头的行不是落盘输出（` * …`、`// …`、`# …`、`<!-- …`，
+  // 含 grep 行号前缀的形态）。
+  if (isCommentLikeLine(line)) return false
+  // 行号前缀同样要剥掉再看路径：`12: D:/out/a.png` 是一条落盘输出。
+  const body = trimmed.replace(/^\d+[:\-]/, '').replace(/^[^\s:]+:\d+[:\-]/, '').trim()
+  return /^[A-Za-z]:[\\/]/.test(body) || /^\\\\/.test(body) || body.startsWith('/')
+}
+
+/**
+ * 命令原文里是否存在**写入语义**。
+ *
+ * 这是「证据 2」的前置闸门：证据 2 的判据是「文件名在命令里被写出」，但**查询**、
+ * **打印**、**断言**同样会把文件名写出来（`"stat": "AGENTS.md"`、`Test-Path a.png`），
+ * 光看名字无法区分。加一道写入动词后，只有真的要落盘的命令才会放行。
+ *
+ * 取的都是各 shell 里**唯一指向写操作**的形态：
+ *  · 重定向 `>` / `>>` / `-OutFile` / `-o ` / `--output` —— 最硬的自证；
+ *  · `Join-Path` + `Save(` / `.Save` / `WriteAllText` 这类 .NET 落盘 API；
+ *  · `Set-Content` / `Out-File` / `New-Item` / `Copy-Item` / `Move-Item` /
+ *    `tee` / `dd of=` / `cp` / `mv` / `install`；
+ *  · Python 的 `savefig` / `open(..., 'w')` / `cv2.imwrite`；
+ *  · ffmpeg / blender 的输出参数。
+ *
+ * 刻意**不**包含 `Test-Path` / `Get-Item` / `Select-String` / `cat` / `type` ——
+ * 那些是读操作，正是要挡掉的那一类。
+ *
+ * @param command - 命令原文。
+ * @returns 是否像「要写文件」的命令。
+ */
+function hasWriteIntent(command: string): boolean {
+  return WRITE_INTENT_RE.test(command)
+}
+
+/** 写入语义正则（见 hasWriteIntent 的逐条说明）。 */
+const WRITE_INTENT_RE = new RegExp([
+  // 重定向与显式输出参数
+  String.raw`(?:^|[^>])>{1,2}(?!&)`,
+  String.raw`-OutFile\b`,
+  String.raw`(?:^|\s)-o\s`,
+  String.raw`--output(?:-document|-dir|-file)?[=\s]`,
+  // PowerShell / .NET 落盘
+  String.raw`\bSet-Content\b`, String.raw`\bAdd-Content\b`, String.raw`\bOut-File\b`,
+  String.raw`\bNew-Item\b`, String.raw`\bCopy-Item\b`, String.raw`\bMove-Item\b`,
+  String.raw`\bJoin-Path\b`, String.raw`\bSave\s*\(`, String.raw`\.Save\s*\(`,
+  String.raw`\bWriteAllText\b`, String.raw`\bWriteAllBytes\b`, String.raw`\bDownloadFile\b`,
+  String.raw`\bStart-BitsTransfer\b`, String.raw`\bInvoke-WebRequest\b`,
+  // POSIX
+  String.raw`\btee\b`, String.raw`\bdd\b[^\n]*\bof=`, String.raw`\bcp\b`, String.raw`\bmv\b`,
+  String.raw`\binstall\b`, String.raw`\btouch\b`, String.raw`\bmkdir\b`,
+  // Python / 脚本
+  String.raw`\bsavefig\s*\(`, String.raw`\bimwrite\s*\(`, String.raw`\bopen\s*\([^)]*['"][wa]`,
+  String.raw`\bto_csv\s*\(`, String.raw`\bto_excel\s*\(`, String.raw`\bwrite_text\s*\(`,
+  // 媒体工具
+  String.raw`\bffmpeg\b`, String.raw`\bblender\b`,
+].join('|'), 'i')
 
 /**
  * 从命令原文里取**被显式写出的文件名**（basename 集合）。
@@ -200,12 +407,19 @@ function pathsInSaveContext(text: string): string[] {
  * （尤其是**别的会话生成的文件**）绝不会出现在命令原文里 —— 这正是用户报的
  * 「产出物里出现不是我这次生成的文件」的根因。
  *
+ * ⚠ 光有名字还不够，命令必须带**写入语义**（见 hasWriteIntent）。2026-10-01
+ * 端到端实测到的反例：一条脚本里写了 `"stat": "AGENTS.md"`（把探测的路径名打印
+ * 出来），脚本又把 `"abs": "D:\\AI\\Dsh\\AGENTS.md"` 打到了结果里 —— 名字在命令
+ * 里、路径在结果里，两道闸门全过，于是一个**只读**的 AGENTS.md 被当成产出物。
+ * 「名字被提到」与「文件被写出来」是两件事，字符串字面量无法区分，只能看动词。
+ *
  * 只取带扩展名的 token：`*.png` 这种通配符天然匹配不上具体文件名，是刻意的
  * 保守取舍（宁可漏，不可误报）。
  */
 function namesInCommand(command: string): ReadonlySet<string> {
   const names = new Set<string>()
   if (command === '') return names
+  if (!hasWriteIntent(command)) return names
   for (const match of command.matchAll(/[^\s"'`,;，。；、）)\]}>|/\\]+/g)) {
     const token = match[0]
     const dot = token.lastIndexOf('.')
@@ -213,6 +427,25 @@ function namesInCommand(command: string): ReadonlySet<string> {
     names.add(token.toLowerCase())
   }
   return names
+}
+
+/**
+ * **中转临时路径**：工作区根下的 `_tmp/` 目录。
+ *
+ * 为什么整类不列（2026-10-01）：这是本工作区的**一次性中间产物**约定目录
+ * （临时脚本、探针、抓取结果、截图），dsh-webui 的清理器会定期自动清空它。
+ * 于是卡里那些 `_tmp/...` 条目**注定会烂**：实测 33/80 条失效路径来自这里，
+ * 点开是空白页。中转产物的正确归宿是 `present` 显式交付（搬到最终位置），
+ * 只写到 `_tmp/` 就没人认领它 —— 不列比列一条点不开的更有用。
+ *
+ * 例外：模型**显式交付**（`present`）的路径照列，哪怕它在 `_tmp/` 下 ——
+ * 那是模型自己声明的最终位置，判断权不在客户端。
+ */
+const TRANSIENT_DIR_RE = /(?:^|[/\\])_tmp[/\\]/i
+
+/** 这条路径是否落在一次性中转目录里。 */
+export function isTransientOutputPath(path: string): boolean {
+  return TRANSIENT_DIR_RE.test(path)
 }
 
 /** 路径里的扩展名（小写、不带点）；没有则空串。 */
@@ -409,31 +642,66 @@ function pathsFromResult(text: string, command = ''): string[] {
   const found: string[] = []
   const seen = new Set<string>()
 
-  const take = (source: string): void => {
-    for (const match of source.matchAll(RESULT_PATH_RE)) {
-      const path = normalizeOutputPath(match[0])
-      if (path === '') continue
-      const key = dedupeKey(path)
-      if (seen.has(key)) continue
-      seen.add(key)
-      found.push(path)
+  /**
+   * 扫一段文本，收下其中像路径的捕获组。
+   *
+   * 两处过滤，缺一条都会捞出错路径：取的是**捕获组 1**（左边界那个字符只是锚，
+   * 不能算进路径），再用 `hasSeparator` 挡掉正文里的纯文件名引用（`report.md`）。
+   *
+   * `regexes` 由调用方给：证据 1 走「盘符 + 裸斜杠」两条，证据 2 只走盘符那条
+   * （裸斜杠在证据 2 里是 URL path 段的同构形态，整类禁掉，见 SLASH_PATH_RE）。
+   */
+  const scan = (source: string, regexes: readonly RegExp[]): string[] => {
+    const out: string[] = []
+    for (const regex of regexes) {
+      for (const match of source.matchAll(regex)) {
+        const captured = match[1]
+        if (captured === undefined || captured === '') continue
+        const path = normalizeOutputPath(captured)
+        if (path === '' || !hasSeparator(path)) continue
+        out.push(path)
+      }
     }
+    return out
   }
 
-  // 证据 1：落盘说明所在的上下文行。
-  for (const line of pathsInSaveContext(scrubbed)) take(line)
+  const add = (path: string): void => {
+    const key = dedupeKey(path)
+    if (seen.has(key)) return
+    seen.add(key)
+    found.push(path)
+  }
+
+  const DECLARED_PREFIX_RE = [RESULT_PATH_RE]
+  const ALL_PREFIX_RE = [RESULT_PATH_RE, SLASH_PATH_RE]
+
+  /*
+   * 证据 1：落盘说明所在的上下文行。
+   *
+   * 两段用**不同**的正则集：
+   *  · 同一行 —— 动词与路径写在一起（`Saved: D:/out/a.png`、`to '/tmp/v.mp4':`），
+   *    整行可信，走全集（含裸斜杠，Unix 绝对路径落在这里）。
+   *  · 下一行 —— 仅当那一行**自己就像一条绝对路径**时才看，且仍只认自证前缀。
+   *    这是 2026-10-01 的补丁：不设这道门，读源码时「落盘」出现在注释里就会把
+   *    下一行的示例路径（`/index.html`）收进卡。
+   */
+  const save = pathsInSaveContext(scrubbed)
+  for (const line of save.sameLine) {
+    for (const path of scan(line, ALL_PREFIX_RE)) add(path)
+  }
+  for (const line of save.nextLine) {
+    if (!looksLikeOwnPathLine(line)) continue
+    for (const path of scan(line, DECLARED_PREFIX_RE)) add(path)
+  }
 
   // 证据 2：结果里出现的路径，其**文件名**在命令原文里被显式写过。
+  // 只认盘符路径 —— 裸斜杠在这条通道里会把 `GET /index.html -> 404` 这种
+  // URL 探活结果收成产出物（2026-10-01 实测的 BUG），见 SLASH_PATH_RE。
   if (declaredNames.size > 0) {
-    for (const match of scrubbed.matchAll(RESULT_PATH_RE)) {
-      const path = normalizeOutputPath(match[0])
-      if (path === '') continue
+    for (const path of scan(scrubbed, DECLARED_PREFIX_RE)) {
       const base = (path.split(/[/\\]/).filter(Boolean).at(-1) ?? '').toLowerCase()
       if (base === '' || !declaredNames.has(base)) continue
-      const key = dedupeKey(path)
-      if (seen.has(key)) continue
-      seen.add(key)
-      found.push(path)
+      add(path)
     }
   }
 
@@ -474,6 +742,10 @@ function extractFromBlock(block: ToolCallBlock): readonly ExtractedItem[] {
     if (path === '') continue
     // spill 临时文件既不是产出、也没有查看价值：两条路都统一在这里挡掉。
     if (SPILL_PATH_RE.test(path)) continue
+    // 一次性中转目录：只写到 _tmp/ 就没人认领它，而清理器会把它清掉 ——
+    // 列出来等于列一条注定点不开的路径。模型显式交付的除外（它自己声明了
+    // 最终位置，判断权不在客户端）。
+    if (!delivered && isTransientOutputPath(path)) continue
     const kind = classifyOutput(path)
     if (kind === 'other') continue
     const key = dedupeKey(path)
