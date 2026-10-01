@@ -180,14 +180,6 @@ export interface InjectStateView {
    * 更不误导（开着却注不进去才是最坏的假阳性）。
    */
   diagramEnabled?: boolean
-  /**
-   * 执行过程播报内置通道是否开启。
-   *
-   * 同样由 /inject-state 顺带回传。旧 host 不回此字段时按 false 兜底——它会
-   * 退回「只按工具事实推导当前动作」，而这条退化路径本来就存在、卡片不会空，
-   * 报「关」比报一个实际注入不上的「开」诚实。
-   */
-  plainEnabled?: boolean
 }
 
 /**
@@ -330,6 +322,9 @@ export interface MemoryApi {
   /** 中文记忆内置通道开关（全局单值，与主开关无联动）。 */
   getZhInjectState: () => Promise<ZhInjectStateView>
   setZhInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
+  /** 对话内流程图内置通道开关（全局单值，与主开关无联动）。 */
+  getDiagramInjectState: () => Promise<ZhInjectStateView>
+  setDiagramInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
   consolidate: (scope?: 'all' | 'global' | 'project', projectHash?: string) => Promise<{ ok: boolean; results: ConsolidateResultView[] }>
   revisions: () => Promise<{ revisions: RevisionView[] }>
   rollback: (revisionId: string) => Promise<{ ok: boolean }>
@@ -387,8 +382,6 @@ export function createMemoryApi(): MemoryApi {
     setZhInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/zh-inject-state', { enabled }),
     getDiagramInjectState: () => getJson<ZhInjectStateView>('/diagram-inject-state'),
     setDiagramInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/diagram-inject-state', { enabled }),
-    getPlainInjectState: () => getJson<ZhInjectStateView>('/plain-inject-state'),
-    setPlainInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/plain-inject-state', { enabled }),
     consolidate: (scope = 'all', projectHash) => sendJson<{ ok: boolean; results: ConsolidateResultView[] }>('/consolidate', { scope, projectHash }),
     revisions: () => getJson<{ revisions: RevisionView[] }>('/revisions'),
     rollback: (revisionId) => sendJson<{ ok: boolean }>('/rollback', { revisionId }),

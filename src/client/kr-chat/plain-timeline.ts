@@ -1,13 +1,14 @@
 /**
  * dsh-chat-plus — 人话行动时间线组装（plain-timeline）。
  *
- * 把「本轮的工具调用事实」+「模型自己播报的下一步」组装成一条**按时间升序、
- * 全中文、可读**的行动流，供右栏「操作面板」卡渲染。
+ * 把「本轮的工具调用事实」组装成一条**按时间升序、全中文、可读**的行动流，
+ * 供右栏「操作面板」卡渲染。
  *
- * 两路输入各司其职：
- *  · **steps（已经做了什么）** ← 工具调用节点。事实源，只有客户端知道；
- *  · **intent（准备做什么）** ← 思考文本里模型自己写的 `下一步：…`。由
- *    PLAIN_PROGRESS_RULE 注入通道约定而来，模型不写就退化成工具推导文案。
+ * 曾经还有第二路输入：模型在思考里播报的 `下一步：…`，被抽成 intent 喂给
+ * 折叠态那行 nowLabel。2026-10-01 整条下掉 —— 承载它的「接下来」预告行早已
+ * 从卡片里删除，nowLabel 也早就没有渲染出口（只剩一个滚动跟随探针），
+ * 整条通道的净效果是让模型每步白写一行。相关注入规则（PLAIN_PROGRESS_RULE）
+ * 与 composer 那枚开关同步移除。
  *
  * 纯函数：相同输入返回等价输出，无副作用，可在 smoke 里直接断言。
  */
@@ -20,14 +21,7 @@ import { callDurationMs, callName, isRunning } from '../tool-summary/tool-stats.
 import { argFields, resultParagraphs, toolArgsRaw, viewPhase } from '../tool-summary/activity-view-model.ts'
 import { isMetaTool, toPlainStep, type PlainStep } from './plain-language.ts'
 
-/** 预告行最长 60 字：超过多半是模型把整段思考写进来了，截掉更利落。 */
-const MAX_INTENT = 60
-
 export interface PlainTimeline {
-  /** 模型播报的「接下来准备做什么」；未播报则为 undefined。 */
-  readonly intent?: string
-  /** 折叠态那一行动作短语：现在到底在干什么。 */
-  readonly nowLabel: string
   /** 已执行 / 执行中的人话步骤，时间升序。 */
   readonly steps: readonly PlainStep[]
   readonly activeCount: number
@@ -43,55 +37,12 @@ export interface PlainTimeline {
 export type PlainStepView = 'full' | 'brief'
 
 export interface PlainTimelineInput {
-  /** 本轮思考文本（已按块收集）。 */
-  readonly reasoningTexts: readonly string[]
-  /**
-   * 已抽好的「下一步」，用来跳过本函数内的抽取。
-   *
-   * 抽取要对**整轮**思考做一次 join + 逐行正则匹配，是这条链路上最贵的一步；
-   * 而 steps 那边为了刷新「进行中」那一条的耗时，`now` 每秒都在变。若把两者
-   * 绑在一个 useMemo 里，等于每秒重扫几千字思考一次。调用方把
-   * `extractIntent()` 单独 memo（只依赖 reasoningTexts）后把结果传进来，
-   * 这份开销就只在思考真的增长时才付。
-   *
-   * 传 undefined 时照常自己抽——纯函数语义不变，smoke 照旧直接调。
-   */
-  readonly intent?: string | undefined
   /** 本轮工具调用节点，须按 anchorSeq 升序（collectTurnNodes 已保证）。 */
   readonly tools: readonly ChatNode<'tool-call'>[]
   /** 本轮是否仍在执行。 */
   readonly running: boolean
   /** 当前时刻（ms），用于算进行中调用的耗时。 */
   readonly now: number
-}
-
-/**
- * 从思考文本里抽「接下来准备做什么」。
- *
- * 取**最后一条**匹配而不是第一条：思考是流式追加的，同一句话会在后续 chunk 里
- * 再出现一次（模型重述），取最后一条天然完成去重，也天然反映最新意图。
- *
- * 先试行首严格匹配（注入契约要求行首就是「下一步：」），再退到行内匹配 ——
- * 模型偶尔会把标记写成句子中间，宁可放过也不要整条丢掉。
- */
-export function extractIntent(reasoningTexts: readonly string[]): string | undefined {
-  const whole = reasoningTexts.join('\n')
-  if (whole.trim() === '') return undefined
-  const lines = whole.split('\n')
-  let found: string | undefined
-  for (const line of lines) {
-    const strict = /^\s*下一步[：:]\s*(.+?)\s*$/.exec(line)
-    if (strict?.[1] !== undefined) {
-      found = strict[1]
-      continue
-    }
-    const loose = /下一步[：:]\s*([^，。；\n]{2,40})/.exec(line)
-    if (loose?.[1] !== undefined) found = loose[1]
-  }
-  if (found === undefined) return undefined
-  const clean = found.replace(/\s+/g, ' ').trim()
-  if (clean === '') return undefined
-  return clean.length > MAX_INTENT ? `${clean.slice(0, MAX_INTENT - 1)}…` : clean
 }
 
 function statusOf(root: Parameters<typeof viewPhase>[0]): 'running' | 'done' | 'failed' {
@@ -220,11 +171,7 @@ export function buildPlainTimeline(input: PlainTimelineInput): PlainTimeline {
   const doneCount = steps.filter((step) => step.status === 'done').length
   const failedCount = steps.filter((step) => step.status === 'failed').length
 
-  const intent = input.intent !== undefined ? input.intent : extractIntent(input.reasoningTexts)
-
   return {
-    ...(intent !== undefined ? { intent } : {}),
-    nowLabel: nowLabelOf(steps, intent, input.running),
     steps,
     activeCount,
     doneCount,
@@ -233,37 +180,24 @@ export function buildPlainTimeline(input: PlainTimelineInput): PlainTimeline {
 }
 
 /**
- * 折叠态那一行。
- *
- * 优先用模型自己播报的下一步——它最贴近用户视角（「打开携程搜索机票」比
- * 「正在打开网页」具体得多）。没有播报时退到当前那条工具调用的人话动作。
- */
-function nowLabelOf(steps: readonly PlainStep[], intent: string | undefined, running: boolean): string {
-  if (intent !== undefined) return `正在${intent}`
-  const runningStep = steps.find((step) => step.status === 'running')
-  if (runningStep !== undefined) {
-    return runningStep.detail === undefined
-      ? `正在${runningStep.verb}`
-      : `正在${runningStep.verb} · ${runningStep.detail}`
-  }
-  if (running) return '正在思考下一步'
-  return steps.length === 0 ? '本轮还没有执行动作' : `本轮已完成 · ${steps.length} 步`
-}
-
-/**
  * 「简要」模式：一份**进展纪要**，不是一份缩短的动作流水。
  *
  * 读者是普通用户，他要的三件事（与「任务概览」同一口径）：
- *  1. **走到哪一步了** —— 每一个**里程碑**都要说清"改了什么"；
+ *  1. **走到哪一步了** —— 每一个**里程碑**都要说清"干了什么"；
  *  2. **出了什么事** —— 失败必须写出**人话原因**（`issue`），不是只给一枚红叉；
  *  3. **卡到哪了** —— 正在跑的那一步永远保留。
  *
  * 明确**不写**的：
+ *  · **文件操作整类**（`fileOp`：查看 / 新建 / 修改 / 删除文件，**成功的那些**）。
+ *    这是用户点名要的：一屏「修改文件 xxx」「新建文件 xxx」读下来等于什么都没说
+ *    —— 他不想知道改了哪些文件，只想知道干了什么事。要看文件清单另有两处：切
+ *    「详细」档，或看下面那张「产出物」卡（那才是为文件而生的卡）。
+ *    两处**不砍**：① 失败的（"卡住了"的信号）；② 进行中的（"现在在干什么"，
+ *    模型连续改文件时它往往就是唯一那一条，砍了整张卡会空）。
+ *    **下载 / 上传不在此列**：它们是"从外面拿进来 / 送出去"，不是改本地文件。
  *  · **已解决的失败**。后面同类动作又成了，说明模型自己绕过去了；把一次已经翻篇
  *    的报错留在纪要里，用户会以为现在还有个坑。判定方式：某个 failed 之后还有
  *    **同一 icon** 的 done 步骤 → 视为已解决（同一个动作重来一遍成了）。
- *  · **成功的 read**（翻文件、看网页、截图…）。它们是达成里程碑的手段，不是里程碑
- *    本身。注意只砍成功的 —— **失败的 read 恰恰是"卡住了"的信号**，必须留着。
  *  · 连续同类里程碑的**中间步骤**。同一个文件改了 5 次只出一条"修改文件 x.ts ·
  *    共 5 次"，而不是 5 行——那 5 行在用户眼里是同一件事被反复说。
  *
@@ -294,13 +228,15 @@ export function condenseSteps(steps: readonly PlainStep[]): readonly PlainStep[]
   /** 同类里程碑合并：icon 相同就续上计数，detail 换成带次数的那条。 */
   let lastIndex = -1
   let lastCount = 0
+  /** 被砍掉的文件操作条数：整轮只剩文件操作时用它出一行兜底。 */
+  let droppedFileOps = 0
 
   for (const [index, step] of steps.entries()) {
     // 1. 已解决的失败：不写（模型后来把同一个动作做成了，这次失败已翻篇）。
     if (resolved.has(index)) continue
-    // 2. **未解决的失败**一律留下，哪怕它是 read。
+    // 2. **未解决的失败**一律留下，哪怕它是文件操作。
     //
-    // "读不到某个文件"、"命令跑不通"这类失败恰恰是**卡住**的信号 —— 进展纪要
+    // "读不到某个文件"、"没权限改"这类失败恰恰是**卡住**的信号 —— 进展纪要
     // 漏掉它，用户就看不出模型为什么停下。已解决的那些在上面一步已经被剔掉了。
     if (step.status === 'failed') {
       out.push(step)
@@ -308,14 +244,21 @@ export function condenseSteps(steps: readonly PlainStep[]): readonly PlainStep[]
       lastCount = 0
       continue
     }
-    // 3. 成功的 read 不是里程碑，整段丢掉。
-    if (step.impact !== 'write') continue
-    // 4. 进行中：永远保留（"卡到哪了"）。它打断合并计数——它是一次新的尝试，
+    // 3. 进行中：永远保留（"卡到哪了"）。它打断合并计数——它是一次新的尝试，
     //    不该被并进上一条"连做 N 次"里去。
+    //
+    //    **文件操作也照留**：模型连续改文件时，进行中那一步往往正是「修改文件
+    //    x.ts」。砍掉它整张卡就空了，而"现在在干什么"恰恰是这张卡最该回答的
+    //    问题（同时也只有一条 —— 同时只可能有一件事在跑，不构成流水）。
     if (step.status === 'running') {
       out.push(step)
       lastIndex = -1
       lastCount = 0
+      continue
+    }
+    // 4. 成功的文件操作整类不显示（用户点名要的：不想看"改了哪些文件"）。
+    if (step.fileOp === true) {
+      droppedFileOps += 1
       continue
     }
     // 5. 里程碑：连续的同 icon 合并成一条（同一件事被反复说只说一次）。
@@ -337,6 +280,24 @@ export function condenseSteps(steps: readonly PlainStep[]): readonly PlainStep[]
     lastIndex = out.length - 1
     lastCount = 1
   }
+
+  /*
+   * 兜底：整轮只剩文件操作时，不能给一张空列表。
+   *
+   * 这个分支在纯编码会话里很容易撞上（改一堆文件、别的什么都没干），而空列表
+   * 读起来是「这轮什么都没发生」，与事实正好相反。折成一行说清"动过 N 个文件"
+   * 即可 —— 想知道是哪些文件，切「详细」或看「产出物」卡。
+   */
+  if (out.length === 0 && droppedFileOps > 0) {
+    out.push({
+      id: 'plain-fileops-summary',
+      icon: 'fileEdit',
+      verb: `改动了 ${droppedFileOps} 个文件`,
+      status: 'done',
+      fileOp: true,
+    })
+  }
+
   return out
 }
 

@@ -108,16 +108,6 @@ export interface StoreState {
    * 呈现能力，不是语言契约，不该每个会话白烧一份常驻 token）。
    */
   diagramInjectEnabled?: boolean
-  /**
-   * 执行过程播报（human progress narration）注入开关（全局单值，三态缺省）。
-   * 与 zh / diagram 通道同一范式：主注入关闭、项目被设为「不注入」时仍单独注入。
-   * 缺省 = 跟随 config.plainInjectDefaultEnabled。
-   *
-   * 与 diagram 的默认取向相反（默认开）：这张通道撑起右栏「操作面板」卡的
-   * 「准备做什么」一半——工具调用发生的那一刻事情已经做完了，客户端无从得知
-   * 下一步是什么。关掉它卡片不会空，但只剩「已经做了什么」，用户看不到意图。
-   */
-  plainInjectEnabled?: boolean
 }
 
 /** 单个会话的 ticker 状态。 */
@@ -217,18 +207,6 @@ export interface MemoryConfig {
    * 而规则文本约 1KB，每会话常驻首轮，开销换不回对等收益。
    */
   diagramInjectDefaultEnabled: boolean
-  /**
-   * 执行过程播报注入默认开关（内置能力，默认开）。
-   *
-   * 与 zh / diagram 同构：内置于插件、无卸载路径，只有这一个开关。打开后
-   * 每个会话首步注入一条内置 user message，约定模型在思考里单起一行写
-   * `下一步：…`，右栏那张给人看的行动流卡才有「准备做什么」可显示。
-   *
-   * 默认开的理由与 diagram 相反：它不是锦上添花的呈现能力，而是那张卡的
-   * 一半内容。关掉不报错、卡片不空，但用户只能看见模型做过什么、看不见它
-   * 打算做什么——那正是这张卡存在的意义。
-   */
-  plainInjectDefaultEnabled: boolean
   /** 注入检索 top-k（当前任务相关记忆注入条数；identity/pinned/长期常驻不占此预算）。 */
   injectTopK: number
   /** 全局条目数上限（超限按 importance + recency 淘汰低分条目）。 */
@@ -281,7 +259,6 @@ export const DEFAULT_CONFIG: MemoryConfig = {
   injectDefaultEnabled: true,
   zhInjectDefaultEnabled: true,
   diagramInjectDefaultEnabled: false,
-  plainInjectDefaultEnabled: true,
   injectTopK: 8,
   entryLimit: 500,
   pruneNeverHitDays: 21,
@@ -373,7 +350,7 @@ export type ConfigNumberKey = keyof typeof CONFIG_NUMBER_BOUNDS
 
 const CONFIG_NUMBER_KEYS = Object.keys(CONFIG_NUMBER_BOUNDS) as ConfigNumberKey[]
 
-const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'diagramInjectDefaultEnabled', 'plainInjectDefaultEnabled'] as const
+const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'diagramInjectDefaultEnabled'] as const
 
 /** 可调布尔字段名。 */
 export type ConfigBooleanKey = (typeof CONFIG_BOOLEAN_KEYS)[number]

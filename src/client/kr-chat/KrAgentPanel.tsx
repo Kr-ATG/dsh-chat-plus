@@ -16,9 +16,11 @@ import { ShotPanel } from '../shot/Panel.tsx'
 import { collectMessages, deriveCurrentDialogueTitle, type ShotRange, type ShotMessage } from '../shot/collect.ts'
 import { useModalClose } from '../modal-animation.ts'
 import { getLiveDshTodos, subscribeLiveDshTodos } from './kr-todo-bridge.ts'
-import { buildPlainTimeline, extractIntent } from './plain-timeline.ts'
+import { buildPlainTimeline } from './plain-timeline.ts'
 import { KrPlainTimelineCard } from './KrPlainTimelineCard.tsx'
-import { KR_MEMORY_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE } from './enabled.ts'
+import { KrOutputsCard } from './KrOutputsCard.tsx'
+import { collectOutputs, collectSessionToolNodes, outputsFingerprint, type OutputsView } from './outputs.ts'
+import { KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE } from './enabled.ts'
 
 /**
  * 左侧对话流必须保留的最小宽度（px）。
@@ -135,9 +137,9 @@ export const KrAgentPanel = memo(function KrAgentPanel({
    * 数据源：优先从 latestChatSnapshot 实时提取，回退到 actStore.get。
    *
    * 外面套一层**引用稳定化**。原因：collectTurnNodes 每次都返回全新对象，于是
-   * 下游 reasoningTexts 的 memo 拿不到稳定引用 → 每帧被击穿 → extractIntent
-   * 每帧把整轮思考 join + 逐行正则重扫一遍，plainTimeline 的 steps 也整份重建。
-   * 而快照发布的频率在流式期很高（每个 delta 一次），不是每秒一次。
+   * 下游 reasoningTexts / tools 的 memo 拿不到稳定引用 → 每帧被击穿 →
+   * plainTimeline 的 steps 整份重建。而快照发布的频率在流式期很高（每个 delta
+   * 一次），不是每秒一次。
    *
    * 指纹不变就复用上一次的引用，下游整条 memo 链原样命中。
    */
@@ -170,6 +172,35 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   }, [displayTurn, actTick, snapTick])
 
   const now = useNow(isTurnRunning && !isViewingHistory)
+
+  /*
+   * 会话产出物（「产出物」卡）。
+   *
+   * 口径是**整个会话累计**，不随选中的轮次切换：这张卡回答的是「这次对话一共
+   * 做出来了什么」，而轮次切换是"我想看看某一轮发生了什么"——两者问的不是
+   * 一件事。跨全部轮次收集，所以走 snapshot 全量节点而不是本轮 locations。
+   *
+   * 与 turnData 同一套引用稳定化：collectSessionToolNodes 每次返回新数组，
+   * 而它下游要做的是「遍历全部工具节点 + 对没见过的节点扫结果文本」。指纹
+   * 不变就复用上一次的引用，下游整条 memo 链原样命中。
+   */
+  const outputsCacheRef = useRef<{ sig: string; data: OutputsView } | null>(null)
+  const outputs = useMemo<OutputsView>(() => {
+    const snap = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)
+    let next: OutputsView
+    try {
+      next = collectOutputs(collectSessionToolNodes(snap))
+    } catch (err) {
+      // 节点形状未知时不该让整张卡消失：退到空态。
+      console.warn('[kr-agent-panel] collectOutputs error', err)
+      next = { items: [], code: [] }
+    }
+    const sig = outputsFingerprint(next)
+    const cached = outputsCacheRef.current
+    if (cached !== null && cached.sig === sig) return cached.data
+    outputsCacheRef.current = { sig, data: next }
+    return next
+  }, [actTick, snapTick])
 
   // 思考文本提取
   const reasoningTexts = useMemo<readonly string[]>(() => {
@@ -232,37 +263,29 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     return []
   }, [turnData, isViewingHistory, todoTick, snapTick])
 
-  // 人话行动时间线：把本轮工具调用翻成中文人话（「打开携程 · 机票」），
-  // 并把模型在思考里自己播报的「下一步：…」抽成预告。纯推导，无副作用。
-  // tools 已由 collectTurnNodes 按 anchorSeq 升序给出，无需再排。
-  //
-  // 意图抽取单独 memo：它要对整轮思考做一次 join + 逐行正则匹配，是这条链路上
-  // 最贵的一步；而下面那个 memo 为了刷新「进行中」步骤的耗时，now 每秒都在变。
-  // 绑在一起就等于每秒重扫几千字思考。拆开后只有思考真的增长时才重扫。
-  const plainIntent = useMemo(() => extractIntent(reasoningTexts), [reasoningTexts])
+  // 人话行动时间线：把本轮工具调用翻成中文人话（「打开携程 · 机票」）。
+  // 纯推导，无副作用。tools 已由 collectTurnNodes 按 anchorSeq 升序给出，无需再排。
   const plainTimeline = useMemo(
     () => buildPlainTimeline({
-      reasoningTexts,
-      intent: plainIntent,
       tools,
       running: currentRunning,
       now,
     }),
-    [reasoningTexts, plainIntent, tools, currentRunning, now],
+    [tools, currentRunning, now],
   )
 
   // 本轮/本会话是否已有可展示内容。新会话空白期一律走干净空态，
   // 绝不回落到 activityStore 里上一会话的缓存。
   // 回合已在执行（哪怕工具/思考尚未落盘）也算内容，避免空白新会话刚发起
   // 提问时错误地显示「等待本次对话开始」。
-  //
-  // 「操作面板」卡的预告行原先也算内容（模型还没调任何工具但已经播报了
-  // "接下来要做什么"）——那行已整块删除，这个判据随之去掉：模型刚开口、
-  // 工具还没落盘时，思考卡通常也已经有内容了，不必再靠它兜底。
   const hasContent = currentRunning
     || tasks.length > 0
     || reasoningTexts.length > 0
     || tools.length > 0
+    // 产出物是**会话累计**的：本轮刚开始、什么都还没落盘时，前几轮做出的文件
+    // 依然该被看见。不算进来的话，切到新一轮的瞬间整栏会闪一次空态。
+    || outputs.items.length > 0
+    || outputs.code.length > 0
 
   // 大盘副标题
   const subtitle = useMemo(() => {
@@ -295,7 +318,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     () => reasoningTexts.reduce((sum, text) => sum + text.length, 0),
     [reasoningTexts],
   )
-  const heightFingerprint = `${memoryTick}|${reasoningChars}|${reasoningTexts.length}|${tools.length}|${tasks.length}|${plainTimeline.steps.length}|${plainTimeline.intent ?? ''}`
+  const heightFingerprint = `${memoryTick}|${reasoningChars}|${reasoningTexts.length}|${tools.length}|${tasks.length}|${plainTimeline.steps.length}|${outputs.items.length}|${outputs.code.length}`
   const panelSqueezed = usePanelSqueezed(scrollRef, heightFingerprint)
 
   // 会话切换（新建 / 切换 / 离开）时重置本面板的本地视图状态，
@@ -674,6 +697,18 @@ export const KrAgentPanel = memo(function KrAgentPanel({
           <KrPlainTimelineCard
             timeline={plainTimeline}
             running={currentRunning}
+            squeezed={panelSqueezed}
+            sessionId={latestChatSessionId}
+          />
+        )}
+
+        {/* 产出物卡：会话累计的成品清单（操作面板之下，滚动区最后一张）。
+            与上面那张的分工是「过程 vs 结果」——操作面板回答"中间做了哪些动作"，
+            这张回答"最后落地了哪些文件"。整行可点，点一下即在右栏打开预览。
+            口径是整个会话而非本轮，所以不看 displayTurn（理由见上面 outputs 的注释）。 */}
+        {KR_OUTPUTS_CARD_VISIBLE && (
+          <KrOutputsCard
+            outputs={outputs}
             squeezed={panelSqueezed}
             sessionId={latestChatSessionId}
           />

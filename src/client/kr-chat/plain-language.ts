@@ -59,6 +59,30 @@ export interface PlainStep {
   readonly issue?: string
   /** 该调用派生独立子智能体会话（subagent / workflow…），需要挂子智能体区块。 */
   readonly spawnsSubagents?: boolean
+  /**
+   * 这一步**产出的文件路径**（原始路径，未经「只留文件名」裁剪）。
+   *
+   * 只在这一步确实动了一个具名文件时才有值：写/改/删/读文件、下载、生图、
+   * 上传。右栏把它做成可点的一行 —— 点一下即在 DSH 右侧栏打开该文件的
+   * 工作区预览（图直接看图、文本看正文、表格/PDF 按官方预览器分派）。
+   *
+   * 为什么必须保留**完整路径**而不是复用 detail：detail 刻意只留文件名
+   * （「KrAgentPanel.tsx」），那是给普通用户读的；打开预览需要能定位到文件的
+   * 完整路径。两者用途不同，不能互相顶替。
+   */
+  readonly filePath?: string
+  /**
+   * 这一步是**文件操作**：查看 / 新建 / 修改 / 删除一个本地文件。
+   *
+   * 只给「简要」模式用（见 plain-timeline 的 condenseSteps）：用户明确说过他
+   * 不想在简要里看「新增了啥、修改了啥文件」——一屏「修改文件 xxx」「新建文件
+   * xxx」读下来等于什么都没说。所以这一整类在简要模式下**整类不显示**。
+   *
+   * 为什么必须显式声明、不能按图标猜：下载与上传共用 `download` 图标，而它们
+   * 是「从外面拿进来 / 送出去」，不是改本地文件，用户要求保留在简要里。图标
+   * 不足以区分这两件事，只有规则表知道。
+   */
+  readonly fileOp?: true
   /** 二级技术信息：用户点开这一条时才需要看到。 */
   readonly tech?: { readonly name: string; readonly args?: string; readonly error?: string }
 }
@@ -130,6 +154,25 @@ function fileNameOf(path: string | undefined): string | undefined {
   const tail = path.split(/[/\\、]/).filter(Boolean).at(-1)
   const name = tail ?? path
   return name.trim() === '' ? undefined : clip(name, MAX_DETAIL)
+}
+
+/**
+ * 取「可打开的文件路径」：与 fileNameOf 同源，但**不裁成文件名**。
+ *
+ * 裁剪是给上屏文案用的；打开预览需要完整路径才能定位。数组形式（`paths: [...]`）
+ * 取第一项——一张卡一行只挂一个打开入口，多文件时第一条就是用户最想看的那个。
+ * 相对路径原样保留，由打开时按会话工作区根解析。
+ */
+function filePathOf(args: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = args[key]
+    if (typeof value === 'string' && value.trim() !== '') return value.trim()
+    if (Array.isArray(value)) {
+      const picked = value.find((item): item is string => typeof item === 'string' && item.trim() !== '')
+      if (picked !== undefined) return picked.trim()
+    }
+  }
+  return undefined
 }
 
 /**
@@ -364,6 +407,21 @@ interface Rule {
    */
   readonly impact?: PlainImpact
   readonly detail?: (args: Record<string, unknown>, resultText?: string) => string | undefined
+  /**
+   * 取这一步**产出的文件路径**（完整路径，供右栏打开预览用）。
+   *
+   * 与 detail 分开声明：detail 是给人读的短文案（只留文件名），这里是给
+   * 「打开预览」用的定位信息（必须完整）。只有确实动了一个具名文件的规则
+   * 才声明它；不声明就表示这一步没有可打开的文件。
+   */
+  readonly filePath?: (args: Record<string, unknown>) => string | undefined
+  /**
+   * 这一步是不是「文件操作」（查看 / 新建 / 修改 / 删除一个本地文件）。
+   *
+   * 声明后，简要模式下这一整类不显示（理由见 PlainStep.fileOp）。下载 / 上传
+   * **刻意不声明** —— 它们不是改本地文件，用户要求留在简要里。
+   */
+  readonly fileOp?: true
 }
 
 /**
@@ -426,8 +484,8 @@ const EXACT: Readonly<Record<string, Rule>> = {
   browser_back: { verb: '返回上一页', icon: 'arrow' },
   browser_forward: { verb: '前进一页', icon: 'arrow' },
   browser_download: { verb: '下载文件', icon: 'download', impact: 'write' },
-  browser_set_input_files: { verb: '上传文件', icon: 'download', impact: 'write', detail: (a) => fileNameOf(str(a, 'paths', 'files')) },
-  file_upload: { verb: '上传文件', icon: 'download', impact: 'write', detail: (a) => fileNameOf(str(a, 'paths', 'files')) },
+  browser_set_input_files: { verb: '上传文件', icon: 'download', impact: 'write', detail: (a) => fileNameOf(str(a, 'paths', 'files')), filePath: (a) => filePathOf(a, 'paths', 'files') },
+  file_upload: { verb: '上传文件', icon: 'download', impact: 'write', detail: (a) => fileNameOf(str(a, 'paths', 'files')), filePath: (a) => filePathOf(a, 'paths', 'files') },
   browser_console_messages: { verb: '查看控制台输出', icon: 'terminal' },
   browser_network_requests: { verb: '查看网络请求', icon: 'cloud' },
   browser_dialog: { verb: '处理页面弹窗', icon: 'eye' },
@@ -438,7 +496,7 @@ const EXACT: Readonly<Record<string, Rule>> = {
   // 搜索/抓取网页只是"看了看"（read），生成图片与下载文件才是"做出了什么"。
   web_search: { verb: '搜索网络', icon: 'search', detail: (a) => clip(str(a, 'query', 'queries') ?? '', MAX_DETAIL) },
   web_fetch: { verb: '读取网页', icon: 'globe', detail: (a) => siteOf(str(a, 'url')) },
-  download: { verb: '下载文件', icon: 'download', impact: 'write', detail: (a) => fileNameOf(str(a, 'output', 'path', 'dest')) },
+  download: { verb: '下载文件', icon: 'download', impact: 'write', detail: (a) => fileNameOf(str(a, 'output', 'path', 'dest')), filePath: (a) => filePathOf(a, 'output', 'path', 'dest') },
   generate_image: { verb: '生成图片', icon: 'image', impact: 'write', detail: (a) => clip(str(a, 'prompt') ?? '', MAX_SHORT) },
   vision_describe: { verb: '查看图片内容', icon: 'image' },
 
@@ -447,15 +505,18 @@ const EXACT: Readonly<Record<string, Rule>> = {
   // 一列扫过去完全分不出在干什么，而这三件事恰恰是这一列里最需要被一眼认出的。
   //
   // impact：只有真正改了东西的四条（写/改/删 + 交付）标 write，其余全是 read。
-  read: { verb: '查看文件', icon: 'fileView', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
-  read_file: { verb: '查看文件', icon: 'fileView', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
-  view: { verb: '查看文件', icon: 'fileView', detail: (a) => fileNameOf(str(a, 'file_path', 'path')) },
-  open_file: { verb: '打开文件', icon: 'fileView', detail: (a) => fileNameOf(str(a, 'file_path', 'path')) },
-  write: { verb: '新建文件', icon: 'fileNew', impact: 'write', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
-  edit: { verb: '修改文件', icon: 'fileEdit', impact: 'write', detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')) },
-  apply_patch: { verb: '修改文件', icon: 'fileEdit', impact: 'write' },
-  str_replace_editor: { verb: '修改文件', icon: 'fileEdit', impact: 'write' },
-  delete_file: { verb: '删除文件', icon: 'trash', impact: 'write', detail: (a) => fileNameOf(str(a, 'file_path', 'path')) },
+  //
+  // fileOp：这六条是「文件操作」，简要模式下整类不显示（见 PlainStep.fileOp）。
+  // **下载 / 上传刻意不标** —— 它们是"从外面拿进来 / 送出去"，不是改本地文件。
+  read: { verb: '查看文件', icon: 'fileView', fileOp: true, detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')), filePath: (a) => filePathOf(a, 'file_path', 'path', 'filePath') },
+  read_file: { verb: '查看文件', icon: 'fileView', fileOp: true, detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')), filePath: (a) => filePathOf(a, 'file_path', 'path', 'filePath') },
+  view: { verb: '查看文件', icon: 'fileView', fileOp: true, detail: (a) => fileNameOf(str(a, 'file_path', 'path')), filePath: (a) => filePathOf(a, 'file_path', 'path') },
+  open_file: { verb: '打开文件', icon: 'fileView', fileOp: true, detail: (a) => fileNameOf(str(a, 'file_path', 'path')), filePath: (a) => filePathOf(a, 'file_path', 'path') },
+  write: { verb: '新建文件', icon: 'fileNew', impact: 'write', fileOp: true, detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')), filePath: (a) => filePathOf(a, 'file_path', 'path', 'filePath') },
+  edit: { verb: '修改文件', icon: 'fileEdit', impact: 'write', fileOp: true, detail: (a) => fileNameOf(str(a, 'file_path', 'path', 'filePath')), filePath: (a) => filePathOf(a, 'file_path', 'path', 'filePath') },
+  apply_patch: { verb: '修改文件', icon: 'fileEdit', impact: 'write', fileOp: true, filePath: (a) => filePathOf(a, 'file_path', 'path', 'filePath') },
+  str_replace_editor: { verb: '修改文件', icon: 'fileEdit', impact: 'write', fileOp: true, detail: (a) => fileNameOf(str(a, 'path', 'file_path')), filePath: (a) => filePathOf(a, 'path', 'file_path') },
+  delete_file: { verb: '删除文件', icon: 'trash', impact: 'write', fileOp: true, detail: (a) => fileNameOf(str(a, 'file_path', 'path')), filePath: (a) => filePathOf(a, 'file_path', 'path') },
   glob: { verb: '查找文件', icon: 'folder', detail: (a) => clip(str(a, 'pattern') ?? '', MAX_DETAIL) },
   find: { verb: '查找文件', icon: 'folder', detail: (a) => clip(str(a, 'pattern', 'query') ?? '', MAX_DETAIL) },
   grep: { verb: '搜索内容', icon: 'search', detail: (a) => clip(str(a, 'pattern', 'query') ?? '', MAX_DETAIL) },
@@ -511,9 +572,11 @@ const PATTERNS: ReadonlyArray<readonly [RegExp, Rule]> = [
   // 剥掉命名空间后剩下的通用短名：按特征词兜一层，免得只得到「执行 X」。
   [/window|cursor|screen|clipboard|desktop/, { verb: '操作电脑', icon: 'cursor' }],
   [/app$|^app_|launch|kill_/, { verb: '操作应用', icon: 'folder', impact: 'write' }],
-  [/read|view|inspect/, { verb: '查看文件', icon: 'fileView' }],
-  [/write|edit|patch|replace/, { verb: '修改文件', icon: 'fileEdit', impact: 'write' }],
-  [/delete|remove|unlink|rm$/, { verb: '删除文件', icon: 'trash', impact: 'write' }],
+  // 这三条兜底也是「文件操作」：工具名认不出来，但从名字能看出它在读写文件。
+  // 标上 fileOp，简要模式下与上面 EXACT 里那六条一起整类隐去。
+  [/read|view|inspect/, { verb: '查看文件', icon: 'fileView', fileOp: true }],
+  [/write|edit|patch|replace/, { verb: '修改文件', icon: 'fileEdit', impact: 'write', fileOp: true }],
+  [/delete|remove|unlink|rm$/, { verb: '删除文件', icon: 'trash', impact: 'write', fileOp: true }],
   [/search|grep|find|query/, { verb: '搜索', icon: 'search' }],
   [/shell|bash|exec|command|pwsh|run_code/, { verb: '在终端执行命令', icon: 'terminal' }],
   [/download|fetch|curl|wget/, { verb: '下载文件', icon: 'download', impact: 'write' }],
@@ -562,8 +625,42 @@ export function humanIssue(errorText: string | undefined): string | undefined {
   return hit?.[1]
 }
 
-/* ── 主入口 ───────────────────────────────────────────────────────────── */
+/** 从工具返回文本里认出「产出文件在哪」的那一个路径。 */
+const RESULT_PATH_RE = /(?:[A-Za-z]:[\\/]|\.{0,2}[\\/])[^\s"'`,;，。；、）)\]}>]+\.(?:png|jpe?g|webp|gif|bmp|avif|svg|ico|md|markdown|txt|log|json|jsonl|ya?ml|csv|tsv|html?|pdf|docx?|xlsx?|pptx?|mp[34]|wav|webm|mov|zip|7z|tar|gz)\b/gi
 
+/**
+ * 工具返回文本 → 产出文件的路径（认不出返回 undefined）。
+ *
+ * 只认**带已知产出物扩展名**的绝对/相对路径，且取最后一个：工具结果通常先
+ * 说做了什么、最后才给落盘位置（`已保存到 D:\...\shot.png`），最后一条最接近
+ * 「这一轮的产物」。不认裸文件名（没有分隔符的不取，避免把正文里的 `report.md`
+ * 这种引用当成产出）。
+ *
+ * URL 必须显式抹掉：正则里的 `/` 前缀会把 `https://cdn/a.png` 从 `//cdn/a.png`
+ * 起匹配出来，得到一个看着像相对路径、点开必然 404 的片段。
+ * @param resultText - 工具返回文本。
+ * @returns 路径，或 undefined。
+ */
+function filePathFromResult(resultText: string | undefined): string | undefined {
+  if (resultText === undefined || resultText === '') return undefined
+  try {
+    // 换成等长空白：保持偏移不变，也让相邻路径不会被拼到一起。
+    const scrubbed = resultText.replace(
+      /[a-z][a-z\d+.-]*:\/\/[^\s"'`,;，。；、）)\]}>]*/gi,
+      (match) => ' '.repeat(match.length),
+    )
+    const matches = scrubbed.match(RESULT_PATH_RE)
+    if (matches === null || matches.length === 0) return undefined
+    const last = matches[matches.length - 1]
+    if (last === undefined) return undefined
+    // 去掉尾部可能粘上的句点（`x.png.` 这种句末标点）。
+    return last.replace(/[.。]+$/, '') || undefined
+  } catch {
+    return undefined
+  }
+}
+
+/* ── 主入口 ───────────────────────────────────────────────────────────── */
 /**
  * 一次工具调用 → 人话步骤。
  *
@@ -603,6 +700,19 @@ export function toPlainStep(input: PlainStepInput): PlainStep {
 
   const issue = input.status === 'failed' ? humanIssue(input.errorText) : undefined
 
+  /*
+   * 产出的文件路径：规则表显式声明的优先，其次是**从结果里捞出来的**路径。
+   *
+   * 为什么要从结果里捞：generate_image / present 这类工具，参数里没有目标路径
+   * （生图的产物是模型自己挑的落盘位置），只有返回值才写着「文件在哪」。右栏
+   * 那一行文件名如果点不开，用户就只能自己去翻目录 —— 而这正是本次要修的。
+   *
+   * 只在「没有显式声明」时才捞，且只捞**看起来像路径**的那一个 token：结果里
+   * 常有日志、URL、JSON，不加限制会把「https://…」当成文件。
+   */
+  let filePath = rule?.filePath?.(args)
+  if (filePath === undefined) filePath = filePathFromResult(input.resultText)
+
   return {
     id: input.id ?? `${name}:${verb}`,
     icon,
@@ -615,6 +725,9 @@ export function toPlainStep(input: PlainStepInput): PlainStep {
     ...(issue !== undefined ? { issue } : {}),
     ...(typeof input.durationMs === 'number' ? { durationMs: input.durationMs } : {}),
     ...(spawnsSubagents(toolName) ? { spawnsSubagents: true } : {}),
+    ...(filePath !== undefined && filePath !== '' ? { filePath } : {}),
+    // 文件操作标记：简要模式下这一整类不显示（理由见 PlainStep.fileOp）。
+    ...(rule?.fileOp === true ? { fileOp: true as const } : {}),
     tech,
   }
 }

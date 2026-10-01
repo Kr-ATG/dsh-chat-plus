@@ -265,9 +265,7 @@ async function handle(
       const zhEnabled = await store.isZhInjectEnabled(config.zhInjectDefaultEnabled !== false)
       // diagram 同理并进回包：新开一个 GET 端点等于把翻倍的轮询量固化下来。
       const diagramEnabled = await store.isDiagramInjectEnabled(config.diagramInjectDefaultEnabled !== false)
-      // 播报通道同样并进回包，不再单开端点。
-      const plainEnabled = await store.isPlainInjectEnabled(config.plainInjectDefaultEnabled !== false)
-      json(res, 200, { enabled: explicit ?? defaultEnabled, defaultEnabled, explicit, zhEnabled, diagramEnabled, plainEnabled })
+      json(res, 200, { enabled: explicit ?? defaultEnabled, defaultEnabled, explicit, zhEnabled, diagramEnabled })
       return
     }
     if (method === 'POST' && rest === '/inject-state') {
@@ -308,21 +306,6 @@ async function handle(
       const body = await readBody(req) as Record<string, unknown>
       const enabled = body.enabled !== false
       await store.setDiagramInjectEnabled(enabled)
-      json(res, 200, { ok: true, enabled, builtin: true })
-      return
-    }
-
-    // ── 执行过程播报注入开关（内置能力，全局单值） ─────────────────────
-    // 与 diagram 端点同构，builtin:true 恒定——同样硬编码在插件里，无卸载入口。
-    if (method === 'GET' && rest === '/plain-inject-state') {
-      const enabled = await store.isPlainInjectEnabled(config.plainInjectDefaultEnabled !== false)
-      json(res, 200, { enabled, builtin: true })
-      return
-    }
-    if (method === 'POST' && rest === '/plain-inject-state') {
-      const body = await readBody(req) as Record<string, unknown>
-      const enabled = body.enabled !== false
-      await store.setPlainInjectEnabled(enabled)
       json(res, 200, { ok: true, enabled, builtin: true })
       return
     }

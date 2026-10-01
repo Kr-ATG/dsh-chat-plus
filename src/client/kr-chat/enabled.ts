@@ -70,3 +70,21 @@ export const KR_MEMORY_CARD_VISIBLE = true
  * false 时右栏只剩「任务」一张卡 + 记忆卡，行为与开关打开前完全一致。
  */
 export const KR_PLAIN_TIMELINE_CARD_VISIBLE = true
+
+/**
+ * KR 右侧大盘「产出物」卡显隐开关（滚动区的最后一张卡，操作面板之下）。
+ *
+ * 这张卡回答的是「**这次对话一共做出来了哪些文件**」——与操作面板讲的过程
+ * 不同，它是结果：图片 / 视频 / 3D 模型 / 文档 / 表格 / 压缩包各带一枚按类型
+ * 画的 SVG 缩略图，**整行可点**，点一下即在 DSH 右侧栏打开该文件的预览。
+ * 代码文件（.ts/.py/.css…）默认折成一行「另有 N 个代码文件」，可展开。
+ *
+ * 依赖两块纯逻辑：`outputs.ts`（工具调用 → 产出物清单，含按节点缓存）与
+ * `KrOutputsCard.tsx`（呈现）。前者不依赖 React，可单独拿去别处用。
+ *
+ * ⚠ 同为**隐藏开关，不是删除**：组件与 `.kr-card--outputs` / `.kr-out-*`
+ * 那一套样式全部原样保留，改回 true 重新 build 即完整恢复。
+ *
+ * false 时右栏只剩「任务 / 操作面板」两张卡 + 记忆卡。
+ */
+export const KR_OUTPUTS_CARD_VISIBLE = true

@@ -342,14 +342,19 @@ if (typeof activityColor === 'function') {
 }
 
 // ── 人话行动流：工具调用 → 中文人话 + 时间线组装 ────────────────────────
+//
+// extractIntent 已随「执行过程播报」整条通道下掉（2026-10-01）：承载它的预告行
+// 早被删除，nowLabel 没有渲染出口，模型每步白写一行。这里不再断言它存在。
 const {
-  toPlainStep, plainToolName, siteOf, isMetaTool, spawnsSubagents, buildPlainTimeline, extractIntent, condenseSteps, humanIssue,
+  toPlainStep, plainToolName, siteOf, isMetaTool, spawnsSubagents, buildPlainTimeline, condenseSteps, humanIssue,
 } = mod
 
-if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function' || typeof extractIntent !== 'function' || typeof condenseSteps !== 'function' || typeof humanIssue !== 'function') {
-  fail('toPlainStep / buildPlainTimeline / extractIntent / condenseSteps / humanIssue must be exported from the client bundle')
+if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function' || typeof condenseSteps !== 'function' || typeof humanIssue !== 'function') {
+  fail('toPlainStep / buildPlainTimeline / condenseSteps / humanIssue must be exported from the client bundle')
+} else if (typeof extractIntent === 'function') {
+  fail('extractIntent 已随播报通道下掉，不该再出现在产物里')
 } else {
-  pass('plain-language exports present')
+  pass('plain-language exports present（extractIntent 已下掉）')
 
   // 命名空间前缀必须被剥掉：MCP 服务前缀由注册决定，规则表不该跟着它变。
   if (plainToolName('mcp__playwright-mcp__browser_click') !== 'browser_click') fail('mcp__ prefix must be stripped')
@@ -516,12 +521,6 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   if (!unknown.verb.startsWith('执行 ')) fail(`unknown tools must fall back to 执行 X, got ${unknown.verb}`)
   else pass('unknown tools fall back without throwing')
 
-  // 意图抽取：取最后一条（流式重述天然去重），行首严格 + 行内兜底。
-  if (extractIntent(['先看看仓库', '下一步：打开携程', '下一步：搜索北京到上海的机票']) !== '搜索北京到上海的机票') fail('intent must be the LAST 下一步 line')
-  else if (extractIntent(['我接下来要查一下机票', '无所谓']) !== undefined) fail('text without the marker must not fabricate an intent')
-  else if (extractIntent(['顺便说一下下一步：看看价格']) !== '看看价格') fail('an in-line 下一步 must still be picked up')
-  else pass('intent extraction picks the latest narration line')
-
   if (!isMetaTool('todo_write') || isMetaTool('read')) fail('only todo_write counts as meta')
   else pass('todo_write is flagged as meta')
 
@@ -532,13 +531,11 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   const metaTool = { key: 'n3', data: { root: { kind: 'tool-call', call: { name: 'todo_write', argsRaw: JSON.stringify({ todos: [] }) }, time: 1100, callTime: 1000, subCalls: [], content: [], isError: false, meta: {} } } }
 
   const tl = buildPlainTimeline({
-    reasoningTexts: ['先拆解需求', '下一步：打开携程，搜索北京到上海的机票'],
     tools: [runningTool, metaTool, doneTool],
     running: true,
     now: Date.now(),
   })
-  if (tl.intent !== '打开携程，搜索北京到上海的机票') fail(`timeline intent must reach the card, got ${tl.intent}`)
-  else if (tl.steps.length !== 3) fail(`timeline must keep all calls, got ${tl.steps.length}`)
+  if (tl.steps.length !== 3) fail(`timeline must keep all calls, got ${tl.steps.length}`)
   else if (tl.steps[0].id !== 'n1') fail('the first call must stay first')
   // todo_write 只出**一行汇总**，且钉在它首次出现的位置（不是甩到最后）。
   else if (tl.steps[1].id !== 'plain-todo-summary') fail('todo_write must collapse into one summary row at its first position')
@@ -546,12 +543,13 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   else if (tl.steps.filter((s) => s.id === 'plain-todo-summary').length !== 1) fail('todo_write must produce exactly one summary row')
   else if (tl.steps[2].id !== 'n2') fail('calls after the todo_write must keep their order')
   else if (tl.activeCount !== 1 || tl.doneCount !== 2) fail(`active/done counts wrong: ${tl.activeCount}/${tl.doneCount}`)
-  else if (!tl.nowLabel.includes('打开携程')) fail(`nowLabel must lead with the narration, got ${tl.nowLabel}`)
-  else pass('timeline assembles narration + calls in order, todo collapsed in place')
+  // 播报通道下掉后，时间线不再有 intent / nowLabel 两个字段。
+  else if ('intent' in tl || 'nowLabel' in tl) fail('时间线不该再有 intent / nowLabel（播报通道已整条下掉）')
+  else pass('timeline assembles calls in order, todo collapsed in place')
 
   // 多次 todo_write 折叠成一行，并报出「改了几次 / 完成几项」。
   const twiceTl = buildPlainTimeline({
-    reasoningTexts: [], tools: [metaTool, doneTool, metaTool], running: false, now: 2000,
+    tools: [metaTool, doneTool, metaTool], running: false, now: 2000,
   })
   const summary = twiceTl.steps.find((s) => s.id === 'plain-todo-summary')
   if (twiceTl.steps.filter((s) => s.id === 'plain-todo-summary').length !== 1) {
@@ -562,17 +560,11 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     pass('repeated todo_write calls collapse into one row with a change count')
   }
 
-  // 无播报时退化成工具推导，卡片不能空：进行中的调用直接接管「当前动作」。
-  const bare = buildPlainTimeline({ reasoningTexts: ['嗯'], tools: [runningTool], running: true, now: Date.now() })
-  if (bare.intent !== undefined) fail('no narration must yield no intent')
-  else if (bare.steps.length !== 1) fail(`fallback timeline must still list the call, got ${bare.steps.length}`)
-  else if (!bare.nowLabel.includes('打开网页') || !bare.nowLabel.includes('携程')) fail(`fallback nowLabel must come from the running call, got ${bare.nowLabel}`)
-  else pass('timeline degrades to call-derived wording without narration')
-
-  // 回合收口、全部结束：只报完成步数，不重复念最后一条动作。
-  const doneTl = buildPlainTimeline({ reasoningTexts: ['嗯'], tools: [doneTool], running: false, now: 2000 })
-  if (!doneTl.nowLabel.includes('已完成')) fail(`a finished turn must report completion, got ${doneTl.nowLabel}`)
-  else pass('finished turn reports completion instead of repeating the last action')
+  // 单个进行中的调用：卡片不能空，它必须仍被列出来（现在没有「当前动作」那行兜底了）。
+  const bare = buildPlainTimeline({ tools: [runningTool], running: true, now: Date.now() })
+  if (bare.steps.length !== 1) fail(`fallback timeline must still list the call, got ${bare.steps.length}`)
+  else if (bare.activeCount !== 1) fail(`running call must be counted active, got ${bare.activeCount}`)
+  else pass('timeline still lists a lone running call')
 
   // 子智能体标记：subagent / workflow / ralph 这类会派生**独立会话**的工具
   // 必须在时间线上打标，卡片才会给它挂子智能体区块。subCalls 那条通道是
@@ -606,8 +598,12 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     pass('impact 读/写标注正确（写/改/删/下载/生成/派子任务/记记忆 = write）')
   }
 
-  // 简要模式 = 进展纪要：走到哪（里程碑合并）、出了什么事（未解决的失败 + 人话
-  // 原因）、卡到哪（进行中永远保留）。已解决的失败不写，纯 read 不写。
+  // 简要模式 = 详细 − 文件操作：走到哪（里程碑合并）、出了什么事（未解决的失败 +
+  // 人话原因）、卡到哪（进行中永远保留）。
+  //
+  // 「文件操作整类不显示」是用户点名的口径：一屏「修改文件 xxx」「新建文件 xxx」
+  // 读下来等于什么都没说。但两处必须留：① 失败的（卡住的信号）；② 进行中的
+  // （"现在在干什么"，连续改文件时往往就这一条）。
   const seq = [
     toPlainStep({ toolName: 'read', args: { file_path: 'a.ts' }, status: 'done' }),
     toPlainStep({ toolName: 'read', args: { file_path: 'b.ts' }, status: 'done' }),
@@ -619,20 +615,56 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     toPlainStep({ toolName: 'read', args: { file_path: 'f.ts' }, status: 'done' }),
     // 这一条到时间线末尾都没成功 → 真出事了，必须留下并带人话原因
     toPlainStep({ toolName: 'pwsh', args: { description: '推送' }, status: 'failed', errorText: 'EACCES: permission denied' }),
+    // 非文件动作：留着（打开网页不是"改了哪个文件"）。
+    // 注意**不能用 pwsh/bash 这类 terminal 动作**当这条样本：上面那条失败的 pwsh
+    // 也是 terminal icon，而"已解决的失败"是按 icon 判定的 —— 撞上就会被判成
+    // 已翻篇而剔掉，这条断言就测不到东西了。
+    toPlainStep({ toolName: 'browser_navigate', args: { url: 'https://ctrip.com' }, status: 'done' }),
+    toPlainStep({ toolName: 'memory_remember', args: { content: '记一条' }, status: 'done' }),
+    // 进行中的文件操作：留着（"卡到哪了"）
     toPlainStep({ toolName: 'edit', args: { file_path: 'e.ts' }, status: 'running' }),
   ]
   const briefSteps = condenseSteps(seq)
   const briefFailed = briefSteps.filter((s) => s.status === 'failed')
+  const briefText = JSON.stringify(briefSteps.map((s) => [s.verb, s.detail]))
   if (briefSteps.some((s) => s.detail === 'a.ts' || s.detail === 'b.ts')) {
     fail('简要模式不该保留纯 read 步骤（翻文件不是里程碑）')
+  } else if (briefSteps.some((s) => s.detail === 'd.ts')) {
+    fail('简要模式不该保留成功的文件操作（用户点名：不想看"改了哪些文件"）')
+  } else if (!briefSteps.some((s) => s.verb === '打开网页')) {
+    fail('简要模式必须保留非文件动作（打开网页 / 搜索网络这类"真的干了什么"）')
   } else if (briefFailed.length !== 1 || briefFailed[0].issue !== '没有权限') {
     fail(`只该留下未解决的那条失败且带人话原因, got ${JSON.stringify(briefFailed.map((s) => [s.detail, s.issue]))}`)
   } else if (!briefSteps.some((s) => s.status === 'running' && s.detail === 'e.ts')) {
-    fail('简要模式必须保留「卡到哪了」（进行中那一步）')
-  } else if (!briefSteps.some((s) => s.detail === 'd.ts · 共 3 次')) {
-    fail(`同一文件连改 3 次应合并成一条并报出次数, got ${JSON.stringify(briefSteps.map((s) => s.detail))}`)
+    fail('简要模式必须保留「卡到哪了」（进行中那一步，文件操作也算）')
+  } else if (briefText.includes('d.ts')) {
+    fail('成功的文件操作必须整类消失')
   } else {
-    pass('简要模式 = 进展纪要（里程碑合并 / 只报未解决的错 / 保留卡点）')
+    pass('简要模式 = 详细 − 文件操作（非文件动作留 / 未解决的错留 / 进行中的留）')
+  }
+
+  // 整轮只剩文件操作时的兜底：不能给空列表（读起来是"这轮什么都没发生"）。
+  const onlyFiles = condenseSteps([
+    toPlainStep({ toolName: 'edit', args: { file_path: 'a.ts' }, status: 'done' }),
+    toPlainStep({ toolName: 'write', args: { file_path: 'b.ts' }, status: 'done' }),
+  ])
+  if (onlyFiles.length !== 1 || !/改动了 2 个文件/.test(onlyFiles[0].verb)) {
+    fail(`整轮只剩文件操作时该折成一行兜底, got ${JSON.stringify(onlyFiles.map((s) => s.verb))}`)
+  } else {
+    pass('整轮只剩文件操作 → 折一行「改动了 N 个文件」，不给空列表')
+  }
+
+  // fileOp 标记：只有"改本地文件"那几条带，下载 / 上传刻意不带（用户要求留在简要里）。
+  const fileOps = ['read', 'read_file', 'write', 'edit', 'apply_patch', 'str_replace_editor', 'delete_file']
+  const notFileOps = ['download', 'browser_set_input_files', 'file_upload', 'browser_navigate', 'web_search', 'pwsh', 'present']
+  const missed = fileOps.filter((t) => toPlainStep({ toolName: t, args: {}, status: 'done' }).fileOp !== true)
+  const overreach = notFileOps.filter((t) => toPlainStep({ toolName: t, args: {}, status: 'done' }).fileOp === true)
+  if (missed.length > 0) {
+    fail(`这些工具必须标 fileOp（简要模式要砍掉）：${missed.join(', ')}`)
+  } else if (overreach.length > 0) {
+    fail(`这些工具不该标 fileOp（下载/上传/浏览不是改本地文件）：${overreach.join(', ')}`)
+  } else {
+    pass('fileOp 标记：查看/新建/修改/删除文件 = true；下载/上传/浏览 = false')
   }
 
   // 失败原因必须翻成人话，且认不出类别时宁可不给（不把英文报错糊到用户脸上）。
@@ -650,8 +682,8 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   }
 
   // 纯函数性：相同输入必须等价输出。
-  const again = buildPlainTimeline({ reasoningTexts: ['下一步：再查一次'], tools: [doneTool], running: false, now: 2000 })
-  if (again.intent !== '再查一次' || again.steps.length !== bare.steps.length) fail('buildPlainTimeline must be deterministic')
+  const again = buildPlainTimeline({ tools: [doneTool], running: false, now: 2000 })
+  if (again.steps.length !== 1 || again.steps[0].id !== doneTool.key) fail('buildPlainTimeline must be deterministic')
   else pass('buildPlainTimeline is deterministic')
 }
 

@@ -377,6 +377,61 @@ if (krEnabled) {
   }
 }
 
+// 「执行过程播报」内置通道已整条下掉（2026-10-01）。它当年给「操作面板」卡喂
+// 「下一步：…」预告行；那行删除后，intent 只剩一个滚动跟随探针在消费、nowLabel
+// 干脆没有渲染出口，而模型每一步都要多写一行。四处必须一起消失，漏一处就是
+// 「模型白写一行」或「死代码复活」：
+//   1. 注入规则 PLAIN_PROGRESS_RULE（host 半身）
+//   2. composer 那枚「操作面板」开关（客户端内置通道卡）
+//   3. extractIntent / nowLabel（客户端时间线）
+//   4. plainInjectEnabled 那套读写法与路由
+{
+  const hostSrc = readFileSync(resolve(ROOT, 'src/triad/memory/engine/inject.ts'), 'utf8')
+  const hostApiSrc = readFileSync(resolve(ROOT, 'src/triad/memory/api.ts'), 'utf8')
+  const storeSrc = readFileSync(resolve(ROOT, 'src/triad/memory/engine/store.ts'), 'utf8')
+  const typesSrc = readFileSync(resolve(ROOT, 'src/triad/memory/types.ts'), 'utf8')
+  const timelineSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/plain-timeline.ts'), 'utf8')
+  const toggleSrc = readFileSync(resolve(ROOT, 'src/client/triad/memory/Toggle.tsx'), 'utf8')
+  const localesSrc = readFileSync(resolve(ROOT, 'src/client/triad/memory/locales.ts'), 'utf8')
+  const panelSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8')
+  const cardSrc2 = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrPlainTimelineCard.tsx'), 'utf8')
+
+  // 判据只看**活代码**：几个文件里都留着「这条通道为什么下掉」的历史注释，
+  // 直接正则整份源码会被注释里的 nowLabel / PLAIN_PROGRESS_RULE 误伤。
+  const stripComments = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+  const h = stripComments(hostSrc)
+  const ha = stripComments(hostApiSrc)
+  const st = stripComments(storeSrc)
+  const ty = stripComments(typesSrc)
+  const tls = stripComments(timelineSrc)
+  const tg = stripComments(toggleSrc)
+  const lc = stripComments(localesSrc)
+  const pn = stripComments(panelSrc)
+  const cd = stripComments(cardSrc2)
+
+  const leftovers = [
+    ['注入规则', /PLAIN_PROGRESS_RULE/.test(h)],
+    ['注入分支', /plainStepCounters/.test(h)],
+    ['开关路由', /plain-inject-state/.test(ha)],
+    ['store 读写法', /PlainInjectEnabled/.test(st)],
+    ['config 字段', /plainInject/.test(ty)],
+    ['extractIntent', /export function extractIntent/.test(tls)],
+    ['nowLabel', /nowLabel/.test(tls)],
+    ['开关 UI', /plainInjectLabel|pushChannel\('plainEnabled'/.test(tg)],
+    ['开关文案', /plainInject/.test(lc)],
+    ['面板传参', /plainIntent/.test(pn)],
+    ['卡片探针', /nowLabel|timeline\.intent/.test(cd)],
+  ].filter(([, hit]) => hit)
+
+  if (leftovers.length > 0) {
+    fail(`「执行过程播报」通道已整条下掉，这些残留必须清干净：${leftovers.map(([n]) => n).join(' / ')}`)
+  } else {
+    pass('执行过程播报通道已整条下掉（注入 / 开关 / 路由 / store / extractIntent / nowLabel 全清）')
+  }
+}
+
 // 记忆卡：默认折叠 + 折叠态右侧带一行「N 条」纯文字（不再是带底色的徽标）。
 // 断言读源码而不是 bundle —— bundle 里中文被 esbuild 转成 \uXXXX，正则难写；
 // 而这两条契约本身就是源码里的一行状态初值与一个类名，直接读最实。
@@ -825,6 +880,194 @@ if (krEnabled) {
     } else {
       pass('子智能体目录：items 实时投影为主 + 未加载/为空分层')
     }
+  }
+
+  /*
+   * ── 「产出的文件 / 截图要能点开、能看见」这条链路 ─────────────────────
+   *
+   * 用户原始诉求：KR 对话里模型产出的文件与截图，点不了、看不到图，期望点击
+   * 之后在 DSH 右侧栏的工作区文件预览里打开。这条链路的四段各自都可能断：
+   *   1. 正文裸路径没人变成链接（官方只认「本回合写过的文件」的行内代码）；
+   *   2. 行内代码的文件提及范围太窄（运行中的产出、历史文件都不认）；
+   *   3. 右栏操作面板里的文件名是死文本，点不动；
+   *   4. 打开动作没有接到官方 sidebarRight.openResource 上。
+   * 下面逐段断言，任何一段断掉都能在这一行看出来。
+   */
+  const previewSrc = readFileSync(resolve(ROOT, 'src/client/open-preview.ts'), 'utf8')
+  const linkifySrc = readFileSync(resolve(ROOT, 'src/client/path-linkify.ts'), 'utf8')
+  const ctxSrc = readFileSync(resolve(ROOT, 'src/client/client-ctx.ts'), 'utf8')
+  const thinkSrc = readFileSync(resolve(ROOT, 'src/client/thinking/ThinkingStepNodeView.tsx'), 'utf8')
+
+  if (!/sidebarRight/.test(previewSrc) || !/openResource/.test(previewSrc)) {
+    fail('open-preview 必须走官方 sidebarRight.openResource（右侧栏工作区预览的唯一入口）')
+  } else if (!/dsh-resource:\/\/file\//.test(previewSrc) || !/sessionFileAddress/.test(previewSrc)) {
+    fail('open-preview 必须构造官方 dsh-resource://file/session/<id>/<path> 地址')
+  } else if (!/params: \{ line: options\.line \}/.test(previewSrc)) {
+    fail('open-preview 必须支持行号定位（官方文本预览的 params.line）')
+  } else if (!/reason: 'no-service'|'no-service'/.test(previewSrc)) {
+    fail('open-preview 拿不到右栏服务时必须静默降级（不能抛）')
+  } else {
+    pass('open-preview：官方 sidebarRight.openResource + 会话文件地址 + 行号 + 静默降级')
+  }
+
+  // 根上下文登记：右栏预览与正文提及都要读跨插件服务，而组件模块不能反向
+  // import 插件入口（会成环）。
+  if (!/setClientCtx/.test(ctxSrc) || !/getService/.test(ctxSrc)) {
+    fail('client-ctx 必须提供 setClientCtx / getService（跨插件服务的登记与防御式读取）')
+  } else if (!/setClientCtx\(/.test(readFileSync(resolve(ROOT, 'src/client/index.ts'), 'utf8'))) {
+    fail('插件入口 apply() 必须登记根上下文（否则组件读不到 sidebarRight）')
+  } else {
+    pass('client-ctx：apply() 登记根上下文，组件侧防御式取服务')
+  }
+
+  // 裸路径链接化：必须产出官方认识的本地 Markdown 链接（renderAnchor 会把它
+  // 接进 openFile → sidebarRight），且必须放过代码块 / 行内代码 / 已有链接。
+  if (!/linkifyFilePaths/.test(linkifySrc) || !/toMarkdownLink/.test(linkifySrc)) {
+    fail('path-linkify 必须把裸路径改写成 Markdown 链接（交给官方 renderAnchor 打开）')
+  } else if (!/PROTECTED_RE/.test(linkifySrc) || !/fence/.test(linkifySrc)) {
+    fail('path-linkify 必须放过围栏代码块、行内代码与已有链接/图片')
+  } else if (!/promoteStandaloneImagePath/.test(linkifySrc) || !/IMAGE_EXTS/.test(linkifySrc)) {
+    fail('path-linkify 必须能把「整段只有一个图片路径」升级成 Markdown 图片语法（否则用户还是看不到图）')
+  } else if (!/linkifyFilePaths\(promoteStandaloneImagePath\(source\)\)/.test(thinkSrc)) {
+    fail('正文渲染必须真的调用 linkifyFilePaths(promoteStandaloneImagePath(...))')
+  } else if (!/streaming\) return source/.test(thinkSrc)) {
+    fail('裸路径改写只能在定稿文本上做（流式期半截路径会产出死链）')
+  } else {
+    pass('path-linkify：裸路径 → 官方链接；单图路径 → 图片；代码块/行内代码/已有链接不动')
+  }
+
+  // 正文提及的范围补齐：官方 fileMentions 只在回合收口后、且只认本回合产出的
+  // 文件；运行中的产出与历史文件必须由自建那条兜底。
+  if (!/bodyEnv/.test(thinkSrc) || !/looksLikeFilePath/.test(thinkSrc)) {
+    fail('正文必须挂自建文件提及（官方只认本回合写过的文件，运行中的产出点不动）')
+  } else if (!/mergedMentions: MarkdownFileMentions \| undefined = selfMentions === undefined/.test(thinkSrc)
+    || !/mentions\.resolve\(value\) \?\? selfMentions\.resolve\(value\)/.test(thinkSrc)) {
+    fail('文件提及必须官方优先、自建兜底，且在 useMemo 里合流（identity 不稳会打穿流式缓存）')
+  } else if (!/sessionIdProp/.test(thinkSrc)) {
+    fail('正文提及必须拿到 sessionId（构造 dsh-resource 地址要用）')
+  } else if (!/decorateCache/.test(thinkSrc)) {
+    fail('定稿正文的路径改写必须按源文本缓存（长会话里每次重渲染重扫全文是白花开销）')
+  } else {
+    pass('正文提及：官方优先 + 自建兜底（memo 合流）+ sessionId 取自官方标准 prop + 改写缓存')
+  }
+
+  // 右栏操作面板：产出行必须有一枚可点的「预览」入口，且它不能顺带把卡片收起
+  // （整行 header 是折叠热区）。
+  // 注意：外层作用域的 cardSrc 指的是 KrLiveActivityCard；这里要的是操作面板卡。
+  const plainCardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrPlainTimelineCard.tsx'), 'utf8')
+  if (!code.includes('.kr-plain-step__open')) {
+    fail('client bundle is missing the per-step preview button styles (.kr-plain-step__open)')
+  } else if (!/function OpenFileChip/.test(plainCardSrc) || !/kr-plain-step__open/.test(plainCardSrc)) {
+    fail('操作面板必须有 OpenFileChip（产出行右侧的「预览」入口）')
+  } else if (!/className="kr-plain-step__open"[\s\S]{0,600}?event\.stopPropagation\(\)/.test(plainCardSrc)) {
+    fail('「预览」按钮必须 stopPropagation（整行 header 是折叠热区，否则一点两变）')
+  } else if (!/!failed && <OpenFileChip/.test(plainCardSrc)) {
+    fail('「预览」入口只在成功的产出行出现（失败行的路径往往指向没写成的文件）')
+  } else if (!/sessionId=\{sessionId\}/.test(plainCardSrc)) {
+    fail('StepRow 必须收到 sessionId（打开预览要构造会话文件地址）')
+  } else {
+    pass('操作面板：产出行带可点「预览」入口（成功行才有 / 不误触折叠）')
+  }
+
+  // 相对路径图片：官方 ui-chat 传给 MarkdownText 的 resolver 只认绝对路径
+  // （fileMediaUrl 对非绝对路径直接返回 undefined），所以 `![](shot.png)` 在
+  // 对话流里只剩 alt 文本 —— 这正是「看不到图」的另一半。必须自挂一份
+  // pathImages，把相对路径按会话工作区根补成绝对路径。
+  if (!/pathImages/.test(thinkSrc) || !/localFileMediaUrl\(resolveWorkspacePath\(cwd, value\)\)/.test(thinkSrc)) {
+    fail('正文必须自挂 pathImages（官方的图片 resolver 只认绝对路径，相对路径图片不显示）')
+  } else if (!/pathImages=\{env\?\.pathImages\}/.test(thinkSrc)) {
+    fail('pathImages 必须真的传给 MarkdownText（挂而不用等于没挂）')
+  } else {
+    pass('正文图片：自挂 pathImages 补全相对路径（绝对路径仍走官方同一条 /api/file）')
+  }
+
+  // 产出路径的来源：规则表显式声明的，或从工具结果里捞出来的（生图 / 交付这类
+  // 工具的参数里没有目标路径，只有返回值写着文件在哪）。
+  const langSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/plain-language.ts'), 'utf8')
+  if (!/filePath\?:/.test(langSrc) || !/filePathFromResult/.test(langSrc)) {
+    fail('plain-language 必须产出 filePath（规则声明 + 从结果兜底捞）')
+  } else if (!/filePath: \(a\) => filePathOf\(a, 'file_path', 'path', 'filePath'\)/.test(langSrc)) {
+    fail('写/改/读文件这类规则必须声明 filePath（否则产出行没有可点的文件）')
+  } else if (!/RESULT_PATH_RE/.test(langSrc) || !/matches\[matches\.length - 1\]/.test(langSrc)) {
+    fail('从结果捞路径必须只认已知产出物扩展名，且取最后一个（落盘位置通常在末尾）')
+  } else {
+    pass('plain-language：filePath 规则声明 + 结果兜底（只认产出物扩展名）')
+  }
+}
+
+// ── 产出物卡（会话累计的成品清单，挂在操作面板之下） ─────────────────────
+//
+// 这张卡有四条**形态契约**，缺一条就从「点一下就看见」退化成「看着一堆文件名」：
+//  1. 整行即入口 —— 行本身是 button，**没有**行内「预览」小按钮（多一枚只是把
+//     同一句话说了两遍）；悬停箭头是 aria-hidden 的纯视觉提示。
+//  2. 缩略图是**按类型画的 SVG**，不是 <img> 真实文件预览（28px 见方读不出画面，
+//     而为每行发一次文件请求的代价与收益完全不成比例）。
+//  3. 代码文件折成一行计数，可展开（一次编码任务改十几个源文件，逐条占行会把
+//     「做出来了什么」整个淹掉）。
+//  4. 卡片常驻：没有产出时给一行空态，不整张 return null。
+if (krEnabled) {
+  const outputsCardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrOutputsCard.tsx'), 'utf8')
+  const outputsSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/outputs.ts'), 'utf8')
+  const outputsCode = outputsCardSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+  const outputsEnabled = /export const KR_OUTPUTS_CARD_VISIBLE = (true|false)/
+    .exec(readFileSync(resolve(ROOT, 'src/client/kr-chat/enabled.ts'), 'utf8'))?.[1] === 'true'
+  const outputsPanelSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8')
+
+  if (!outputsEnabled) {
+    fail('KR_OUTPUTS_CARD_VISIBLE 必须默认 true（产出物卡默认展示）')
+  } else if (!code.includes('.kr-card--outputs') || !code.includes('.kr-out-row')) {
+    fail('client bundle is missing the outputs card styles (.kr-card--outputs / .kr-out-row)')
+  } else if (!/\\u4EA7\\u51FA\\u7269/.test(code)) {
+    // bundle 里中文被 esbuild 转成字面 \uXXXX（大写 hex），正则里要写双反斜杠。
+    fail('client bundle is missing the outputs card title (产出物)')
+  } else if (!/kr-card__title[^)]*?\\u4EA7\\u51FA\\u7269/.test(code)) {
+    fail('outputs card header must render the title 产出物')
+  } else if (!/<button[\s\S]{0,400}?className="kr-out-row"/.test(outputsCode)) {
+    fail('产出物每行必须是整行 button（键盘可达 + 触屏 :active），不是 div + onClick')
+  } else if (/className="kr-out-row__open"[\s\S]{0,200}?<button/.test(outputsCode)
+    || /<button[\s\S]{0,120}?kr-out-row__open/.test(outputsCode)) {
+    fail('产出物行尾不得再有「预览」按钮：整行即入口，箭头只是 aria-hidden 的纯视觉提示')
+  } else if (!/<span className="kr-out-row__open" aria-hidden>/.test(outputsCode)) {
+    fail('行尾那枚「能点」箭头必须是 aria-hidden（它不进无障碍树，读屏听的是整行 aria-label）')
+  } else if (/<img\b/.test(outputsCode)) {
+    fail('缩略图必须是按类型画的 SVG，不得用 <img> 拉真实文件（28px 见方读不出画面，且每行一次请求）')
+  } else if (!/function Thumb\(\{ kind \}/.test(outputsCode) || !/case 'model3d':/.test(outputsCode)) {
+    fail('缩略图必须按 OutputKind 分派（image/video/model3d/doc/sheet/archive/code…）')
+  } else if (!/kr-out-code__toggle/.test(outputsCode) || !/另有 \$\{code\.length\} 个代码文件/.test(outputsCode)) {
+    fail('代码文件必须折成一行「另有 N 个代码文件」，可展开')
+  } else if (!/本次会话还没有产出文件/.test(outputsCode)) {
+    fail('产出物卡空态必须常驻一行（不整张 return null，与任务概览同一口径）')
+  } else if (!/KrOutputsCard[\s\S]{0,600}?squeezed=\{panelSqueezed\}/.test(outputsPanelSrc)) {
+    fail('右栏挤压时必须把 squeezed 传给产出物卡（默认露出条数降一档）')
+  } else if (!/KrPlainTimelineCard[\s\S]{0,900}?<KrOutputsCard/.test(outputsPanelSrc)) {
+    fail('产出物卡必须挂在操作面板**之下**（滚动区最后一张卡）')
+  } else {
+    pass('产出物卡：整行可点 + SVG 类型缩略图 + 代码折行 + 常驻空态，挂在操作面板之下')
+  }
+
+  // 收集层（纯函数）：只列成品、只认本地文件、按节点缓存。
+  if (!/export function collectOutputs/.test(outputsSrc) || !/export function classifyOutput/.test(outputsSrc)) {
+    fail('outputs.ts 必须导出 collectOutputs / classifyOutput（纯函数，可在 smoke 里直接断言）')
+  } else if (!/const perNodeCache = new WeakMap/.test(outputsSrc)) {
+    fail('outputs.ts 必须按节点缓存：流式期快照每个 delta 发布一次，逐帧重扫结果文本是白花开销')
+  } else if (!/ARG_PATH_TOOLS/.test(outputsSrc) || !/RESULT_PATH_TOOLS/.test(outputsSrc)) {
+    fail('outputs.ts 必须把参数路与结果路的工具集**分开**：上传的 paths 是用户给的源文件、'
+      + '命令行的参数是输入（-i in.mp4），都不该算成"我做出来的"')
+  } else if (!/gif: 'video'/.test(outputsSrc) || !/blend: 'model3d'/.test(outputsSrc)) {
+    fail('outputs.ts 的类别表必须把 gif 归 video、blend 归 model3d（截图里那两类产出物）')
+  } else if (!/ts: 'code'/.test(outputsSrc) || !/py: 'code'/.test(outputsSrc)
+    || !/KIND_BY_EXT\[extOf\(path\)\] \?\? 'other'/.test(outputsSrc)) {
+    fail('outputs.ts 必须把代码类归 code，认不出的扩展名归 other（不列也不计数）')
+  } else if (!/SPILL_PATH_RE/.test(outputsSrc) || !/dsh-spill-/.test(outputsSrc)) {
+    // 用户报的 BUG：卡里出现了 `*-pwsh.txt`。那是 DSH 把超长工具结果落到
+    // %TEMP%/dsh-spill-*/session-*/ 的临时文件，路径必然出现在结果文本里。
+    fail('outputs.ts 必须排除 DSH 的 spill 临时目录（它的路径必然出现在结果文本里，但不是产出）')
+  } else if (!/SAVE_VERB_RE/.test(outputsSrc) || !/pathsInSaveContext/.test(outputsSrc)) {
+    // 用户报的 BUG 的另一半：目录列表会把**别的会话生成的文件**也列出来。
+    fail('结果路必须只在「落盘说明」上下文里取路径：Get-ChildItem / ls -R / git status '
+      + '会把已有文件（含别的会话的）列出来，无差别扫描就会把它们当成本次产出')
+  } else {
+    pass('outputs.ts：参数/结果两路工具集分离 + spill 排除 + 落盘说明闸门')
   }
 }
 

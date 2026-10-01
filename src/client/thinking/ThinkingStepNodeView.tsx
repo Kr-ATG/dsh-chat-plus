@@ -28,7 +28,7 @@
 import { memo, useEffect, useMemo, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { MarkdownFileMentions, MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MarkdownFileMentions, MarkdownLabels, MarkdownPathImages } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   AssistantChatData, ChatNode, ChatNodeViewProps, ChatViewSlotProps, TurnTailOwnerProps,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
@@ -52,10 +52,22 @@ import { KR_CHAT_ENABLED } from '../kr-chat/enabled.ts'
 import { KrReasoningCard } from '../kr-chat/KrReasoningCard.tsx'
 import { getOfficialAssistantNodeView } from '../index.ts'
 import { latestChatSnapshot, setLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
+import { workspaceCwdOf } from '../client-ctx.ts'
+import { looksLikeFilePath, localFileMediaUrl, resolveWorkspacePath, tryOpenInSidebar } from '../open-preview.ts'
+import { linkifyFilePaths, promoteStandaloneImagePath } from '../path-linkify.ts'
 
 const EMPTY_STEPS: readonly ChatNode<'assistant-step'>[] = []
 const EMPTY_TOOLS: readonly ChatNode<'tool-call'>[] = []
 const EMPTY_REASONING: readonly ReasoningItem[] = []
+
+/**
+ * 已定稿正文的「裸路径 → 链接」改写缓存。
+ *
+ * 模块级而不是组件级：同一个会话里多条消息共用（消息内容不变时命中率很高），
+ * 且组件重挂载不会丢。只留最近 DECORATE_CACHE_MAX 条，长会话不会无限增长。
+ */
+const decorateCache = new Map<string, string>()
+const DECORATE_CACHE_MAX = 40
 
 /** Localized copy adapters for Cordis-free Markdown primitives（官方同款）。 */
 function markdownLabelsFrom(t: ChatViewSlotProps['t']): MarkdownLabels {
@@ -102,8 +114,35 @@ function Fresh({ live, freshKey, children }: { live: boolean; freshKey: string; 
   return <span className="dtt__fresh" data-fresh key={freshKey}>{children}</span>
 }
 
+/**
+ * 助手正文的渲染环境（由 ThinkingStepNodeView 备好，纯函数直接消费）。
+ *
+ * 只为一件事服务：**产出的文件与截图要能看见、能点开**。官方链路本身是通的
+ * （MarkdownFileLink → MarkdownDelegate.openFile → sidebarRight.openResource
+ * → 右侧工作区预览），缺的是三处词表：
+ *   · `fileMentions` —— 行内代码里的文件路径（官方只认本回合写过的文件，
+ *     这里放宽到任何带扩展名的产出物路径，运行中也能点）；
+ *   · `pathImages` —— `![](shot.png)` 这类**相对路径**图片（官方的 resolver
+ *     只认绝对路径，相对的一律只剩 alt 文本，用户就是"看不到图"）；
+ *   · 裸路径改写 —— 见 path-linkify，交给官方 renderAnchor 走同一条链路。
+ */
+interface AssistantBodyEnv {
+  /** 行内代码的文件提及（官方 MarkdownFileMentions 契约）。 */
+  readonly fileMentions?: MarkdownFileMentions | undefined
+  /**
+   * 已经合流好的文件提及（官方优先 + 自建兜底）。
+   *
+   * **必须在这里合流**，不能在 AssistantBody 里现拼：MarkdownText 的 memo 把
+   * fileMentions 的 identity 当依赖，每次渲染新建对象会让流式渲染缓存整段失效
+   * （每个 delta 都重排整篇正文）。env 由 useMemo 备好，identity 稳定。
+   */
+  readonly mergedMentions?: MarkdownFileMentions | undefined
+  /** 本地路径图片的显示地址解析（官方 MarkdownPathImages 契约）。 */
+  readonly pathImages?: MarkdownPathImages | undefined
+}
+
 /** 助手正文：text 走官方 MarkdownText、image 走官方槽、未知块 JsonBlock。 */
-function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, mentions, labels, t }: {
+function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, mentions, labels, t, env }: {
   blocks: readonly AssistantBlockLike[]
   streaming: boolean
   interrupted?: boolean | undefined
@@ -111,12 +150,45 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
   mentions?: MarkdownFileMentions | undefined
   labels: MarkdownLabels
   t: ChatViewSlotProps['t']
+  env?: AssistantBodyEnv | undefined
 }): { hasVisible: boolean; rendered: ReactNode[] } {
   const hasVisible = streaming
     || interrupted === true
     || blocks.some(block => block.kind !== 'tool-call')
   const rendered: ReactNode[] = []
   if (!hasVisible) return { hasVisible, rendered }
+  /*
+   * 文件提及直接用 env 里合流好的那一个（identity 稳定，见 AssistantBodyEnv）。
+   * 没有自建那条时退回官方原对象，同样稳定。
+   */
+  const mentionResolver: MarkdownFileMentions | undefined = env?.mergedMentions ?? mentions
+  /*
+   * 裸路径链接化：只在**已定稿**的文本上做。
+   *
+   * 流式期正文是半截的，路径随时可能被后续字符续写（`D:\a\b.p` → `D:\a\b.png`），
+   * 此刻改写会产出死链，而且每次 delta 都要重扫一遍。定稿后一次改写即可。
+   *
+   * 改写结果按源文本缓存：一条已定稿的消息在后续重渲染里文本不变，不该每次
+   * 都重跑一遍正则（长正文 + 几十条路径时那是实打实的开销）。缓存只留最近
+   * 若干条，避免长会话把整篇历史都攥在内存里。
+   */
+  const decorate = (source: string): string => {
+    if (streaming) return source
+    const cached = decorateCache.get(source)
+    if (cached !== undefined) return cached
+    let result = source
+    try {
+      result = linkifyFilePaths(promoteStandaloneImagePath(source))
+    } catch {
+      result = source
+    }
+    if (decorateCache.size >= DECORATE_CACHE_MAX) {
+      const oldest = decorateCache.keys().next()
+      if (!oldest.done) decorateCache.delete(oldest.value)
+    }
+    decorateCache.set(source, result)
+    return result
+  }
   // 连续 text 块先拼成整段：长围栏（proto-tabs 单行 JSON 很长）会被流式
   // 切成多个块，单块正则永远匹配不上，只能原样显示代码块。用空串拼接
   // 精确还原（JSON 字符串内不能插入换行，只能无缝拼）。
@@ -142,7 +214,7 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
               rendered.push(<Fresh live={streaming} freshKey={`${key}-dg${subIndex}`}><DiagramCard spec={sub.spec} /></Fresh>)
             } else if (sub.text !== '') {
               rendered.push(
-                <Fresh live={streaming} freshKey={`${key}-md${subIndex}`}><MarkdownText text={sub.text} streaming={streaming} labels={labels} fileMentions={mentions} /></Fresh>,
+                <Fresh live={streaming} freshKey={`${key}-md${subIndex}`}><MarkdownText text={decorate(sub.text)} streaming={streaming} labels={labels} fileMentions={mentionResolver} pathImages={env?.pathImages} /></Fresh>,
               )
             }
           })
@@ -150,7 +222,7 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
         const parts = splitProtoTabs(block.text)
         if (parts.length === 1 && parts[0]?.kind === 'md' && parts[0].text.indexOf('diagram') < 0) {
           rendered.push(
-            <Fresh live={streaming} freshKey={`md${index}`}><MarkdownText text={block.text} streaming={streaming} labels={labels} fileMentions={mentions} /></Fresh>,
+            <Fresh live={streaming} freshKey={`md${index}`}><MarkdownText text={decorate(block.text)} streaming={streaming} labels={labels} fileMentions={mentionResolver} pathImages={env?.pathImages} /></Fresh>,
           )
         } else {
           parts.forEach((part, partIndex) => {
@@ -249,6 +321,68 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
     () => owner === undefined ? undefined : fileMentions(owner),
     [fileMentions, owner],
   )
+  /**
+   * 会话身份与工作区根目录：自建文件提及要用它构造 `dsh-resource://file/…` 地址。
+   *
+   * `sessionId` 是官方 session 作用域座位给的标准 prop（见 ui-session 的
+   * SessionStandardProps 合并声明），不需要额外 inject。cwd 走 sessions 服务
+   * 现读，读不到就只做绝对路径（相对路径的链接点开时会由右栏按会话根解析）。
+   */
+  const sessionIdProp = (props as { readonly sessionId?: unknown }).sessionId
+  const bodySessionId = typeof sessionIdProp === 'string' ? sessionIdProp : null
+  /**
+   * 自建文件提及：行内代码里的路径 → 可点开右侧工作区预览。
+   *
+   * 与官方那条的差别只有一个：**不要求「本回合写过」**。官方只为回合收口时
+   * 本回合产出的文件做提及；模型在正文里随手写个路径（比如把上一步生成的截图
+   * 再引一次、或指向一个之前就存在的文件）时官方不认，用户就点不动。
+   * 这里按「带扩展名、像文件」这个保守判据补上，认不出时返回 undefined，
+   * 官方渲染器会把它保持成惰性的行内代码（不会制造死链按钮）。
+   *
+   * 引用必须稳定：MarkdownText 的 memo 依赖 fileMentions 的 identity，每次渲染
+   * 新建对象会让流式缓存整段失效。
+   */
+  const bodyEnv = useMemo<AssistantBodyEnv>(() => {
+    const sid = bodySessionId
+    const cwd = sid === null ? undefined : workspaceCwdOf(sid)
+    const selfMentions: MarkdownFileMentions | undefined = sid === null
+      ? undefined
+      : {
+        resolve(value: string) {
+          if (!looksLikeFilePath(value)) return undefined
+          return {
+            open: () => { tryOpenInSidebar(value, { sessionId: sid, cwd }) },
+            label: `打开 ${value}`,
+            title: value,
+          }
+        },
+      }
+    /*
+     * 相对路径图片的补全：官方 resolver 只认绝对路径，这里先把相对路径按会话
+     * 工作区根拼成绝对路径，再交给同一条 /api/file 路由。拿不到 cwd 时退回
+     * 官方行为（相对路径仍不显示），不做任何猜测。
+     */
+    const pathImages: MarkdownPathImages | undefined = cwd === undefined
+      ? undefined
+      : { resolve: (value: string) => localFileMediaUrl(resolveWorkspacePath(cwd, value)) }
+    /*
+     * 提及合流：**官方优先、自建兜底**。
+     *
+     * 官方那条（chatFileMentions）只在回合收口后、且只认本回合「写过/交付过」的
+     * 文件——语义最准。自建那条认得更宽：任何带扩展名的产出物路径都做成可点预览，
+     * 运行中也能点。合流放在这个 useMemo 里，identity 才稳定（MarkdownText 拿它
+     * 当依赖，每次新建对象会把流式渲染缓存打穿）。
+     */
+    const mergedMentions: MarkdownFileMentions | undefined = selfMentions === undefined
+      ? mentions
+      : mentions === undefined
+        ? selfMentions
+        : { resolve: (value: string) => mentions.resolve(value) ?? selfMentions.resolve(value) }
+    return {
+      ...(mergedMentions === undefined ? {} : { mergedMentions }),
+      ...(pathImages === undefined ? {} : { pathImages }),
+    }
+  }, [bodySessionId, mentions])
 
   // Aggregate reasoning across every assistant step of this turn.
   /*
@@ -512,6 +646,7 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
     mentions,
     labels,
     t,
+    env: bodyEnv,
   })
 
   /*

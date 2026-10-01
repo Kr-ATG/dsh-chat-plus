@@ -132,33 +132,6 @@ const DIAGRAM_INJECTION_RULE = [
   '  · 该围栏只在「KR对话」视图渲染，普通「对话」视图里会原样显示成代码块。你无法确知当前处于哪个视图——若这次任务明确要出图供人阅读，优先用 mermaid（截图能出真图）。',
 ].join('\n')
 
-/**
- * 执行过程播报（human progress narration）能力规范注入文本。
- *
- * 右栏大盘有一张「操作面板」卡给不懂技术的用户看：它把工具调用翻成中文
- * 人话（「打开携程 · 机票」，而不是 `browser_navigate(url)`），这部分客户端
- * 自己做得到。唯独「**准备做什么**」客户端无从得知——工具调用发生的那一刻
- * 事情已经做完了。
- *
- * 所以这里只补这一半：约定模型在**思考里**单独起一行写「下一步：…」，客户端
- * 用正则实时抽出来当预告。选思考块而不是正文，是因为思考块在 KR 模式下不
- * 进对话流（由右栏思考卡承接），不会把正式回复搞脏；而正文里每步插一句
- * 「我接下来要去携程」既啰嗦又污染交付内容。
- *
- * 措辞刻意写死「行首」「不超过 30 字」「禁止出现函数名」三条：抽不出来时
- * 卡片会安静地退回「按工具事实推导当前动作」，功能不空，但预告这一半就没了。
- */
-const PLAIN_PROGRESS_RULE = [
-  '【执行过程播报 · 内置通道】本客户端右侧有一张「操作面板」的实时卡片，给不懂技术的用户看。要让卡片有内容，按下面的约定播报。',
-  '',
-  '1. 每次准备调用工具之前，先在自己的思考里单独起一行写「下一步：<不超过 30 字的中文说明>」。必须是独立的一行，行首就是「下一步：」。',
-  '   正确示例：下一步：打开携程，搜索北京到上海的机票',
-  '2. 只说人话。禁止出现函数名、参数名、工具名、文件路径、命令行、代码标识符。用户不关心你调了哪个 API，只关心你要干什么。',
-  '3. 一轮里多次调用工具时，每次动手前都播报一次；没有明确下一步就不写，不要凑数。',
-  '4. 这行只写给卡片看，不要在正式回复里重复。',
-  '5. 已完成的事不用复述——卡片会自动从工具调用记录里生成。',
-].join('\n')
-
 /** 创建注入器。 */
 export function createMemoryInjector(
   store: MemoryStore,
@@ -181,12 +154,6 @@ export function createMemoryInjector(
    * 各的，共用一个 Map 会互相抢占首步名额。
    */
   const diagramStepCounters = new Map<string, number>()
-
-  /**
-   * 播报通道的每会话 step 计数，理由同 zhStepCounters / diagramStepCounters
-   * ——四条内置通道各记各的，共用一个 Map 会互相抢占首步名额。
-   */
-  const plainStepCounters = new Map<string, number>()
 
   async function buildMemoryBlock(
     agent: PreStepAgent,
@@ -317,32 +284,6 @@ export function createMemoryInjector(
       }
     }
 
-    // ── 执行过程播报能力规范注入（内置通道） ───────────────────────────
-    // 位置与上面两条一致：两道闸门之前。它回答的是「这张人话卡片靠什么填满」，
-    // 跟「记忆库要不要进上下文」正交——主注入关掉，播报契约仍要成立，否则
-    // 卡片会在「有工具调用」和「有预告」之间随机缺一半。
-    const plainEnabled = await store.isPlainInjectEnabled(config.plainInjectDefaultEnabled !== false)
-    if (!plainEnabled) {
-      logger?.debug?.('[dsh-memory] plain progress injection off (switch disabled)')
-    } else if (!plainStepCounters.has(sessionId)) {
-      plainStepCounters.set(sessionId, 1)
-      try {
-        messages = [...messages, createUserMessage({
-          content: [{ type: 'text', text: PLAIN_PROGRESS_RULE }],
-          source: {
-            kind: 'plugin:dsh-memory',
-            plugin: 'dsh-memory',
-            form: 'snapshot',
-            sections: [{ name: '执行过程播报', text: PLAIN_PROGRESS_RULE }],
-          },
-        })]
-        logger?.debug?.('[dsh-memory] plain progress injection ok')
-      } catch (error) {
-        // 失败绝不能影响主注入与其它通道。
-        logger?.warn?.(`[dsh-memory] plain progress injection failed: ${error instanceof Error ? error.message : String(error)}`)
-      }
-    }
-
     // 项目注入排除：被排除的工作区里，会话不注入**记忆库条目**（用户在面板
     // 项目上下文条里按项目关闭注入）。判定在会话级开关之前——排除是项目级
     // 硬闸，会话级开关管不到它。注意这不再影响上面已产出的中文块。
@@ -397,7 +338,6 @@ export function createMemoryInjector(
       stepCounters.delete(sessionId)
       zhStepCounters.delete(sessionId)
       diagramStepCounters.delete(sessionId)
-      plainStepCounters.delete(sessionId)
     },
   }
 }

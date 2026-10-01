@@ -23,6 +23,8 @@ import { formatDuration } from '../tool-summary/tool-stats.ts'
 import type { PlainIconKey, PlainStep } from './plain-language.ts'
 import { condenseSteps, countOf, stripCount, type PlainStepView, type PlainTimeline } from './plain-timeline.ts'
 import { useSubagentCatalog, type SubagentCatalogView } from './subagent-catalog.ts'
+import { workspaceCwdOf } from '../client-ctx.ts'
+import { tryOpenInSidebar } from '../open-preview.ts'
 
 /**
  * 详细/简要的落盘键。换个键名就会丢用户上次的偏好，改动时留意。
@@ -197,13 +199,54 @@ function SubagentBlock({ catalog }: { readonly catalog: SubagentCatalogView }): 
   )
 }
 
-function StepRow({ step, index, catalog, brief }: {
+/**
+ * 产出行末尾的「打开预览」按钮。
+ *
+ * 读者是普通用户：他刚让模型做了张图 / 改了份文档，最想要的下一步就是**看一眼**。
+ * 在那之前他只能自己去翻文件管理器 —— 因为卡片上写的只有文件名，点不动。
+ * 这枚按钮把「文件名」变成「点一下就在右侧栏打开」。
+ *
+ * 只在这一步确实产出了一个文件时渲染（step.filePath 有值）。点击时优先走
+ * 官方右栏预览；右栏服务不可用（旧宿主）就什么都不做，绝不弹错误框 ——
+ * 那枚按钮本来只是加速通道，不是必经之路。
+ */
+function OpenFileChip({ step, sessionId }: {
+  readonly step: PlainStep
+  readonly sessionId: string | null
+}): ReactElement | null {
+  const path = step.filePath
+  if (path === undefined || path === '') return null
+  return (
+    <button
+      type="button"
+      className="kr-plain-step__open"
+      title={`在右侧栏预览 ${path}`}
+      aria-label={`在右侧栏预览 ${path}`}
+      onClick={(event) => {
+        // 卡片头整行是折叠热区，这里必须拦住，否则点开预览会把卡片收起。
+        event.stopPropagation()
+        tryOpenInSidebar(path, { sessionId, cwd: workspaceCwdOf(sessionId) })
+      }}
+    >
+      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M6.4 3.2H3.6A1.4 1.4 0 0 0 2.2 4.6v7.8a1.4 1.4 0 0 0 1.4 1.4h7.8a1.4 1.4 0 0 0 1.4-1.4V9.6" />
+        <path d="M9.6 2.2h4.2v4.2" />
+        <path d="M13.8 2.2 7.6 8.4" />
+      </svg>
+      <span>预览</span>
+    </button>
+  )
+}
+
+function StepRow({ step, index, catalog, brief, sessionId }: {
   readonly step: PlainStep
   readonly index: number
   /** 仅当 step.spawnsSubagents 为真时才有内容。 */
   readonly catalog: SubagentCatalogView | null
   /** 简要（纪要）模式：不要图标，动词写回文字里。 */
   readonly brief: boolean
+  /** 当前会话 id：点「预览」时用它构造文件地址。 */
+  readonly sessionId: string | null
 }): ReactElement {
   /*
    * 一句话 = **动词 + 对象**。
@@ -276,6 +319,12 @@ function StepRow({ step, index, catalog, brief }: {
       {failed && step.issue !== undefined && (
         <span className="kr-plain-step__issue">{step.issue}</span>
       )}
+      {/*
+       * 「预览」入口：只在**成功了**的产出行上出现。
+       * 失败那一步的 filePath 往往指向一个没写成的文件，给个点开就报错的按钮
+       * 比不给更糟 —— 失败行要的是那句人话原因，不是出口。
+       */}
+      {!failed && <OpenFileChip step={step} sessionId={sessionId} />}
       {step.durationMs !== undefined && step.durationMs > 40 && (
         <span className="kr-plain-step__time">{formatDuration(step.durationMs)}</span>
       )}
@@ -337,10 +386,10 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   )
   const subagentCatalog = useSubagentCatalog(hasSpawning ? sessionId : null)
 
-  // 跟随探针：条目数 / 当前动作 / 预告任一变化都重新贴底。
+  // 跟随探针：条目数变化就重新贴底。
   const probe = useMemo(
-    () => `${steps.length}:${timeline.nowLabel}:${timeline.intent ?? ''}`,
-    [steps.length, timeline.nowLabel, timeline.intent],
+    () => `${steps.length}`,
+    [steps.length],
   )
   const { ref: listRef, onScroll, onWheel, overflow, following, edges } = useSteppedFollow(probe, running && open, motion)
 
@@ -468,9 +517,10 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
            * model-seats 目录"，同一时刻列表里也正有一行"查看文件"在扫光），白白
            * 占掉一行高度。要看"现在在干什么"，进行中那行的扫光与右侧耗时已经说清。
            *
-           * 模型侧的播报约定（PLAIN_PROGRESS_RULE）本身**保留**：它还喂 nowLabel
-           * 与"进行中"高光的措辞，只是不再单独占一行。相关样式 .kr-plain-intent*
-           * 一并从 styles.ts 移除。
+           * 模型侧的播报约定（PLAIN_PROGRESS_RULE）也于 2026-10-01 整条下掉：
+           * 这行删掉之后，intent 只剩一个滚动跟随探针在消费、nowLabel 干脆没有
+           * 渲染出口，而模型每一步都要多写一行。相关注入规则、composer 那枚
+           * 「操作面板」开关、extractIntent / nowLabel 一并移除。
            */}
 
           {empty ? (
@@ -501,6 +551,7 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
                   index={index}
                   catalog={step.spawnsSubagents === true ? subagentCatalog : null}
                   brief={brief}
+                  sessionId={sessionId}
                 />
               ))}
             </div>

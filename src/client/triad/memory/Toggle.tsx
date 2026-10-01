@@ -39,9 +39,9 @@ export type MemoryToggleProps =
 /** 悬停移出后的延迟收起（毫秒）：给鼠标跨过按钮↔卡片间隙留时间。 */
 const HIDE_DELAY_MS = 120
 
-/** host 缺字段时的兜底形状：中文通道默认开（内置能力），另两条默认关。 */
+/** host 缺字段时的兜底形状：中文通道默认开（内置能力），diagram 默认关。 */
 const FALLBACK_STATE: InjectStateView = {
-  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false, plainEnabled: true,
+  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false,
 }
 
 /** 把 host 回包收敛成本地状态形状（缺字段按默认处理）。 */
@@ -55,9 +55,6 @@ function toState(res: InjectStateView): InjectStateView {
     // 缺字段按 false 兜底：diagram 通道默认关，且缺字段意味着旧 host 根本没
     // 这个能力——显示「关」比显示「开」诚实（显示开着却注不进去是假阳性）。
     diagramEnabled: res.diagramEnabled === true,
-    // 缺字段按 false 兜底：这条通道的老 host 根本没有，卡片会退回「只按工具
-    // 事实推导当前动作」。显示「关」比显示一个实际注入不上的「开」诚实。
-    plainEnabled: res.plainEnabled === true,
   }
 }
 
@@ -82,26 +79,24 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
   useEffect(() => { reload() }, [reload])
 
   /**
-   * 写单个内置通道（全局单值）。三者的形状完全同构，只有 setter 不同。
+   * 写单个内置通道（全局单值）。两者的形状完全同构，只有 setter 不同。
    *
    * 失败时回读而不是回滚：旧 host 静默丢弃写入时，回滚会让 UI 显示一个它并不
    * 具备的能力；回读拿到的是真实状态。
    */
   const pushChannel = useCallback((
-    key: 'zhEnabled' | 'diagramEnabled' | 'plainEnabled',
+    key: 'zhEnabled' | 'diagramEnabled',
     next: boolean,
   ): void => {
     setBusy(true)
     setState(prev => ({ ...prev, [key]: next }))
     const write = key === 'zhEnabled'
       ? apiRef.current.setZhInjectState(next)
-      : key === 'diagramEnabled'
-        ? apiRef.current.setDiagramInjectState(next)
-        : apiRef.current.setPlainInjectState(next)
+      : apiRef.current.setDiagramInjectState(next)
     void write
       .then(res => {
-        // 中文通道缺字段按开兜底（内置能力），另两条缺字段按关兜底（旧 host 根本
-        // 没有这个能力，显示「开」是假阳性）——与 toState 的口径一致。
+        // 中文通道缺字段按开兜底（内置能力），diagram 缺字段按关兜底（旧 host
+        // 根本没有这个能力，显示「开」是假阳性）——与 toState 的口径一致。
         const enabled = key === 'zhEnabled' ? res.enabled !== false : res.enabled === true
         setState(prev => ({ ...prev, [key]: enabled }))
       })
@@ -123,7 +118,6 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           // 同样要透传：这几个 setter 只该动自己的字段，写整个对象会把它抹掉。
           zhEnabled: typeof res.zhEnabled === 'boolean' ? res.zhEnabled : prev.zhEnabled,
           diagramEnabled: typeof res.diagramEnabled === 'boolean' ? res.diagramEnabled : prev.diagramEnabled,
-          plainEnabled: typeof res.plainEnabled === 'boolean' ? res.plainEnabled : prev.plainEnabled,
         }))
       })
       .catch(reload)
@@ -149,7 +143,6 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           explicit: typeof res.explicit === 'boolean' ? res.explicit : prev.explicit,
           zhEnabled: typeof res.zhEnabled === 'boolean' ? res.zhEnabled : prev.zhEnabled,
           diagramEnabled: typeof res.diagramEnabled === 'boolean' ? res.diagramEnabled : prev.diagramEnabled,
-          plainEnabled: typeof res.plainEnabled === 'boolean' ? res.plainEnabled : prev.plainEnabled,
         }))
       })
       .catch(() => undefined)
@@ -383,10 +376,9 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
 
   const zhOn = state.zhEnabled !== false
   const diagramOn = state.diagramEnabled === true
-  const plainOn = state.plainEnabled === true
-  // 按钮状态取「三条里有没有开的」——全关才算关，半开按开显示（它是能力入口，
+  // 按钮状态取「两条里有没有开的」——全关才算关，半开按开显示（它是能力入口，
   // 不是记忆那种一刀切的开关）。
-  const anyOn = zhOn || diagramOn || plainOn
+  const anyOn = zhOn || diagramOn
   const button = (
     <ToggleButton
       on={anyOn}
@@ -420,12 +412,6 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
           busy={busy}
           label={t('diagramInjectLabel')}
           onToggle={() => { pushChannel('diagramEnabled', !diagramOn) }}
-        />
-        <SwitchRow
-          on={plainOn}
-          busy={busy}
-          label={t('plainInjectLabel')}
-          onToggle={() => { pushChannel('plainEnabled', !plainOn) }}
         />
         <p className={css.injectFoot}>{t('builtinCardFoot')}</p>
       </div>

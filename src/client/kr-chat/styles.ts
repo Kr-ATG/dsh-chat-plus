@@ -691,10 +691,10 @@ body[data-kr-resizing="true"] * {
  * 操作面板的标题不再需要「不占满剩余宽度」这条覆盖（已删）。
  *
  * 原来 .kr-card__title 的 flex:1 是为「标题 + 右侧那件东西」准备的：标题行右边
- * 跟着 nowLabel（「正在查 model-seats 目录…」），标题要是不让出弹性空间，那句话
- * 只能被挤到换行或省略。标题行右侧的内容（那句人话、「N 步」徽标、「技术细节」
- * 开关）现已全部删除，标题独占一行，flex:1 与其余卡片完全一致——这条覆盖连同
- * 它的理由一起删干净，留着只会让人以为这里还有右侧元素。
+ * 曾跟着折叠态那行动作文字，标题要是不让出弹性空间，那句话只能被挤到换行或省略。
+ * 标题行右侧的内容（那句人话、「N 步」徽标、「技术细节」开关）现已全部删除，
+ * 标题独占一行，flex:1 与其余卡片完全一致——这条覆盖连同它的理由一起删干净，
+ * 留着只会让人以为这里还有右侧元素。
  */
 
 /*
@@ -1239,8 +1239,8 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 
 /* 「接下来」预告行（.kr-plain-intent 整族）已删除：那张卡只讲"已经发生了什么"，
    一行尚未兑现的承诺混在事实流水里只会让人分不清做没做；而且它八成与当前正在跑
-   的那一行说的是同一件事，白占一行高度。模型侧的播报约定仍在（喂 nowLabel 与
-   进行中行的措辞），只是不再单独占一行。 */
+   的那一行说的是同一件事，白占一行高度。模型侧的播报约定也于 2026-10-01 整条
+   下掉（注入规则 + composer 开关 + extractIntent / nowLabel 一并移除）。 */
 .kr-plain-empty {
   font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
@@ -1520,6 +1520,78 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   to { opacity: 1; transform: none; }
 }
 
+/*
+ * 「预览」入口（产出行右侧的一枚小按钮）。
+ *
+ * 默认**半隐身**：一列动作里大多数行都没有产出物，按钮常亮会把整列读成
+ * 「一堆按钮」，而它真正要服务的只是那几行有产出的。所以静止时压到很低的
+ * 对比度，鼠标扫过这一行（或键盘 Tab 到它）才完全显形 —— 存在感按需给。
+ *
+ * 动效分三层，都走合成器友好的属性：
+ *  · 入场：跟同列其它元素一套的 kr-fresh-wipe（新行出现时横向擦出）；
+ *  · hover：背景色淡入 + 图标轻微右上位移（"跳出去看"的方向感，与图标本身
+ *    的 ↗ 语义一致）；
+ *  · 按下：scale 回弹，给一次触觉式确认。
+ * 减弱动效时只保留颜色变化。
+ */
+.kr-plain-step__open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 1px 7px 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--kr-accent) 26%, transparent);
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--kr-accent) 62%, var(--dsw-alias-label-tertiary));
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 15px;
+  cursor: pointer;
+  opacity: .62;
+  transition: opacity .18s ease, color .18s ease, background-color .18s ease,
+              border-color .18s ease, transform .12s cubic-bezier(.2, .8, .2, 1);
+  animation: kr-fresh-wipe .28s ease both;
+}
+
+.kr-plain-step__open svg {
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+}
+
+.kr-plain-step:hover .kr-plain-step__open,
+.kr-plain-step__open:focus-visible {
+  opacity: 1;
+  color: var(--kr-accent);
+  border-color: color-mix(in srgb, var(--kr-accent) 48%, transparent);
+  background: color-mix(in srgb, var(--kr-accent) 10%, transparent);
+}
+
+.kr-plain-step__open:hover {
+  border-color: var(--kr-accent);
+  background: color-mix(in srgb, var(--kr-accent) 16%, transparent);
+}
+
+.kr-plain-step__open:hover svg {
+  transform: translate(1px, -1px);
+}
+
+.kr-plain-step__open:active {
+  transform: scale(.94);
+}
+
+.kr-plain-step__open:focus-visible {
+  outline: 2px solid var(--kr-accent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-plain-step__open,
+  .kr-plain-step__open svg { transition: none; animation: none; }
+  .kr-plain-step__open:hover svg { transform: none; }
+  .kr-plain-step__open:active { transform: none; }
+}
+
 /* @keyframes kr-plain-tech-in 已删：唯一使用它的 .kr-plain-step__tech 整块移除。 */
 
 /* ── 子智能体区块（挂在「派生子任务」那一步下面） ───────────────────────
@@ -1676,6 +1748,330 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
     background: none;
     color: var(--dsw-alias-label-primary);
   }
+}
+
+/* ══ 「产出物」卡（本次会话做出来的文件）═════════════════════════════════
+   读者仍是普通用户，这张卡只回答一件事：**这次对话一共做出来了哪些东西。**
+
+   形态上刻意与「操作面板」拉开距离：那张卡是一列文字流水（行首 14px 图标 +
+   一行文案），这张卡是一列**带缩略图的文件**（28px 缩略图 + 文件名 + 悬停箭头）。
+   两者并排时不会读成同一种东西，而它们本来就不同 —— 一个是过程，一个是结果。 */
+
+.kr-card--outputs {
+  padding-bottom: 10px;
+}
+
+/* 展开体：高度补间由 useHeightAnimation 的 WAAPI 接管（写内联 height +
+   overflow），这里只排版，绝不写 height，否则和内联样式打架。 */
+.kr-out-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kr-out-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+/*
+ * 一行产出物 = 一个整行按钮。
+ *
+ * 为什么是 button 而不是 div：这一行**就是**打开预览的入口（不另挂小按钮），
+ * 所以它必须天然可聚焦、可回车、可被读屏认出。做成 div + onClick 的话键盘
+ * 用户到不了，触屏上也没有 :active 反馈。
+ *
+ * 按钮的默认样式要全部抹掉：浏览器给 button 的 UA 样式（灰底、内边距、
+ * 居中文本、系统字体）在这里全是错的，而它现在承载的是一行列表项。
+ */
+.kr-out-row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: left;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color .12s ease;
+  /* 错峰入场：与操作面板同一套节奏（新行从下方 6px 淡入），
+     两张卡的「有东西出现」读起来是一件事。 */
+  animation: kr-out-row-in .3s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+@keyframes kr-out-row-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.kr-out-row:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.07));
+}
+
+/* 键盘焦点环：整行可点，焦点必须看得见（WCAG 2.4.7）。 */
+.kr-out-row:focus-visible {
+  outline: 2px solid var(--kr-accent);
+  outline-offset: -2px;
+}
+
+/*
+ * 缩略图。
+ *
+ * **不是真实文件预览，是按类型画的 SVG**（见 KrOutputsCard 的 Thumb）。
+ * 理由：28px 见方读不出画面内容，而为每一行发一次文件请求的代价与收益完全
+ * 不成比例 —— 一屏 6 行就是 6 次读盘，换来的只是一个看不清的小方块。
+ *
+ * 底色按 data-kind 分档：同一类文件永远同一个底色，于是扫一列时"哪些是图、
+ * 哪些是代码"是靠色块与形状**双重**传达的，色弱用户与灰度截图下也读得出。
+ */
+.kr-out-row__thumb {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--kr-card-border);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, .08));
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  transition: transform .24s cubic-bezier(.34, 1.35, .5, 1), border-color .18s ease;
+}
+
+/* 悬停时缩略图轻微放大：一行里"有东西在回应指针"，但只有这一个元素动，
+   整行不位移 —— 列表行位移会让下面的行跟着抖。 */
+.kr-out-row:hover .kr-out-row__thumb {
+  transform: scale(1.06);
+  border-color: var(--kr-card-hover);
+}
+
+/* 类型底色：只染缩略图的底，不染整行 —— 整行染色会让六行变成六块色斑。 */
+.kr-out-row[data-kind="image"] .kr-out-row__thumb,
+.kr-out-row[data-kind="video"] .kr-out-row__thumb {
+  background: color-mix(in srgb, var(--kr-accent) 12%, transparent);
+  color: color-mix(in srgb, var(--kr-accent) 76%, var(--dsw-alias-label-secondary));
+}
+
+.kr-out-row[data-kind="model3d"] .kr-out-row__thumb,
+.kr-out-row[data-kind="slide"] .kr-out-row__thumb {
+  background: color-mix(in srgb, var(--kr-warning) 15%, transparent);
+  color: color-mix(in srgb, var(--kr-warning) 72%, var(--dsw-alias-label-secondary));
+}
+
+.kr-out-row[data-kind="audio"] .kr-out-row__thumb,
+.kr-out-row[data-kind="sheet"] .kr-out-row__thumb {
+  background: color-mix(in srgb, var(--kr-success) 14%, transparent);
+  color: color-mix(in srgb, var(--kr-success) 68%, var(--dsw-alias-label-secondary));
+}
+
+.kr-out-row[data-kind="pdf"] .kr-out-row__thumb,
+.kr-out-row[data-kind="archive"] .kr-out-row__thumb {
+  background: color-mix(in srgb, var(--kr-error) 12%, transparent);
+  color: color-mix(in srgb, var(--kr-error) 66%, var(--dsw-alias-label-secondary));
+}
+
+/* 文件名：主文字色 + 500 字重，是这一行的主体。 */
+.kr-out-row__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}
+
+/*
+ * 行尾的「能点」提示（一枚 ↗）。
+ *
+ * 静止时**完全隐藏**（不是半透明）：这张卡每一行都能点，六行各挂一枚常亮的
+ * 箭头就是一列噪声 —— 提示该在指针落到哪一行时只出现在那一行。
+ * 键盘 Tab 到它时同样浮现（:focus-visible），否则键盘用户看不到"这里能进"。
+ */
+.kr-out-row__open {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--kr-accent);
+  opacity: 0;
+  transform: translate(-2px, 2px);
+  transition: opacity .18s ease, transform .2s cubic-bezier(.2, .8, .2, 1);
+}
+
+.kr-out-row:hover .kr-out-row__open,
+.kr-out-row:focus-visible .kr-out-row__open {
+  opacity: 1;
+  transform: none;
+}
+
+/*
+ * 代码文件折行。
+ *
+ * 一次编码任务改十几个源文件，逐条占行会把「做出来了什么」整个淹掉 ——
+ * 折成一行「另有 N 个代码文件」，要看的人自己展开。
+ */
+.kr-out-code {
+  min-width: 0;
+}
+
+.kr-out-code__toggle {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 16px;
+  text-align: left;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  transition: background-color .12s ease, color .12s ease;
+}
+
+.kr-out-code__toggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.07));
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-out-code__toggle:focus-visible {
+  outline: 2px solid var(--kr-accent);
+  outline-offset: -2px;
+}
+
+/* 折行的缩略图与正式行同尺寸同位置：展开后两段的行首对齐，读起来是一列。 */
+.kr-out-code__thumb {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px dashed var(--kr-card-border);
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+}
+
+.kr-out-code__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kr-out-code__action {
+  flex: none;
+  font-size: 11px;
+  color: var(--kr-accent);
+  opacity: .82;
+}
+
+.kr-out-code__chevron {
+  flex: none;
+  transition: transform .22s cubic-bezier(.2, .8, .2, 1);
+}
+
+.kr-out-code[data-open="true"] .kr-out-code__chevron {
+  transform: rotate(180deg);
+}
+
+/* 展开后的代码清单：缩进一级（28px 缩略图 + 9px gap），表明它们属于上面那一行。 */
+.kr-out-list--code {
+  margin-left: 37px;
+  padding-left: 4px;
+  border-left: 1px solid var(--kr-hairline);
+  animation: kr-out-code-in .26s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+@keyframes kr-out-code-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/*
+ * 「展开其余 N 条」。
+ *
+ * 一条上发丝线 + 居中一行小字：它是列表的**出口**，不是列表的一行，所以
+ * 与上面各行拉开一道分隔，且没有缩略图列（不参与"文件行"的对齐）。
+ */
+.kr-out-more {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  margin-top: 2px;
+  padding: 5px 0 2px;
+  border: 0;
+  border-top: 1px solid var(--kr-hairline);
+  background: transparent;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  transition: color .16s ease;
+}
+
+.kr-out-more:hover {
+  color: var(--kr-accent);
+}
+
+.kr-out-more:focus-visible {
+  outline: 2px solid var(--kr-accent);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.kr-out-more svg {
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1);
+}
+
+.kr-out-more:hover svg {
+  transform: translateY(1px);
+}
+
+/* 空态：常驻一行低对比度说明，卡片不整张消失（与任务概览同一口径）。 */
+.kr-out-empty {
+  padding: 2px 8px 3px;
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-out-row,
+  .kr-out-list--code {
+    animation: none;
+  }
+  .kr-out-row:hover .kr-out-row__thumb { transform: none; }
+  .kr-out-row__open,
+  .kr-out-code__chevron,
+  .kr-out-more svg { transition: none; }
+  .kr-out-row__open { transform: none; }
+  .kr-out-more:hover svg { transform: none; }
 }
 
 /* ══ 大盘统一简约滚动条 ══════════════════════════════════════════════════

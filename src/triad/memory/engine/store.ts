@@ -714,26 +714,6 @@ export class MemoryStore {
     await this.writeState(state)
   }
 
-  // ── 执行过程播报注入开关（全局单值） ─────────────────────────────────
-
-  /**
-   * 播报契约注入是否开启（三态：state 显式值 ?? 调用方给的 fallback）。
-   *
-   * 与前两条同为**全局单值**：它是「这张人话卡片靠什么填满」的声明，逐会话
-   * 开关只会制造「这个会话能看到下一步、那个看不到」的不确定。
-   */
-  async isPlainInjectEnabled(fallback: boolean): Promise<boolean> {
-    const state = await this.readState()
-    return typeof state.plainInjectEnabled === 'boolean' ? state.plainInjectEnabled : fallback
-  }
-
-  /** 写播报契约注入开关（全局单值；直接落盘，调用频率极低）。 */
-  async setPlainInjectEnabled(enabled: boolean): Promise<void> {
-    const state = await this.readState()
-    state.plainInjectEnabled = enabled
-    await this.writeState(state)
-  }
-
   // ── 项目 meta ───────────────────────────────────────────────────────
 
   async readProjectMeta(hash: string): Promise<ProjectMeta | undefined> {

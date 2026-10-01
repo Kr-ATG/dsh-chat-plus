@@ -42,6 +42,7 @@ import { KrTodoBridge } from './kr-chat/kr-todo-bridge.ts'
 import { KR_CHAT_ENABLED } from './kr-chat/enabled.ts'
 import { applyTriadClient } from './triad/index.ts'
 import { buildActivityGrid, activityColor, ACTIVITY_COLUMNS } from './triad/usage/dashboard/ActivityGrid.js'
+import { setClientCtx } from './client-ctx.ts'
 
 /** 顶层服务依赖（client boot graph 用）。 */
 // 并集 = 原 dsh-chat-plus 的 slots + 原 dsh-triad 的 locale/inputTriggers/sessions
@@ -139,6 +140,9 @@ export function apply(ctx: ClientContext): void {
   if (typeof window !== 'undefined') {
     (window as any).__dshClientCtx__ = ctx
   }
+  // 登记根上下文：右栏「打开工作区预览」与正文文件提及都靠它读跨插件服务
+  // （ctx.get('sidebarRight') / ctx.get('sessions')），见 client-ctx.ts。
+  setClientCtx(ctx as unknown as { get?(name: string): any })
   // 样式：工具聚合（dts__）、思考/流卡（dtt__）两枚 + 截图面板（tsh__）独立
   // <style>，幂等注入。
   guarded(ctx, 'tool-summary styles', injectToolSummaryStyles)
@@ -261,4 +265,4 @@ export function apply(ctx: ClientContext): void {
 /** 纯逻辑再导出：供 smoke 断言「Token 活动」贡献热力模型 + 人话行动流翻译。 */
 export { buildActivityGrid, activityColor, ACTIVITY_COLUMNS }
 export { toPlainStep, plainToolName, siteOf, isMetaTool, spawnsSubagents, humanIssue } from './kr-chat/plain-language.ts'
-export { buildPlainTimeline, extractIntent, condenseSteps } from './kr-chat/plain-timeline.ts'
+export { buildPlainTimeline, condenseSteps } from './kr-chat/plain-timeline.ts'
