@@ -15,11 +15,12 @@
  *  1. **正文永不直接 innerHTML**：HTML 邮件先过 sanitize.ts 字符串净化，再塞进
  *     `<iframe sandbox="allow-same-origin">`（不给 allow-scripts）。样式隔离 +
  *     脚本不可执行，双保险。
- *  2. **两阶段确认在 UI 上必须分得清**：写操作返回 `pending` 时只显示
- *     「已生成确认令牌，等你确认」的警示条，绝不画成成功；用户点「确认执行」
- *     才带 token 重发。
- *  3. **删除类操作单独确认**：移入回收站 / 永久删除 / 清空回收站各自弹一次
- *     ConfirmDialog，且危险操作按钮走红色变体。
+ *  2. **点一下就执行，不二次追问**：面板上的写操作（移入回收站 / 永久删除 /
+ *     发信）都是「用户亲手点 = 明确许可」，host 侧一次请求走完 CLI 的两阶段
+ *     确认（trashNow / deleteNow）。**不给「待确认」条**——同一个动作问两遍是
+ *     噪音；真失败了就报错并重新对齐状态（见 handleWriteError）。
+ *  3. **永久删除保留一次确认**：不可恢复，是回收站里的最后一道门；移入回收站
+ *     可逆（30 天内能恢复），不弹确认。危险按钮走红色变体。
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -28,14 +29,14 @@ import {
   IconCloseOutline16,
   IconDownloadOutline16,
   IconEditOutline16,
+  IconFolderOpenOutline16,
   IconPaperclipOutline16,
   IconRefreshOutline16,
   IconSearchOutline16,
   IconSendOutline16,
   IconTrashOutline16,
-  IconWarningOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { MailApi, MailAccountView, MailConfigView, MailDetailView, MailPendingView, MailSummaryView } from './api.js'
+import type { DirVerdict, MailApi, MailAccountView, MailConfigView, MailDetailView, MailSummaryView } from './api.js'
 import { MailApiError } from './api.js'
 import { css, ensureMailStyles } from './styles.js'
 import { wrapMailHtml } from './sanitize.js'
@@ -143,6 +144,28 @@ function fromText(message: { from: { email: string; name?: string } }): string {
 }
 
 /**
+ * 打开系统的文件夹选择对话框。
+ *
+ * 走官方 `ctx.uiWorkspace.pickDirectory()`（`@deepseek-ai/dsh-client-ui-workspace`
+ * 提供的跨控制器能力），**不自己造选择器**：那个服务背后是 host 的原生
+ * directoryPicker Remote，宿主换实现（原生 / 应用内浏览）本插件都不用改。
+ *
+ * 拿不到服务时**抛错**，由调用方决定降级（设置页隐藏「选择文件夹」按钮、下载时
+ * 退回默认目录）—— 返回 null 会被当成「用户取消」，与「能力不可用」混为一谈。
+ *
+ * 根上下文从 `window.__dshClientCtx__` 取（`src/client/index.ts` 里挂的，
+ * 与 client-ctx.ts 同一份）；本面板活在独立 React 根里，拿不到 DSH 的 hooks 上下文。
+ */
+async function pickDirectory(): Promise<string | null> {
+  const ctx = (window as unknown as { __dshClientCtx__?: { get?: (name: string) => unknown } }).__dshClientCtx__
+  const service = ctx?.get?.('uiWorkspace') as { pickDirectory?: () => Promise<string | null> } | null | undefined
+  if (service === null || service === undefined || typeof service.pickDirectory !== 'function') {
+    throw new Error('当前环境没有目录选择器')
+  }
+  return await service.pickDirectory()
+}
+
+/**
  * 面板属性。
  *
  * ⚠️ **open=false 且不在退场时必须返回 null**（见下方渲染前的早退）。
@@ -189,7 +212,6 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
   const [detailLoading, setDetailLoading] = useState(false)
   const [account, setAccount] = useState<MailAccountView | null>(null)
   const [config, setConfig] = useState<MailConfigView | null>(null)
-  const [pending, setPending] = useState<MailPendingView[]>([])
   const [watching, setWatching] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [confirmState, setConfirmState] = useState<{ title: string; message: string; danger?: boolean; onConfirm: () => void } | null>(null)
@@ -215,11 +237,18 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
     try { setConfig(await api.config()) } catch { /* 设置页拉不到就留空 */ }
   }, [api])
 
-  const loadPending = useCallback(async (): Promise<void> => {
-    try { setPending(await api.pending()) } catch { /* 待确认拉不到不影响主流程 */ }
-  }, [api])
-
-  const loadList = useCallback(async (target: Folder, options: { append?: boolean; cursor?: string; q?: string; unread?: boolean; attach?: boolean } = {}): Promise<void> => {
+  /**
+   * 拉列表。
+   *
+   * `fresh` 决定要不要吃本地缓存秒开：
+   *  - 不传（首屏/换文件夹）→ 走 `cache=1`，面板一打开就有内容，不白屏；
+   *  - 传 true（刷新按钮 / 写操作之后 / 写失败重对齐）→ 强制实时。
+   *
+   * 这条区分是必需的：早先所有调用都带 `cache=1`，于是「刷新」按钮点下去
+   * 拿到的是同一份磁盘快照 —— 用户刚删掉的邮件还在列表里，看起来就是
+   * 「删除没生效」，再点一次就撞上服务端的目录约束。
+   */
+  const loadList = useCallback(async (target: Folder, options: { append?: boolean; cursor?: string; q?: string; unread?: boolean; attach?: boolean; fresh?: boolean } = {}): Promise<void> => {
     const append = options.append === true
     if (append) setLoadingMore(true)
     else setLoading(true)
@@ -233,8 +262,8 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
           cursor: options.cursor,
           isUnread: options.unread === true,
           hasAttachments: options.attach === true,
-          // 首屏走缓存秒开：面板一打开就有内容，随后实时结果覆盖。
-          cache: append ? undefined : true,
+          // 首屏走缓存秒开：面板一打开就有内容。刷新/写后一律实时（见上）。
+          cache: append || options.fresh === true ? undefined : true,
         })
         : await api.search({
           q: keyword,
@@ -296,8 +325,7 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
     if (!open) return
     void loadAccount()
     void loadConfig()
-    void loadPending()
-  }, [open, loadAccount, loadConfig, loadPending])
+  }, [open, loadAccount, loadConfig])
 
   // 打开时定位到指定邮件。
   useEffect(() => {
@@ -329,7 +357,7 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
           const count = fresh.length
           setToast(count === 1 ? '收到 1 封新邮件' : `收到 ${count} 封新邮件`)
           // 提示的同时刷新列表（用户此刻多半就在看收件箱）。
-          if (folder === 'inbox') void loadList('inbox', { q: query, unread: onlyUnread, attach: onlyAttach })
+          if (folder === 'inbox') void loadList('inbox', { q: query, unread: onlyUnread, attach: onlyAttach, fresh: true })
         }
       } catch { /* 轮询失败静默 */ }
     }
@@ -348,80 +376,72 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
 
   /* ── 写操作 ───────────────────────────────────────────────────────── */
 
-  /** 统一的写结果处理：pending → 更新待确认条 + 提示；done → 刷新列表。 */
+  /**
+   * 统一的写结果处理：`done` → 提示成功并刷新列表。
+   *
+   * 面板上的写操作（移入回收站 / 永久删除 / 发信）都是**一次请求走完两阶段**
+   * （见 host 的 trashNow / deleteNow）—— 用户亲手点的那一下就是许可，所以
+   * 正常只会拿到 `done`。`pending` 是异常兜底（服务端没接受令牌），不再引导
+   * 用户去点什么「确认执行」，而是直接说明没成功，别把没做的事说成做了。
+   */
   const handleOutcome = useCallback(async (outcome: { status: string }, successText: string): Promise<void> => {
-    if (outcome.status === 'pending') {
-      await loadPending()
-      setToast('已生成确认令牌：请在上方警示条里确认后才会真正执行')
+    if (outcome.status !== 'done') {
+      setToast('这一步没有执行成功，请重试')
       return
     }
     setToast(successText)
     setPane(null)
     setDetail(null)
-    await loadPending()
-    await loadList(folder, { q: query, unread: onlyUnread, attach: onlyAttach })
+    // 写操作之后必须拿实时结果：缓存里的还是「操作前」的快照。
+    await loadList(folder, { q: query, unread: onlyUnread, attach: onlyAttach, fresh: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folder, query, onlyUnread, onlyAttach, loadList, loadPending])
+  }, [folder, query, onlyUnread, onlyAttach, loadList])
 
-  /** 带 token 确认执行（面板上的「确认执行」= 用户明确许可）。 */
-  const confirmPending = useCallback(async (record: MailPendingView): Promise<void> => {
-    const preview = record.preview as Record<string, unknown>
-    const strList = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
-    try {
-      if (record.action === 'send') {
-        await api.send({
-          to: strList(preview.to),
-          cc: strList(preview.cc),
-          subject: typeof preview.subject === 'string' ? preview.subject : '',
-          body: typeof preview.body === 'string' ? preview.body : '',
-          format: typeof preview.format === 'string' ? preview.format : 'plain',
-          attachments: strList(preview.attachments),
-          confirmationToken: record.token,
-        })
-      } else if (record.action === 'reply') {
-        await api.reply({
-          id: typeof preview.id === 'string' ? preview.id : '',
-          body: typeof preview.body === 'string' ? preview.body : '',
-          format: typeof preview.format === 'string' ? preview.format : 'plain',
-          replyAll: preview.replyAll === true,
-          cc: strList(preview.cc),
-          attachments: strList(preview.attachments),
-          confirmationToken: record.token,
-        })
-      } else if (record.action === 'forward') {
-        await api.forward({
-          id: typeof preview.id === 'string' ? preview.id : '',
-          to: strList(preview.to),
-          cc: strList(preview.cc),
-          body: typeof preview.body === 'string' ? preview.body : '',
-          includeAttachments: preview.includeAttachments === true,
-          attachments: strList(preview.attachments),
-          confirmationToken: record.token,
-        })
-      } else if (record.action === 'trash') {
-        await api.trash(typeof preview.id === 'string' ? preview.id : '', record.token)
-      } else {
-        await api.remove({
-          id: typeof preview.id === 'string' ? preview.id : undefined,
-          all: preview.all === true,
-          confirmationToken: record.token,
-        })
+  /**
+   * 写操作失败的统一收口：报错 **+ 重新对齐本地状态**。
+   *
+   * 光弹红字不够。破坏性操作最常见的失败是「这封邮件已经不在原文件夹里了」
+   * （服务端 `Cannot delete message from this directory`）—— 此刻本地列表
+   * 与详情都是过期快照，不刷新的话用户面对的是：一句报错 + 一个**注定失败
+   * 的按钮**，点几次都撞同一堵墙。
+   *
+   * 刷新之后，详情里的 `dir` 会拿到服务端的真实归属，按钮自动从「移入回收站」
+   * 翻成「永久删除」，用户顺势就能完成他本来想做的事。
+   */
+  const handleWriteError = useCallback(async (err: unknown): Promise<void> => {
+    setError({ message: err instanceof Error ? err.message : String(err), needsAuth: err instanceof MailApiError && err.needsAuth })
+    await loadList(folder, { q: query, unread: onlyUnread, attach: onlyAttach, fresh: true })
+    if (pane?.kind === 'read') await loadDetail(pane.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folder, query, onlyUnread, onlyAttach, pane, loadList, loadDetail])
+
+  /**
+   * 下载附件：`askDir` 为真时先让用户挑位置（走系统原生选择器），否则用设置里
+   * 配的目录。选择器不可用（非桌面端 / 服务缺失）时静默退回默认目录，不让
+   * 「挑位置」这个增强把「下载」本身弄失败。
+   */
+  const downloadAttachment = useCallback(async (
+    messageId: string,
+    att: { attachment_id?: string; download_url?: string; filename?: string },
+    askDir = false,
+  ): Promise<void> => {
+    let outputDir: string | undefined
+    if (askDir) {
+      try {
+        const picked = await pickDirectory()
+        if (picked === null) return // 用户取消：什么都不做
+        outputDir = picked
+      } catch {
+        // 选择器不可用：退回默认目录继续下载。
+        outputDir = undefined
       }
-      setToast('已执行')
-      await loadPending()
-      await loadList(folder, { q: query, unread: onlyUnread, attach: onlyAttach })
-    } catch (err) {
-      setError({ message: err instanceof Error ? err.message : String(err), needsAuth: err instanceof MailApiError && err.needsAuth })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, folder, query, onlyUnread, onlyAttach, loadList, loadPending])
-
-  const downloadAttachment = useCallback(async (messageId: string, att: { attachment_id?: string; download_url?: string; filename?: string }): Promise<void> => {
     try {
       const result = await api.downloadAttachment({
         msg: messageId,
         att: att.attachment_id,
         downloadUrl: att.download_url,
+        outputDir,
       })
       if (result.downloadUrl !== undefined) {
         setToast('超大附件无法直接下载，链接已复制到剪贴板')
@@ -432,7 +452,7 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
     } catch (err) {
       setError({ message: err instanceof Error ? err.message : String(err), needsAuth: err instanceof MailApiError && err.needsAuth })
     }
-  }, [api])
+  }, [api, pickDirectory])
 
   /* ── 渲染 ─────────────────────────────────────────────────────────── */
 
@@ -501,7 +521,7 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
           type="button"
           className={css.topBtn}
           title="刷新"
-          onClick={() => { void loadList(folder, { q: query, unread: onlyUnread, attach: onlyAttach }) }}
+          onClick={() => { void loadList(folder, { q: query, unread: onlyUnread, attach: onlyAttach, fresh: true }) }}
         >
           <IconRefreshOutline16 size={15} />
         </button>
@@ -524,26 +544,6 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
       <div className={css.panel}>
         {head}
 
-        {/* 待确认警示条：拿到 ctk 但还没执行的操作，必须显眼且可一键执行/撤销 */}
-        {pending.length > 0 && (
-          <div className={css.pendingBar}>
-            <span className={css.pendingIcon}><IconWarningOutline16 size={16} /></span>
-            <div className={css.pendingText}>{pending[0].summary}</div>
-            <div className={css.pendingActions}>
-              <button type="button" className={`${css.btn} ${css.btnPrimary} ${css.btnSmall}`} onClick={() => { void confirmPending(pending[0]) }}>
-                确认执行
-              </button>
-              <button
-                type="button"
-                className={`${css.btn} ${css.btnGhost} ${css.btnSmall}`}
-                onClick={() => { void api.cancelPending(pending[0].token).then(() => loadPending()).catch(() => undefined) }}
-              >
-                撤销
-              </button>
-            </div>
-          </div>
-        )}
-
         {view === 'settings'
           ? (
             <SettingsView
@@ -558,6 +558,8 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
                   setError({ message: err instanceof Error ? err.message : String(err), needsAuth: false })
                 }
               }}
+              onVerifyDir={path => api.verifyDir(path)}
+              onPickDir={pickDirectory}
             />
           )
           : (
@@ -640,7 +642,7 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
                         <pre className={css.authCode}>agently-cli auth login</pre>
                       )}
                       <div className={css.errorActions}>
-                        <button type="button" className={`${css.btn} ${css.btnSmall}`} onClick={() => { void loadAccount(); void loadList(folder, { q: query }) }}>
+                        <button type="button" className={`${css.btn} ${css.btnSmall}`} onClick={() => { void loadAccount(); void loadList(folder, { q: query, fresh: true }) }}>
                           重试
                         </button>
                       </div>
@@ -708,6 +710,14 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
                     key={pane.id}
                     detail={detail}
                     loading={detailLoading}
+                    /* 邮件所在文件夹：决定右侧给哪些操作。
+                       Agent Mail 的规则是「+trash 只能作用于不在回收站里的邮件、
+                       +delete 只能作用于回收站里的邮件」，所以按钮必须跟着**邮件
+                       实际所在的文件夹**走 —— 在收件箱里给「永久删除」只会让用户
+                       点出一个 404。
+                       这里传的是「当前列表的文件夹」，只作为**兜底**：真实判定在
+                       ReadPane 内部用 detail.dir 做（见那边的注释）。 */
+                    listFolder={folder}
                     onReply={() => {
                       if (detail === null) return
                       setPane({ kind: 'compose', replyTo: { id: detail.message_id, subject: detail.subject, from: detail.from.email } })
@@ -716,32 +726,31 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
                       if (detail === null) return
                       setPane({ kind: 'forward', source: detail })
                     }}
+                    /* 移入回收站**点一下就执行**，不弹确认：它是可逆的（30 天内
+                       都能从回收站恢复），而且用户亲手点这一下本身就是许可 ——
+                       再问一遍只是把同一件事问两遍。host 侧一次请求走完两阶段。 */
                     onTrash={() => {
                       if (detail === null) return
-                      setConfirmState({
-                        title: '移入回收站',
-                        message: `确定把「${detail.subject || '(无主题)'}」移入回收站吗？\n（30 天后才会真正删除，期间仍占邮箱空间）`,
-                        onConfirm: () => {
-                          void api.trash(detail.message_id).then(outcome => handleOutcome(outcome, '已移入回收站')).catch((err: unknown) => {
-                            setError({ message: err instanceof Error ? err.message : String(err), needsAuth: false })
-                          })
-                        },
-                      })
+                      void api.trash(detail.message_id)
+                        .then(outcome => handleOutcome(outcome, '已移入回收站'))
+                        .catch((err: unknown) => { void handleWriteError(err) })
                     }}
+                    /* 永久删除**保留确认**：不可恢复，且它是回收站里的最后一道门。 */
                     onDelete={() => {
                       if (detail === null) return
                       setConfirmState({
                         title: '永久删除',
-                        message: `确定永久删除「${detail.subject || '(无主题)'}」吗？\n此操作不可恢复。只有回收站里的邮件才能永久删除。`,
+                        message: `确定永久删除「${detail.subject || '(无主题)'}」吗？\n此操作不可恢复，删除后会释放邮箱空间。`,
                         danger: true,
                         onConfirm: () => {
-                          void api.remove({ id: detail.message_id }).then(outcome => handleOutcome(outcome, '已永久删除')).catch((err: unknown) => {
-                            setError({ message: err instanceof Error ? err.message : String(err), needsAuth: false })
-                          })
+                          void api.remove({ id: detail.message_id })
+                            .then(outcome => handleOutcome(outcome, '已永久删除'))
+                            .catch((err: unknown) => { void handleWriteError(err) })
                         },
                       })
                     }}
                     onDownload={att => { void downloadAttachment(pane.id, att) }}
+                    onDownloadAlt={att => { void downloadAttachment(pane.id, att, true) }}
                   />
                 )}
                 {pane?.kind === 'compose' && (
@@ -813,14 +822,25 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
 interface ReadPaneProps {
   detail: MailDetailView | null
   loading: boolean
+  /**
+   * 当前**列表**所在的文件夹（兜底用）。
+   *
+   * ⚠️ 不能直接拿它当「邮件在不在回收站」的答案：列表可能是缓存里的旧快照
+   * （邮件其实已经被删/被移走了），真实判定必须用 detail.dir —— 那是服务端
+   * 对这一封邮件给出的实际归属。这里只在 detail 拿不到 dir 时兜底。
+   */
+  listFolder: Folder
   onReply: () => void
   onForward: () => void
   onTrash: () => void
   onDelete: () => void
+  /** 下载到设置里配的目录。 */
   onDownload: (att: { attachment_id?: string; download_url?: string; filename?: string }) => void
+  /** 先让用户挑位置再下载。 */
+  onDownloadAlt: (att: { attachment_id?: string; download_url?: string; filename?: string }) => void
 }
 
-function ReadPane({ detail, loading, onReply, onForward, onTrash, onDelete, onDownload }: ReadPaneProps): JSX.Element {
+function ReadPane({ detail, loading, listFolder, onReply, onForward, onTrash, onDelete, onDownload, onDownloadAlt }: ReadPaneProps): JSX.Element {
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const dark = useMemo(() => {
     if (typeof document === 'undefined') return false
@@ -864,6 +884,25 @@ function ReadPane({ detail, loading, onReply, onForward, onTrash, onDelete, onDo
   const to = (detail.to ?? []).map(item => item.email).join('、')
   const cc = (detail.cc ?? []).map(item => item.email).join('、')
 
+  /**
+   * 这封邮件**现在**在哪个文件夹 —— 破坏性按钮的唯一依据。
+   *
+   * 早先用的是「当前列表的文件夹」，那是个会撒谎的输入：列表可能来自本地
+   * 缓存（邮件早已被移走），用户点开详情时面板还以为它在收件箱/已发送里，
+   * 于是给了「移入回收站」；而服务端按邮件真实归属判定，直接回
+   * `Cannot delete message from this directory` —— 用户看到的就是截图里那句
+   * 英文报错，而且**怎么点都失败**（刷新也白搭，列表还是缓存的旧快照）。
+   *
+   * `detail.dir.dir_name` 是服务端随正文一起给的实际归属（实测 trash 邮件
+   * 会返回 `{dir_id: 5, dir_name: "trash"}`），比任何本地推断都权威。
+   * 拿不到 dir 时才退回列表文件夹 —— 降级方向是「按用户以为的来」，
+   * 至少与服务端报错后的提示一致。
+   */
+  const actualDir = detail.dir?.dir_name
+  const inTrash = actualDir === undefined || actualDir === ''
+    ? listFolder === 'trash'
+    : actualDir === 'trash'
+
   return (
     <div className={css.detailAnim} style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
       <div className={css.detailHead}>
@@ -883,13 +922,21 @@ function ReadPane({ detail, loading, onReply, onForward, onTrash, onDelete, onDo
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 7l5 5-5 5" /><path d="M20 12H10a6 6 0 0 0-6 6v2" /></svg>
             转发
           </button>
-          <button type="button" className={`${css.btn} ${css.btnSmall}`} onClick={onTrash}>
-            <IconTrashOutline16 size={13} />
-            移入回收站
-          </button>
-          <button type="button" className={`${css.btn} ${css.btnSmall}`} onClick={onDelete}>
-            永久删除
-          </button>
+          {/* 回收站内外给不同的破坏性操作：CLI 的 +trash 只作用于非回收站邮件、
+              +delete 只作用于回收站邮件，给错按钮就是让用户点出一个 404。 */}
+          {inTrash
+            ? (
+              <button type="button" className={`${css.btn} ${css.btnSmall}`} onClick={onDelete}>
+                <IconTrashOutline16 size={13} />
+                永久删除
+              </button>
+            )
+            : (
+              <button type="button" className={`${css.btn} ${css.btnSmall}`} onClick={onTrash}>
+                <IconTrashOutline16 size={13} />
+                移入回收站
+              </button>
+            )}
         </div>
       </div>
       <div className={css.detailScroll}>
@@ -922,18 +969,33 @@ function ReadPane({ detail, loading, onReply, onForward, onTrash, onDelete, onDo
           <div className={css.attachList}>
             {attachments.map((att, index) => {
               const size = formatBytes(att.size)
+              const downloadable = att.attachment_id !== undefined && att.attachment_id !== ''
               return (
-                <button
-                  key={att.attachment_id ?? att.download_url ?? String(index)}
-                  type="button"
-                  className={css.attachItem}
-                  title={att.attachment_id !== undefined ? '下载到本地' : '超大附件：点击复制下载链接'}
-                  onClick={() => { onDownload(att) }}
-                >
-                  <IconDownloadOutline16 size={15} />
-                  <span className={css.attachName}>{att.filename ?? `附件${index + 1}`}</span>
-                  {size !== '' && <span className={css.attachMeta}>{size}</span>}
-                </button>
+                <span key={att.attachment_id ?? att.download_url ?? String(index)} className={css.attachGroup}>
+                  <button
+                    type="button"
+                    className={css.attachItem}
+                    title={downloadable ? '下载到设置里配的附件目录' : '超大附件：点击复制下载链接'}
+                    onClick={() => { onDownload(att) }}
+                  >
+                    <IconDownloadOutline16 size={15} />
+                    <span className={css.attachName}>{att.filename ?? `附件${index + 1}`}</span>
+                    {size !== '' && <span className={css.attachMeta}>{size}</span>}
+                  </button>
+                  {/* 「另选位置」只在普通附件上给：超大附件拿不到 attachment_id，
+                      只能把链接交给用户自己去浏览器下载，选目录没有意义。 */}
+                  {downloadable && (
+                    <button
+                      type="button"
+                      className={css.attachAlt}
+                      title="选择另一个文件夹保存"
+                      onClick={() => { onDownloadAlt(att) }}
+                    >
+                      <IconFolderOpenOutline16 size={13} />
+                      另选位置
+                    </button>
+                  )}
+                </span>
               )
             })}
           </div>
@@ -1031,6 +1093,10 @@ interface SettingsViewProps {
   account: MailAccountView | null
   onClose: () => void
   onSave: (patch: Record<string, unknown>) => Promise<void>
+  /** 目录校验（真的试写一下），返回结论。 */
+  onVerifyDir: (path: string) => Promise<DirVerdict>
+  /** 打开系统原生目录选择器，取消返回 null。 */
+  onPickDir: () => Promise<string | null>
 }
 
 /** 工具说明（与 host 侧 MAIL_TOOL_NAMES 对应）。 */
@@ -1044,11 +1110,143 @@ const TOOL_DESC: Record<string, string> = {
   mail_forward: '转发邮件（两阶段确认）',
   mail_trash: '移入回收站（两阶段确认）',
   mail_delete: '永久删除 / 清空回收站（两阶段确认）',
-  mail_download_attachment: '下载附件到本地',
+  mail_download_attachment: '下载附件到本地（缺省存到下面配的目录）',
   mail_wait_code: '等新邮件并提取验证码（注册 / 登录场景）',
 }
 
-function SettingsView({ config, account, onClose, onSave }: SettingsViewProps): JSX.Element {
+/**
+ * 附件保存位置设置块。
+ *
+ * 三条交互上的讲究：
+ *  1. **输入不即时落盘**，点「保存」才写 —— 边打字边存会把半截路径（`D:\M`）
+ *     反复写进配置，用户中途刷新页面就得到一个不存在的目录；
+ *  2. **保存前先校验**（host 侧真的试写一个探针文件），不可写就当场红字说明，
+ *     而不是存下去、等下次下载才撞上 CLI 的英文报错；
+ *  3. 「选择文件夹」走系统原生选择器（`ctx.uiWorkspace.pickDirectory()`），
+ *     不可用时按钮隐藏、退化成手输 —— 手输路径必须始终可用。
+ */
+function DownloadDirSetting({ config, onSave, onVerifyDir, onPickDir }: {
+  config: MailConfigView | null
+  onSave: (patch: Record<string, unknown>) => Promise<void>
+  onVerifyDir: (path: string) => Promise<DirVerdict>
+  onPickDir: () => Promise<string | null>
+}): JSX.Element {
+  const effective = config?.downloadDir ?? ''
+  const factoryDefault = config?.defaultDownloadDir ?? ''
+  const [draft, setDraft] = useState(effective)
+  const [saving, setSaving] = useState(false)
+  const [picking, setPicking] = useState(false)
+  const [verdict, setVerdict] = useState<DirVerdict | null>(null)
+  const [pickerAvailable, setPickerAvailable] = useState(true)
+
+  // 配置从外部变化（保存后回包 / 切面板重开）时同步草稿，但**不覆盖正在编辑的
+  // 内容**：只有草稿还等于上一次的生效值时（用户没动过）才跟随。
+  const lastEffective = useRef(effective)
+  useEffect(() => {
+    if (lastEffective.current === draft) setDraft(effective)
+    lastEffective.current = effective
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effective])
+
+  const dirty = draft.trim() !== effective
+  const isDefault = config?.downloadDirOverridden !== true
+
+  const save = async (value: string): Promise<void> => {
+    setSaving(true)
+    setVerdict(null)
+    try {
+      if (value.trim() !== '') {
+        const check = await onVerifyDir(value.trim())
+        if (!check.ok) { setVerdict(check); return }
+      }
+      await onSave({ downloadDir: value.trim() })
+      setVerdict(null)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const pick = async (): Promise<void> => {
+    setPicking(true)
+    try {
+      const picked = await onPickDir()
+      if (picked === null) return
+      setDraft(picked)
+      // 选完就存：用户已经用系统对话框明确表达过意图，再要求点一次「保存」是多余的。
+      const check = await onVerifyDir(picked)
+      if (!check.ok) { setVerdict(check); return }
+      await onSave({ downloadDir: picked })
+      setVerdict(null)
+    } catch (error) {
+      setVerdict({ ok: false, path: draft, error: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setPicking(false)
+    }
+  }
+
+  return (
+    <div className={css.settingRow}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className={css.settingLabel}>附件保存位置</div>
+        <div className={css.settingDesc}>
+          下载邮件附件时存到哪里。单个附件下载时也可以临时另选一个位置。
+          {isDefault ? '当前用的是默认目录。' : '已自定义。'}
+        </div>
+        <div className={css.dirRow}>
+          <input
+            className={css.input}
+            value={draft}
+            spellCheck={false}
+            placeholder={factoryDefault}
+            onChange={event => { setDraft(event.target.value); setVerdict(null) }}
+            onKeyDown={event => {
+              if (event.key === 'Enter' && dirty) void save(draft)
+            }}
+          />
+          {pickerAvailable && (
+            <button
+              type="button"
+              className={`${css.btn} ${css.btnSmall}`}
+              disabled={picking || saving}
+              title="打开系统的文件夹选择对话框"
+              onClick={() => { void pick().catch(() => { setPickerAvailable(false) }) }}
+            >
+              <IconFolderOpenOutline16 size={13} />
+              {picking ? '选择中…' : '选择文件夹'}
+            </button>
+          )}
+          <button
+            type="button"
+            className={`${css.btn} ${css.btnPrimary} ${css.btnSmall}`}
+            disabled={!dirty || saving}
+            onClick={() => { void save(draft) }}
+          >
+            {saving ? '保存中…' : '保存'}
+          </button>
+          {!isDefault && (
+            <button
+              type="button"
+              className={`${css.btn} ${css.btnGhost} ${css.btnSmall}`}
+              disabled={saving}
+              title={factoryDefault}
+              onClick={() => { setDraft(factoryDefault); void save('') }}
+            >
+              恢复默认
+            </button>
+          )}
+        </div>
+        {verdict !== null && !verdict.ok && (
+          <div className={css.dirError}>{verdict.error ?? '目录不可用'}</div>
+        )}
+        {dirty && verdict === null && (
+          <div className={css.hint}>改完记得点「保存」（回车也可以）。</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SettingsView({ config, account, onClose, onSave, onVerifyDir, onPickDir }: SettingsViewProps): JSX.Element {
   const [busy, setBusy] = useState(false)
   const toggle = async (key: 'enabled' | 'injectEnabled' | 'watchEnabled', value: boolean): Promise<void> => {
     setBusy(true)
@@ -1072,7 +1270,7 @@ function SettingsView({ config, account, onClose, onSave }: SettingsViewProps): 
             <div className={css.settingLabel}>授权状态</div>
             <div className={css.settingDesc}>
               {account?.auth.logged_in === true
-                ? `凭据存于 ${account.auth.storage ?? '本机'}，到期时间 ${account.auth.expires_at ?? '未知'}`
+                ? `凭据存于 ${account.auth.storage ?? '本机'}，访问令牌自动续期，无需人工维护`
                 : '未授权。在本机终端执行 agently-cli auth login，用微信扫码完成授权'}
             </div>
           </div>
@@ -1158,6 +1356,16 @@ function SettingsView({ config, account, onClose, onSave }: SettingsViewProps): 
           </div>
           <div className={css.settingValue} title={config?.dataDir}>{config?.dataDir ?? ''}</div>
         </div>
+      </div>
+
+      <div className={css.settingGroup}>
+        <div className={css.settingGroupTitle}>附件</div>
+        <DownloadDirSetting
+          config={config}
+          onSave={onSave}
+          onVerifyDir={onVerifyDir}
+          onPickDir={onPickDir}
+        />
       </div>
 
       <div className={css.settingGroup}>

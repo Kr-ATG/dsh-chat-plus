@@ -1313,5 +1313,96 @@ if (krEnabled) {
   }
 }
 
+// ── 邮箱附件保存位置（用户自选目录）───────────────────────────────────
+{
+  const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Panel.tsx'), 'utf-8')
+  const apiSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/api.ts'), 'utf-8')
+  const hostApiSrc = readFileSync(resolve(ROOT, 'src/mail/api.ts'), 'utf-8')
+  const serviceSrc = readFileSync(resolve(ROOT, 'src/mail/service.ts'), 'utf-8')
+
+  // 目录选择走官方 uiWorkspace.pickDirectory，不自己造选择器。
+  if (!/uiWorkspace/.test(panelSrc) || !/pickDirectory/.test(panelSrc)) {
+    fail('附件「另选位置」必须走官方 ctx.uiWorkspace.pickDirectory()，不要自造目录选择器')
+  } else if (!/verify-dir/.test(hostApiSrc) || !/verify-dir/.test(apiSrc)) {
+    fail('host 必须提供 /verify-dir 目录预检端点（保存前校验，别等下载时才撞 CLI 报错）')
+  } else if (!/\.dsh-mail-write-probe/.test(serviceSrc)) {
+    fail('目录校验必须真的试写探针文件（只查 existsSync 会把只读目录判成可用）')
+  } else if (!/downloadDir\s*!==\s*undefined\s*&&\s*patch\.downloadDir\.trim\(\)\s*===\s*''/.test(serviceSrc)) {
+    fail('updateConfig 必须支持「空串 = 清除覆盖回到默认目录」（否则恢复默认会留下空覆盖层）')
+  } else if (!/onDownloadAlt/.test(panelSrc)) {
+    fail('附件行必须同时提供「下载到默认目录」与「另选位置」两个入口')
+  } else {
+    pass('邮箱附件保存位置：原生选择器 + 保存前试写校验 + 恢复默认清覆盖 + 单附件另选位置')
+  }
+}
+
+// ── 邮箱破坏性操作必须跟着「邮件实际所在文件夹」走 ──────────────────────
+{
+  const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Panel.tsx'), 'utf-8')
+  const cliSrc = readFileSync(resolve(ROOT, 'src/mail/cli.ts'), 'utf-8')
+  const serviceSrc = readFileSync(resolve(ROOT, 'src/mail/service.ts'), 'utf-8')
+  const storeSrc = readFileSync(resolve(ROOT, 'src/mail/store.ts'), 'utf-8')
+
+  // Agent Mail 的规则：+trash 只作用于非回收站邮件、+delete 只作用于回收站邮件。
+  // 收件箱里给「永久删除」= 用户点出一个 404（真实故障：Message does not exist
+  // or is not in trash）。
+  //
+  // ⚠️ 判定依据必须是**服务端给出的邮件实际归属**（detail.dir.dir_name），不能
+  // 用「当前列表的文件夹」：列表可能来自本地缓存（邮件早已被移走），拿它判定
+  // 就会给错按钮，用户点下去撞的是真实故障 `Cannot delete message from this
+  // directory`（截图里那句英文），而且刷新也刷不掉。
+  if (!/const actualDir = detail\.dir\?\.dir_name/.test(panelSrc)) {
+    fail('破坏性按钮必须按 detail.dir.dir_name（邮件实际所在文件夹）判定，不能用列表文件夹')
+  } else if (/inTrash=\{folder === 'trash'\}/.test(panelSrc)) {
+    fail('禁止用「当前列表的文件夹」判定 inTrash（缓存陈旧时会给错按钮 → Cannot delete message from this directory）')
+  } else if (!/\{inTrash\s*\n?\s*\?\s*\(/.test(panelSrc)) {
+    fail('「移入回收站」与「永久删除」必须按 inTrash 二选一渲染')
+  } else if (!/Cannot delete message from this directory/i.test(cliSrc)) {
+    fail('CLI 的 Cannot delete message from this directory 必须翻成人话（否则用户只看到一句英文）')
+  } else if (!/not in trash/.test(cliSrc) || !/humanizeCliError/.test(cliSrc)) {
+    fail('CLI 英文报错必须翻译成人话（至少覆盖 not in trash 这条）')
+  } else if (!/async invalidateCache\(/.test(storeSrc) || !/invalidateCache\(\)/.test(serviceSrc)) {
+    fail('写操作成功后必须作废列表缓存（否则刚删掉的邮件还留在列表里，用户重复点）')
+  } else {
+    pass('邮箱破坏性操作：按邮件实际归属二选一 + 写后作废缓存 + 英文报错人话化')
+  }
+}
+
+// ── 面板写操作：点一下就执行，不给「待确认」条 ──────────────────────────
+{
+  const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Panel.tsx'), 'utf-8')
+  const entrySrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Entry.tsx'), 'utf-8')
+  const serviceSrc = readFileSync(resolve(ROOT, 'src/mail/service.ts'), 'utf-8')
+  const typesSrc = readFileSync(resolve(ROOT, 'src/mail/types.ts'), 'utf-8')
+
+  // 真实故障：面板点「确认执行」→ CLI 报 `id required`。根因是面板从 CLI 的
+  // summary 里读 `id` 再拼一次请求，而 summary 里那个字段叫 `message_id`，
+  // 而且压根没有正文/附件路径 —— 参数根本重建不出来。
+  // 修法：第一阶段把完整参数落盘（replay），第二阶段由 host 原样重放。
+  //
+  // 用户明确要求：**面板上不要「待确认」条**。用户亲手点那一下就是许可，
+  // 再让他在警示条上点一次「确认执行」是同一个问题问两遍。所以 now 变体
+  // 一次请求走完两阶段，面板侧不再有 pending 状态与警示条。
+  if (!/^\s*replay:\s*WriteReplay/m.test(typesSrc) || !/export type WriteReplay/.test(typesSrc)) {
+    fail('待确认记录必须存下完整的 replay 参数（不能靠 CLI summary 反推）')
+  } else if (!/async confirmPending\(token: string\)/.test(serviceSrc)) {
+    fail('host 必须提供 confirmPending(token)：从落盘 replay 原样重放')
+  } else if (!/pending\/confirm/.test(readFileSync(resolve(ROOT, 'src/mail/api.ts'), 'utf-8'))) {
+    fail('必须提供 /pending/confirm 路由（模型工具的两阶段确认走它）')
+  } else if (/preview\.id|preview\.body|preview\.subject/.test(panelSrc)) {
+    fail('面板不得从 preview 里读业务字段拼请求（summary 里没有正文/附件，字段名也不同）')
+  } else if (/css\.pendingBar|待确认警示条/.test(panelSrc)) {
+    fail('面板不得再渲染「待确认」警示条（用户明确要求：点一下就执行，不要二次确认）')
+  } else if (/api\.pending\(/.test(panelSrc) || /api\.pending\(/.test(entrySrc)) {
+    fail('面板/入口不得再拉待确认列表（没有警示条要用它）')
+  } else if (!/async trashNow\(/.test(serviceSrc) || !/async deleteNow\(/.test(serviceSrc)) {
+    fail('面板的移入/删除要走 now 变体（用户点击即许可，一次请求走完两阶段）')
+  } else if (!/confirmationToken/.test(serviceSrc.slice(serviceSrc.indexOf('async trash('), serviceSrc.indexOf('async trash(') + 420))) {
+    fail('trash() 必须把 confirmationToken 传进 writeCall（只收形参不往下传 = 第二阶段又拿新令牌，永远停在 pending）')
+  } else {
+    pass('面板写操作：点一下就执行（无待确认条）+ host 侧 replay 原样重放两阶段')
+  }
+}
+
 console.log(`\n${process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED'} — ${CLIENT}`)
 process.exit(process.exitCode ?? 0)

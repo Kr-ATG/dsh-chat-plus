@@ -135,7 +135,12 @@ const ctx = {
 // 第一个 await 就停了，于是下面 7 组路由断言会全部误报 FAIL（实测：同一个
 // bundle 等 400ms 后全部挂上）。这里轮询到 /api/dsh-memory 出现为止，最多 3s。
 try {
-  mod.apply(ctx, {})
+  // 显式传 mail.enabled=true：邮箱总开关是**用户运行时偏好**（面板设置页会把它
+  // 写进 ~/.dsh/mail/dsh-mail/store/config.json），一旦用户关掉，下面的
+  // 「11 个 mail_* 工具都注册」断言就会跟着失败 —— 那是配置生效的正确行为，
+  // 不是缺陷。冒烟测的是「插件能不能把工具挂上」，所以这里把开关钉成 true，
+  // 让结果只取决于代码本身，不取决于跑测试时用户恰好把开关拨到哪边。
+  mod.apply(ctx, { mail: { enabled: true, injectEnabled: true, watchEnabled: false } })
   pass('apply(ctx) completed without throwing')
   const deadline = Date.now() + 3000
   while (Date.now() < deadline && ![...routes.keys()].some((p) => p.startsWith('/api/dsh-memory'))) {
@@ -177,6 +182,24 @@ need(!tools.includes('automation'), 'automation tool gone (官方 schedule_* 工
 need(tools.includes('memory_search') && tools.includes('memory_remember'), 'memory tools registered')
 need(listeners.has('agent/pre-step'), 'agent/pre-step injection hooked')
 need(listeners.has('session/event'), 'session/event capture hooked')
+// 邮箱工具：11 个 mail_* 全注册（含验证码等待与附件下载）。
+{
+  const MAIL_TOOLS = [
+    'mail_account', 'mail_list', 'mail_search', 'mail_read', 'mail_send', 'mail_reply',
+    'mail_forward', 'mail_trash', 'mail_delete', 'mail_download_attachment', 'mail_wait_code',
+  ]
+  const missing = MAIL_TOOLS.filter(name => !tools.includes(name))
+  need(missing.length === 0, `mail tools registered (${MAIL_TOOLS.length} 个${missing.length > 0 ? `，缺 ${missing.join(', ')}` : ''})`)
+}
+// CLI 英文报错必须翻成人话：这是「点永久删除却看到 Message does not exist or is
+// not in trash」那类故障的可读性底线（原文照旧附在括号里，翻译不吞信息）。
+{
+  const humanize = mod.humanizeCliError
+  const sample = typeof humanize === 'function' ? humanize('Message does not exist or is not in trash') : ''
+  const unmapped = typeof humanize === 'function' ? humanize('totally unmapped english error') : ''
+  need(typeof humanize === 'function' && /回收站/.test(sample), 'CLI 英文报错翻成人话（not in trash → 提示先移入回收站）')
+  need(unmapped === 'totally unmapped english error', '未映射的报错保留原文（翻译不吞信息）')
+}
 // 路由零撞车：融合进来的 8 组前缀与本插件 /api/chat-flow/* 无交集。
 need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes('dsh-memory')),
   'no route collision between chat-plus and the merged workbenches')

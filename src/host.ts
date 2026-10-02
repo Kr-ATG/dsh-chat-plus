@@ -36,6 +36,8 @@ import { applyMailHost } from './mail/index.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
 export { applyMailHost } from './mail/index.ts'
 export type { MailHostConfig, MailHostHandle } from './mail/index.ts'
+// 纯函数再导出：供 smoke 直接断言「CLI 英文报错翻成人话」的映射表。
+export { humanizeCliError } from './mail/cli.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'dsh-chat-plus'

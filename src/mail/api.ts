@@ -18,6 +18,7 @@
  *   POST /api/dsh-mail/delete
  *   POST /api/dsh-mail/attachment         下载附件（body: {msg, att, downloadUrl?, outputDir?}）
  *   GET  /api/dsh-mail/pending            待确认操作列表
+ *   POST /api/dsh-mail/pending/confirm    body: { token } —— 执行（host 原样重放参数）
  *   POST /api/dsh-mail/pending/cancel     body: { token }
  *   GET  /api/dsh-mail/events             新邮件事件（watch 缓冲）
  *   POST /api/dsh-mail/events/clear
@@ -136,9 +137,16 @@ function strArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === 'string' && item.trim() !== '').map(item => item.trim())
 }
 
-/** 从 body 里取确认令牌（两种命名都认）。 */
+/**
+ * 从 body 里取确认令牌。
+ *
+ * **三种命名都要认**：工具侧（模型）用 `confirmation_token`，早期面板用
+ * `confirmationToken`，而 `/pending/confirm` 面板只传 `{ token }`。
+ * 只认前两种时，confirm 路由会静默取到 undefined 并回 `token required` ——
+ * 用户看到的就是「点了确认却说没令牌」。
+ */
 function tokenOf(body: Record<string, unknown>): string | undefined {
-  for (const key of ['confirmationToken', 'confirmation_token']) {
+  for (const key of ['token', 'confirmationToken', 'confirmation_token']) {
     const value = body[key]
     if (typeof value === 'string' && value.trim() !== '') return value.trim()
   }
@@ -181,6 +189,11 @@ async function handle(
           dataDir: store.root,
           tools: MAIL_TOOL_NAMES,
           watching: watcher.isRunning(),
+          // 附件保存位置：生效目录（含用户覆盖）与工厂默认目录都给前端，
+          // 设置页要能显示「当前」并支持「恢复默认」。
+          downloadDir: service.defaultDownloadDir(),
+          defaultDownloadDir: service.builtinDownloadDir(),
+          downloadDirOverridden: service.getConfig().downloadDir !== undefined && service.getConfig().downloadDir !== '',
         },
       })
       return
@@ -191,15 +204,37 @@ async function handle(
       if (typeof body.enabled === 'boolean') patch.enabled = body.enabled
       if (typeof body.injectEnabled === 'boolean') patch.injectEnabled = body.injectEnabled
       if (typeof body.watchEnabled === 'boolean') patch.watchEnabled = body.watchEnabled
-      if (typeof body.downloadDir === 'string') patch.downloadDir = body.downloadDir
       if (typeof body.timeoutMs === 'number') patch.timeoutMs = body.timeoutMs
       if (body.reset === true) {
         await store.writeConfig({})
         json(res, 200, { ok: true, config: service.getConfig() })
         return
       }
+      // 附件保存位置：先校验（真的试写一下）再落盘，避免把不可写目录存进去，
+      // 让用户在「下载」那一刻才撞上英文的 CLI 报错。空串 = 恢复默认目录。
+      if (typeof body.downloadDir === 'string') {
+        const raw = body.downloadDir.trim()
+        if (raw === '') {
+          patch.downloadDir = ''
+        } else {
+          const verdict = await service.verifyDirectory(raw)
+          if (!verdict.ok) {
+            json(res, 200, { ok: false, error: verdict.error ?? '目录不可用', path: verdict.path })
+            return
+          }
+          patch.downloadDir = verdict.path
+        }
+      }
       const config = await service.updateConfig(patch)
-      json(res, 200, { ok: true, config })
+      json(res, 200, {
+        ok: true,
+        config: {
+          ...config,
+          downloadDir: service.defaultDownloadDir(),
+          defaultDownloadDir: service.builtinDownloadDir(),
+          downloadDirOverridden: config.downloadDir !== undefined && config.downloadDir !== '',
+        },
+      })
       return
     }
     if (method === 'GET' && rest === '/diagnose') {
@@ -304,7 +339,9 @@ async function handle(
       const body = await readBody(req)
       const id = typeof body.id === 'string' ? body.id.trim() : ''
       if (id === '') { json(res, 400, { ok: false, error: 'id required' }); return }
-      json(res, 200, { ok: true, outcome: await service.trash(id, tokenOf(body)) })
+      // 面板按钮走 `now` 变体：用户亲手点的那一下就是许可，一次请求走完两阶段。
+      // 模型工具仍走两阶段（先拿令牌、停下等用户回话），不受这里影响。
+      json(res, 200, { ok: true, outcome: await service.trashNow(id) })
       return
     }
     if (method === 'POST' && rest === '/delete') {
@@ -312,7 +349,7 @@ async function handle(
       const id = typeof body.id === 'string' ? body.id.trim() : undefined
       json(res, 200, {
         ok: true,
-        outcome: await service.delete({ id, all: body.all === true, confirmationToken: tokenOf(body) }),
+        outcome: await service.deleteNow({ id, all: body.all === true }),
       })
       return
     }
@@ -320,13 +357,32 @@ async function handle(
       const body = await readBody(req)
       const msg = typeof body.msg === 'string' ? body.msg.trim() : ''
       if (msg === '') { json(res, 400, { ok: false, error: 'msg required' }); return }
+      // 面板「另选位置」传的是用户刚挑的目录：同样先校验再下，避免挑到一个
+      // 只读目录后在 CLI 子进程里抛一句英文错误。
+      const rawDir = typeof body.outputDir === 'string' ? body.outputDir.trim() : ''
+      if (rawDir !== '') {
+        const verdict = await service.verifyDirectory(rawDir)
+        if (!verdict.ok) {
+          json(res, 200, { ok: false, error: verdict.error ?? '目录不可用', path: verdict.path })
+          return
+        }
+      }
       const result = await service.downloadAttachment({
         msg,
         att: typeof body.att === 'string' ? body.att.trim() : undefined,
         downloadUrl: typeof body.downloadUrl === 'string' ? body.downloadUrl : undefined,
-        outputDir: typeof body.outputDir === 'string' && body.outputDir.trim() !== '' ? body.outputDir.trim() : undefined,
+        outputDir: rawDir === '' ? undefined : rawDir,
       })
       json(res, 200, { ok: true, ...result })
+      return
+    }
+    // 目录可用性预检（设置页与「另选位置」都在保存/下载前调一次）。
+    // 回包形状就是 verdict 本身（`{ok, path, error?}`）—— 这里的 ok 是**目录
+    // 结论**不是 HTTP 层，前端据此显示红字，所以不要再套一层外层 ok。
+    if (method === 'POST' && rest === '/verify-dir') {
+      const body = await readBody(req)
+      const raw = typeof body.path === 'string' ? body.path.trim() : ''
+      json(res, 200, await service.verifyDirectory(raw))
       return
     }
 
@@ -340,6 +396,16 @@ async function handle(
       const token = tokenOf(body)
       if (token === undefined) { json(res, 400, { ok: false, error: 'token required' }); return }
       json(res, 200, { ok: true, removed: await service.cancelPending(token) })
+      return
+    }
+    // 执行待确认操作：**只传令牌**，参数由 host 从第一阶段落盘的 replay 原样重放。
+    // 面板/模型都不该自己拼业务参数（拼过一次就出过 `id required`：CLI 的 summary
+    // 里字段叫 message_id，而且根本没有正文与附件路径）。
+    if (method === 'POST' && rest === '/pending/confirm') {
+      const body = await readBody(req)
+      const token = tokenOf(body)
+      if (token === undefined) { json(res, 400, { ok: false, error: 'token required' }); return }
+      json(res, 200, { ok: true, outcome: await service.confirmPending(token) })
       return
     }
     if (method === 'GET' && rest === '/events') {

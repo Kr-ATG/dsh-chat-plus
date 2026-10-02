@@ -18,7 +18,7 @@
  *     互相截断（这条踩坑在记忆引擎里已经吃过一次，同一手法复用）。
  */
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { MailConfig, MailSummary, PendingConfirmation } from './types.js'
@@ -198,6 +198,28 @@ export class MailStore {
     const cache = await readJson<MailCache | null>(this.cacheFile, null)
     if (cache === null || !Array.isArray(cache.messages)) return null
     return cache
+  }
+
+  /**
+   * 作废列表缓存（写操作成功后调用）。
+   *
+   * 三件事一起做，缺任何一件缓存都会「复活」：
+   *  1. **清掉待写的节流定时器** —— 它是 800ms 后落盘的一次性任务，留着就会把
+   *     「删除前」那份快照原样写回磁盘，刚作废的缓存又活了；
+   *  2. **删掉磁盘缓存文件** —— 面板下次打开/刷新时读不到，只能走实时；
+   *  3. 只碰缓存，不动待确认与事件（那是另一条状态线）。
+   *
+   * 为什么必须作废：面板刷新列表时带 `cache=1`，命中就直接返回快照、不再拉
+   * 实时。移入回收站成功后若缓存还在，邮件会**继续留在原文件夹的列表里**，
+   * 用户以为没生效就再点一次 —— 那一击必然撞上服务端的目录约束
+   * （`Cannot delete message from this directory`）。
+   */
+  async invalidateCache(): Promise<void> {
+    if (this.cacheWriteTimer !== null) {
+      clearTimeout(this.cacheWriteTimer)
+      this.cacheWriteTimer = null
+    }
+    await rm(this.cacheFile, { force: true }).catch(() => undefined)
   }
 
   /** 读运行时配置覆盖层（不存在返回 {}）。 */

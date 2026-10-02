@@ -46,13 +46,25 @@ export interface MailConfigView {
   enabled: boolean
   injectEnabled: boolean
   watchEnabled: boolean
-  downloadDir?: string
+  /** 生效的附件保存目录（含用户覆盖）。 */
+  downloadDir: string
+  /** 工厂默认目录（设置页「恢复默认」回到这里）。 */
+  defaultDownloadDir: string
+  /** 用户是否覆盖过（false = 用的就是默认目录）。 */
+  downloadDirOverridden: boolean
   timeoutMs: number
   cliPath: string | null
   cliVersion: string | null
   dataDir: string
   tools: string[]
   watching: boolean
+}
+
+/** 目录校验结果（真的试写一下，不是只看存在）。 */
+export interface DirVerdict {
+  ok: boolean
+  path: string
+  error?: string
 }
 
 /** 邮件摘要。 */
@@ -97,19 +109,10 @@ export interface MailPageView {
   cached: boolean
 }
 
-/** 写操作结果。 */
+/** 写操作结果：面板走 now 变体，正常只会拿到 `done`。 */
 export type MailWriteOutcome =
   | { status: 'pending'; token: string; summary: string; preview: Record<string, unknown> }
   | { status: 'done'; detail: Record<string, unknown> }
-
-/** 待确认操作。 */
-export interface MailPendingView {
-  token: string
-  action: 'send' | 'reply' | 'forward' | 'trash' | 'delete'
-  summary: string
-  createdAt: number
-  preview: Record<string, unknown>
-}
 
 /** 新邮件事件。 */
 export interface MailEventView {
@@ -127,6 +130,8 @@ export interface MailApi {
   account(): Promise<MailAccountView>
   config(): Promise<MailConfigView>
   updateConfig(patch: Partial<Pick<MailConfigView, 'enabled' | 'injectEnabled' | 'watchEnabled' | 'downloadDir' | 'timeoutMs'>> & { reset?: boolean }): Promise<MailConfigView>
+  /** 目录可用性预检（真的试写一下）。 */
+  verifyDir(path: string): Promise<DirVerdict>
   list(query: { dir: string; limit?: number; cursor?: string; hasAttachments?: boolean; isUnread?: boolean; cache?: boolean }): Promise<MailPageView>
   search(query: Record<string, string | number | boolean | undefined>): Promise<MailPageView>
   read(id: string): Promise<MailDetailView>
@@ -136,8 +141,7 @@ export interface MailApi {
   trash(id: string, confirmationToken?: string): Promise<MailWriteOutcome>
   remove(payload: { id?: string; all?: boolean; confirmationToken?: string }): Promise<MailWriteOutcome>
   downloadAttachment(payload: { msg: string; att?: string; downloadUrl?: string; outputDir?: string }): Promise<{ savedTo?: string; downloadUrl?: string; filename?: string; size?: number }>
-  pending(): Promise<MailPendingView[]>
-  cancelPending(token: string): Promise<boolean>
+  /** 新邮件事件（watch 缓冲）+ 监听是否在跑。 */
   events(): Promise<{ events: MailEventView[]; watching: boolean }>
   clearEvents(): Promise<void>
   setWatch(enabled: boolean): Promise<boolean>
@@ -206,6 +210,18 @@ export function createMailApi(): MailApi {
       })
       return data.config
     },
+    async verifyDir(path) {
+      // 这个端点的 ok 有两层：HTTP 层永远 ok:true，目录结论在 ok 字段里，
+      // 所以不能走 request（它把 ok:false 当异常抛）—— 直接读 payload。
+      const response = await fetch('/api/dsh-mail/verify-dir', {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { accept: 'application/json', 'content-type': 'application/json' },
+        body: JSON.stringify({ path }),
+      })
+      const payload = await response.json() as DirVerdict
+      return { ok: payload.ok === true, path: payload.path ?? '', error: payload.error }
+    },
     async list(query) {
       const data = await request<{ ok: true } & MailPageView>(`/api/dsh-mail/list${qs({
         dir: query.dir,
@@ -253,14 +269,6 @@ export function createMailApi(): MailApi {
         '/api/dsh-mail/attachment',
         { method: 'POST', body: JSON.stringify(payload) },
       )
-    },
-    async pending() {
-      const data = await request<{ pending: MailPendingView[] }>('/api/dsh-mail/pending')
-      return data.pending
-    },
-    async cancelPending(token) {
-      const data = await request<{ removed: boolean }>('/api/dsh-mail/pending/cancel', { method: 'POST', body: JSON.stringify({ token }) })
-      return data.removed
     },
     async events() {
       const data = await request<{ events: MailEventView[]; watching: boolean }>('/api/dsh-mail/events')

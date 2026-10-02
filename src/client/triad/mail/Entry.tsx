@@ -9,8 +9,8 @@
  *    closingRef 挡下，什么都不做，而动画结束又把面板关掉——用户看到的是按钮失灵）；
  *  - 面板单独包 ErrorBoundary：面板崩了只收面板，导航行留着。
  *
- * 右上角 badge 显示「未读 + 待确认」数：待确认操作是必须被用户看见的状态
- * （拿到令牌但没执行），所以并入同一个角标，打开面板时警示条会顶在最上面。
+ * 右上角 badge 显示收件箱未读数。面板上的写操作都是「点一下就执行」
+ * （见 Panel.tsx），没有待确认条要提示，所以角标不掺别的计数。
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -22,7 +22,7 @@ import { ensureShellStyles, type PopoverAnchor } from '../popover-shell.js'
 import { ensureMailStyles } from './styles.js'
 import { ErrorBoundary } from '../../error-boundary.js'
 
-/** 未读 + 待确认的轮询间隔（邮箱接口有额度，30 秒足够）。 */
+/** 未读数的轮询间隔（邮箱接口有额度，30 秒足够）。 */
 const BADGE_POLL_MS = 30_000
 
 /** 渲染邮箱导航行与面板（自足组件：内部自建 API，不依赖 slot 注入面）。 */
@@ -40,7 +40,7 @@ export function MailNavApp(): JSX.Element | null {
   usePanelAutoClose('mail', open, requestClose)
 
   /**
-   * 角标计数：收件箱未读 + 待确认操作。
+   * 角标计数：收件箱未读。
    *
    * 失败一律静默（未授权、服务未起、额度用尽都不该在侧边栏弹错误）。
    * 面板打开时暂停轮询——面板自己每 5 秒刷一次新邮件事件，再叠加一层轮询
@@ -48,11 +48,8 @@ export function MailNavApp(): JSX.Element | null {
    */
   const refreshBadge = useCallback(async (): Promise<void> => {
     try {
-      const [page, pending] = await Promise.all([
-        api.list({ dir: 'inbox', limit: 50 }),
-        api.pending(),
-      ])
-      setBadge(page.messages.filter(item => !item.is_read).length + pending.length)
+      const page = await api.list({ dir: 'inbox', limit: 50 })
+      setBadge(page.messages.filter(item => !item.is_read).length)
     } catch {
       /* 未授权 / 网络异常：保持上一次的数字，不弹错 */
     }
@@ -73,7 +70,7 @@ export function MailNavApp(): JSX.Element | null {
         rail={rail}
         expanded={open}
         badge={badge}
-        badgeTitle={`${badge} 项待处理（未读邮件 + 待确认操作）`}
+        badgeTitle={`${badge} 封未读邮件`}
         onClick={e => {
           e.stopPropagation()
           const next = navAnchorFrom(e.currentTarget)

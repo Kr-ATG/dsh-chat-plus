@@ -22,10 +22,10 @@
  */
 
 import { existsSync } from 'node:fs'
-import { mkdir, stat } from 'node:fs/promises'
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, extname, join, resolve } from 'node:path'
-import { MailCliError, commonDirOf, isCliRelative, runCli, toCliRelative, type RunOptions } from './cli.js'
+import { basename, extname, isAbsolute, join, resolve } from 'node:path'
+import { MailCliError, commonDirOf, humanizeCliError, isCliRelative, runCli, toCliRelative, type RunOptions } from './cli.js'
 import type {
   MailAlias,
   MailAuthStatus,
@@ -84,6 +84,15 @@ export interface MailPage {
   cached: boolean
 }
 
+/**
+ * 缓存「秒开」的最长可接受年龄。
+ *
+ * 缓存的意义只是**面板打开瞬间别白屏**，不是替代实时结果。超过这个年龄的
+ * 快照宁可让面板转一下圈：拿一份隔夜列表当现状，用户看到的就是「已经不在了
+ * 的邮件还在，点删除还报错」。
+ */
+const CACHE_MAX_AGE_MS = 2 * 60_000
+
 /** 附件下载结果。 */
 export interface AttachmentResult {
   /** 落盘路径（普通附件下载成功时）。 */
@@ -111,13 +120,24 @@ export class MailService {
     return this.config
   }
 
-  /** 运行时改配置（面板设置区）。 */
+  /**
+   * 运行时改配置（面板设置区）。
+   *
+   * `downloadDir` 的特殊语义：传**空串** = 清除覆盖、回到工厂默认目录。
+   * 不能只靠 `applyMailConfigOverrides`（它对空串是「忽略」，正是为了不让
+   * 半截输入把已有设置冲掉），所以这里显式删键 —— 否则设置页的「恢复默认」
+   * 会写下一个空串覆盖层，重启后又变成「有覆盖但值为空」，`defaultDownloadDir`
+   * 每轮都要多判一次空。
+   */
   async updateConfig(patch: Partial<MailConfig>): Promise<MailConfig> {
     const { applyMailConfigOverrides } = await import('./types.js')
     const next: MailConfig = { ...this.config }
     applyMailConfigOverrides(next, patch)
-    // 覆盖层合并写：只落本次补丁 + 已有的覆盖键，避免冲掉其它字段。
-    const merged = { ...await this.store.readConfig(), ...patch }
+    const merged: Partial<MailConfig> = { ...await this.store.readConfig(), ...patch }
+    if (patch.downloadDir !== undefined && patch.downloadDir.trim() === '') {
+      delete merged.downloadDir
+      next.downloadDir = undefined
+    }
     await this.store.writeConfig(merged)
     this.config = next
     return next
@@ -140,11 +160,14 @@ export class MailService {
     const statusResult = await runCli(['auth', 'status'], this.runOptions())
     const auth = (statusResult.data ?? { logged_in: false, status: 'unknown' }) as MailAuthStatus
     if (auth.logged_in !== true) {
-      return { auth, me: null, primary: null, error: statusResult.ok ? null : (statusResult.error?.message ?? null) }
+      // 这条 error 会直接显示在面板上，同样要过人话化（见 cliError 的注释）。
+      const raw = statusResult.error?.message
+      return { auth, me: null, primary: null, error: statusResult.ok || raw === undefined ? null : humanizeCliError(raw) }
     }
     const meResult = await runCli(['+me'], this.runOptions())
     if (!meResult.ok) {
-      return { auth, me: null, primary: null, error: meResult.error?.message ?? 'agently-cli +me 失败' }
+      const raw = meResult.error?.message
+      return { auth, me: null, primary: null, error: raw === undefined ? 'agently-cli +me 失败' : humanizeCliError(raw) }
     }
     const me = meResult.data as MailMe
     const primary = (me.aliases ?? []).find(alias => alias.is_primary) ?? (me.aliases ?? [])[0] ?? null
@@ -158,7 +181,9 @@ export class MailService {
     const dir = query.dir ?? 'inbox'
     if (options.preferCache === true) {
       const cache = await this.store.readCache()
-      if (cache !== null && cache.dir === dir) {
+      // 缓存必须**同文件夹且够新**才拿来秒开；陈旧快照一律落回实时请求，
+      // 否则「刚删掉的邮件还留在列表里」会被缓存一直钉住（见 invalidateCache）。
+      if (cache !== null && cache.dir === dir && Date.now() - cache.at <= CACHE_MAX_AGE_MS) {
         return { messages: cache.messages, hasMore: false, nextCursor: '', at: cache.at, cached: true }
       }
     }
@@ -309,7 +334,14 @@ export class MailService {
   /** 移入回收站（软删，30 天后真正删除）。 */
   async trash(id: string, confirmationToken?: string): Promise<WriteOutcome> {
     if (id.trim() === '') throw new Error('trash: 缺少 id（message_id）')
-    return await this.writeCall('trash', { id: id.trim() }, () => ['message', '+trash', '--id', id.trim()])
+    // ⚠️ confirmationToken 必须传进 writeCall：早期版本只把它当形参收下却没往下传，
+    // 于是第二阶段仍然是一次「不带令牌的调用」→ 又拿到一个新令牌 → 永远停在 pending，
+    // 用户看到的就是「点了确认还是让我确认」。
+    return await this.writeCall(
+      'trash',
+      { id: id.trim(), confirmationToken },
+      () => ['message', '+trash', '--id', id.trim()],
+    )
   }
 
   /** 永久删除（仅回收站内；`all` 为真时清空回收站）。 */
@@ -373,8 +405,9 @@ export class MailService {
     }
     for (const rel of relativePaths.slice(pathIndex)) args.push('--attachment', rel)
 
-    if (input.confirmationToken !== undefined && input.confirmationToken !== '') {
-      args.push('--confirmation-token', input.confirmationToken)
+    const hasToken = input.confirmationToken !== undefined && input.confirmationToken !== ''
+    if (hasToken) {
+      args.push('--confirmation-token', input.confirmationToken as string)
     } else if (input.userAuthorized === true && action !== 'trash' && action !== 'delete') {
       // trash/delete 没有 --confirmed（CLI 只给了 send/reply/forward）。
       args.push('--confirmed')
@@ -396,13 +429,21 @@ export class MailService {
         summary: text,
         createdAt: Date.now(),
         preview: summary,
+        // 原样存下这次的完整参数：第二阶段必须用同样的参数重放。
+        // 不靠 summary 反推 —— 它里面没有正文、没有附件路径、字段名也不一样
+        // （id 在 summary 里叫 message_id），早期版本就是这么踩出 `id required` 的。
+        replay: { action, ...input } as PendingConfirmation['replay'],
       })
       return { status: 'pending', token, summary: text, preview: summary }
     }
     // 真正执行成功：清掉对应待确认记录（若这次是带 token 执行的）。
-    if (input.confirmationToken !== undefined && input.confirmationToken !== '') {
-      await this.store.dropPending(input.confirmationToken)
+    if (hasToken) {
+      await this.store.dropPending(input.confirmationToken as string)
     }
+    // 写操作改变了服务端状态 → 本地列表缓存立刻作废。
+    // 不作废的话，面板紧接着的刷新会命中「操作前」的快照，邮件看起来没删掉，
+    // 用户就会再点一次，撞上服务端的目录约束。
+    await this.store.invalidateCache()
     return { status: 'done', detail: data }
   }
 
@@ -444,14 +485,159 @@ export class MailService {
     return join(home, 'storages', 'dsh-chat-flow-mail-attachments')
   }
 
+  /**
+   * 工厂默认目录（`~/.dsh/storages/...`），与用户自选的 `config.downloadDir` 无关。
+   * 设置页「恢复默认」要回到这里，不能读 defaultDownloadDir（那已经含用户覆盖）。
+   */
+  builtinDownloadDir(): string {
+    const home = process.env['DSH_HOME'] ?? join(homedir(), '.dsh')
+    return join(home, 'storages', 'dsh-chat-flow-mail-attachments')
+  }
+
+  /**
+   * 校验一个目录能否作为附件保存位置。
+   *
+   * 判据是**真的试着写一下**，而不是只看 existsSync：路径存在但只读（受保护目录、
+   * 别的用户建的目录、网络盘掉线）时，只查存在会给出「可以用」的假结论，用户一路
+   * 下载到那一步才失败，而且失败发生在 CLI 子进程里、错误信息是英文的
+   * `--output must be a relative path` 之类，完全对不上真实原因。
+   *
+   * 校验用 `.dsh-mail-write-probe` 探针文件，写完立刻删；不落任何残留。
+   */
+  async verifyDirectory(input: string): Promise<{ ok: boolean; path: string; error?: string }> {
+    const raw = input.trim()
+    if (raw === '') return { ok: false, path: '', error: '目录不能为空' }
+    if (!isAbsolute(raw)) return { ok: false, path: raw, error: '请填绝对路径（如 D:\\Mail 或 /home/me/mail）' }
+    const path = resolve(raw)
+    try {
+      await mkdir(path, { recursive: true })
+    } catch (error) {
+      return { ok: false, path, error: `无法创建目录：${error instanceof Error ? error.message : String(error)}` }
+    }
+    const probe = join(path, '.dsh-mail-write-probe')
+    try {
+      await writeFile(probe, 'probe', 'utf8')
+      await rm(probe, { force: true })
+      return { ok: true, path }
+    } catch (error) {
+      return { ok: false, path, error: `目录不可写：${error instanceof Error ? error.message : String(error)}` }
+    }
+  }
+
   /** 待确认操作列表。 */
   async pending(): Promise<PendingConfirmation[]> {
     return await this.store.listPending()
   }
 
+  /**
+   * 执行一条待确认操作（第二阶段的**唯一正确入口**）。
+   *
+   * 从落盘的 `replay` 里原样重放参数，而不是让调用方（面板 / 模型）自己拼 ——
+   * 面板拼过一次就出过 `id required`（它从 summary 里读 `id`，而 CLI 给的是
+   * `message_id`），而且正文/附件路径根本不在 summary 里，拼不出来。
+   *
+   * 令牌与参数同源（都来自第一阶段那次调用），所以这里不需要调用方再传业务参数。
+   */
+  async confirmPending(token: string): Promise<WriteOutcome> {
+    const record = await this.store.getPending(token)
+    if (record === undefined) throw new Error('这条待确认操作已过期或已被撤销（确认令牌有效期 5 分钟）。请重新发起。')
+    const replay = record.replay
+    // 逐字段映射而不是 `{...replay}` 展开：展开会把 `action` 这个多余字段一并
+    // 塞进方法入参，也会把「到底重放了什么」这件事藏起来。
+    //
+    // 读 `recipients` 时带一层兜底：早期版本把 replay 里的收件人写成平铺的
+    // `to`，那些旧记录还在盘上（5 分钟内）。宁可多认一种形状，也不要让用户
+    // 点了确认却撞一个 TypeError。
+    const recipientsOf = (r: Record<string, unknown>): { to: string[]; cc?: string[]; bcc?: string[] } => {
+      const nested = r['recipients']
+      if (typeof nested === 'object' && nested !== null) return nested as { to: string[]; cc?: string[]; bcc?: string[] }
+      const to = Array.isArray(r['to']) ? r['to'] as string[] : []
+      const cc = Array.isArray(r['cc']) ? r['cc'] as string[] : undefined
+      const bcc = Array.isArray(r['bcc']) ? r['bcc'] as string[] : undefined
+      return { to, cc, bcc }
+    }
+    switch (replay.action) {
+      case 'send':
+        return await this.send({
+          recipients: recipientsOf(replay as unknown as Record<string, unknown>),
+          subject: replay.subject,
+          body: replay.body,
+          bodyFile: replay.bodyFile,
+          format: replay.format as BodyFormat | undefined,
+          attachments: replay.attachments,
+          confirmationToken: token,
+        })
+      case 'reply':
+        return await this.reply({
+          id: replay.id,
+          body: replay.body,
+          bodyFile: replay.bodyFile,
+          format: replay.format as BodyFormat | undefined,
+          replyAll: replay.replyAll,
+          cc: replay.cc,
+          bcc: replay.bcc,
+          attachments: replay.attachments,
+          confirmationToken: token,
+        })
+      case 'forward':
+        return await this.forward({
+          id: replay.id,
+          recipients: recipientsOf(replay as unknown as Record<string, unknown>),
+          body: replay.body,
+          bodyFile: replay.bodyFile,
+          format: replay.format as BodyFormat | undefined,
+          includeAttachments: replay.includeAttachments,
+          attachments: replay.attachments,
+          confirmationToken: token,
+        })
+      case 'trash':
+        return await this.trash(replay.id, token)
+      case 'delete':
+        return await this.delete({ id: replay.id, all: replay.all, confirmationToken: token })
+      default:
+        throw new Error(`未知的待确认操作类型：${String((replay as { action?: unknown }).action)}`)
+    }
+  }
+
   /** 撤销一条待确认操作。 */
   async cancelPending(token: string): Promise<boolean> {
     return await this.store.dropPending(token)
+  }
+
+  /**
+   * 「点一下就直接执行」的写操作（面板按钮用）。
+   *
+   * 与 `trash` / `delete` 的区别只在**谁来点头**：CLI 的两阶段确认是给「Agent
+   * 自主决定要不要发/删」准备的安全阀；而用户在面板上亲手点那一下，本身就是
+   * 明确许可 —— 再弹一层「确定吗？」只是把同一件事问两遍。
+   *
+   * 实现上仍是老老实实走完两阶段（第一阶段拿令牌 → 立刻用令牌续第二阶段），
+   * 不绕过服务端确认：令牌是 CLI 的硬要求，绕不过也不该绕。
+   */
+  private async writeNow(run: () => Promise<WriteOutcome>): Promise<WriteOutcome> {
+    const first = await run()
+    if (first.status === 'done') return first
+    // 拿到令牌 → 立刻续第二阶段（令牌与参数同源，由 confirmPending 原样重放）。
+    try {
+      return await this.confirmPending(first.token)
+    } catch (error) {
+      // 第二阶段失败时，这条待确认记录必须清掉：面板的待确认条会一直亮着
+      // 「移入回收站」，用户点「确认执行」只会反复撞同一个错（典型的
+      // `Cannot delete message from this directory`）—— 一条注定失败的记录
+      // 留在盘上，就是把用户往重复失败上引。
+      await this.store.dropPending(first.token).catch(() => undefined)
+      throw error
+    }
+  }
+
+  /** 移入回收站（点一下就执行；面板按钮用）。 */
+  async trashNow(id: string): Promise<WriteOutcome> {
+    return await this.writeNow(() => this.trash(id))
+  }
+
+  /** 永久删除（点一下就执行；面板按钮用，仅回收站内邮件）。 */
+  async deleteNow(input: { id?: string; all?: boolean }): Promise<WriteOutcome> {
+    return await this.writeNow(() => this.delete(input))
   }
 
   /* ── 诊断 ─────────────────────────────────────────────────────────── */
@@ -482,12 +668,21 @@ function clampLimit(limit: number | undefined): number {
   return Math.max(1, Math.min(50, Math.round(limit)))
 }
 
-/** CliResult → MailCliError（保留退出码语义，上层可按 needsAuth 分支）。 */
+/**
+ * CliResult → MailCliError（保留退出码语义，上层可按 needsAuth 分支）。
+ *
+ * ⚠️ 必须过一遍 `humanizeCliError`：早期这里直接把服务端英文原文塞进
+ * `message`，而 humanize 只挂在 cli.ts 的 toError() 上 —— 于是**走 service
+ * 的这条路径（工具、HTTP 路由、面板全都是它）永远拿到英文**。用户看到的就是
+ * 截图里那句 `Cannot delete message from this directory`，翻译规则写了也白写。
+ * 两条路径必须共用同一个翻译入口。
+ */
 function cliError(result: { code: number; error?: { type?: string; message?: string; request_id?: string } }): Error {
+  const raw = result.error?.message
   return new MailCliError(
     result.code,
     result.error?.type ?? 'unknown',
-    result.error?.message ?? `agently-cli 退出码 ${result.code}`,
+    typeof raw === 'string' && raw !== '' ? humanizeCliError(raw) : `agently-cli 退出码 ${result.code}`,
     result.error?.request_id,
   )
 }

@@ -192,8 +192,10 @@ export function useRail(): boolean {
 const STYLE_ID = 'dsh-triad-nav-styles'
 
 const SHEET = `
-/* 导航行：与自动化菜单行同款几何（透明底 + hover 高亮 + 文字省略） */
-.dsh-nav-btn{position:relative;display:flex;align-items:center;gap:8px;width:calc(100% - 4px);height:34px;padding:0 10px;margin:0 2px 4px;box-sizing:border-box;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary,#eee);font-size:14px;line-height:20px;font-family:inherit;cursor:pointer;text-align:left;user-select:none;overflow:hidden;transition:background 120ms ease}
+/* 导航行：与自动化菜单行同款几何（透明底 + hover 高亮 + 文字省略）。
+   内边距 8px 是**实测对齐官方行**的结果：官方「插件」「自动化任务」行按钮
+   x=14、图标 x=22（= padding-left 8px）。取 10px 会让本插件的行整体右移 2px。 */
+.dsh-nav-btn{position:relative;display:flex;align-items:center;gap:8px;width:calc(100% - 4px);height:34px;padding:0 8px;margin:0 2px 4px;box-sizing:border-box;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary,#eee);font-size:14px;line-height:20px;font-family:inherit;cursor:pointer;text-align:left;user-select:none;overflow:hidden;transition:background 120ms ease}
 .dsh-nav-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}
 .dsh-nav-btn[data-open='true']{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}
 .dsh-nav-btn>svg{flex:none;color:var(--dsw-alias-label-secondary,#bbb)}
@@ -212,14 +214,24 @@ const SHEET = `
 #dsh-triad-nav-host>[data-nav-slot]{display:contents}
 /* 合并行：[用量][技能][记忆] 并排；槽位 display:contents 让按钮直接参与行布局，
    按钮等分整行（flex:1 1 0），与独立行的视觉节奏一致——
-   否则收缩为内容宽时行尾会留出大片空白。 */
+   否则收缩为内容宽时行尾会留出大片空白。
+
+   ⚠️ 内容必须**左对齐**（justify-content:flex-start + text-align:left），
+   绝不能居中：独立行（自动化任务 / 邮箱）是 padding-left 10px 左对齐的，而居中会
+   让图标 x 坐标随格子宽度浮动（≈ 格子宽的一半），于是上下两行的图标不在同一条
+   垂直线上 —— 用户看到的就是「用量跟自动化、邮箱不平齐」。
+
+   左内边距必须与官方导航行**逐像素一致**（实测官方「插件」「自动化任务」行是
+   按钮 x=14 / 图标 x=22，即 padding-left 8px），否则本插件的行会整体右移
+   2px —— 单独看不明显，与官方行上下相邻时就是一条肉眼可辨的错位。
+   合并行的左边缘由 .dsh-nav-row 的 padding 2px 补足，合计仍与独立行相同。 */
 .dsh-nav-row{display:flex;flex-wrap:wrap;align-items:stretch;gap:2px;padding:0 2px}
 .dsh-nav-row>[data-nav-slot]{display:contents;min-width:0}
-.dsh-nav-row .dsh-nav-btn{width:auto;flex:1 1 0;min-width:0;margin:0 0 4px;justify-content:center;text-align:center;padding:0 8px}
+.dsh-nav-row .dsh-nav-btn{width:auto;flex:1 1 0;min-width:0;margin:0 0 4px;justify-content:flex-start;text-align:left;padding:0 8px}
 .dsh-nav-row .dsh-nav-btn .dsh-nav-label{min-width:0}
-/* 三等分后每格约 1/3 侧栏宽，放不下「文字 + 行尾数字」，且行尾的
-   margin-left:auto 会顶掉居中。合并行统一不显示行尾附加内容
-   （今日总量等）——完整数据点开工作台卡片即可。 */
+/* 三等分后每格约 1/3 侧栏宽，放不下「文字 + 行尾数字」（行尾的 margin-left:auto
+   会把文字挤成省略号）。合并行统一不显示行尾附加内容（今日总量等）——
+   完整数据点开工作台卡片即可。 */
 .dsh-nav-row .dsh-nav-trailing{display:none}
 /* 折叠 rail 态：合并行恢复纵向图标列（与原生 rail 图标钮节奏一致） */
 #dsh-triad-nav-host:has(.dsh-nav-btn[data-rail]) .dsh-nav-row{flex-direction:column;align-items:flex-start;gap:0}

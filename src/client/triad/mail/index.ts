@@ -17,7 +17,7 @@ import { ensureNavMount } from '../sidebar-nav.js'
 export { MailPanel, MailIcon, type MailPanelProps } from './Panel.js'
 export { MailNavApp } from './Entry.js'
 export { createMailApi, MailApiError } from './api.js'
-export type { MailApi, MailConfigView, MailDetailView, MailSummaryView, MailPendingView, MailWriteOutcome } from './api.js'
+export type { MailApi, MailConfigView, MailDetailView, MailSummaryView, MailWriteOutcome } from './api.js'
 export { sanitizeMailHtml, sanitizeCss, wrapMailHtml } from './sanitize.js'
 
 /** 挂载邮箱导航行与面板。 */

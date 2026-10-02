@@ -168,11 +168,87 @@ function parseEnvelope(stdout: string): Record<string, unknown> | null {
   return null
 }
 
+/**
+ * CLI 英文报错 → 人话。
+ *
+ * Agent Mail 的错误文案全是英文服务端原文（`Message does not exist or is not
+ * in trash` 这种），直接抛给用户等于没说清「我该怎么做」。这里按**原文特征**
+ * 映射成人话，并保留原文附在后面 —— 翻译可能覆盖不全，原文永远是对的。
+ *
+ * 匹配用宽松的关键词而不是精确全等：服务端文案会随版本微调，全等匹配一次
+ * 升级就全部失效，那还不如不翻。
+ */
+const ERROR_TRANSLATIONS: ReadonlyArray<{ match: RegExp; zh: (raw: string) => string }> = [
+  {
+    // 服务端按「邮件当前所在文件夹」判定能否删除：已经在回收站里的邮件不能再
+    // 移入回收站（那一步要用 +delete 永久删除）。这条与下面的 not in trash
+    // **方向相反**，绝不能合并：一个是「你要删的还在外面」，一个是「你要移的
+    // 已经在里面」，给错的下一步提示等于把用户支到另一个错误上。
+    match: /cannot delete message from this directory/i,
+    zh: () => '这封邮件已经不在原文件夹里了（多半已进回收站）。请到左侧「回收站」打开它，用「永久删除」。',
+  },
+  {
+    match: /not in trash|does not exist or is not in trash/i,
+    zh: () => '这封邮件不在回收站里，无法永久删除。请先「移入回收站」，再在回收站里删除。',
+  },
+  {
+    match: /resource not found|message not found|not found/i,
+    zh: () => '找不到这封邮件（可能已被删除，或邮件 ID 已失效）。刷新列表看看。',
+  },
+  {
+    // ⚠️ 别写成「过期了就要重新扫码」：access token 过期是**常态**，CLI 每次
+    // 调用都走 GetValidAccessToken（内部 auto_refresh + refresh.lock），用
+    // refresh token 自动续期，用户根本感知不到。只有 refresh token 本身也失效
+    // （被撤销 / 长期未用 / 换了机器）才会真的走到这里 —— 那时才需要重新扫码。
+    // 实测：`agently-cli auth refresh` 无需扫码即可续期（expires_at 前移）。
+    match: /authorization required|unauthorized|not logged in|token expired|invalid token|invalid_grant/i,
+    zh: () => '邮箱授权已失效（自动续期也没成功，通常是授权被撤销或长期未使用）。请在本机终端执行 agently-cli auth login，用微信扫码重新授权。',
+  },
+  {
+    match: /rate limit|too many requests|quota exceeded|throttl/i,
+    zh: () => '请求太频繁或已达额度上限（每天 50 封 / 每小时 200 次 / 每分钟 10 次）。等一会儿再试。',
+  },
+  {
+    match: /attachment.*(too large|size)|exceeds.*size|file too large/i,
+    zh: () => '附件太大。单个附件上限 20MB，单封邮件附件合计也上限 20MB。',
+  },
+  {
+    match: /unsafe attachment path|must be a relative path/i,
+    zh: () => '附件路径不合法（插件内部错误：路径必须是相对路径）。请把问题反馈给插件作者。',
+  },
+  {
+    match: /markdown body does not contain/i,
+    zh: () => '正文按 Markdown 发送但结构不达标。请改用纯文本格式（format: plain）。',
+  },
+  {
+    match: /blacklist|unsubscribed|rejected|blocked/i,
+    zh: () => '收件方拒收（已退订 / 拉黑 / 地址不存在）。换一个收件地址。',
+  },
+  {
+    match: /network|timeout|connection|dial tcp|EOF/i,
+    zh: () => '网络不通或请求超时。检查网络后重试。',
+  },
+]
+
+/** 把 CLI 原始错误文案翻成人话（保留原文在括号里）。 */
+export function humanizeCliError(raw: string): string {
+  const text = raw.trim()
+  if (text === '') return raw
+  for (const rule of ERROR_TRANSLATIONS) {
+    if (!rule.match.test(text)) continue
+    const zh = rule.zh(text)
+    // 已经含中文的（本地自己抛的）不再叠一层原文，避免重复。
+    if (/[\u4e00-\u9fff]/.test(text)) return text
+    return `${zh}（原文：${text}）`
+  }
+  return text
+}
+
 /** 把 CLI 的退出码 + envelope 翻译成 MailCliError（调用方按需 catch）。 */
 function toError(result: CliResult): MailCliError {
   const type = result.error?.type ?? 'unknown'
   const raw = result.error?.message
-  const message = typeof raw === 'string' && raw !== '' ? raw : `agently-cli 退出码 ${result.code}`
+  const message = typeof raw === 'string' && raw !== '' ? humanizeCliError(raw) : `agently-cli 退出码 ${result.code}`
   return new MailCliError(result.code, type, message, result.error?.request_id)
 }
 

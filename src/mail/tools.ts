@@ -206,12 +206,16 @@ export function registerMailTools(ctx: MailHostContext, service: MailService): (
       }
       const limits = account.me.rate_limits
       const constraints = account.me.constraints
+      // 「有效期至」只报 token 的自然到期时刻，**不是**「到点就要重新扫码」：
+      // CLI 每次调用都走 GetValidAccessToken（auto_refresh + refresh.lock），
+      // 用 refresh token 自动续期，用户无感。把这层语义写清楚，否则模型/用户
+      // 看到「有效期至」就会以为邮箱隔几小时要人工维护一次。
       return [
         `邮箱地址：${account.primary?.email ?? '(未知)'}`,
         `显示名：${account.primary?.name ?? '(无)'}`,
         `别名：${(account.me.aliases ?? []).map(alias => alias.email).join('、')}`,
         `授权状态：${account.auth.status}${account.auth.token_status === undefined ? '' : ` / ${account.auth.token_status}`}`,
-        `有效期至：${account.auth.expires_at ?? '(未知)'}`,
+        `访问令牌到期：${account.auth.expires_at ?? '(未知)'}（自动续期，无需人工处理；只有状态变成未授权才需要重新扫码）`,
         `权限：${(account.me.scopes ?? []).join(', ')}`,
         `额度：每天 ${limits.daily_send_quota} 封，每小时 ${limits.requests_per_hour} 次，每分钟 ${limits.requests_per_minute} 次`,
         `附件：最多 ${constraints.max_attachment_count} 个，单个最大 ${formatBytes(Number(constraints.max_attachment_size_bytes))}`,
@@ -453,7 +457,7 @@ export function registerMailTools(ctx: MailHostContext, service: MailService): (
     description: [
       '把邮件移入回收站（软删除，30 天后才真正删除，期间仍占邮箱空间）。',
       '走两阶段确认：第一次调用返回确认令牌，用户许可后再带 confirmation_token 执行。',
-      '已在回收站里的邮件不能再次移入。',
+      '已在回收站里的邮件不能再次移入（那种邮件要用 mail_delete 永久删除）。',
     ].join(' '),
     parameters: {
       id: { type: 'string', required: true, description: 'message_id。' },
@@ -491,13 +495,15 @@ export function registerMailTools(ctx: MailHostContext, service: MailService): (
     description: [
       '把邮件里的普通附件下载到本地（先 mail_read 拿 attachment_id）。',
       '超大附件没有 attachment_id、只有 download_url：那种情况本工具会直接把链接返回，不要强行下载。',
+      '保存位置：缺省用用户在邮箱面板「设置」里配的附件目录（没配过就是 DSH storages 下的默认目录）；',
+      '用户明确要求存到别处时传 output_dir（绝对路径，目录不存在会自动创建）。',
       '返回落盘的绝对路径；需要交付给用户时用 present 工具把该路径作为产出物。',
     ].join(' '),
     parameters: {
       msg: { type: 'string', required: true, description: '邮件 message_id。' },
       att: { type: 'string', description: '附件 attachment_id（att_ 前缀）。' },
       download_url: { type: 'string', description: '超大附件的 download_url（没有 attachment_id 时给这个，工具会原样返回）。' },
-      output_dir: { type: 'string', description: '保存目录的绝对路径（缺省存到 DSH storages 下）。' },
+      output_dir: { type: 'string', description: '保存目录的绝对路径（缺省用面板设置里的附件目录）。' },
     },
     async execute(args) {
       const result = await service.downloadAttachment({

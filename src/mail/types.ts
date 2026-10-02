@@ -98,9 +98,43 @@ export interface PendingConfirmation {
   /** 人类可读的操作摘要（发给用户看的那段）。 */
   summary: string
   createdAt: number
-  /** 展示用的关键字段（面板「待确认」条）。 */
+  /**
+   * 展示用的关键字段（面板「待确认」条）。
+   *
+   * ⚠️ **只用于展示，绝不用于重建执行参数**。CLI 的 summary 里只有
+   * `action` / `to` / `subject` / `message_id` / `attachment_count` 这几个
+   * 展示字段 —— 正文、附件路径、cc/bcc 全都没有。早期版本让面板从 preview
+   * 里读 `id` 来续跑第二阶段，结果是：字段名对不上（CLI 给的是 `message_id`）
+   * 拿到 undefined，CLI 直接报 `id required`；就算字段名对上，正文也已经丢了。
+   */
   preview: Record<string, unknown>
+  /**
+   * 第二阶段的**完整调用参数**（原样重放）。
+   *
+   * 这是两阶段确认能真正走通的关键：拿令牌那次与带令牌那次必须用**同样的
+   * 参数**，而 CLI 的 summary 不提供这些参数，所以由我们自己存。
+   * 结构按 action 区分（见 service.ts 的 WriteReplay）。
+   */
+  replay: WriteReplay
 }
+
+/**
+ * 两阶段确认的第二阶段要原样重放的参数。
+ *
+ * ⚠️ **形状必须与 service 里各方法自己的入参逐字一致**（`send` 用
+ * `recipients: {to,cc,bcc}`，不是平铺的 `to`）。
+ *
+ * 这里踩过坑：早期把 `to` 写成平铺，而落盘的其实是 `recipients` —— 类型撒谎，
+ * `confirmPending` 按类型读 `replay.to` 拿到 undefined，重放时直接
+ * `Cannot read properties of undefined (reading 'length')`。
+ * 类型与真实数据不一致时，类型检查是负资产。
+ */
+export type WriteReplay =
+  | { action: 'send'; recipients: { to: string[]; cc?: string[]; bcc?: string[] }; subject: string; body: string; bodyFile?: string; format?: string; attachments?: string[] }
+  | { action: 'reply'; id: string; body: string; bodyFile?: string; format?: string; replyAll?: boolean; cc?: string[]; bcc?: string[]; attachments?: string[] }
+  | { action: 'forward'; id: string; recipients: { to: string[]; cc?: string[]; bcc?: string[] }; body?: string; bodyFile?: string; format?: string; includeAttachments?: boolean; attachments?: string[] }
+  | { action: 'trash'; id: string }
+  | { action: 'delete'; id?: string; all?: boolean }
 
 /** 运行时配置（可被 cordis.patch.yml / 面板覆盖）。 */
 export interface MailConfig {

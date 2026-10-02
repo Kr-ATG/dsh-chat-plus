@@ -341,15 +341,41 @@ service 图上是一等公民。只调它的 API 会让两插件之间形成隐�
 
 ### 面板
 
-侧边栏「邮箱」独立一行（未读 + 待确认数走右上角角标），点开是盖住会话主区的三栏
+侧边栏「邮箱」独立一行（未读走右上角角标），点开是盖住会话主区的三栏
 drawer（与记忆/用量/技能同一套 `PopoverShell` 壳）：
 
 - **左栏**：收件箱 / 已发送 / 回收站 / 垃圾邮件 + 只看未读 / 只看附件 / 写邮件 + 设置
 - **中栏**：邮件列表（未读圆点呼吸、行错峰淡入、附件 chip hover 抬起、翻页）
 - **右栏**：读信（HTML 走**沙箱 iframe**，见下）/ 写信 / 回复 / 转发 / 附件下载
-- **待确认警示条**：拿到令牌但还没执行的操作顶在面板最上方，可一键「确认执行」或「撤销」；
-  这条状态必须显眼 —— 把 pending 画成成功就是欺骗用户
+- **点一下就执行，不给「待确认」条**：面板上的写操作（移入回收站 / 永久删除 / 发信）
+  都是「用户亲手点 = 明确许可」，host 侧一次请求走完 CLI 的两阶段确认
+  （`trashNow` / `deleteNow`）。同一个动作问两遍是噪音；真失败了就报错并重新对齐状态
+  （见下面「破坏性操作」）。**永久删除**保留一次确认（不可恢复），移入回收站可逆故不弹。
 - **新邮件 toast** + 顶栏铃铛（实时监听开关，默认关闭）
+
+### 破坏性操作与列表一致性（2026-10-03 修）
+
+Agent Mail 的规则是「`+trash` 只作用于不在回收站里的邮件、`+delete` 只作用于回收站里的
+邮件」。据此有三条必须同时成立的约束，缺任何一条用户都会看到「点不动 / 报英文错 / 删了
+还在」：
+
+1. **按钮按邮件实际归属判定**，不能按「当前列表的文件夹」。列表可能来自本地缓存
+   （邮件其实已被移走），拿它判定就会给错按钮，用户点下去撞的是服务端
+   `Cannot delete message from this directory` —— 且**怎么点都失败**。判据取
+   `detail.dir.dir_name`（服务端随正文给的实际归属），拿不到时才退回列表文件夹。
+2. **写成功后立刻作废列表缓存**（`MailStore.invalidateCache()`）。面板刷新列表时带
+   `cache=1`，命中就直接返回快照、不再拉实时 —— 不作废的话刚移走的邮件会**继续留在
+   原文件夹的列表里**，用户以为没生效就再点一次，那一击必然撞上第 1 条的报错。
+   作废时必须连 800ms 的节流定时器一起清掉，否则「删除前」的快照会被写回磁盘。
+   缓存另有 2 分钟时效（`CACHE_MAX_AGE_MS`）：它只负责面板打开瞬间不白屏，不是替代实时。
+3. **失败后重新对齐状态**：报错不能只弹红字。此时列表与详情都是过期快照，不刷新的话
+   用户面对的是「一句报错 + 一个注定失败的按钮」。刷新后详情拿到真实 `dir`，按钮自动从
+   「移入回收站」翻成「永久删除」，用户顺势就能完成本来想做的事。
+
+另外，**CLI 的英文报错必须过人话化**：`humanizeCliError` 原先只挂在 `cli.ts` 的
+`toError()` 上，而工具 / HTTP 路由 / 面板全走 `service.ts` 自己的 `cliError()` ——
+于是翻译规则写了也白写，用户看到的仍是 `Cannot delete message from this directory`。
+两条路径现在共用同一个翻译入口（原文照旧附在括号里，翻译不吞信息）。
 
 ### 四条实现约束（都是踩出来的）
 
@@ -386,6 +412,15 @@ npm install -g @tencent-qqmail/agently-cli   # 装/升级 CLI
 agently-cli auth login                        # 出授权链接，浏览器微信扫码
 agently-cli +me                               # 验证，打印邮箱地址
 ```
+
+**授权不需要定期人工维护**（这点容易误判）：`auth status` 里的 `expires_at` 是
+**access token 的自然到期**，不是「到点就要重新扫码」。CLI 每次调用都走
+`GetValidAccessToken`（内部 `auto_refresh` + `refresh.lock` 文件锁），用 refresh token
+自动续期，失败还会重试（`token refresh attempt %d/%d failed; retrying`）—— 用户无感。
+只有 refresh token 本身失效时才需要重新扫码，CLI 的原话是
+`refresh state is unrecoverable because the stored token was cleared`，即被撤销 / 主动
+登出 / 换机器；日常使用碰不到。插件里 `mail_account` 的输出与面板设置页都按这个语义措辞，
+避免让人以为邮箱隔几小时要人工维护一次。
 
 面板「设置」页可改三项，落盘 `~/.dsh/mail/dsh-mail/store/config.json`：
 启用工作台（关掉后工具与注入都不注册，路由保留以便从面板开回来）、对话里自动声明邮箱能力、
@@ -457,19 +492,30 @@ agently-cli +me                               # 验证，打印邮箱地址
 产物对 `@deepseek-ai/*` **零运行时依赖**，`assertHostExternals()` 的空 allowlist 就是
 这条约束的守门人。
 
-### 冒烟（四套）
+### 冒烟（四套 + 一套真实链路测试）
 
 ```powershell
 node scripts/smoke-client.mjs       # 对话增强：7 座位 / 9 样式表 / KR 开关同源自适应
 node scripts/smoke-host.mjs         # 本插件 host：3 路由 + download 工具
 node scripts/smoke-triad-host.mjs   # 工作台 host：7 组路由 + 记忆 8 工具 + agent 钩子，路由零撞车
 node scripts/smoke-triad-client.mjs # 工作台 client：Token 活动 52 周热力模型等纯逻辑
+node scripts/test-mail-two-phase.mjs # 邮箱：直连 agently-cli 走真实两阶段链路
 ```
 
 `smoke-triad-host.mjs` 从已安装位置加载 host 半身（`@deepseek-ai/*` 在 profile 里才
 可解析），并显式等一拍让**被 await 的异步挂载**（usage / skills / skill-toggles）跑完
 ——同步 `ctx.inject` 回调里 await 的挂载在 apply 返回时还没落地，不等这一拍会误判成
 「路由没注册」。
+
+它还给 `mod.apply(ctx, {...})` **显式传 `mail: { enabled: true }`**：邮箱总开关是
+**用户运行时偏好**（面板设置页会写进 `~/.dsh/mail/dsh-mail/store/config.json`），用户一旦
+关掉，「11 个 `mail_*` 工具都注册」的断言就会跟着失败 —— 那是配置生效的正确行为，不是
+缺陷。冒烟测的是「插件能不能把工具挂上」，所以把开关钉成 true，让结果只取决于代码本身。
+
+`test-mail-two-phase.mjs` 是唯一打**真实链路**的（直连 CLI，不经 HTTP）：像
+`trash()` 只收形参不往下传 token 这类 bug，靠读源码的正则断言很难抓住（容易写歪），
+而它在真实调用里一眼就露馅 —— 返回 `pending` 而不是 `done`。默认只测「移入回收站」
+（可逆、安全），`--send` 才额外测发信（会真的发一封到自己邮箱）。
 
 ## 一句话安装（DSH）
 
@@ -657,12 +703,12 @@ src/
         ├── skill-source/            — 技能面板 + `/` slash source
         ├── mail/                    — 邮箱工作台（Agent Mail）
         │   ├── index.ts             — applyMailClient（导航行挂载）
-        │   ├── Entry.tsx            — 侧边栏入口（未读+待确认角标、开合状态机、条件挂载）
-        │   ├── Panel.tsx            — 三栏工作台（列表 / 读信 / 写信 / 设置 / 待确认条）
+        │   ├── Entry.tsx            — 侧边栏入口（未读角标、开合状态机、条件挂载）
+        │   ├── Panel.tsx            — 三栏工作台（列表 / 读信 / 写信 / 设置；写操作点一下就执行）
         │   ├── api.ts               — /api/dsh-mail/* 最小 fetch 客户端
         │   ├── sanitize.ts          — 邮件 HTML 净化 + 沙箱 iframe 文档包装
         │   └── styles.ts            — 面板皮肤与动效（stagger / rise / 呼吸 / 脉冲）
-        ├── sidebar-nav.tsx          — 侧边栏导航行（mail 独立一行；首行 usage+skills+memory）
+        ├── sidebar-nav.tsx          — 侧边栏导航行（mail 独立一行；首行 usage+skills+memory 左对齐同官方行）
         ├── popover-shell.tsx        — 面板外壳（drawer / compact 两种形态）
         ├── responsive.ts            — 响应式
         └── triad-modal-animation.ts —  triad 版弹窗动画（与主插件那版不等价，故改名）
@@ -699,6 +745,7 @@ scripts/
 ├── smoke-client.mjs                 — 对话增强：座位 / 样式表 / KR 开关自适应 / 邮箱面板开合契约
 ├── smoke-triad-host.mjs             — 工作台 host：8 组路由 + 工具 + agent 钩子（含 /api/dsh-mail）
 ├── smoke-triad-client.mjs           — 工作台 client：热力模型纯逻辑
+├── test-mail-two-phase.mjs          — 邮箱：直连 agently-cli 的真实两阶段链路测试
 ├── test-skill-manager.mjs           — 技能管理纯逻辑
 └── test-skill-toggles.mjs           — 技能开关纯逻辑
 ```

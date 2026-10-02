@@ -69,12 +69,13 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "smoke": "node scripts/smoke-client.mjs && node scripts/smoke-host.mjs && node scripts/smoke-triad-client.mjs && node scripts/smoke-triad-host.mjs",
+    "smoke": "node scripts/smoke-client.mjs && node scripts/smoke-host.mjs && node scripts/smoke-triad-client.mjs && node scripts/smoke-triad-host.mjs && node scripts/test-mail-two-phase.mjs",
     "smoke:client": "node scripts/smoke-client.mjs",
     "smoke:host": "node scripts/smoke-host.mjs",
     "smoke:triad-client": "node scripts/smoke-triad-client.mjs",
     "smoke:triad-host": "node scripts/smoke-triad-host.mjs",
-    "test": "node scripts/test-skill-manager.mjs && node scripts/test-skill-toggles.mjs"
+    "test": "node scripts/test-skill-manager.mjs && node scripts/test-skill-toggles.mjs",
+    "test:mail": "node scripts/test-mail-two-phase.mjs"
   },
   "engines": {
     "node": ">=22"

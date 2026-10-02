@@ -28,11 +28,6 @@ export const css = {
   topBtnBusy: 'dsh-mail-top-btn-busy',
   watchOn: 'dsh-mail-watch-on',
   close: 'dsh-mail-close',
-  // 待确认条
-  pendingBar: 'dsh-mail-pending-bar',
-  pendingIcon: 'dsh-mail-pending-icon',
-  pendingText: 'dsh-mail-pending-text',
-  pendingActions: 'dsh-mail-pending-actions',
   // 三栏
   body: 'dsh-mail-body',
   sidebar: 'dsh-mail-sidebar',
@@ -74,9 +69,14 @@ export const css = {
   detailPlain: 'dsh-mail-detail-plain',
   frame: 'dsh-mail-frame',
   attachList: 'dsh-mail-attach-list',
+  attachGroup: 'dsh-mail-attach-group',
   attachItem: 'dsh-mail-attach-item',
+  attachAlt: 'dsh-mail-attach-alt',
   attachName: 'dsh-mail-attach-name',
   attachMeta: 'dsh-mail-attach-meta',
+  // 附件保存位置设置
+  dirRow: 'dsh-mail-dir-row',
+  dirError: 'dsh-mail-dir-error',
   // 状态
   empty: 'dsh-mail-empty',
   emptyIcon: 'dsh-mail-empty-icon',
@@ -179,12 +179,6 @@ const SHEET = `
 .dsh-mail-close:hover{background:var(--m-side-hover);color:var(--m-text)}
 .dsh-mail-close:active{transform:scale(.94)}
 
-/* ── 待确认警示条（最需要被看见的一条） ── */
-.dsh-mail-pending-bar{flex:none;display:flex;align-items:center;gap:9px;padding:8px 14px;border-bottom:1px solid var(--m-border);background:var(--m-warn-soft);animation:dsh-mail-warn-in 260ms cubic-bezier(.2,.8,.2,1)}
-.dsh-mail-pending-icon{flex:none;display:inline-flex;color:var(--m-warn);animation:dsh-mail-pulse 2s ease-in-out infinite}
-.dsh-mail-pending-text{flex:1;min-width:0;font-size:12.5px;line-height:18px;color:var(--m-text);white-space:pre-wrap;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.dsh-mail-pending-actions{flex:none;display:flex;gap:6px}
-
 /* ── 三栏 ── */
 .dsh-mail-body{flex:1;min-height:0;display:flex}
 .dsh-mail-sidebar{flex:none;width:132px;display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--m-border);background:var(--m-side)}
@@ -237,11 +231,20 @@ const SHEET = `
 .dsh-mail-detail-plain{white-space:pre-wrap;font-family:inherit}
 .dsh-mail-frame{width:100%;min-height:220px;border:1px solid var(--m-border);border-radius:10px;background:transparent;display:block}
 .dsh-mail-attach-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--m-border)}
-.dsh-mail-attach-item{display:flex;align-items:center;gap:8px;max-width:100%;padding:7px 10px;border:1px solid var(--m-border);border-radius:9px;background:var(--m-side);cursor:pointer;font-family:inherit;text-align:left;transition:background .16s ease,border-color .16s ease,transform .16s cubic-bezier(.2,.8,.2,1)}
-.dsh-mail-attach-item:hover{background:var(--m-primary-soft);border-color:color-mix(in srgb,var(--m-primary) 40%,transparent);transform:translateY(-2px)}
-.dsh-mail-attach-item:active{transform:translateY(0) scale(.985)}
+/* 附件组：主按钮 + 「另选位置」，两者视觉上是一件事（同一个文件），
+   故包在一个胶囊里、内部用分隔线，而不是并排两个独立控件。 */
+.dsh-mail-attach-group{display:inline-flex;align-items:stretch;max-width:100%;border:1px solid var(--m-border);border-radius:9px;background:var(--m-side);overflow:hidden;transition:background .16s ease,border-color .16s ease,transform .16s cubic-bezier(.2,.8,.2,1)}
+.dsh-mail-attach-group:hover{background:var(--m-primary-soft);border-color:color-mix(in srgb,var(--m-primary) 40%,transparent);transform:translateY(-2px)}
+.dsh-mail-attach-group:active{transform:translateY(0) scale(.985)}
+.dsh-mail-attach-item{display:flex;align-items:center;gap:8px;max-width:100%;padding:7px 10px;border:none;background:transparent;cursor:pointer;font-family:inherit;text-align:left}
+.dsh-mail-attach-alt{display:inline-flex;align-items:center;gap:4px;padding:0 10px;border:none;border-left:1px solid var(--m-border);background:transparent;color:var(--m-text-2);font-size:11.5px;font-family:inherit;white-space:nowrap;cursor:pointer;transition:background .16s ease,color .16s ease}
+.dsh-mail-attach-alt:hover{background:color-mix(in srgb,var(--m-primary) 14%,transparent);color:var(--m-primary)}
 .dsh-mail-attach-name{font-size:12.5px;color:var(--m-text);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-mail-attach-meta{font-size:11px;color:var(--m-text-3);font-variant-numeric:tabular-nums}
+/* 附件保存位置：输入框 + 三个按钮一行，窄屏折行 */
+.dsh-mail-dir-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
+.dsh-mail-dir-row .dsh-mail-input{flex:1 1 240px;min-width:180px}
+.dsh-mail-dir-error{margin-top:6px;font-size:11.5px;line-height:17px;color:var(--m-danger);word-break:break-word}
 
 /* ── 按钮 ── */
 .dsh-mail-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;height:30px;padding:0 12px;border:1px solid var(--m-border);border-radius:8px;background:var(--m-card);color:var(--m-text);font-size:12.5px;font-family:inherit;cursor:pointer;transition:background .16s ease,border-color .16s ease,transform .12s ease,box-shadow .16s ease}
@@ -319,15 +322,14 @@ const SHEET = `
 @keyframes dsh-mail-fade{from{opacity:0}to{opacity:1}}
 @keyframes dsh-mail-pop{from{opacity:0;transform:translateY(10px) scale(.975)}to{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes dsh-mail-toast-in{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
-@keyframes dsh-mail-warn-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
 @keyframes dsh-mail-spin{to{transform:rotate(360deg)}}
 @keyframes dsh-mail-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.42;transform:scale(.86)}}
 @keyframes dsh-mail-dot{0%,100%{opacity:1;box-shadow:0 0 0 0 color-mix(in srgb,var(--m-primary) 45%,transparent)}50%{opacity:.72;box-shadow:0 0 0 4px transparent}}
 @keyframes dsh-mail-shimmer{0%{background-position:100% 0}100%{background-position:0 0}}
 @media (prefers-reduced-motion:reduce){
   .dsh-mail-row,.dsh-mail-detail-anim,.dsh-mail-composer,.dsh-mail-settings,
-  .dsh-mail-pending-bar,.dsh-mail-toast,.dsh-mail-confirm-card,.dsh-mail-confirm-mask{animation:none}
-  .dsh-mail-top-btn svg,.dsh-mail-pending-icon,.dsh-mail-dot{animation:none}
+  .dsh-mail-toast,.dsh-mail-confirm-card,.dsh-mail-confirm-mask{animation:none}
+  .dsh-mail-top-btn svg,.dsh-mail-dot{animation:none}
   .dsh-mail-row:hover,.dsh-mail-btn:hover,.dsh-mail-attach-item:hover,.dsh-mail-address-btn:hover{transform:none}
 }
 
