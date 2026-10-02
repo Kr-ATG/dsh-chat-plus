@@ -78,16 +78,26 @@ body[data-dsh-kr-chat="true"] [hidden="until-found"]:has(.kr-card--reasoning) {
 }
 
 /*
- * 放行容器时**只留卡片那一条链**。
+ * 例外 2：**含问答卡的那条链也必须放行**。
  *
- * [data-step-process] 根下面除了卡片所在的 body，官方还挂着一个过程摘要位
- * （实测渲染出「正在分析请求 · 一切明确」这类文案；用户截图里那条
- * 「执行了命令，已读取文件，已搜索代码等」同源）。容器一放行，它就跟着露到
- * 左侧对话流里 —— 收起的分组摘要本来该由插件自己的活动卡与右栏操作面板承接。
- * 所以把不含卡片的直接子元素压回去，容器里只剩卡片行。
+ * 问答卡（.kr-card--ask）挂在 ask_user_question 的 tool-call 节点上，而 KR 对
+ * 工具明细是整类隐藏（上面 [data-chat-call-id] / [data-chat-anchor-key^="call:"]
+ * 一条不落）。不放行就等于「模型问了一句、用户答了一句，对话流里什么都没留下」
+ * —— 而问答不是工具明细，它是对话本身的一半。
+ *
+ * 祖先链与思考卡同构（实测一条 tool-call 行的祖先）：
+ *   [data-chat-call-id]              调用行本身，KR 隐藏它
+ *   [data-turn-process-member]       该 step 的投影行（flowItem）
+ *   [hidden="until-found"]           O_Ebla_body（content-visibility:hidden）
+ *   [data-step-process]              O_Ebla_root（整块 display:none）
+ * 四层缺一不可：少放行任何一层，卡片有盒模型但量出来仍是 0×0。
  */
-body[data-dsh-kr-chat="true"] [data-step-process]:has(.kr-card--reasoning) > *:not(:has(.kr-card--reasoning)) {
-  display: none !important;
+body[data-dsh-kr-chat="true"] [data-step-process]:has(.kr-card--ask),
+body[data-dsh-kr-chat="true"] [data-turn-process-member]:has(.kr-card--ask),
+body[data-dsh-kr-chat="true"] [hidden="until-found"]:has(.kr-card--ask),
+body[data-dsh-kr-chat="true"] [data-chat-call-id]:has(.kr-card--ask),
+body[data-dsh-kr-chat="true"] [data-chat-anchor-key^="call:"]:has(.kr-card--ask) {
+  display: block !important;
 }
 
 /*
@@ -96,8 +106,26 @@ body[data-dsh-kr-chat="true"] [data-step-process]:has(.kr-card--reasoning) > *:n
  * 一个仍被「跳过绘制」的子树：卡片有盒模型但宽高为 0，入场动画停在 0% 帧
  * （kr-card-in 的 both 填充），表现为「放行了却还是不显示」。这里显式恢复。
  */
-body[data-dsh-kr-chat="true"] [hidden="until-found"]:has(.kr-card--reasoning) {
+body[data-dsh-kr-chat="true"] [hidden="until-found"]:has(.kr-card--reasoning),
+body[data-dsh-kr-chat="true"] [hidden="until-found"]:has(.kr-card--ask) {
   content-visibility: visible !important;
+}
+
+/*
+ * 放行容器时**只留卡片那一条链**。
+ *
+ * [data-step-process] 根下面除了卡片所在的 body，官方还挂着一个过程摘要位
+ * （实测渲染出「正在分析请求 · 一切明确」这类文案；用户截图里那条
+ * 「执行了命令，已读取文件，已搜索代码等」同源）。容器一放行，它就跟着露到
+ * 左侧对话流里 —— 收起的分组摘要本来该由插件自己的活动卡与右栏操作面板承接。
+ * 所以把不含卡片的直接子元素压回去，容器里只剩卡片行。
+ *
+ * 两条 :not 都要写：同一 step 里思考卡与问答卡分处不同的直接子元素（思考在
+ * assistant-step 上、问答在 tool-call 上），只认一种会把另一种的整条链压掉。
+ */
+body[data-dsh-kr-chat="true"] [data-step-process]:has(.kr-card--reasoning) > *:not(:has(.kr-card--reasoning)):not(:has(.kr-card--ask)),
+body[data-dsh-kr-chat="true"] [data-step-process]:has(.kr-card--ask) > *:not(:has(.kr-card--reasoning)):not(:has(.kr-card--ask)) {
+  display: none !important;
 }
 
 /*
@@ -1305,7 +1333,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
      一条横向滚动条；置 0 后标题上已有的 text-overflow 才真正生效。 */
   min-width: 0;
   min-height: 22px;
-  padding: 4px 8px;
+  /* 左内距 12px（原先 8px）：给进行中那行左侧的 2px 活动竖线留出站位，否则竖线
+     会压在行首 14px 图标上。所有行统一加，整列文字左缘才对齐。 */
+  padding: 4px 8px 4px 12px;
   border-radius: 6px;
   font-size: 12px;
   color: var(--dsw-alias-label-secondary);
@@ -1386,11 +1416,19 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
  *
  * 失败行靠左侧一道 2px 红条指认：图标拿掉了，但"这一行是坏事"必须一眼可见——它是
  * 纪要里唯一需要被立刻注意到的那条。不用红底：整行铺红会把右栏整片染红，太重。
+ *
+ * **文字颜色与字重不再单独覆盖，两档走同一条规则链**（2026-10-02 按用户要求）。
+ *
+ * 这里曾有一条 data-brief="true" 的 title 规则，把 title 提为 primary + 500，
+ * 理由是"纪要行数少、可以更实"。但代价是**切档时整列文字由灰转黑**（实测
+ * secondary #61666b → primary #0f1115），读起来像换了一张卡，而不是同一份内容
+ * 的两种密度——这正是用户报的"简要的字体颜色要与详细保持一致"。
+ *
+ * 现在颜色只由两处决定，且两档共用：
+ *   常态 → 基类 .kr-plain-step 的 secondary；
+ *   进行中 → 下面 data-status="running" 那条提到 primary + 500。
+ * 简要档因此只剩"行数与图标"的差别，色阶与详细完全同源。
  */
-.kr-plain-step[data-brief="true"] .kr-plain-step__title {
-  font-weight: 500;
-  color: var(--dsw-alias-label-primary);
-}
 
 /*
  * 简报行的三段层次。
@@ -1400,16 +1438,20 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
  * 笔画密与拉丁字形细的天然视觉重量差，字号字重完全一致却让文件名和次数被
  * 顺带压到读不清。层次得排出来，不能靠字体撞出来。
  *
- * 三段同色、只差字重与尺寸：动词最重（它是「做了什么」），对象同色略轻
- * （它是「对什么做的」，信息量次一等但必须读得清），次数提为彩色药丸
- * （折叠产物，归到和子智能体计数同一套语言里）。药丸沿用 fresh-wipe
- * 入场，减弱动效时一并关掉。
+ * 但**层次只能用字重与尺寸排，不能用颜色**（2026-10-02 按用户要求收紧）：
+ * 两档的 title 色阶必须同源（都是基类的 secondary），切档时整列文字不能变色。
+ * 动词与对象同色、只差字重；次数是唯一的彩色元素（折叠产物，归到和子智能体
+ * 计数同一套语言里）。药丸沿用 fresh-wipe 入场，减弱动效时一并关掉。
+ *
+ * 动词与对象之间的字重差从 600/400 收到 500/400：原来那个 600 是照着"动词最重"
+ * 写的，但简要档整行本来就是 400，一个 600 的动词在 12px 下会把 CJK 笔画糊成
+ * 一团，读起来比对象更"脏"而不是更"重"。500 是"看得出来是它、但不像加粗"的那一档。
  *
  * 本段注释内不得出现反引号：整张表是模板字符串的正文，一个反引号就会把
  * 模板提前闭合，剩下的 CSS 变成 JS 表达式被求值，整张表在运行时静默失效。
  */
 .kr-plain-step__verb {
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .kr-plain-step__object {
@@ -1436,50 +1478,63 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   box-shadow: inset 2px 0 0 var(--kr-error);
 }
 
-.kr-plain-step[data-brief="true"][data-status="running"] .kr-plain-step__title {
-  font-weight: 500;
-}
-
 /*
- * 进行中：文字自带一道从左往右扫过的高光，取代原来那枚转圈圆点。
+ * 进行中：**文字完全静止**，活动信号交给行左侧一道 2px 竖线。
  *
- * 转圈的毛病是它只在说「还在跑」，却把「跑的是什么」留在一旁的静态灰字上；
- * 让文字本身扫过去，读者的眼睛跟着那道光走，直接落在当前那件事上。形状不变
- * （仍是灰字变亮），只是亮的部分在移动。
+ * 这里换掉的是原先的「文字渐变扫光」（background-clip:text + 2.2s 无限位移）。
+ * 那套的问题不在性能（一行 30 字的重绘代价确实可以接受），而在**它动的是文字
+ * 本身**：
+ *   · 渐变裁切让整行字在大部分时间比邻居更暗（暗端取的是 tertiary），读者先
+ *     看到的是"这行有点灰"、然后才是"它还在跑"，信息层级正好是反的；
+ *   · 一道光 2.2s 一轮无限来回，想读那一行时正好被光带打断——读一句话要等光
+ *     扫过去，这就是"反人类"的来源；
+ *   · background-clip:text 会改变文字的抗锯齿与字重观感（同一字重下比普通
+ *     渲染更细更虚），中文笔画密，虚一点就糊。
  *
- * 代价说清楚：background-position 不走合成器，每一帧都要真重绘这一行文字。
- * 但全列表**同时只有一行在跑**，重绘范围是一行 ~30 字，代价可以接受。
- *（早先更早一版也给已完成的行上过同一道光带，十几行同时重绘就被换掉了。）
+ * 现在的分工是：**文字负责"是什么"，竖线负责"还在跑"**。竖线只动 transform 与
+ * opacity（合成器属性），不重绘文字；文字保持正常颜色与字重，随时可读。
  *
- * background-size 220% > 100%：渐变本身比文字宽，高光带才有「从左边进来、
- * 从右边出去」的位移空间；停在 -40% → 160% 是让光带完全走完一个来回。
+ * 竖线语言与右栏其它卡一致（思考卡、问答卡都是左竖线），但这里表达的是"活动"
+ * 而不是"分类"：只在进行中的那一行出现，且自带一次自上而下的脉冲。同时行底
+ * 铺一层 5% 品牌蓝、行首图标转蓝——三重信号都很克制，谁也不抢文字。
+ *
+ * ⚠ 竖线占的是**行内距**：整行 padding-left 从 8px 提到 12px，竖线才有位置站在
+ * 图标左边。不改内距而直接 left:0 的话，2px 竖线会压在 14px 图标左缘上（实测
+ * 截图里那枚图标被切掉一道边）。非进行中的行也一并加内距——只有进行中的行缩进
+ * 更深会让整列文字左缘随状态跳动。
  */
-.kr-plain-step[data-status="running"] .kr-plain-step__title {
-  /*
-   * 暗端 tertiary / 亮端 primary，中间 16% 是一条窄高光带。
-   *
-   * 早先试过"两端都取 secondary"：光带扫出文字范围时整行恒定，扫到时才亮。
-   * 看着稳，但那道光就没什么存在感了——扫过与没扫过差得太远。改成暗端略暗
-   * 之后，光带经过的 16% 宽度是明显的一次"提亮"，在余下的时间里这一行比
-   * 邻居稍暗，读作"它还在走"。
-   */
-  background-image: linear-gradient(90deg,
-    var(--dsw-alias-label-tertiary) 0%,
-    var(--dsw-alias-label-primary) 42%,
-    var(--dsw-alias-label-primary) 58%,
-    var(--dsw-alias-label-tertiary) 100%);
-  background-size: 220% 100%;
-  background-repeat: no-repeat;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  font-weight: 500;
-  animation: kr-plain-sweep 2.2s cubic-bezier(.45, 0, .25, 1) infinite;
+.kr-plain-step[data-status="running"] {
+  position: relative;
+  background: color-mix(in srgb, var(--kr-accent) 5%, transparent);
 }
 
-@keyframes kr-plain-sweep {
-  from { background-position: -40% 0; }
-  to { background-position: 160% 0; }
+.kr-plain-step[data-status="running"]::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--kr-accent);
+  transform-origin: center top;
+  animation: kr-plain-active 1.7s cubic-bezier(.45, 0, .25, 1) infinite;
+}
+
+@keyframes kr-plain-active {
+  0%, 100% { transform: scaleY(.4); opacity: .5; }
+  50% { transform: scaleY(1); opacity: 1; }
+}
+
+/* 行首类别图标转品牌蓝：详细模式下这一列是"哪类动作"，进行中时它顺带说"就是
+   这一类在跑"。简要模式没有图标，信号由竖线与底色承担。 */
+.kr-plain-step[data-status="running"] .kr-plain-step__icon {
+  color: var(--kr-accent);
+}
+
+.kr-plain-step[data-status="running"] .kr-plain-step__title {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
 }
 
 .kr-plain-step[data-status="failed"] .kr-plain-step__title {
@@ -1741,12 +1796,12 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
     animation: none;
   }
 
-  /* 流光关掉后必须把文字颜色还回来：它的常态是 color:transparent（颜色由渐变
-     裁切给出），没有渐变就等于整行隐形。 */
-  .kr-plain-step[data-status="running"] .kr-plain-step__title {
+  /* 竖线脉冲关掉后，进行中的信号只剩"底色 + 图标转蓝"这两条静态线索——
+     底色是 background-color（不参与动画），所以文字与状态都还在。 */
+  .kr-plain-step[data-status="running"]::before {
     animation: none;
-    background: none;
-    color: var(--dsw-alias-label-primary);
+    opacity: 1;
+    transform: none;
   }
 }
 
@@ -3297,6 +3352,333 @@ body[data-dsh-kr-chat="true"] [data-plan-artifacts="true"],
 body[data-dsh-kr-chat="true"] [data-plan-card],
 body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
   display: none !important;
+}
+
+
+/* ══ 提问与回答卡（对话流内联） ═════════════════════════════════════════════
+ *
+ * 与思考卡同一套内联语言：**左侧一条竖线，无投影、无描边、无底色**
+ * （完整理由见 .kr-card--reasoning[data-inline] 那段注释）。两张卡在对话流里
+ * 紧挨着出现（思考在上、问答在下），用同一种画法才读得作"同一列里的两块内容"，
+ * 而不是"两种不同层级的浮层"。
+ *
+ * 唯一的差别是**竖线的颜色**：思考卡是中性灰，问答卡是品牌蓝 —— 问句是这一轮
+ * 里唯一"等着你"的东西，该比思考更显眼一档。等待回答时整条竖线呼吸，回答落定
+ * 后转回中性色，颜色本身承担了状态。
+ *
+ * 变量重声明与思考卡同理（理由见 .kr-card--reasoning[data-inline] 的注释）：
+ * 卡片在主区，:root 上的 --kr-* 求值不到 body 上的 --dsw-alias-*，不重声明会
+ * 静默走 fallback（深色下照样纯白）。
+ */
+.kr-card--ask[data-inline] {
+  --kr-accent: var(--dsw-alias-state-business-primary, #4176e6);
+  --kr-card-bg: var(--dsw-alias-bg-layer-1, #ffffff);
+  --kr-card-border: var(--dsw-alias-border-l1, rgba(0, 0, 0, .06));
+  --kr-card-hover: var(--dsw-alias-border-l2, rgba(0, 0, 0, .16));
+  --kr-hover-bg: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, .06));
+  --kr-ask-rail: var(--dsw-alias-border-l2, rgba(0, 0, 0, .10));
+  font-family: var(--dsw-font-family, inherit);
+  /* 宽度口径与思考卡、总结卡一致：**占满整列，不随内容自适应**。
+     只写 stretch 不写 width:100%：卡片是 content-box（padding + 边框会外溢），
+     stretch 由 flex 分配 margin box，含内距刚好等于列宽。 */
+  align-self: stretch;
+  max-width: 100%;
+  box-shadow: none;
+  border: none;
+  border-left: 2px solid var(--kr-ask-rail);
+  border-radius: 0 12px 12px 0;
+  background: transparent;
+  padding: 8px 12px;
+  gap: 6px;
+  transition:
+    background-color .18s ease,
+    border-left-color .18s ease,
+    box-shadow .22s cubic-bezier(.16, 1, .3, 1),
+    transform .22s cubic-bezier(.16, 1, .3, 1);
+}
+
+/* 等待回答：竖线是品牌蓝并且**呼吸**（不透明度在 42%↔100% 之间来回）。
+   呼吸只在等待态发生 —— 回答落定后它是一个已完结的事实，不该还在动。 */
+.kr-card--ask[data-inline][data-state="waiting"] {
+  --kr-ask-rail: var(--kr-accent);
+  animation: kr-card-in .32s cubic-bezier(.16, 1, .3, 1) both, kr-ask-breathe 2.4s ease-in-out .32s infinite;
+}
+
+@keyframes kr-ask-breathe {
+  0%, 100% { border-left-color: color-mix(in srgb, var(--kr-accent) 42%, transparent); }
+  50% { border-left-color: color-mix(in srgb, var(--kr-accent) 100%, transparent); }
+}
+
+/* hover：只加深竖线 + 极淡底色，卡片不上浮也不加投影（同思考卡）。 */
+.kr-card--ask[data-inline]:hover {
+  box-shadow: none;
+  transform: none;
+  border-left-color: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 22%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 4%, transparent);
+}
+
+/* 折叠态只收上下内距，左右与展开态完全一致（同思考卡：左右一变标题会横向跳）。 */
+.kr-card--ask[data-inline]:not([data-open]) {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+/* ── 卡头右侧的状态读数：等待时前面挂三点跳动 ─────────────────────────── */
+.kr-card--ask[data-inline] .kr-card__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.kr-card--ask[data-inline][data-state="waiting"] .kr-card__meta {
+  color: var(--kr-accent);
+}
+
+/*
+ * 三点跳动。三颗必须是三个独立元素（靠伪元素只能凑两颗，且 opacity 打在同一个
+ * 元素上三颗会一起亮，错峰就没了）——同 .kr-agent-dots 的处理。
+ */
+.kr-ask-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.kr-ask-dots > i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: kr-ask-dot 1.05s ease-in-out infinite;
+}
+
+.kr-ask-dots > i:nth-child(2) { animation-delay: .14s; }
+.kr-ask-dots > i:nth-child(3) { animation-delay: .28s; }
+
+@keyframes kr-ask-dot {
+  0%, 60%, 100% { opacity: .28; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+
+/* 展开箭头：与思考卡那枚同款（内联卡收口后只剩标题一行，没有它用户不知道
+   点标题还能展开），跟着 data-open 转 180°。 */
+.kr-ask-chevron {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-label-tertiary);
+  transition: transform .22s cubic-bezier(.16, 1, .3, 1), color .18s ease;
+}
+
+.kr-card--ask[data-open] .kr-ask-chevron {
+  transform: rotate(180deg);
+}
+
+.kr-card__header:hover .kr-ask-chevron {
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* ── 正文 ─────────────────────────────────────────────────────────────── */
+.kr-ask-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* 同一次调用的多条问答之间比不同调用之间更紧一档。 */
+.kr-ask-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.kr-ask-group + .kr-ask-group {
+  padding-top: 10px;
+  border-top: 1px solid var(--kr-hairline);
+}
+
+/* 逐题错峰入场（animationDelay 由组件给）。 */
+.kr-ask-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  animation: kr-ask-row-in .34s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+@keyframes kr-ask-row-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.kr-ask-row__tag {
+  align-self: flex-start;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: 4px;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--kr-hover-bg);
+}
+
+/* 问句字号与思考卡正文同档（对话流里两块内容同列，差一级会读成两种东西）。 */
+.kr-ask-row__q {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-ask-row__detail {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--dsw-alias-label-secondary);
+  white-space: pre-wrap;
+}
+
+.kr-ask-row__skip {
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* ── 选项 ─────────────────────────────────────────────────────────────── */
+.kr-ask-row__options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.kr-ask-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--kr-card-border);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 2%, transparent);
+  transition: border-color .18s ease, background-color .18s ease, color .18s ease;
+}
+
+.kr-ask-opt__mark {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 1.4px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, .16));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  transition: border-color .18s ease, background-color .18s ease;
+}
+
+/* 多选：方形勾选框（形状承担"可以选多个"这件事，不靠文案）。 */
+.kr-ask-row__options[data-multi] .kr-ask-opt__mark {
+  border-radius: 4px;
+}
+
+.kr-ask-opt__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.kr-ask-opt__label {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-ask-opt__desc {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/*
+ * 被选中的那一条：品牌蓝描边 + 极淡蓝底 + 勾选点亮，并且带一次 scale 回弹
+ * 落位（kr-ask-pick-in）。"你选的那一条"是这张卡最该被一眼认出的东西，
+ * 回弹让它读作"被放上去的"，而不是"本来就是蓝的"。
+ */
+.kr-ask-opt[data-picked] {
+  border-color: color-mix(in srgb, var(--kr-accent) 46%, transparent);
+  background: color-mix(in srgb, var(--kr-accent) 8%, transparent);
+  animation: kr-ask-pick-in .36s cubic-bezier(.34, 1.4, .5, 1) both;
+}
+
+.kr-ask-opt[data-picked] .kr-ask-opt__mark {
+  border-color: var(--kr-accent);
+  background: var(--kr-accent);
+}
+
+.kr-ask-opt[data-picked] .kr-ask-opt__label {
+  color: var(--dsw-alias-label-primary);
+}
+
+@keyframes kr-ask-pick-in {
+  from { opacity: .35; transform: scale(.975); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ── 自定义回答：用户自己写的胶囊，与候选项在视觉上分开 ───────────────── */
+.kr-ask-row__answer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.kr-ask-pick {
+  display: inline-block;
+  max-width: 100%;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary);
+  background: color-mix(in srgb, var(--kr-accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--kr-accent) 30%, transparent);
+  animation: kr-ask-pick-in .36s cubic-bezier(.34, 1.4, .5, 1) both;
+  overflow-wrap: anywhere;
+}
+
+/* 用户手打的那一条（不是候选项）：虚线圈起来，读作"这是他写的"。 */
+.kr-ask-pick[data-custom] {
+  border-style: dashed;
+}
+
+.kr-ask-fallback {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-card--ask[data-inline],
+  .kr-card--ask[data-inline][data-state="waiting"],
+  .kr-ask-dots > i,
+  .kr-ask-row,
+  .kr-ask-opt[data-picked],
+  .kr-ask-pick {
+    animation: none !important;
+  }
+  .kr-card--ask[data-inline],
+  .kr-ask-chevron,
+  .kr-ask-opt {
+    transition: none;
+  }
+  /* 三点不跳时保持常态不透明度（同 .kr-agent-dots：静止的点仍是"这里有活动"
+     的信号，整组抹掉反而丢信息）。 */
+  .kr-ask-dots > i { opacity: .55; }
+  .kr-card--ask[data-inline][data-state="waiting"] { border-left-color: var(--kr-accent); }
 }
 `
 

@@ -363,6 +363,27 @@ if (krEnabled) {
     fail('KR_PLAIN_TIMELINE_CARD_VISIBLE must default to true (人话行动流卡默认展示)')
   } else if (!code.includes('.kr-card--plain') || !code.includes('kr-plain-step-in')) {
     fail('client bundle is missing the plain-progress card styles (.kr-card--plain / kr-plain-step-in)')
+  } else if (code.includes('kr-plain-sweep') || /kr-plain-step\[data-status="running"\][^{]*\{[^}]*background-clip:\s*text/.test(code)) {
+    // 用户点名「太反人类」的就是这套：进行中的那一行用 background-clip:text 让文字
+    // 自带一道 2.2s 无限来回的扫光。它动的是**文字本身**——想读那行时正好被光带
+    // 打断，且渐变裁切让整行大部分时间比邻居更暗、字更虚（中文笔画密，虚一点就糊）。
+    // 换成「文字静止 + 行左竖线脉冲」后，这条断言负责防止扫光被重新加回来。
+    fail('操作面板进行中行不得再用文字扫光（kr-plain-sweep / background-clip:text）：'
+      + '活动信号必须交给行左竖线（kr-plain-active），文字保持静止可读')
+  } else if (!code.includes('kr-plain-active')) {
+    fail('操作面板进行中行必须用竖线脉冲（kr-plain-active）承担活动信号')
+  } else if (/data-brief="true"\][^{]*\.kr-plain-step__title[^{]*\{[^}]*color:/.test(code)
+    || /data-brief="true"\][^{]*\{[^}]*color:\s*var\(--dsw-alias-label-primary\)/.test(code)) {
+    // 用户报的「简要的字体颜色要与详细保持一致」：简要档曾把 title 提为
+    // primary + 500，切档时整列文字由灰转黑（实测 secondary #61666b →
+    // primary #0f1115），读起来像换了一张卡。颜色现在只由基类（secondary）
+    // 与 [data-status="running"]（primary）两处决定，**两档共用**。
+    fail('简要档不得单独覆盖 title 颜色：两档色阶必须同源（基类 secondary + '
+      + '进行中 primary），否则切档时整列文字由灰转黑')
+  } else if (!/\.kr-plain-step__verb\s*\{[^}]*font-weight:\s*500/.test(code)) {
+    // 动词的 600 在 12px 下会把 CJK 笔画糊成一团（读起来比对象更"脏"而不是更"重"），
+    // 且与详细档整串 400 的差距过大——层次只能用字重排，且要排得住。
+    fail('简要档动词字重必须是 500（600 在 12px 下糊笔画，与详细档差距也过大）')
   } else if (/^\.kr-plain-intent/m.test(code)) {
     fail('「接下来」预告行已整块删除，样式表里不该再有 .kr-plain-intent 规则')
   } else if (!/\\u64CD\\u4F5C\\u9762\\u677F/.test(code)) {
@@ -1198,6 +1219,43 @@ if (krEnabled) {
     fail('outputs.ts 必须让 present 的交付路径顶掉同名的中转路径（否则卡里留下已失效的 _tmp 路径）')
   } else {
     pass('outputs.ts：参数/结果两路工具集分离 + spill 排除 + 落盘说明闸门 + 交付路径优先')
+  }
+}
+
+// 「提问与回答」卡。它存在的唯一理由是：KR 对话流只保留答案投影、工具明细整类
+// 隐藏，而 ask_user_question 走 tool-call 节点 —— 问答整段从对话流里消失，用户
+// 看不到自己答过什么。所以这张卡是问答的**唯一出口**，五件事缺一就静默失效：
+// 开关在、组件在、解析层在、样式在、挂在思考卡下方且在对话流里。
+if (krEnabled) {
+  const enabledSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/enabled.ts'), 'utf8')
+  const askCardVisible = /export const KR_ASK_CARD_VISIBLE = (true|false)/.exec(enabledSrc)?.[1] === 'true'
+  const askCardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAskCard.tsx'), 'utf8')
+  const askParseSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/ask-parse.ts'), 'utf8')
+  const thinkingSrc = readFileSync(resolve(ROOT, 'src/client/thinking/ThinkingStepNodeView.tsx'), 'utf8')
+  const panelSrc2 = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8')
+  if (!askCardVisible) {
+    fail('KR_ASK_CARD_VISIBLE 必须默认 true（问答卡是问答在界面上的唯一出口）')
+  } else if (!code.includes('.kr-card--ask') || !code.includes('kr-ask-pick-in') || !code.includes('kr-ask-dot')) {
+    fail('client bundle 缺问答卡样式（.kr-card--ask / kr-ask-pick-in / kr-ask-dot）')
+  } else if (!askCardSrc.includes('kr-ask-opt') || !askCardSrc.includes('kr-ask-pick')) {
+    fail('KrAskCard 必须渲染候选项与自定义回答（kr-ask-opt / kr-ask-pick）')
+  } else if (!/export function buildAskView/.test(askParseSrc)
+    || !/export function parseAskQuestions/.test(askParseSrc)
+    || !/export function pairAskAnswers/.test(askParseSrc)) {
+    fail('ask-parse.ts 必须导出 buildAskView / parseAskQuestions / pairAskAnswers')
+  } else if (!/KR_ASK_CARD_VISIBLE/.test(thinkingSrc) || !/<KrAskCard asks=\{turnAsks\} inline \/>/.test(thinkingSrc)) {
+    fail('问答卡必须由 ThinkingStepNodeView 以 inline 形态挂载（贴在对话流里）')
+  } else if (!/\{inlineReasoning\}\s*\{inlineAsk\}/.test(thinkingSrc)) {
+    // 顺序就是需求本身：用户明确要求"放到思考的下方"。
+    fail('问答卡必须渲染在思考卡**下方**（inlineReasoning 之后才是 inlineAsk）')
+  } else if (panelSrc2.includes('KrAskCard')) {
+    fail('问答卡已搬进对话流，右栏大盘不该再挂它（会两处重复显示）')
+  } else if (!code.includes(':has(.kr-card--ask)')) {
+    // KR 对工具明细整类隐藏，而问答卡挂在 tool-call 节点上 ——
+    // 没有这条放行规则，卡片有盒模型但宽高是 0，等于没做。
+    fail('样式表必须有 :has(.kr-card--ask) 放行规则（否则卡片被 KR 的工具明细隐藏规则压成 0×0）')
+  } else {
+    pass('提问与回答卡：挂在思考卡下方 + 放行规则 + 解析层 + 样式 + 开关在位')
   }
 }
 

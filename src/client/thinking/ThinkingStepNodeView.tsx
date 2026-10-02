@@ -50,6 +50,8 @@ import { useGeneratedImages } from '../generated-images/use-generated-images.ts'
 import { getKrChatStore } from '../kr-chat/kr-chat-store.ts'
 import { KR_CHAT_ENABLED } from '../kr-chat/enabled.ts'
 import { KrReasoningCard } from '../kr-chat/KrReasoningCard.tsx'
+import { collectAsks, KrAskCard } from '../kr-chat/KrAskCard.tsx'
+import { KR_ASK_CARD_VISIBLE } from '../kr-chat/enabled.ts'
 import { getOfficialAssistantNodeView } from '../index.ts'
 import { latestChatSnapshot, setLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
 import { workspaceCwdOf } from '../client-ctx.ts'
@@ -718,7 +720,28 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
     )
     : undefined
 
-  if (shown.length === 0 && inlineReasoning === undefined && gallery === undefined) return null
+  /*
+   * 问答卡：**紧跟思考卡下方**，挂在同一个锚点上。
+   *
+   * 为什么贴在对话流里而不是右栏大盘：思考、提问、回答是同一件事的几段——
+   * 「模型想了什么 → 于是问你什么 → 你答了什么」。分两栏摆就得来回对照才读得
+   * 完整，这正是思考卡当年从右栏搬进对话流的理由，问答同理。
+   *
+   * 挂同一锚点（而不是挂在 ask 那条 tool-call 行上）有两个好处：
+   *  1. DOM 顺序天然就是「思考在上、问答在下」，不需要额外的排序；
+   *  2. 不必去占 tool.call.toolview 的座位，也就不必把官方那行问答行再委托回去
+   *     （少一处与官方抢座位的耦合）。
+   *
+   * 锚点缺失（回合刚开头、既没有 reasoning 也没有定型 step）时整卡不渲染——
+   * 那种时刻本来也还没有提问。
+   */
+  const turnAsks = useMemo(() => collectAsks(toolNodes), [toolNodes])
+  const inlineAsk = KR_CHAT_ENABLED && KR_ASK_CARD_VISIBLE && isKrMode && projectionAllowsCard
+    && ownsReasoningCard && turnAsks.length > 0
+    ? <KrAskCard asks={turnAsks} inline />
+    : undefined
+
+  if (shown.length === 0 && inlineReasoning === undefined && inlineAsk === undefined && gallery === undefined) return null
 
   return (
     <div
@@ -728,6 +751,7 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
     >
       <div className="dtt__assistant-body">
         {inlineReasoning}
+        {inlineAsk}
         {shown.length > 0 && (variant !== undefined
           ? <FlowCard variant={variant} interrupted={interrupted}>{shown}{gallery}</FlowCard>
           : <>{shown}{gallery}</>)}
