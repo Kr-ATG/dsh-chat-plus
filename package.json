@@ -1,1 +1,90 @@
-{  "name": "dsh-chat-plus",  "version": "1.0.0",  "description": "DSH 对话体验增强套件 + 四工作台（零 DSH 源码改动，纯插件注入）。回合呈现：思考 / 工具调用聚合 chip（实时走秒 + 分步跟随滚动）+ 步骤卡 / 总结卡（回合收口才出现）+ 共享活动抽屉（思考语义分组 + 工具调用树）。正文增强：proto-tabs 可交互卡片 + diagram 流程图围栏（JSON 转 SVG）+ 生图画廊 + 重试行影子。界面与工具：会话头部视图标签上移右上角 + 桌面壳窗口控制留位与主题同步 + 对话截图（常驻无头浏览器渲染 markdown/shiki/mermaid，可内嵌本地 HTML）+ download 下载工具（wire 工具 + 实时进度条/速度/ETA）+ KR 对话双栏大盘（右栏保留任务 / 思考 / 工具调用 / 记忆四张卡，顶栏由 KR_PANEL_HEADER_VISIBLE 门控）。融合的原 dsh-triad 四工作台（座位与路由前缀原样保留，dsh-triad 自此退役）：自动沉淀的长期记忆、定时自动化、用量与账号趋势、技能与 MCP Server 管理。",  "keywords": [    "dsh",    "dsh-plugin",    "deepseek-harness",    "reasoning",    "tool-summary",    "activity-drawer",    "flow-card",    "screenshot",    "download",    "progress",    "proto-tabs",    "diagram",    "chat-plus",    "memory",    "automation",    "usage",    "skills",    "mcp"  ],  "repository": {    "type": "git",    "url": "git+https://github.com/Kr-ATG/dsh-chat-plus.git"  },  "type": "module",  "main": "./lib/index.js",  "exports": {    ".": "./lib/index.js",    "./client": "./lib/client.js",    "./cordis.patch.yml": "./cordis.patch.yml",    "./package.json": "./package.json"  },  "files": [    "lib",    "assets",    "scripts",    "build.mjs",    "cordis.patch.yml",    "README.md"  ],  "dsh": {    "bundle": {      "patch": "./cordis.patch.yml"    },    "client": {      "platform": "web",      "inject": [        "@deepseek-ai/dsh-client-runtime",        "@deepseek-ai/dsh-client-ui-slots",        "@deepseek-ai/dsh-client-ui-conversation",        "@deepseek-ai/dsh-client-ui-primitives",        "@deepseek-ai/dsh-client-ui-tool",        "@deepseek-ai/dsh-client-ui-locale",        "@deepseek-ai/dsh-client-ui-input-trigger"      ]    }  },  "devDependencies": {    "esbuild": "^0.25.0"  },  "scripts": {    "build": "node build.mjs",    "typecheck": "tsc -p tsconfig.json --noEmit",    "smoke": "node scripts/smoke-client.mjs && node scripts/smoke-host.mjs && node scripts/smoke-triad-client.mjs && node scripts/smoke-triad-host.mjs",    "smoke:client": "node scripts/smoke-client.mjs",    "smoke:host": "node scripts/smoke-host.mjs",    "smoke:triad-client": "node scripts/smoke-triad-client.mjs",    "smoke:triad-host": "node scripts/smoke-triad-host.mjs",    "test": "node scripts/test-skill-manager.mjs && node scripts/test-skill-toggles.mjs"  },  "engines": {    "node": ">=22"  },  "license": "MIT",  "dependencies": {    "markdown-it": "^15.0.1",    "markdown-it-emoji": "^3.1.0",    "markdown-it-task-lists": "^2.1.1",    "shiki": "^4.4.3",    "yauzl": "^2.10.0"  }}
+{
+  "name": "dsh-chat-plus",
+  "version": "1.0.0",
+  "description": "DSH 对话体验增强套件 + 工作台（记忆/用量/技能/邮箱）（零 DSH 源码改动，纯插件注入）。回合呈现：思考 / 工具调用聚合 chip（实时走秒 + 分步跟随滚动）+ 步骤卡 / 总结卡（回合收口才出现）+ 共享活动抽屉（思考语义分组 + 工具调用树）。正文增强：proto-tabs 可交互卡片 + diagram 流程图围栏（JSON 转 SVG）+ 生图画廊 + 重试行影子。界面与工具：会话头部视图标签上移右上角 + 桌面壳窗口控制留位与主题同步 + 对话截图（常驻无头浏览器渲染 markdown/shiki/mermaid，可内嵌本地 HTML）+ download 下载工具（wire 工具 + 实时进度条/速度/ETA）+ KR 对话双栏大盘（右栏保留任务 / 思考 / 工具调用 / 记忆四张卡，顶栏由 KR_PANEL_HEADER_VISIBLE 门控）。融合的原 dsh-triad 四工作台（座位与路由前缀原样保留，dsh-triad 自此退役）：自动沉淀的长期记忆、定时自动化、用量与账号趋势、技能与 MCP Server 管理。 邮箱工作台（Agent Mail，2026-10-02）：侧边栏独立入口 + 三栏邮件面板 + 11 个 mail_* 模型工具（收发/搜索/附件/验证码等待），对话与浏览器自动化需要邮箱时一律用它。",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "reasoning",
+    "tool-summary",
+    "activity-drawer",
+    "flow-card",
+    "screenshot",
+    "download",
+    "progress",
+    "proto-tabs",
+    "diagram",
+    "chat-plus",
+    "memory",
+    "automation",
+    "usage",
+    "skills",
+    "mcp",
+    "mail",
+    "email",
+    "agent-mail",
+    "agently"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kr-ATG/dsh-chat-plus.git"
+  },
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "assets",
+    "scripts",
+    "build.mjs",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-tool",
+        "@deepseek-ai/dsh-client-ui-locale",
+        "@deepseek-ai/dsh-client-ui-input-trigger"
+      ]
+    }
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "smoke": "node scripts/smoke-client.mjs && node scripts/smoke-host.mjs && node scripts/smoke-triad-client.mjs && node scripts/smoke-triad-host.mjs",
+    "smoke:client": "node scripts/smoke-client.mjs",
+    "smoke:host": "node scripts/smoke-host.mjs",
+    "smoke:triad-client": "node scripts/smoke-triad-client.mjs",
+    "smoke:triad-host": "node scripts/smoke-triad-host.mjs",
+    "test": "node scripts/test-skill-manager.mjs && node scripts/test-skill-toggles.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "markdown-it": "^15.0.1",
+    "markdown-it-emoji": "^3.1.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "shiki": "^4.4.3",
+    "yauzl": "^2.10.0"
+  }
+}

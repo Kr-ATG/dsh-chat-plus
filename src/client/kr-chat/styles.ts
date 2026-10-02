@@ -101,14 +101,55 @@ body[data-dsh-kr-chat="true"] [data-chat-anchor-key^="call:"]:has(.kr-card--ask)
 }
 
 /*
+ * 含卡片的那条折叠链：**解除官方的折叠窗限制**。
+ *
+ * 这里一次解决两件事，因为它们作用在同一个元素上（官方的折叠体 .O_Ebla_body），
+ * 分两条规则写只会让"到底在改什么"更难看清。
+ *
+ * ── 一、content-visibility（"放行了却还是不显示"）──────────────────────────
  * 官方对折叠过程内容用的是 hidden="until-found"，它在 Chromium 里的实现是
  * **content-visibility: hidden**（不是 display:none）——只放行 display 会命中
  * 一个仍被「跳过绘制」的子树：卡片有盒模型但宽高为 0，入场动画停在 0% 帧
- * （kr-card-in 的 both 填充），表现为「放行了却还是不显示」。这里显式恢复。
+ * （kr-card-in 的 both 填充）。
+ *
+ * ── 二、max-height / overflow（"执行中点开是在内部展开"）───────────────────
+ * 官方给折叠体定死了两条：
+ *     max-height: min(400px, 50vh)
+ *     overflow-y: auto
+ * 那是给「一大段过程内容」准备的折叠窗（官方自己的过程行就在里面滚）。但本插件
+ * 的卡片是**按回合常驻的内容**，不是可折叠的过程摘要：
+ *
+ *   进行中 —— 卡片挂在**过程投影**里（官方的答案投影那时还没生成），于是它落在
+ *             这个 400px 的滚动窗内。卡片一长（问答卡三四个选项就 240px+、
+ *             思考卡 16 行视口 300px+）就超出可视区，用户看到的是「卡片在一个
+ *             小框里被截断、要在这个框里滚动」。
+ *   收口后 —— 卡片改挂**答案投影**，那条链上**没有**这个折叠容器，所以显示正常。
+ *             这正是用户报的"执行过程中在内部展开、结束后就正常了"，两者是同一
+ *             个根因的两面。
+ *
+ * 修法：只给「确实含卡片」的那个折叠体解除限制。**不能全局改 .O_Ebla_body** ——
+ * 官方自己的过程内容（工具树、思考摘要）仍需要那个 400px 折叠窗，放开会把整轮
+ * 过程正文全部摊到对话流里，那正是 KR 一直避免的事。
+ *
+ * 官方自己也有这个需求：它的展开态变体就是 max-height:none 加 overflow:visible。
+ * 这里等于把含卡片的那个容器按展开态处理，只是不改类名（改类名会与 React 的
+ * 调和打架），改用 CSS 覆盖同一组属性。
+ *
+ * 选择器不认类名（那是「构建 hash + _body」，每次构建都会变），改认两条**稳定
+ * 且唯一**的特征，两者必须同时成立：
+ *   1. 它是那个带 hidden 折叠标记的折叠体（官方对折叠过程内容一律这么标）；
+ *   2. 它里面确实有卡片。
+ * 官方自己的折叠体里没有卡片（卡片是插件渲染的），所以这条规则的作用面精确等于
+ * 「含卡片的那一个容器」。官方原生的折叠行为（点标题展开/收起、hidden 切换）
+ * 一概不动，只是不再在高度上二次裁剪。
  */
 body[data-dsh-kr-chat="true"] [hidden="until-found"]:has(.kr-card--reasoning),
 body[data-dsh-kr-chat="true"] [hidden="until-found"]:has(.kr-card--ask) {
   content-visibility: visible !important;
+  max-height: none !important;
+  overflow: visible !important;
+  /* 解除限制后不再需要给滚动条留位，留着会让卡片右侧多出一道空白。 */
+  scrollbar-gutter: auto !important;
 }
 
 /*
@@ -3397,16 +3438,40 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
     transform .22s cubic-bezier(.16, 1, .3, 1);
 }
 
-/* 等待回答：竖线是品牌蓝并且**呼吸**（不透明度在 42%↔100% 之间来回）。
-   呼吸只在等待态发生 —— 回答落定后它是一个已完结的事实，不该还在动。 */
+/*
+ * 等待回答：竖线是品牌蓝，并且**呼吸**。
+ *
+ * ⚠ 呼吸动的是 ::after 伪元素的 opacity，**不是 border-left-color**。
+ *
+ * 上一版把呼吸写成 border-left-color 的颜色插值（42% ↔ 100%）。那是这张卡
+ * 卡顿的主因：border 颜色变化会**每帧重绘整张卡的边框**，而这张卡带着 12px 圆角、
+ * 多层嵌套（group / row / options / opt）、以及一行行文字 —— 一个 2.4s 的无限
+ * 循环每帧触发一次整卡 paint，叠加高度补间就是用户报的"展开卡卡的"。
+ *
+ * 现在：竖线本体是静态的 border-left（只画一次），呼吸交给一个绝对定位的
+ * ::after 覆盖条，只动 opacity —— 纯合成器属性，零重绘、零重排。
+ */
 .kr-card--ask[data-inline][data-state="waiting"] {
   --kr-ask-rail: var(--kr-accent);
-  animation: kr-card-in .32s cubic-bezier(.16, 1, .3, 1) both, kr-ask-breathe 2.4s ease-in-out .32s infinite;
+  position: relative;
+}
+
+.kr-card--ask[data-inline][data-state="waiting"]::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 0 12px 12px 0;
+  background: var(--kr-accent);
+  pointer-events: none;
+  animation: kr-ask-breathe 2.4s ease-in-out infinite;
 }
 
 @keyframes kr-ask-breathe {
-  0%, 100% { border-left-color: color-mix(in srgb, var(--kr-accent) 42%, transparent); }
-  50% { border-left-color: color-mix(in srgb, var(--kr-accent) 100%, transparent); }
+  0%, 100% { opacity: .42; }
+  50% { opacity: 1; }
 }
 
 /* hover：只加深竖线 + 极淡底色，卡片不上浮也不加投影（同思考卡）。 */
@@ -3503,28 +3568,32 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
   border-top: 1px solid var(--kr-hairline);
 }
 
-/* 逐题错峰入场（animationDelay 由组件给）。 */
+/*
+ * 逐题**不再各自播入场动画**（2026-10-02 按用户反馈"展开有点卡卡的"）。
+ *
+ * 原先每一行（.kr-ask-row）和每个被选中的选项（.kr-ask-opt[data-picked]）
+ * 都各跑一个 translateY / scale 动画，且带 animationDelay 错峰。展开的那一刻
+ * 同时起跑的动画是三层叠加：
+ *    kr-card-in（整卡 320ms）+ kr-ask-row-in（每行 340ms）
+ *    + kr-ask-pick-in（选中项 360ms）
+ * 而行/项是**同一帧内全部挂载**的，十几个元素各自触发一次合成层提升与位移，
+ * 再加上高度补间同时在改 height（每帧重排整卡）—— 读起来就是"卡一下"。
+ *
+ * 现在只留**一次**整体过渡：卡片自己的 kr-card-in（入场）与高度补间（展开/收起）。
+ * 行与选项只做静态呈现，不再有各自的动画。
+ */
 .kr-ask-row {
   display: flex;
   flex-direction: column;
   gap: 5px;
   min-width: 0;
-  animation: kr-ask-row-in .34s cubic-bezier(.16, 1, .3, 1) both;
-}
-
-@keyframes kr-ask-row-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 .kr-ask-row__tag {
   align-self: flex-start;
   font-size: 11px;
   line-height: 16px;
-  padding: 0 6px;
-  border-radius: 4px;
-  color: var(--dsw-alias-label-secondary);
-  background: var(--kr-hover-bg);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* 问句字号与思考卡正文同档（对话流里两块内容同列，差一级会读成两种东西）。 */
@@ -3546,113 +3615,31 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* ── 选项 ─────────────────────────────────────────────────────────────── */
-.kr-ask-row__options {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.kr-ask-opt {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  padding: 5px 8px;
-  border-radius: 7px;
-  border: 1px solid var(--kr-card-border);
-  background: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 2%, transparent);
-  transition: border-color .18s ease, background-color .18s ease, color .18s ease;
-}
-
-.kr-ask-opt__mark {
-  flex: none;
-  width: 14px;
-  height: 14px;
-  margin-top: 2px;
-  border-radius: 50%;
-  border: 1.4px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, .16));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  transition: border-color .18s ease, background-color .18s ease;
-}
-
-/* 多选：方形勾选框（形状承担"可以选多个"这件事，不靠文案）。 */
-.kr-ask-row__options[data-multi] .kr-ask-opt__mark {
-  border-radius: 4px;
-}
-
-.kr-ask-opt__body {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.kr-ask-opt__label {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.kr-ask-opt__desc {
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-/*
- * 被选中的那一条：品牌蓝描边 + 极淡蓝底 + 勾选点亮，并且带一次 scale 回弹
- * 落位（kr-ask-pick-in）。"你选的那一条"是这张卡最该被一眼认出的东西，
- * 回弹让它读作"被放上去的"，而不是"本来就是蓝的"。
+/* ── 答案：只显示用户**实际选了什么** ─────────────────────────────────
+ *
+ * 这张卡是**已经发生过的事实的记录**，不是一份可以重新选择的问卷。读者要看的是
+ * 「当时问了什么、我答了什么」—— 把三个候选项全铺出来，答案就淹在另外两个没被选
+ * 的里，每次都要在三条里找哪条是亮的，而"没被选的那两条"对读者是零信息。
+ *
+ * 想回看完整候选（含当时没选的），走卡片头上官方那行的「查看回答」面板。
+ *
+ * 呈现上：答案比问句**重一档**（主文字色 + 500），与上面那句问句形成"问-答"的
+ * 层级；多条答案（多选、或"选了某项 + 又补了一句"）各占一行。
  */
-.kr-ask-opt[data-picked] {
-  border-color: color-mix(in srgb, var(--kr-accent) 46%, transparent);
-  background: color-mix(in srgb, var(--kr-accent) 8%, transparent);
-  animation: kr-ask-pick-in .36s cubic-bezier(.34, 1.4, .5, 1) both;
-}
-
-.kr-ask-opt[data-picked] .kr-ask-opt__mark {
-  border-color: var(--kr-accent);
-  background: var(--kr-accent);
-}
-
-.kr-ask-opt[data-picked] .kr-ask-opt__label {
-  color: var(--dsw-alias-label-primary);
-}
-
-@keyframes kr-ask-pick-in {
-  from { opacity: .35; transform: scale(.975); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-/* ── 自定义回答：用户自己写的胶囊，与候选项在视觉上分开 ───────────────── */
 .kr-ask-row__answer {
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
 .kr-ask-pick {
-  display: inline-block;
-  max-width: 100%;
-  padding: 3px 9px;
-  border-radius: 999px;
-  font-size: 12px;
-  line-height: 1.5;
+  display: block;
+  font-size: 12.5px;
+  line-height: 1.6;
   color: var(--dsw-alias-label-primary);
-  background: color-mix(in srgb, var(--kr-accent) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--kr-accent) 30%, transparent);
-  animation: kr-ask-pick-in .36s cubic-bezier(.34, 1.4, .5, 1) both;
+  font-weight: 500;
   overflow-wrap: anywhere;
-}
-
-/* 用户手打的那一条（不是候选项）：虚线圈起来，读作"这是他写的"。 */
-.kr-ask-pick[data-custom] {
-  border-style: dashed;
 }
 
 .kr-ask-fallback {
@@ -3662,17 +3649,14 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* 卡片入场与等待呼吸关掉后，状态由静态竖线色承担（底色不参与动画）。 */
   .kr-card--ask[data-inline],
   .kr-card--ask[data-inline][data-state="waiting"],
-  .kr-ask-dots > i,
-  .kr-ask-row,
-  .kr-ask-opt[data-picked],
-  .kr-ask-pick {
+  .kr-ask-dots > i {
     animation: none !important;
   }
   .kr-card--ask[data-inline],
-  .kr-ask-chevron,
-  .kr-ask-opt {
+  .kr-ask-chevron {
     transition: none;
   }
   /* 三点不跳时保持常态不透明度（同 .kr-agent-dots：静止的点仍是"这里有活动"

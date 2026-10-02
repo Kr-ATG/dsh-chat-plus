@@ -84,87 +84,45 @@ export function collectAsks(tools: readonly unknown[]): readonly AskEntry[] {
   return out
 }
 
-/** 一行问答：问题在上、答案在下；给了选项时把候选项铺开并点亮选中的那条。 */
-function AskPairRow({ pair, index, answered, settled, motion }: {
+/**
+ * 一行问答：**问句一行、答案一行**。
+ *
+ * 只显示用户**实际选了什么**，不再罗列所有候选项（2026-10-02 按用户要求）。
+ *
+ * 为什么不列候选：这张卡是**已经发生过的事实的记录**，读者要看的是"当时问了什么、
+ * 我答了什么"，而不是一份可以重新选择的问卷。把三个候选项全铺出来，答案就淹在
+ * 另外两个没被选的里 —— 每次都要在三条里找哪条是亮的，而"没被选的那两条"对
+ * 读者是零信息。选中的那条**自己就是答案**，直接当答案显示最省读。
+ *
+ * 想回看完整候选（含当时没选的），走卡片头上官方那行的「查看回答」面板 ——
+ * 那是官方为"重看整份问卷"准备的出口，比在这里堆列表更合适。
+ */
+function AskPairRow({ pair, settled }: {
   readonly pair: AskPair
-  readonly index: number
-  /** 这一题用户给了答案（选了选项或写了自定义内容）。 */
-  readonly answered: boolean
   /** 整次提问已经收口（不再是"等待回答"）：未答的题才该标「已跳过」。 */
   readonly settled: boolean
-  readonly motion: boolean
 }) {
   const { question, values } = pair
-  const selected = new Set(values)
-  const options = question.options ?? []
-  // 选中的值里，哪些不是候选项 —— 那些是用户自己打的自定义回答，单独一行。
-  const customValues = options.length === 0
-    ? []
-    : values.filter((value) => !options.some((option) => option.label === value))
-
   return (
-    <div
-      className="kr-ask-row"
-      data-answered={answered || undefined}
-      style={motion ? { animationDelay: Math.min(index, 6) * 55 + 'ms' } : undefined}
-    >
+    <div className="kr-ask-row" data-answered={values.length > 0 || undefined}>
       {question.header !== undefined && <span className="kr-ask-row__tag">{question.header}</span>}
       <span className="kr-ask-row__q">{question.question}</span>
       {question.detail !== undefined && <span className="kr-ask-row__detail">{question.detail}</span>}
 
-      {options.length > 0 && (
-        <div className="kr-ask-row__options" data-multi={question.multiSelect || undefined}>
-          {options.map((option, optionIndex) => {
-            const picked = selected.has(option.label)
-            return (
-              <span
-                key={option.label}
-                className="kr-ask-opt"
-                data-picked={picked || undefined}
-                style={motion && picked ? { animationDelay: Math.min(optionIndex, 6) * 70 + 'ms' } : undefined}
-              >
-                <span className="kr-ask-opt__mark" aria-hidden>
-                  {picked && (
-                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M2.4 6.3 4.8 8.7 9.6 3.9" />
-                    </svg>
-                  )}
-                </span>
-                <span className="kr-ask-opt__body">
-                  <span className="kr-ask-opt__label">{option.label}</span>
-                  {option.description !== undefined && (
-                    <span className="kr-ask-opt__desc">{option.description}</span>
-                  )}
-                </span>
-              </span>
-            )
-          })}
-        </div>
-      )}
-
       {/*
-       * 自定义回答：用户没从候选里选、直接打字回的那一条。它不是候选项里的任何
-       * 一项，必须单独一行显示，否则整题看起来像"跳过了"。
-       *
-       * 两种情形都覆盖：题目本来就没给选项（纯自由问答），以及给了选项但用户在
-       * "其它"里写了内容（官方答案结构允许 selected 与 custom 同时存在）。
+       * 答案：用户选中的选项 label、或多选时的多个 label、或手打的自定义内容。
+       * 官方答案结构里 selected 与 custom 可以同时存在（"选了某项 + 又补了一句"），
+       * 所以两者都渲染，各占一行。
        */}
-      {customValues.length > 0 && (
+      {values.length > 0 ? (
         <div className="kr-ask-row__answer">
-          {customValues.map((value, valueIndex) => (
-            <span
-              key={value}
-              className="kr-ask-pick"
-              data-custom={options.length > 0 || undefined}
-              style={motion ? { animationDelay: valueIndex * 70 + 'ms' } : undefined}
-            >
-              {value}
-            </span>
+          {values.map((value) => (
+            <span key={value} className="kr-ask-pick">{value}</span>
           ))}
         </div>
+      ) : (
+        settled && <span className="kr-ask-row__skip">未选择，已跳过</span>
       )}
-
-      {settled && !answered && <span className="kr-ask-row__skip">未选择，已跳过</span>}
     </div>
   )
 }
@@ -200,6 +158,7 @@ export const KrAskCard = memo(function KrAskCard({ asks, inline = false }: KrAsk
     const answered = asks.filter((entry) => entry.view.state === 'answered').length
     const total = asks.reduce((count, entry) => count + entry.view.questions.length, 0)
     const picked = asks.reduce((count, entry) => count + entry.view.answeredCount, 0)
+    // 状态读数只留必要的：等待 / 已回答 / 未回答。多问时补一个进度。
     const label = waiting > 0
       ? '等待回答'
       : answered > 0
@@ -257,17 +216,14 @@ export const KrAskCard = memo(function KrAskCard({ asks, inline = false }: KrAsk
       </div>
 
       <div className="kr-ask-body" ref={bodyRef} aria-hidden={open ? undefined : true}>
-        {bodyPresent && asks.map((entry, entryIndex) => (
-          <div className="kr-ask-group" key={entry.id} data-index={entryIndex}>
+        {bodyPresent && asks.map((entry) => (
+          <div className="kr-ask-group" key={entry.id}>
             {entry.view.pairs.length > 0 ? (
-              entry.view.pairs.map((pair, pairIndex) => (
+              entry.view.pairs.map((pair) => (
                 <AskPairRow
                   key={pair.question.id}
                   pair={pair}
-                  index={pairIndex}
-                  answered={pair.values.length > 0}
                   settled={entry.view.state !== 'waiting'}
-                  motion={motion}
                 />
               ))
             ) : (

@@ -25,14 +25,17 @@ const FRAME_SELECTOR = 'div:has(> [data-shell-overlay])'
 /**
  * nav host 的行布局：每个数组元素是一行，行内数组是并排的槽位。
  *
- *   [usage][skills][memory] 合并一行 → team 独立一行
+ *   [usage][skills][memory] 合并一行 → mail 独立一行 → team 独立一行
  *
  * 历史：自动化入口从本插件删除后（官方 schedule bundle 接管），原本独占一行的
  * 用量并回首行最左，首行由 usage / skills / memory 三人共用；team 仍旧独立一行。
+ * 2026-10-02 新增 mail（Agent 邮箱工作台）：它比三个工作台更「常开」——未读与
+ * 待确认都要看角标，与三格挤在一行会让每格约 1/4 侧栏宽、文字被压掉，故独立成行。
  * 合并行由本模块自建的 `.dsh-nav-row` 容器承载。
  */
 const SLOT_LAYOUT = [
   ['usage', 'skills', 'memory'],
+  ['mail'],
   ['team'],
 ] as const
 
@@ -305,7 +308,7 @@ export function NavPortal({ name, children }: { name: NavSlotName; children: Rea
  *    的点击（会话行/新会话/设置等，自己导航行与面板内部除外）直接收面板，
  *    跟「点会话回到会话」的直觉一致。
  */
-export type TriadPanelName = 'usage' | 'skills' | 'memory'
+export type TriadPanelName = 'usage' | 'skills' | 'memory' | 'mail'
 
 const PANEL_OPEN_EVENT = 'dsh-triad:panel-open'
 

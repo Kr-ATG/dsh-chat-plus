@@ -1233,12 +1233,22 @@ if (krEnabled) {
   const askParseSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/ask-parse.ts'), 'utf8')
   const thinkingSrc = readFileSync(resolve(ROOT, 'src/client/thinking/ThinkingStepNodeView.tsx'), 'utf8')
   const panelSrc2 = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8')
+  // 断言打在**活代码**上：styles.ts 里留着「为什么删掉」的历史注释，直接正则整份
+  // 源码会被注释里的 kr-ask-row-in / kr-ask-pick-in 误伤（同仓库其它断言同理）。
+  const askCss = readFileSync(resolve(ROOT, 'src/client/kr-chat/styles.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1 ')
   if (!askCardVisible) {
     fail('KR_ASK_CARD_VISIBLE 必须默认 true（问答卡是问答在界面上的唯一出口）')
-  } else if (!code.includes('.kr-card--ask') || !code.includes('kr-ask-pick-in') || !code.includes('kr-ask-dot')) {
-    fail('client bundle 缺问答卡样式（.kr-card--ask / kr-ask-pick-in / kr-ask-dot）')
-  } else if (!askCardSrc.includes('kr-ask-opt') || !askCardSrc.includes('kr-ask-pick')) {
-    fail('KrAskCard 必须渲染候选项与自定义回答（kr-ask-opt / kr-ask-pick）')
+  } else if (!code.includes('.kr-card--ask') || !code.includes('kr-ask-pick') || !code.includes('kr-ask-dot')) {
+    fail('client bundle 缺问答卡样式（.kr-card--ask / .kr-ask-pick / kr-ask-dot）')
+  } else if (askCardSrc.includes('kr-ask-opt') || askCardSrc.includes('kr-ask-row__options')) {
+    // 用户要求「直接显示回答了什么就行了，不需要每回答的也显示」：候选项整列不渲染，
+    // 答案就是 values 本身。列候选会让答案淹在没被选的项里，每次都要找哪条是亮的。
+    fail('问答卡不得再罗列候选项（kr-ask-opt / kr-ask-row__options）：'
+      + '只显示用户实际选中的答案，完整候选走官方「查看回答」面板')
+  } else if (!/kr-ask-row__answer/.test(askCardSrc) || !/kr-ask-pick/.test(askCardSrc)) {
+    fail('问答卡必须渲染答案行（.kr-ask-row__answer + .kr-ask-pick）')
   } else if (!/export function buildAskView/.test(askParseSrc)
     || !/export function parseAskQuestions/.test(askParseSrc)
     || !/export function pairAskAnswers/.test(askParseSrc)) {
@@ -1254,8 +1264,52 @@ if (krEnabled) {
     // KR 对工具明细整类隐藏，而问答卡挂在 tool-call 节点上 ——
     // 没有这条放行规则，卡片有盒模型但宽高是 0，等于没做。
     fail('样式表必须有 :has(.kr-card--ask) 放行规则（否则卡片被 KR 的工具明细隐藏规则压成 0×0）')
+  } else if (!/\[hidden="until-found"\]:has\(\.kr-card--ask\)[^{]*\{[^}]*max-height:\s*none/.test(askCss)) {
+    // 用户报「agent 执行过程中点回答是在内部展开，结束后就正常了」。
+    // 根因：进行中卡片挂在**过程投影**里，落在官方折叠体 .O_Ebla_body 内，
+    // 而那个容器定死了 max-height: min(400px,50vh) + overflow-y: auto ——
+    // 卡片一长就被截断、要在这个小框里内部滚动。收口后卡片改挂**答案投影**，
+    // 那条链上没有这个折叠容器，所以显示正常（"结束后就正常了"的成因）。
+    // 修法：只给「含卡片」的那个折叠体解除限制（官方自己的折叠体里没有卡片，
+    // 所以 :has 的作用面精确等于含卡片的那一个），官方自己的 400px 折叠窗照旧。
+    fail('含卡片的折叠体必须解除 max-height（否则进行中卡片被官方的 400px '
+      + '折叠窗截断，表现为「在内部展开」；收口后换投影就正常了）')
+  } else if (!/\[hidden="until-found"\]:has\(\.kr-card--ask\)[^{]*\{[^}]*overflow:\s*visible/.test(askCss)) {
+    fail('含卡片的折叠体必须同时解除 overflow（只放 max-height 仍会内部滚动）')
+  } else if (askCss.includes('kr-ask-row-in') || askCss.includes('kr-ask-pick-in')) {
+    // 用户报「展开有点卡卡的」：原先每一行、每个被选中的选项各跑一个 translateY /
+    // scale 动画，与卡片入场、高度补间三层同时起跑 —— 十几个元素同帧提升合成层。
+    // 现在只留卡片入场（kr-card-in）与高度补间两次整体过渡。
+    fail('问答卡不得再逐行/逐项播入场动画（kr-ask-row-in / kr-ask-pick-in）：'
+      + '展开时只该有卡片入场与高度补间两次整体过渡')
+  } else if (/kr-ask-breathe[^}]*border-left-color/.test(askCss)) {
+    // 等待态呼吸若动 border-left-color，会**每帧重绘整张卡的边框**（12px 圆角 +
+    // 多层嵌套），叠加高度补间就是"卡一下"的主因。现在呼吸走 ::after 的 opacity。
+    fail('等待呼吸必须动 opacity（合成器），不得动 border-left-color（每帧重绘整卡边框）')
+  } else if (/\.kr-ask-opt[^{]*\{[^}]*background:/.test(askCss)) {
+    // 简约化：选项是**已发生事实的记录**，不是待操作的问卷。画成带描边+底色的
+    // 可点控件既在骗人（点不动）又堆出一片框线噪声。
+    fail('选项必须是纯文本行（不得带底色/控件外观）：这张卡是已答事实的记录')
+  } else if (/\.kr-ask-opt/.test(askCss)) {
+    // 用户要求「直接显示回答了什么就行了，不需要每回答的也显示」——候选项整列不渲染，
+    // 组件里已无 .kr-ask-opt 渲染点，样式表里残留规则只会在下次改版时误导人。
+    fail('样式表不该再留 .kr-ask-opt 规则（组件已不渲染候选项，只显示选中的答案）')
   } else {
-    pass('提问与回答卡：挂在思考卡下方 + 放行规则 + 解析层 + 样式 + 开关在位')
+    pass('提问与回答卡：挂在思考卡下方 + 折叠窗解除 + 单层过渡 + 只显示答案 + 解析层 + 开关在位')
+  }
+}
+
+// ── 邮箱工作台（Agent Mail）抽屉开合契约 ─────────────────────────────
+{
+  const mailPanelSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Panel.tsx'), 'utf-8')
+  const mailEntrySrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Entry.tsx'), 'utf-8')
+
+  if (!/if\s*\(!open\s*&&\s*!closing\)\s*return\s*null/.test(mailPanelSrc)) {
+    fail('MailPanel 必须在未打开且未退场时返回 null（否则启动即挂载在 body 无法关闭）')
+  } else if (!/\(open\s*\|\|\s*closing\)\s*&&/.test(mailEntrySrc)) {
+    fail('MailNavApp 必须仅在 open || closing 时挂载 MailPanel')
+  } else {
+    pass('邮箱工作台：未打开态返回 null + Entry 条件挂载（启动不自启、关闭即收口）')
   }
 }
 

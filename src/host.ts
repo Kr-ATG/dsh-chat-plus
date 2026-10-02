@@ -32,7 +32,10 @@ import { applyScreenshot } from './shot/index.ts'
 import { applyDownloadRoutes, applyDownloadTool } from './download/index.ts'
 import { applyOpenPathRoutes } from './open-path/index.ts'
 import { applyTriadHost } from './triad/host.ts'
+import { applyMailHost } from './mail/index.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
+export { applyMailHost } from './mail/index.ts'
+export type { MailHostConfig, MailHostHandle } from './mail/index.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'dsh-chat-plus'
@@ -145,7 +148,7 @@ function handleGeneratedImages(ctx: Record<string, any>, req: any, res: any): vo
  * 且服务销毁时 webCtx.effect 注册的路由自动回收。与 packages/api/gateway
  * 的写法一致。
  */
-export function apply(ctx: Record<string, any>): void {
+export function apply(ctx: Record<string, any>, config?: { mail?: Record<string, unknown> }): void {
   ctx.inject(['webServer'], (webCtx: any) => {
     // 生图画廊：spill 结果读取（exact 路由）。
     webCtx.effect(() => webCtx.webServer.register({
@@ -179,4 +182,17 @@ export function apply(ctx: Record<string, any>): void {
       applyTriadHost(triadCtx)
     },
   )
+
+  // ── 邮箱工作台（Agent Mail）────────────────────────────────────────────
+  // 与三个工作台并列的独立能力：模型工具（mail_*）+ /api/dsh-mail/* 路由 +
+  // 每会话首步的「本 Agent 有专属邮箱」能力注入（浏览器自动化注册第三方服务
+  // 时不再需要问用户要邮箱）。只依赖 webServer + tools，任一缺失则整块不挂，
+  // 其余能力照常（延迟注入的天然降级）。
+  ctx.inject(['webServer', 'tools'], (mailCtx: any) => {
+    void applyMailHost(mailCtx, (config?.mail ?? {}) as never).catch((error: unknown) => {
+      mailCtx.logger?.warn?.(
+        `[dsh-chat-plus] mail workbench failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+      )
+    })
+  })
 }

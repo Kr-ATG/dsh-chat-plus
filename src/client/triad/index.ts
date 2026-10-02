@@ -22,6 +22,7 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { applyMemoryClient } from './memory/index.js'
 import { apply as applyUsageEntries } from './usage/entry.js'
 import { apply as applySkillSource } from './skill-source/index.js'
+import { applyMailClient } from './mail/index.js'
 import { injectResponsiveStyles } from './responsive.js'
 import { buildActivityGrid, activityColor, ACTIVITY_COLUMNS } from './usage/dashboard/ActivityGrid.js'
 
@@ -51,6 +52,9 @@ export function applyTriadClient(ctx: ClientContext): void {
   safe('memory', applyMemoryClient, ctx)
   safe('usage', applyUsageEntries, ctx)
   safe('skills', applySkillSource, ctx)
+  // 邮箱工作台（Agent Mail）：导航行 + 三栏面板；host 半身未就绪时面板自己
+  // 显示「未授权/连不上」的空态，不会把侧边栏入口弄丢。
+  safe('mail', applyMailClient, ctx)
 }
 
 /** 纯逻辑导出：供 smoke 测试直接断言「Token 活动」贡献热力模型。 */
