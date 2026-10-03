@@ -88,6 +88,14 @@ const ctx = {
       tools.push(definition.name)
       return () => { const i = tools.indexOf(definition.name); if (i >= 0) tools.splice(i, 1) }
     },
+    /**
+     * 全局视图只给 patch 里 insert 的 mcp-client 工具；带 agent 参数时返回该
+     * 会话作用域注册的工具（官方 browser-use 的 playwright-mcp 走这条）。
+     * mcp-status 的枚举口径就靠这个桩区分「全局 vs 会话级」。
+     */
+    schemas: (agent) => (agent === undefined
+      ? [{ name: 'mcp__github__get_me', description: 'global github tool' }]
+      : [{ name: 'mcp__playwright-mcp__browser_navigate', description: 'session browser tool' }]),
   },
   on: (event, handler) => {
     if (!listeners.has(event)) listeners.set(event, [])
@@ -95,6 +103,9 @@ const ctx = {
     return () => {}
   },
   get: (name) => ctx[name],
+  // 会话级 MCP 的挂载主体：mcp-status 会用 ctx.get('agents').list() 逐个取
+  // scoped 工具视图（官方 browser-use 把 playwright-mcp 挂在 Agent scope 里）。
+  agents: { list: () => [{ id: 'agent-under-test' }] },
   effect: (fn) => { fn?.(); return () => {} },
   settings: { get: () => ({ providers: {} }), register: () => () => {} },
   credentials: {},
@@ -203,6 +214,36 @@ need(listeners.has('session/event'), 'session/event capture hooked')
 // 路由零撞车：融合进来的 8 组前缀与本插件 /api/chat-flow/* 无交集。
 need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes('dsh-memory')),
   'no route collision between chat-plus and the merged workbenches')
+
+// ── MCP 状态口径：会话级 MCP 必须可见（本次修复的核心）─────────────────
+// 回归背景：官方 browser-use 用 `mountSessionMcp` 把 mcp-client 挂在**每个 Agent
+// 自己的 scope** 里，工具只在 `ctx.tools.schemas(agent)` 下可见。旧实现只扫全局
+// 视图 `ctx.tools.schemas()`，于是「DSH 自己开的浏览器 MCP（playwright-mcp）」在
+// 面板里永远不显示 —— 用户报的正是这个。
+{
+  const route = routes.get('/api/triad/mcp-status')
+  need(route !== undefined, 'mcp-status route reachable for the scoped-MCP assertion')
+  if (route !== undefined) {
+    const captured = { status: 0, body: null }
+    const res = {
+      writeHead: (status) => { captured.status = status },
+      end: (body) => { try { captured.body = JSON.parse(body) } catch { captured.body = null } },
+    }
+    route.handler({ socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:3080' }, url: '/api/triad/mcp-status' }, res)
+    const body = captured.body
+    const servers = Array.isArray(body?.servers) ? body.servers : []
+    const names = servers.map((s) => s.serverName)
+    need(captured.status === 200 && body !== null, 'mcp-status answers 200 JSON on loopback')
+    need(names.includes('github'), 'global (patch-inserted) MCP server listed: github')
+    need(names.includes('playwright-mcp'), 'session-scoped MCP server listed: playwright-mcp（浏览器 MCP 不再漏显示）')
+    const playwright = servers.find((s) => s.serverName === 'playwright-mcp')
+    need(playwright?.scope === 'session', 'session-scoped server is tagged scope="session"')
+    need(playwright?.config?.editable === false, 'session-scoped server is read-only (无开关/删除)')
+    const github = servers.find((s) => s.serverName === 'github')
+    need(github?.scope === 'global', 'global server stays scope="global"')
+    need(body?.toolCount === 2, `toolCount counts both scopes (got ${body?.toolCount})`)
+  }
+}
 
 const warns = logs.filter(([lvl]) => lvl === 'warn')
 if (warns.length > 0) {

@@ -1,9 +1,21 @@
 /**
  * mcp-config — 真实 MCP Server 状态 + 启用/禁用/删除（host 半身）。
  *
- * GET  /api/triad/mcp-status  只读：注册工具（ctx.tools 中 mcp__*）∪ 配置文件
+ * GET  /api/triad/mcp-status  只读：注册工具 ∪ 配置文件
  *                             （~/.dsh/profiles/web/cordis.patch.yml 的
  *                             mcp-client 条目，含 disabled 标记）。
+ *                             工具来源有两个视图，缺一不可：
+ *                               - 全局层 ctx.tools.schemas()：patch 里 insert
+ *                                 的 mcp-client（github / browseros 等）；
+ *                               - 各 Agent 的 scoped 视图
+ *                                 ctx.tools.schemas(agent)：官方 browser-use
+ *                                 用 mountSessionMcp 挂在**会话作用域**里的
+ *                                 mcp-client（serverName=playwright-mcp）。
+ *                                 全局视图看不到 scoped 注册——这正是「DSH 自己
+ *                                 开的浏览器 MCP 不显示」的根因。
+ *                             带会话来源的 server 回传 scope:'session'，客户端
+ *                             据此标注「会话级」并只读展示（开关/删除作用于
+ *                             cordis.patch.yml，对会话级 MCP 无意义）。
  * POST /api/triad/mcp-config  写：三种动作（默认 toggle 兼容旧客户端）：
  *                             - 无 action → disabled=true/false 标记（禁用/启用）；
  *                             - action: remove → 删除该 mcp-client 整个条目
@@ -120,43 +132,122 @@ function readPatchContent(): string {
   return readFileSync(path, 'utf8')
 }
 
-/** 只读：合并配置文件条目与运行时注册工具。 */
-function collectMcpStatus(ctx: Context): Record<string, unknown> {
-  const path = patchFilePath()
-  const content = readPatchContent()
-  const patchEntries = content === '' ? [] : scanPatchEntries(content)
-  const groups = new Map<string, Array<{ name: string; description: string }>>()
-  for (const schema of ctx.tools.schemas()) {
+/** 工具条目（面板只回传名称与描述）。 */
+interface McpToolEntry {
+  name: string
+  description: string
+}
+
+/** 把一个 schema 列表里 `mcp__<server>__<tool>` 的工具按 server 归组（同名工具去重）。 */
+function groupMcpTools(
+  schemas: ReadonlyArray<{ name?: unknown; description?: unknown }>,
+  into: Map<string, McpToolEntry[]>,
+): void {
+  for (const schema of schemas) {
     if (typeof schema.name !== 'string' || !schema.name.startsWith('mcp__')) continue
     const rest = schema.name.slice('mcp__'.length)
     const sep = rest.indexOf('__')
     if (sep <= 0) continue
     const serverName = rest.slice(0, sep)
-    const list = groups.get(serverName)
-    const tool = { name: schema.name, description: typeof schema.description === 'string' ? schema.description : '' }
-    if (list === undefined) groups.set(serverName, [tool])
-    else list.push(tool)
+    const tool: McpToolEntry = {
+      name: schema.name,
+      description: typeof schema.description === 'string' ? schema.description : '',
+    }
+    const list = into.get(serverName)
+    if (list === undefined) into.set(serverName, [tool])
+    else if (!list.some((item) => item.name === tool.name)) list.push(tool)
   }
+}
+
+/**
+ * 当前存活的 Agent 列表（会话作用域 MCP 的挂载主体）。
+ *
+ * 官方 browser-use 这类提供方用 `mountSessionMcp` 把 mcp-client 挂在**每个
+ * Agent 自己的 scope** 里（工具仅在 `ctx.tools.schemas(agent)` 下可见），所以要
+ * 列出「DSH 自己开的浏览器 MCP」必须逐个 Agent 取一次 scoped 视图。
+ *
+ * `agents` 不在本插件的 inject 之列，因此用 `ctx.get` 探测而不是属性访问
+ * （属性访问在未 inject 时直接抛错）：服务缺失/尚未就绪时返回空数组，面板
+ * 退化为「仅全局视图」，不会连累其余数据源。
+ */
+function liveAgents(ctx: Context): unknown[] {
+  try {
+    const registry = ctx.get('agents') as { list?: () => unknown } | undefined
+    const list = typeof registry?.list === 'function' ? registry.list() : undefined
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
+}
+
+/** 只读：合并配置文件条目、全局注册工具与各会话 scoped 注册的工具。 */
+function collectMcpStatus(ctx: Context): Record<string, unknown> {
+  const path = patchFilePath()
+  const content = readPatchContent()
+  const patchEntries = content === '' ? [] : scanPatchEntries(content)
+
+  /** 全局层注册的 mcp-client 工具（cordis.patch.yml 里的 insert 条目）。 */
+  const globalGroups = new Map<string, McpToolEntry[]>()
+  groupMcpTools(ctx.tools.schemas(), globalGroups)
+
+  /**
+   * 会话作用域注册的工具（browser-use 的 playwright-mcp 等）。
+   *
+   * 全局视图 `ctx.tools.schemas()`（无 scope = global 层）看不到它们——这是
+   * 「DSH 自己开的浏览器 MCP 在面板里不显示」的根因，故补这一次带 Agent 的枚举。
+   */
+  const sessionGroups = new Map<string, McpToolEntry[]>()
+  for (const agent of liveAgents(ctx)) {
+    try {
+      groupMcpTools(ctx.tools.schemas(agent as never), sessionGroups)
+    } catch {
+      /* 单个 Agent 取不到就跳过：不影响其余 Agent 与全局视图。 */
+    }
+  }
+
+  /** 合并两个来源（同名工具只留一条），并记住该 server 是否来自会话作用域。 */
+  const merged = new Map<string, { tools: McpToolEntry[]; sessionScoped: boolean }>()
+  const absorb = (source: Map<string, McpToolEntry[]>, sessionScoped: boolean): void => {
+    for (const [serverName, tools] of source) {
+      const current = merged.get(serverName)
+      if (current === undefined) {
+        merged.set(serverName, { tools: [...tools], sessionScoped })
+        continue
+      }
+      for (const tool of tools) {
+        if (!current.tools.some((item) => item.name === tool.name)) current.tools.push(tool)
+      }
+      if (sessionScoped) current.sessionScoped = true
+    }
+  }
+  absorb(globalGroups, false)
+  absorb(sessionGroups, true)
 
   const seen = new Set<string>()
   const servers: Array<Record<string, unknown>> = []
   for (const entry of patchEntries) {
     seen.add(entry.serverName)
-    const tools = groups.get(entry.serverName) ?? []
+    const group = merged.get(entry.serverName)
+    const tools = group?.tools ?? []
+    const sessionScoped = group?.sessionScoped === true
     servers.push({
       serverName: entry.serverName,
       toolCount: tools.length,
       tools,
-      config: { entryId: entry.entryId, disabled: entry.disabled, editable: true },
+      scope: sessionScoped ? 'session' : 'global',
+      // 开关/删除写的是 cordis.patch.yml；会话级 MCP 由提供方在运行时挂载，
+      // 改配置既无效也无意义，一律置为只读。
+      config: { entryId: sessionScoped ? null : entry.entryId, disabled: entry.disabled, editable: !sessionScoped },
     })
   }
-  // 注册了工具但没有配置条目（手工改过文件等情况）：只读展示。
-  for (const [serverName, tools] of groups) {
+  // 注册了工具但没有配置条目（会话级 MCP、手工改过文件等情况）：只读展示。
+  for (const [serverName, group] of merged) {
     if (seen.has(serverName)) continue
     servers.push({
       serverName,
-      toolCount: tools.length,
-      tools,
+      toolCount: group.tools.length,
+      tools: group.tools,
+      scope: group.sessionScoped ? 'session' : 'global',
       config: { entryId: null, disabled: false, editable: false },
     })
   }

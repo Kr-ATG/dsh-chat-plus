@@ -158,7 +158,7 @@ const SKILL_ZH: Record<string, string> = {
   // MCP Server 页（图一头部 + 统计卡）
   mcpTitle: 'MCP 管理', mcpProtocol: 'Model Contest Protocol',
   mcpSubtitle: '管理 MCP Server，扩展 Agent 能力边界',
-  mcpMarketplace: 'MCP Marketplace', mcpAddServer: '添加 MCP Server',
+  mcpMarketplace: 'MCP Marketplace',
   mcpStatTotal: 'MCP Server 总数', mcpStatTotalDesc: '已添加的 MCP Server',
   mcpStatEnabled: '已启用', mcpStatEnabledDesc: 'Agent 可使用',
   mcpStatTools: '可用工具', mcpStatToolsDesc: '通过 MCP 提供的工具',
@@ -166,16 +166,11 @@ const SKILL_ZH: Record<string, string> = {
   // 推荐 Skill
   skillRecommendTitle: '推荐 Skill',
   // MCP Server 列表（图二）
-  mcpListTitle: 'MCP Server 列表', mcpEmptyList: '暂无 MCP Server，点击右上角「添加 MCP Server」开始接入。',
+  mcpListTitle: 'MCP Server 列表', mcpEmptyList: '暂无 MCP Server：在 cordis.patch.yml 添加 mcp-client 条目并重启 DSH 后即可接入。',
+  mcpScopeSession: '会话级',
+  mcpScopeSessionTitle: '由 DSH 在当前会话内挂载（随会话存在，不写入 cordis.patch.yml）',
   mcpViewAll: '查看全部 {n} 个 MCP Server',
   mcpAdded: '已添加', mcpRemove: '移除',
-  mcpAddModalTitle: '添加 MCP Server',
-  mcpAddName: '名称', mcpAddNamePlaceholder: '例如 My MCP',
-  mcpAddDesc: '描述（可选）', mcpAddDescPlaceholder: '简单描述这个 MCP 的用途',
-  mcpAddType: '连接类型', mcpAddTypeStdio: 'stdio', mcpAddTypeHttp: 'http', mcpAddTypeSse: 'sse',
-  mcpAddCommand: '启动命令', mcpAddCommandPlaceholder: '例如 npx -y @modelcontextprotocol/server-filesystem',
-  mcpAddUrl: '接口地址', mcpAddUrlPlaceholder: '例如 https://example.com/mcp',
-  mcpAddConfirm: '添加', mcpAddCat: '自定义',
   // 工具列表页
   mcpToolsTitle: '可用工具 · {n}',
   mcpToolsSearch: '搜索工具…',
@@ -203,7 +198,7 @@ const SKILL_ZH: Record<string, string> = {
   mcpAutostart: '自启动',
   mcpAutostartTitle: '会话启动时自动拉起该 MCP 进程（关闭可节省内存）',
   // 真实注册状态（mcp-client 桥接）
-  mcpLiveNote: '以下为 DSH 实际注册的 MCP Server·右上开关 = 启用/禁用（实时生效）·报 Session not found 时开关切一次（禁→启）即重连，无需重启 DSH',
+  mcpLiveNote: '以下为 DSH 实际注册的 MCP Server·会话级 = 由 DSH 在当前会话内挂载（只读，随会话存在）·配置型条目带开关，报 Session not found 时开关切一次（禁→启）即重连，无需重启 DSH',
   mcpLiveDisabled: '已禁用',
   mcpLiveToggleFailed: '切换失败（配置写保护或条目缺失）',
   mcpLiveEmpty: '未检测到已注册的 MCP Server：在 cordis.patch.yml 添加 mcp-client 条目并重启 DSH 后即可',
@@ -211,13 +206,11 @@ const SKILL_ZH: Record<string, string> = {
   mcpLiveRegistered: '已注册',
   mcpLiveRegisteredTitle: '已桥接',
   mcpLiveToolsOf: '工具',
-  mcpLiveRefresh: '刷新',
-  mcpLiveConfigHint: '添加：编辑 cordis.patch.yml（或使用「添加 MCP Server」生成配置片段）',
+  mcpLiveConfigHint: '添加：编辑 cordis.patch.yml 的 mcp-client 条目后重启 DSH',
   mcpRemoveConfirmTitle: '移除 MCP Server',
   mcpRemoveConfirmMsg: '将从 cordis.patch.yml 中删除「{name}」条目，其工具随即注销且不可恢复；如需恢复请重新添加。',
   mcpLiveRemoveFailed: '移除失败（配置写保护或条目缺失）',
   mcpCopyDone: '已复制 ✓',
-  mcpCopyHint: '已复制配置片段，请粘贴到 cordis.patch.yml 后重启 DSH 生效',
   mcpLogNewNote: '桥接式 MCP（cordis.patch.yml 配置）无本地连接日志：连接状态以「MCP Server」页真实注册为准；此页仅展示旧版面板的本地记录。',
   // 右侧信息栏（图三）
   mcpWhatTitle: '什么是 MCP?',
@@ -575,7 +568,7 @@ function McpConfigIcon({ size = 15 }: { size?: number }): JSX.Element {
 }
 
 /** MCP 视图根：左侧竖排菜单（同技能左栏风格）+ 内容区。 */
-function McpView({ t, tab, onTab, onOpenInfo, servers, recommended, logs, onAdd, live, onAddCustom, onClearLogs, onRefresh, onLogged }: {
+function McpView({ t, tab, onTab, onOpenInfo, servers, recommended, logs, onAdd, live, onClearLogs, onRefresh, onLogged }: {
   t: (key: string) => string
   tab: 'server' | 'tools' | 'log' | 'config'
   onTab: (value: 'server' | 'tools' | 'log' | 'config') => void
@@ -585,7 +578,6 @@ function McpView({ t, tab, onTab, onOpenInfo, servers, recommended, logs, onAdd,
   logs: McpLogEntry[]
   onAdd: (row: McpServerRow) => void
   live: LiveMcpStatus
-  onAddCustom: () => void
   onClearLogs: () => void
   onRefresh: () => void
   /** 连接日志：真实 MCP 的移除等动作（localStorage 持久化）。 */
@@ -645,7 +637,7 @@ function McpView({ t, tab, onTab, onOpenInfo, servers, recommended, logs, onAdd,
       {/* 右侧内容区 */}
       <div className={css.mcpMain}>
         {tab === 'server' ? (
-          <McpServerView t={t} live={live} onAddCustom={onAddCustom} onOpenInfo={onOpenInfo} onRefresh={onRefresh} onLogged={onLogged} />
+          <McpServerView t={t} live={live} onOpenInfo={onOpenInfo} onRefresh={onRefresh} onLogged={onLogged} />
         ) : tab === 'tools' ? (
           <McpToolsView t={t} live={live} />
         ) : tab === 'log' ? (
@@ -712,6 +704,8 @@ interface LiveMcpServer {
   serverName: string
   toolCount: number
   tools: LiveMcpTool[]
+  /** 注册来源：'session' = 会话作用域（DSH 自带提供方动态挂载，只读）。 */
+  scope?: 'global' | 'session'
   /** 配置文件条目信息（启用/禁用开关用）。 */
   config: { entryId: string | null; disabled: boolean; editable: boolean }
 }
@@ -742,15 +736,6 @@ function useMcpLiveState(): [LiveMcpStatus, () => void] {
   }
   useEffect(() => { load() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [])
   return [status, load]
-}
-
-/** 生成 cordis.patch.yml 配置片段（复制用；不写任何存储）。 */
-function mcpConfigureSnippet(name: string, type: 'stdio' | 'http' | 'sse', command: string, url: string): string {
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || 'mcp-server'
-  if (type === 'http' || type === 'sse') {
-    return `# ${name}\n- insert:\n    - id: mcp-${slug}\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: ${slug}\n        transport: streamable-http\n        url: ${JSON.stringify(url)}\n        failOnStartupError: false\n`
-  }
-  return `# ${name}\n- insert:\n    - id: mcp-${slug}\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: ${slug}\n        transport: stdio\n        command: ${JSON.stringify(command)}\n        cwd: !!js process.cwd()\n        failOnStartupError: false\n`
 }
 
 function loadStoredLogs(): McpLogEntry[] {
@@ -837,73 +822,6 @@ function McpBellIcon({ size = 17 }: { size?: number }): JSX.Element {
       <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
       <path d="M13.7 21a2 2 0 0 1-3.4 0" />
     </svg>
-  )
-}
-
-/** 自定义添加 MCP Server 表单弹窗：提交生成 cordis.patch.yml 配置片段并复制。 */
-function McpAddModal({ t, open, onClose }: {
-  t: (key: string) => string
-  open: boolean
-  onClose: () => void
-}): JSX.Element {
-  const [name, setName] = useState('')
-  const [desc, setDesc] = useState('')
-  const [type, setType] = useState<'stdio' | 'http' | 'sse'>('stdio')
-  const [command, setCommand] = useState('')
-  const [url, setUrl] = useState('')
-  const [copied, setCopied] = useState(false)
-  const trimmed = name.trim()
-  const valid = trimmed !== '' && (type === 'stdio' ? command.trim() !== '' : url.trim() !== '')
-  const submit = (event: React.FormEvent<HTMLFormElement>): void => {
-    event.preventDefault()
-    if (!valid) return
-    const snippet = mcpConfigureSnippet(trimmed, type, command.trim(), url.trim())
-    void navigator.clipboard.writeText(snippet).then(() => { setCopied(true) }, () => { /* 剪贴板不可用时保持表单 */ })
-    setDesc('')
-  }
-  return (
-    <Modal open={open} onClose={onClose} closeLabel={t('close')} title={t('mcpAddModalTitle')}>
-      <form className={css.mcpAddForm} onSubmit={submit}>
-        <div className={css.installRow}>
-          <input className={css.inlineInput} value={name} placeholder={t('mcpAddNamePlaceholder')}
-            aria-label={t('mcpAddName')} autoFocus onChange={(event) => { setName(event.currentTarget.value) }} />
-        </div>
-        <div className={css.installRow}>
-          <input className={css.inlineInput} value={desc} placeholder={t('mcpAddDescPlaceholder')}
-            aria-label={t('mcpAddDesc')} onChange={(event) => { setDesc(event.currentTarget.value) }} />
-        </div>
-        <div className={css.installRow}>
-          <div className={css.mcpAddTypeRow} role="group" aria-label={t('mcpAddType')}>
-            {(['stdio', 'http', 'sse'] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                className={`${css.mcpAddTypeBtn} ${type === value ? css.mcpAddTypeActive : ''}`}
-                data-active={type === value || undefined}
-                aria-pressed={type === value}
-                onClick={() => { setType(value) }}
-              >
-                {value.toUpperCase()}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className={css.installRow}>
-          {type === 'stdio' ? (
-            <input className={css.inlineInput} value={command} placeholder={t('mcpAddCommandPlaceholder')}
-              aria-label={t('mcpAddCommand')} onChange={(event) => { setCommand(event.currentTarget.value) }} />
-          ) : (
-            <input className={css.inlineInput} value={url} placeholder={t('mcpAddUrlPlaceholder')}
-              aria-label={t('mcpAddUrl')} onChange={(event) => { setUrl(event.currentTarget.value) }} />
-          )}
-        </div>
-        <div className={css.installActions}>
-          <Button variant="primary" type="submit" disabled={!valid}>{t('mcpAddConfirm')}</Button>
-          <Button variant="outline" type="button" onClick={onClose}>{t('cancel')}</Button>
-        </div>
-        {copied && <p className={css.mcpCopyHint} role="status">{t('mcpCopyHint')}</p>}
-      </form>
-    </Modal>
   )
 }
 
@@ -1048,10 +966,9 @@ function McpConfigView({ t }: { t: (key: string) => string }): JSX.Element {
 
 /** 推荐 Skill 视图：官方 skills 目录卡片 + 一键安装。 */
 /** MCP Server 页（图一头部 + 统计卡 / 图二真实注册列表；解释内容改为右侧悬浮层）。 */
-function McpServerView({ t, live, onAddCustom, onOpenInfo, onRefresh, onLogged }: {
+function McpServerView({ t, live, onOpenInfo, onRefresh, onLogged }: {
   t: (key: string) => string
   live: LiveMcpStatus
-  onAddCustom: () => void
   onOpenInfo: () => void
   onRefresh: () => void
   onLogged: (kind: McpLogEntry['kind'], name: string) => void
@@ -1125,12 +1042,6 @@ function McpServerView({ t, live, onAddCustom, onOpenInfo, onRefresh, onLogged }
               <span className={css.mcpHeaderSub}>{t('mcpSubtitle')}</span>
             </div>
             <div className={css.mcpHeaderActions}>
-              <button type="button" className={css.mcpMarketBtn} onClick={onRefresh} title={t('mcpLiveRefresh')}>
-                {t('mcpLiveRefresh')}
-              </button>
-              <button type="button" className={css.mcpAddBtn} onClick={onAddCustom}>
-                <IconPlusOutline16 size={14} aria-hidden="true" />&nbsp;{t('mcpAddServer')}
-              </button>
               <button type="button" className={css.mcpBellBtn} aria-label={t('notifications')}>
                 <McpBellIcon size={17} />
               </button>
@@ -1178,6 +1089,11 @@ function McpServerView({ t, live, onAddCustom, onOpenInfo, onRefresh, onLogged }
                       <span className={css.mcpRecCardTitleRow}>
                         <span className={css.mcpRecCardName}>{server.serverName}</span>
                         <span className={css.mcpRecCardTags}>
+                          {server.scope === 'session' ? (
+                            <Tooltip label={t('mcpScopeSessionTitle')} side="bottom" delayMs={400}>
+                              <span className={css.mcpRecCatTag} data-scope="session">{t('mcpScopeSession')}</span>
+                            </Tooltip>
+                          ) : null}
                           <span className={css.mcpRecCatTag}>{server.config.disabled ? t('mcpLiveDisabled') : t('mcpLiveRegistered')}</span>
                           <span className={css.mcpRecCatTag}>{server.toolCount} {t('mcpLiveToolsOf')}</span>
                         </span>
@@ -1212,7 +1128,8 @@ function McpServerView({ t, live, onAddCustom, onOpenInfo, onRefresh, onLogged }
                         <span className={css.mcpCardItemLabel}>
                           {removeError === server.serverName ? t('mcpLiveRemoveFailed')
                             : toggleError === server.serverName ? t('mcpLiveToggleFailed')
-                              : t('mcpLiveConfigHint')}
+                              : server.scope === 'session' ? t('mcpScopeSessionTitle')
+                                : t('mcpLiveConfigHint')}
                         </span>
                       </span>
                       {server.config.editable ? (
@@ -1546,8 +1463,6 @@ const css = {
   mcpHeaderBadge: 'skm-mcp-header-badge',
   mcpHeaderSub: 'skm-mcp-header-sub',
   mcpHeaderActions: 'skm-mcp-header-actions',
-  mcpMarketBtn: 'skm-mcp-market-btn',
-  mcpAddBtn: 'skm-mcp-add-btn',
   mcpBellBtn: 'skm-mcp-bell-btn',
   mcpListCard: 'skm-mcp-list-card',
   mcpListHead: 'skm-mcp-list-head',
@@ -1555,7 +1470,6 @@ const css = {
   mcpListCount: 'skm-mcp-list-count',
   mcpList: 'skm-mcp-list',
   mcpEmptyList: 'skm-mcp-empty-list',
-  mcpCopyHint: 'skm-mcp-copy-hint',
   mcpIntroCard: 'skm-mcp-intro-card',
   mcpIntroBody: 'skm-mcp-intro-body',
   mcpIntroTitle: 'skm-mcp-intro-title',
@@ -1605,10 +1519,6 @@ const css = {
   mcpRecCardFoot: 'skm-mcp-rec-card-foot',
   mcpRecCardMeta: 'skm-mcp-rec-card-meta',
   mcpAddedTag: 'skm-mcp-added-tag',
-  mcpAddForm: 'skm-mcp-add-form',
-  mcpAddTypeRow: 'skm-mcp-add-type-row',
-  mcpAddTypeBtn: 'skm-mcp-add-type-btn',
-  mcpAddTypeActive: 'skm-mcp-add-type-active',
   mcpToolSearch: 'skm-mcp-tool-search',
   mcpToolSearchInput: 'skm-mcp-tool-search-input',
   mcpLogRow: 'skm-mcp-log-row',
@@ -2113,16 +2023,9 @@ const SHEET = `
 .skm-mcp-header-badge{flex:none;display:inline-flex;align-items:center;height:20px;padding:0 9px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 12%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5);font-size:10.5px;font-weight:600;line-height:14px}
 .skm-mcp-header-sub{font-size:12px;line-height:17px;color:var(--dsw-alias-label-tertiary,#81858c)}
 .skm-mcp-header-actions{flex:none;display:inline-flex;align-items:center;gap:8px}
-.skm-mcp-market-btn{flex:none;display:inline-flex;align-items:center;height:34px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.12));border-radius:10px;background:var(--dsw-alias-bg-base,#fff);padding:0 12px;font-size:13px;line-height:18px;font-family:inherit;color:var(--dsw-alias-label-secondary,#61666b);cursor:pointer;transition:border-color 140ms ease,color 140ms ease,background 140ms ease,transform 140ms ease}
-.skm-mcp-market-btn:hover{border-color:var(--dsw-alias-border-l3,rgba(0,0,0,.18));color:var(--dsw-alias-label-primary,#1f2430);background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.02))}
-.skm-mcp-market-btn:active{transform:scale(.98)}
-.skm-mcp-add-btn{flex:none;display:inline-flex;align-items:center;height:34px;box-sizing:border-box;border:none;border-radius:10px;background:var(--dsw-alias-state-business-primary,#3d6be5);padding:0 14px;font-size:13px;font-weight:600;line-height:18px;font-family:inherit;color:#fff;cursor:pointer;box-shadow:0 2px 8px rgba(61,107,229,.3);transition:background 140ms ease,box-shadow 140ms ease,transform 140ms ease}
-.skm-mcp-add-btn:hover{background:#3059cf;box-shadow:0 3px 12px rgba(61,107,229,.4);transform:translateY(-1px)}
-.skm-mcp-add-btn:active{transform:translateY(0) scale(.98)}
 .skm-mcp-bell-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border:none;border-radius:10px;background:transparent;color:var(--dsw-alias-label-secondary,#61666b);cursor:pointer;transition:background 140ms ease,color 140ms ease,transform 140ms ease}
 .skm-mcp-bell-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.04));color:var(--dsw-alias-label-primary,#1f2430)}
 .skm-mcp-bell-btn:active{transform:scale(.94)}
-.skm-mcp-copy-hint{flex:none;margin:0;padding:8px 12px;border-radius:10px;background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#2fb344) 10%,transparent);color:var(--dsw-alias-state-success-primary,#2fb344);font-size:12px;line-height:17px}
 /* 统计卡（复用技能统计卡样式，去掉列表页内边距） */
 .skm-stats-row[data-mcp]{padding:0}
 /* 图二：列表卡 */
@@ -2203,19 +2106,13 @@ const SHEET = `
 .skm-mcp-rec-card-name{font-size:14px;font-weight:600;line-height:20px;color:var(--dsw-alias-label-primary,#1f2430);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .skm-mcp-rec-card-tags{display:flex;align-items:center;gap:6px}
 .skm-mcp-rec-cat-tag{flex:none;display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 12%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5);font-size:10px;line-height:14px}
+.skm-mcp-rec-cat-tag[data-scope='session']{background:color-mix(in srgb,var(--dsw-alias-state-violet-primary,#7c5cff) 14%,transparent);color:var(--dsw-alias-state-violet-primary,#7c5cff)}
 .skm-mcp-rec-card-desc{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;min-height:36px}
 .skm-mcp-rec-card-foot{display:flex;align-items:center;gap:8px;margin-top:auto;padding-top:6px}
 .skm-mcp-rec-card-meta{flex:1;min-width:0;font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption,#adb2b8);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .skm-mcp-added-tag{flex:none;display:inline-flex;align-items:center;gap:4px;height:26px;box-sizing:border-box;border:1px solid #b7e0c3;border-radius:999px;background:#e7f6ec;padding:0 10px;font-size:12px;font-weight:600;line-height:17px;font-family:inherit;color:#2f9e44;cursor:pointer;transition:background 140ms ease,border-color 140ms ease,transform 140ms ease}
 .skm-mcp-added-tag:hover{border-color:#93cfa6;background:#d9f0e1}
 .skm-mcp-added-tag:active{transform:scale(.96)}
-/* 添加 MCP Server 表单 */
-.skm-mcp-add-form{display:flex;flex-direction:column;gap:8px}
-.skm-mcp-add-type-row{display:flex;align-items:center;gap:6px}
-.skm-mcp-add-type-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;height:28px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));border-radius:999px;background:var(--dsw-alias-bg-base,#fff);padding:0 12px;font-size:12px;font-weight:600;line-height:17px;font-family:inherit;color:var(--dsw-alias-label-secondary,#61666b);cursor:pointer;transition:background 140ms ease,color 140ms ease,border-color 140ms ease,transform 140ms ease}
-.skm-mcp-add-type-btn:hover{border-color:var(--dsw-alias-border-l3,rgba(0,0,0,.16));color:var(--dsw-alias-label-primary,#1f2430)}
-.skm-mcp-add-type-btn:active{transform:scale(.96)}
-.skm-mcp-add-type-btn[data-active]{background:var(--dsw-alias-state-business-primary,#3d6be5);border-color:var(--dsw-alias-state-business-primary,#3d6be5);color:#fff}
 /* 工具列表搜索框 */
 .skm-mcp-tool-search{flex:none;display:flex;align-items:center;gap:8px;height:32px;width:260px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.12));border-radius:10px;background:var(--dsw-alias-bg-base,#fff);padding:0 10px;color:var(--dsw-alias-label-caption,#adb2b8);transition:border-color 140ms ease,box-shadow 140ms ease}
 .skm-mcp-tool-search:focus-within{border-color:var(--dsw-alias-state-business-primary,#3d6be5);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 14%,transparent)}
@@ -3270,8 +3167,6 @@ export function SkillsPanel({ onClose, closing = false, anchor = null, onCardMou
   }, [])
   /** 连接日志（localStorage 持久化）。 */
   const [mcpLogs, setMcpLogs] = useState<McpLogEntry[]>(() => loadStoredLogs())
-  /** 自定义添加表单开关。 */
-  const [mcpAddOpen, setMcpAddOpen] = useState(false)
   const pushMcpLog = (kind: McpLogEntry['kind'], name: string): void => {
     setMcpLogs((current) => {
       const next = [...current, { id: `log-${String(Date.now())}-${Math.random().toString(36).slice(2, 6)}`, time: Date.now(), kind, name }].slice(-100)
@@ -4036,7 +3931,6 @@ export function SkillsPanel({ onClose, closing = false, anchor = null, onCardMou
               recommended={mcpRecommended}
               onAdd={addRecommendMcp}
               live={mcpLive}
-              onAddCustom={() => { setMcpAddOpen(true) }}
               logs={mcpLogs}
               onClearLogs={() => { setMcpLogs([]); saveStoredLogs([]) }}
               onRefresh={() => { mcpRefreshLive() }}
@@ -4451,12 +4345,6 @@ export function SkillsPanel({ onClose, closing = false, anchor = null, onCardMou
       {mcpInfoOpen && guidePos !== null && (
         <McpInfoOverlay t={t} onClose={() => { setMcpInfoOpen(false) }} left={guidePos.left} top={guidePos.top} height={guidePos.height} />
       )}
-
-      <McpAddModal
-        t={t}
-        open={mcpAddOpen}
-        onClose={() => { setMcpAddOpen(false) }}
-      />
 
       {/* 新建技能包弹窗：名字与分类一起给，省得建完再进去设置一次。 */}
       <Modal

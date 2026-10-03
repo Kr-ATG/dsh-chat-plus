@@ -33,7 +33,17 @@
 - **三工作台（原 dsh-triad，已融合）**：自动沉淀的长期记忆 · 用量（52 周热力 +
   token 消耗查询）· 技能与 MCP Server 管理。`dsh-triad` 自此退役，其座位（slot id / order /
   locale namespace）、7 组 HTTP 路由前缀、数据与配置目录全部原样保留，用户零迁移。
-  定时自动化于 2026-09-28 交给官方 schedule bundle，本插件不再提供
+  定时自动化于 2026-09-28 交给官方 schedule bundle，本插件不再提供。
+  MCP 页（2026-10-03 修复）**两个视图都扫**：除 `cordis.patch.yml` 里 insert 的
+  mcp-client（全局层 `ctx.tools.schemas()`）外，还逐个 Agent 取会话作用域视图
+  `ctx.tools.schemas(agent)` —— 官方 browser-use 用 `mountSessionMcp` 把
+  mcp-client 挂在**每个 Agent 自己的 scope** 里（`serverName=playwright-mcp`，
+  工具名 `mcp__playwright-mcp__*`），全局视图看不到，此前「DSH 自己开的浏览器
+  MCP」因此在面板里永远不显示。会话级条目打**「会话级」紫标**、只读（开关/删除
+  写的是 `cordis.patch.yml`，对运行时挂载的 MCP 无意义）。
+  同日移除头部两枚按钮：「刷新」（面板每次打开即拉取，且操作后自动重取）与
+  「添加 MCP Server」（生成的配置片段要求手改 `cordis.patch.yml` 并重启 DSH，
+  引导成本高于收益）；空态文案同步改为直述配置路径，不再指向已删入口
 - **邮箱工作台（Agent Mail，2026-10-02 新增）**：腾讯 QQ 邮箱团队给 Agent 打造的
   专属邮箱（与个人邮箱隔离），侧边栏独立入口「邮箱」+ 三栏工作台 + **11 个 `mail_*`
   模型工具**。对话或浏览器自动化里凡是需要邮箱的地方（第三方站点注册/登录/订阅/找回
