@@ -602,7 +602,7 @@ function McpView({ t, tab, onTab, onOpenInfo, servers, recommended, logs, onAdd,
             <button
               key={value}
               type="button"
-              className={`${css.catItem} ${tab === value ? css.catItemActive : ''}`}
+              className={css.catItem}
               data-active={tab === value || undefined}
               onClick={() => { onTab(value) }}
             >
@@ -1445,7 +1445,6 @@ const css = {
   // SKILL / MCP 顶层 tab + MCP 占位
   kindTabs: 'skm-kind-tabs',
   kindTab: 'skm-kind-tab',
-  kindTabActive: 'skm-kind-tab-active',
   mcpEmpty: 'skm-mcp-empty',
   mcpEmptyIcon: 'skm-mcp-empty-icon',
   mcpEmptyTitle: 'skm-mcp-empty-title',
@@ -1471,7 +1470,6 @@ const css = {
   mcpList: 'skm-mcp-list',
   mcpEmptyList: 'skm-mcp-empty-list',
   mcpIntroCard: 'skm-mcp-intro-card',
-  mcpIntroBody: 'skm-mcp-intro-body',
   mcpIntroTitle: 'skm-mcp-intro-title',
   mcpIntroDesc: 'skm-mcp-intro-desc',
   mcpIntroBtn: 'skm-mcp-intro-btn',
@@ -1507,7 +1505,6 @@ const css = {
   mcpCardDelete: 'skm-mcp-card-delete',
   mcpRecCats: 'skm-mcp-rec-cats',
   mcpRecCat: 'skm-mcp-rec-cat',
-  mcpRecCatActive: 'skm-mcp-rec-cat-active',
   mcpRecGrid: 'skm-mcp-rec-grid',
   mcpRecCard: 'skm-mcp-rec-card',
   mcpRecCardHead: 'skm-mcp-rec-card-head',
@@ -1559,7 +1556,6 @@ const css = {
   mcpStepBody: 'skm-mcp-step-body',
   mcpStepTitle: 'skm-mcp-step-title',
   mcpStepDesc: 'skm-mcp-step-desc',
-  modal: 'skm-modal',
   modalBody: 'skm-modal-body',
   panel: 'skm-panel',
   topRow: 'skm-top-row',
@@ -1642,21 +1638,10 @@ const css = {
   hubSide: 'skm-hub-side',
   topbar: 'skm-topbar',
   chipRow: 'skm-chip-row',
-  hubBrand: 'skm-hub-brand',
-  hubLogo: 'skm-hub-logo',
-  hubBrandText: 'skm-hub-brand-text',
-  hubBrandTitle: 'skm-hub-brand-title',
-  hubBrandSub: 'skm-hub-brand-sub',
-  hubGroup: 'skm-hub-group',
   hubItem: 'skm-hub-item',
-  hubItemActive: 'skm-hub-item-active',
-  hubItemIcon: 'skm-hub-item-icon',
-  hubItemLabel: 'skm-hub-item-label',
-  hubItemCount: 'skm-hub-item-count',
   // 左栏：技能分类 / 快捷筛选 / 添加技能卡
   catTitle: 'skm-cat-title',
   catItem: 'skm-cat-item',
-  catItemActive: 'skm-cat-item-active',
   catIcon: 'skm-cat-icon',
   catLabel: 'skm-cat-label',
   catCount: 'skm-cat-count',
@@ -1672,7 +1657,6 @@ const css = {
   filtersTitle: 'skm-filters-title',
   statusSeg: 'skm-status-seg',
   statusSegBtn: 'skm-status-seg-btn',
-  statusSegActive: 'skm-status-seg-active',
   addCard: 'skm-add-card',
   addCardHead: 'skm-add-card-head',
   addCardIcon: 'skm-add-card-icon',
@@ -1730,7 +1714,6 @@ const css = {
   pageInfo: 'skm-page-info',
   pageBtns: 'skm-page-btns',
   pageBtn: 'skm-page-btn',
-  pageBtnActive: 'skm-page-btn-active',
   pageSizeSel: 'skm-page-size-sel',
   newBundleBtn: 'skm-new-bundle-btn',
   newBundleBtnOpen: 'skm-new-bundle-btn-open',
@@ -1924,7 +1907,7 @@ const SHEET = `
 .skm-cat-preset:disabled{opacity:.4;cursor:default}
 .skm-cat-preset-plus{font-size:13px;line-height:16px;opacity:.7}
 .skm-cat-input{box-sizing:border-box;width:100%;height:32px;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.12));border-radius:9px;padding:0 10px;font-family:inherit;font-size:12.5px;line-height:20px;color:var(--dsw-alias-label-primary,#1f2430);background:var(--dsw-alias-bg-base,#fff);transition:border-color 150ms ease,box-shadow 150ms ease}
-.skm-cat-input:focus,.skm-cat-input:focus-visible{outline:none;border-color:var(--dsw-alias-state-business-primary,#3d6be5);box-shadow:0 0 0 3px rgba(61,107,229,.12)}
+.skm-cat-input:focus,.skm-cat-input:focus-visible{outline:none;border-color:var(--dsw-alias-state-business-primary,#3d6be5);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
 .skm-cat-limit{margin:0;font-size:11.5px;line-height:17px;color:var(--dsw-alias-label-tertiary,#81858c)}
 
 .skm-chevron{flex:none;margin-left:auto;color:var(--dsw-alias-label-caption,#adb2b8);transition:transform 120ms}
@@ -1983,7 +1966,7 @@ const SHEET = `
 .skm-skill-foot-icon:active{transform:scale(.92)}
 .skm-skill-foot-icon:disabled{opacity:.38;cursor:default}
 .skm-skill-foot-icon:disabled:hover{background:transparent;color:var(--dsw-alias-label-secondary,#61666b);transform:none}
-.skm-skill-foot-icon-danger:hover{background:#fdebeb;color:var(--dsw-alias-state-error-primary,#e0434b)}
+.skm-skill-foot-icon-danger:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);color:var(--dsw-alias-state-error-primary,#e0434b)}
 /* 内置技能的删除按钮：置灰 + 禁指针。hover 的红底一并压掉，否则鼠标停在
    一个点不动的按钮上还会亮危险色，比不禁用更误导。 */
 .skm-skill-foot-icon:disabled{cursor:not-allowed;opacity:.32;transform:none}
@@ -2002,7 +1985,7 @@ const SHEET = `
 .skm-kind-tab{flex:none;display:inline-flex;align-items:center;justify-content:center;height:24px;box-sizing:border-box;border:none;border-radius:999px;background:transparent;padding:0 12px;font-size:12px;font-weight:600;line-height:17px;font-family:inherit;color:var(--dsw-alias-label-secondary,#61666b);cursor:pointer;transition:background 140ms ease,color 140ms ease,box-shadow 140ms ease,transform 140ms ease}
 .skm-kind-tab:hover{color:var(--dsw-alias-label-primary,#1f2430)}
 .skm-kind-tab:active{transform:scale(.96)}
-.skm-kind-tab[data-active]{background:var(--dsw-alias-state-business-primary,#3d6be5);color:#fff;box-shadow:0 1px 5px rgba(61,107,229,.3)}
+.skm-kind-tab[data-active]{background:var(--dsw-alias-state-business-primary,#3d6be5);color:#fff;box-shadow:0 1px 5px color-mix(in srgb,var(--dsw-alias-state-business-primary) 30%,transparent)}
 /* MCP 视图根：左侧竖排菜单（同技能左栏风格）+ 内容区 */
 .skm-mcp-view-root{flex:1;min-height:0;display:flex;min-width:0;overflow-y:auto;padding:14px 20px 22px 0}
 .skm-mcp-side{flex:none;width:216px;box-sizing:border-box;padding:4px 12px 0 20px;border-right:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.05));display:flex;flex-direction:column;gap:2px}
@@ -2011,7 +1994,7 @@ const SHEET = `
 .skm-mcp-tab{flex:none;display:inline-flex;align-items:center;justify-content:center;height:34px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));border-radius:999px;background:var(--dsw-alias-bg-base,#fff);padding:0 18px;font-size:13px;font-weight:600;line-height:18px;font-family:inherit;color:var(--dsw-alias-label-secondary,#61666b);cursor:pointer;transition:background 140ms ease,color 140ms ease,border-color 140ms ease,box-shadow 140ms ease,transform 140ms ease}
 .skm-mcp-tab:hover{color:var(--dsw-alias-label-primary,#1f2430);border-color:var(--dsw-alias-border-l3,rgba(0,0,0,.16))}
 .skm-mcp-tab:active{transform:scale(.97)}
-.skm-mcp-tab[data-active]{background:var(--dsw-alias-state-business-primary,#3d6be5);border-color:var(--dsw-alias-state-business-primary,#3d6be5);color:#fff;box-shadow:0 2px 8px rgba(61,107,229,.3)}
+.skm-mcp-tab[data-active]{background:var(--dsw-alias-state-business-primary,#3d6be5);border-color:var(--dsw-alias-state-business-primary,#3d6be5);color:#fff;box-shadow:0 2px 8px color-mix(in srgb,var(--dsw-alias-state-business-primary) 30%,transparent)}
 /* MCP Server 页：左主列 + 右信息列 */
 .skm-mcp-server-layout{flex:none;display:flex;align-items:flex-start;gap:18px;min-width:0}
 .skm-mcp-server-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:16px}
@@ -2034,13 +2017,18 @@ const SHEET = `
 .skm-mcp-list-title{font-size:14px;font-weight:700;line-height:20px;color:var(--dsw-alias-label-primary,#1f2430)}
 .skm-mcp-list-count{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 12%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5);font-size:11px;font-weight:700;line-height:16px;padding:0 6px}
 .skm-mcp-list-empty{flex:none;padding:26px 8px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c)}
+/* MCP 视图各处的说明 / 空态文案（<p className={css.mcpEmptyList}>，6 处在用）。
+   此前只有类名没有规则，文字按浏览器默认的 16px / normal 行高渲染，比周围
+   12px 辅助文字大一整档，而段落默认的 16px 外边距又把它顶得离正文很远。
+   现按同类说明文字的口径补齐，并把上下外边距压到与卡片节奏一致。 */
+.skm-mcp-empty-list{margin:0 0 10px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c)}
 /* MCP 快速了解引导卡（左栏底部，点击右侧悬浮；同技能指南卡样式） */
-.skm-mcp-intro-card{flex:none;display:flex;flex-direction:column;gap:5px;margin-top:auto;box-sizing:border-box;border:1px solid #e4e9f8;border-radius:14px;background:var(--dsw-alias-bg-module-platform,#f3f7ff);padding:14px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.03);transition:border-color 140ms ease,box-shadow 140ms ease,transform 140ms ease}
-.skm-mcp-intro-card:hover{border-color:#cdd9f7;box-shadow:0 4px 14px rgba(61,107,229,.08)}
+.skm-mcp-intro-card{flex:none;display:flex;flex-direction:column;gap:5px;margin-top:auto;box-sizing:border-box;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);border-radius:14px;background:var(--dsw-alias-bg-module-platform,#f3f7ff);padding:14px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.03);transition:border-color 140ms ease,box-shadow 140ms ease,transform 140ms ease}
+.skm-mcp-intro-card:hover{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent);box-shadow:0 4px 14px color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent)}
 .skm-mcp-intro-title{font-size:13px;font-weight:700;line-height:18px;color:var(--dsw-alias-state-business-primary,#3d6be5)}
 .skm-mcp-intro-desc{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,#81858c)}
-.skm-mcp-intro-btn{flex:none;align-self:flex-start;display:inline-flex;align-items:center;gap:5px;margin-top:4px;height:28px;box-sizing:border-box;border:none;border-radius:999px;background:var(--dsw-alias-state-business-primary,#3d6be5);padding:0 12px;font-size:12px;font-weight:600;line-height:17px;font-family:inherit;color:#fff;cursor:pointer;box-shadow:0 2px 6px rgba(61,107,229,.3);transition:background 140ms ease,box-shadow 140ms ease,transform 140ms ease}
-.skm-mcp-intro-btn:hover{background:#3059cf;box-shadow:0 3px 10px rgba(61,107,229,.38);transform:translateY(-1px)}
+.skm-mcp-intro-btn{flex:none;align-self:flex-start;display:inline-flex;align-items:center;gap:5px;margin-top:4px;height:28px;box-sizing:border-box;border:none;border-radius:999px;background:var(--dsw-alias-state-business-primary,#3d6be5);padding:0 12px;font-size:12px;font-weight:600;line-height:17px;font-family:inherit;color:#fff;cursor:pointer;box-shadow:0 2px 6px color-mix(in srgb,var(--dsw-alias-state-business-primary) 30%,transparent);transition:background 140ms ease,box-shadow 140ms ease,transform 140ms ease}
+.skm-mcp-intro-btn:hover{background:var(--dsw-alias-state-business-primary);box-shadow:0 3px 10px color-mix(in srgb,var(--dsw-alias-state-business-primary) 38%,transparent);transform:translateY(-1px)}
 .skm-mcp-intro-btn:active{transform:translateY(0) scale(.97)}
 /* MCP 解释悬浮层（同技能指南浮层） */
 .skm-mcp-info-overlay{position:fixed;z-index:1001;width:330px;max-height:calc(100vh - 24px);box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));border-radius:16px;background:var(--dsw-alias-bg-base,#fff);box-shadow:0 12px 40px rgba(16,24,40,.16);display:flex;flex-direction:column;overflow:hidden;animation:skm-guide-in 240ms cubic-bezier(.2,.7,.3,1.06) both}
@@ -2061,14 +2049,14 @@ const SHEET = `
 .skm-mcp-row-ext{flex:none;display:inline-flex;border:none;background:transparent;padding:2px;color:var(--dsw-alias-label-caption,#adb2b8);cursor:pointer;transition:color 140ms ease}
 .skm-mcp-row-ext:hover{color:var(--dsw-alias-state-business-primary,#3d6be5)}
 .skm-mcp-row-desc{font-size:12px;line-height:17px;color:var(--dsw-alias-label-tertiary,#81858c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.skm-mcp-row-status{flex:none;display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;font-size:11px;line-height:16px;background:#f0f4ee;color:#2f9e44}
-.skm-mcp-row-status[data-on]{background:#e7f6ec}
+.skm-mcp-row-status{flex:none;display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;font-size:11px;line-height:16px;background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 8%,transparent);color:var(--dsw-alias-state-success-primary)}
+.skm-mcp-row-status[data-on]{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 12%,transparent)}
 .skm-mcp-row-status:not([data-on]){background:#f2f3f5;color:var(--dsw-alias-label-tertiary,#81858c)}
 .skm-mcp-view-all{flex:none;align-self:center;display:inline-flex;align-items:center;gap:5px;margin-top:8px;border:none;background:transparent;padding:6px 10px;font-size:12px;line-height:17px;color:var(--dsw-alias-state-business-primary,#3d6be5);cursor:pointer;font-family:inherit;transition:color 140ms ease}
-.skm-mcp-view-all:hover{color:#3059cf}
+.skm-mcp-view-all:hover{color:var(--dsw-alias-state-business-primary)}
 /* 推荐行「添加」小按钮 */
-.skm-mcp-add-small-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;box-sizing:border-box;border:1px solid #bccff5;border-radius:999px;background:#f4f8ff;padding:0 12px;font-size:12px;font-weight:600;line-height:17px;font-family:inherit;color:var(--dsw-alias-state-business-primary,#3d6be5);cursor:pointer;transition:background 140ms ease,border-color 140ms ease,transform 140ms ease}
-.skm-mcp-add-small-btn:hover{border-color:#9db6ef;background:#e9f1ff}
+.skm-mcp-add-small-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;box-sizing:border-box;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 22%,transparent);border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent);padding:0 12px;font-size:12px;font-weight:600;line-height:17px;font-family:inherit;color:var(--dsw-alias-state-business-primary,#3d6be5);cursor:pointer;transition:background 140ms ease,border-color 140ms ease,transform 140ms ease}
+.skm-mcp-add-small-btn:hover{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}
 .skm-mcp-add-small-btn:active{transform:scale(.96)}
 /* 推荐 MCP Server 标题 */
 .skm-mcp-recommend-title{flex:none;font-size:15px;font-weight:700;line-height:21px;color:var(--dsw-alias-state-business-primary,#3d6be5)}
@@ -2090,7 +2078,7 @@ const SHEET = `
 .skm-mcp-card-item-meta{flex:none;margin-left:auto;font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption,#adb2b8)}
 .skm-mcp-card-item-meta[data-on]{color:var(--dsw-alias-state-business-primary,#4176e6)}
 .skm-mcp-card-delete{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:4px;height:26px;box-sizing:border-box;border:1px solid transparent;border-radius:8px;background:transparent;padding:0 8px;font:inherit;font-size:11.5px;font-weight:600;line-height:1;font-family:inherit;color:var(--dsw-alias-label-caption,#adb2b8);cursor:pointer;transition:background 140ms ease,color 140ms ease,border-color 140ms ease,transform 140ms ease}
-.skm-mcp-card-delete:hover{background:#fdebeb;border-color:#f3c4c4;color:var(--dsw-alias-state-error-primary,#e0434b)}
+.skm-mcp-card-delete:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 30%,transparent);color:var(--dsw-alias-state-error-primary,#e0434b)}
 .skm-mcp-card-delete:active{transform:scale(.94)}
 .skm-mcp-card-delete:disabled{opacity:.5;cursor:default;transform:none}
 .skm-mcp-rec-cats{flex:none;display:inline-flex;align-items:center;gap:6px}
@@ -2110,8 +2098,8 @@ const SHEET = `
 .skm-mcp-rec-card-desc{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;min-height:36px}
 .skm-mcp-rec-card-foot{display:flex;align-items:center;gap:8px;margin-top:auto;padding-top:6px}
 .skm-mcp-rec-card-meta{flex:1;min-width:0;font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption,#adb2b8);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.skm-mcp-added-tag{flex:none;display:inline-flex;align-items:center;gap:4px;height:26px;box-sizing:border-box;border:1px solid #b7e0c3;border-radius:999px;background:#e7f6ec;padding:0 10px;font-size:12px;font-weight:600;line-height:17px;font-family:inherit;color:#2f9e44;cursor:pointer;transition:background 140ms ease,border-color 140ms ease,transform 140ms ease}
-.skm-mcp-added-tag:hover{border-color:#93cfa6;background:#d9f0e1}
+.skm-mcp-added-tag{flex:none;display:inline-flex;align-items:center;gap:4px;height:26px;box-sizing:border-box;border:1px solid var(--dsw-alias-state-success-primary);border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 12%,transparent);padding:0 10px;font-size:12px;font-weight:600;line-height:17px;font-family:inherit;color:var(--dsw-alias-state-success-primary);cursor:pointer;transition:background 140ms ease,border-color 140ms ease,transform 140ms ease}
+.skm-mcp-added-tag:hover{border-color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 16%,transparent)}
 .skm-mcp-added-tag:active{transform:scale(.96)}
 /* 工具列表搜索框 */
 .skm-mcp-tool-search{flex:none;display:flex;align-items:center;gap:8px;height:32px;width:260px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.12));border-radius:10px;background:var(--dsw-alias-bg-base,#fff);padding:0 10px;color:var(--dsw-alias-label-caption,#adb2b8);transition:border-color 140ms ease,box-shadow 140ms ease}
@@ -2122,7 +2110,7 @@ const SHEET = `
 .skm-mcp-log-row{display:flex;align-items:center;gap:10px;padding:9px 4px;border-top:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.05))}
 .skm-mcp-log-row:first-child{border-top:none}
 .skm-mcp-log-dot{flex:none;width:9px;height:9px;border-radius:50%;background:var(--dsw-alias-state-business-primary,#3d6be5)}
-.skm-mcp-log-dot[data-kind='enable']{background:#2fb26b}
+.skm-mcp-log-dot[data-kind='enable']{background:var(--dsw-alias-state-success-primary)}
 .skm-mcp-log-dot[data-kind='disable']{background:var(--dsw-alias-state-warn-primary,#e8a33d)}
 .skm-mcp-log-dot[data-kind='remove']{background:var(--dsw-alias-state-error-primary,#e0434b)}
 .skm-mcp-log-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
@@ -2143,20 +2131,20 @@ const SHEET = `
 .skm-mcp-config-code{flex:none;margin:0;padding:10px 12px;border-radius:10px;background:var(--dsw-alias-bg-module-platform,#f5f6f7);color:var(--dsw-alias-label-secondary,#61666b);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:17px;overflow:auto}
 /* 图三：右侧信息栏 */
 .skm-mcp-info-col{flex:none;width:322px;display:flex;flex-direction:column;gap:12px}
-.skm-mcp-info-card{flex:none;display:flex;flex-direction:column;gap:9px;box-sizing:border-box;border:1px solid #dfe8fa;border-radius:14px;background:var(--dsw-alias-bg-module-platform,#f1f5ff);padding:14px}
+.skm-mcp-info-card{flex:none;display:flex;flex-direction:column;gap:9px;box-sizing:border-box;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);border-radius:14px;background:var(--dsw-alias-bg-module-platform,#f1f5ff);padding:14px}
 .skm-mcp-info-card-title{font-size:14px;font-weight:700;line-height:20px;color:var(--dsw-alias-state-business-primary,#3d6be5)}
 .skm-mcp-info-desc{margin:0;font-size:12px;line-height:19px;color:var(--dsw-alias-label-secondary,#61666b)}
 .skm-mcp-info-points{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .skm-mcp-point{display:flex;gap:8px;align-items:flex-start}
-.skm-mcp-point-icon{flex:none;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:#e7effe;color:var(--dsw-alias-state-business-primary,#3d6be5)}
+.skm-mcp-point-icon{flex:none;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 13%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5)}
 .skm-mcp-point-body{min-width:0;display:flex;flex-direction:column;gap:1px}
 .skm-mcp-point-title{font-size:12px;font-weight:600;line-height:17px;color:var(--dsw-alias-label-primary,#1f2430)}
 .skm-mcp-point-desc{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,#81858c)}
 /* 工作原理流程 */
 .skm-mcp-flow{flex:none;display:flex;align-items:center;gap:4px}
 .skm-mcp-flow-node{flex:none;width:64px;display:inline-flex;flex-direction:column;align-items:center;gap:4px}
-.skm-mcp-flow-icon{flex:none;width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:#e7effe;color:var(--dsw-alias-state-business-primary,#3d6be5)}
-.skm-mcp-flow-icon[data-client]{background:#dbebfd;color:#2276d2}
+.skm-mcp-flow-icon{flex:none;width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 13%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5)}
+.skm-mcp-flow-icon[data-client]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary)}
 .skm-mcp-flow-icon[data-server]{background:#eae8fa;color:#6b46e5}
 .skm-mcp-flow-label{font-size:10px;line-height:14px;color:var(--dsw-alias-label-secondary,#61666b);white-space:nowrap}
 .skm-mcp-flow-arrow{flex:1;min-width:0;display:inline-flex;flex-direction:column;align-items:center;gap:2px;color:var(--dsw-alias-label-caption,#adb2b8)}
@@ -2169,13 +2157,13 @@ const SHEET = `
 /* 快速上手 */
 .skm-mcp-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .skm-mcp-step{display:flex;gap:8px;align-items:flex-start}
-.skm-mcp-step-num{flex:none;width:22px;height:22px;border-radius:50%;background:#e7effe;color:var(--dsw-alias-state-business-primary,#3d6be5);font-size:12px;font-weight:700;line-height:22px;text-align:center}
+.skm-mcp-step-num{flex:none;width:22px;height:22px;border-radius:50%;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 13%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5);font-size:12px;font-weight:700;line-height:22px;text-align:center}
 .skm-mcp-step-body{min-width:0;display:flex;flex-direction:column;gap:1px}
 .skm-mcp-step-title{font-size:12px;font-weight:600;line-height:17px;color:var(--dsw-alias-label-primary,#1f2430)}
 .skm-mcp-step-desc{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,#81858c)}
 /* MCP 空态（工具列表/连接日志/配置模板占位） */
 .skm-mcp-empty{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:40px}
-.skm-mcp-empty-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:18px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 12%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5);box-shadow:0 4px 12px rgba(61,107,229,.1)}
+.skm-mcp-empty-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:18px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 12%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5);box-shadow:0 4px 12px color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}
 .skm-mcp-empty-title{font-size:16px;font-weight:700;line-height:22px;color:var(--dsw-alias-label-primary,#1f2430)}
 .skm-mcp-empty-desc{font-size:13px;line-height:19px;color:var(--dsw-alias-label-tertiary,#81858c)}
 .skm-hub-row{flex:1;min-height:0;min-width:0;display:flex}
@@ -2205,30 +2193,30 @@ const SHEET = `
 .skm-guide-step-title{font-size:13px;font-weight:600;line-height:18px;color:var(--dsw-alias-label-primary,#1f2430)}
 .skm-guide-step-arrow{margin-left:auto;flex:none;color:var(--dsw-alias-label-caption,#adb2b8)}
 .skm-guide-step-desc{margin:0;font-size:11px;line-height:17px;color:var(--dsw-alias-label-tertiary,#81858c)}
-.skm-guide-full-btn{flex:none;align-self:stretch;display:inline-flex;align-items:center;justify-content:center;gap:6px;margin-top:6px;height:32px;box-sizing:border-box;border:1px solid #bccff5;border-radius:999px;background:#f4f8ff;color:var(--dsw-alias-state-business-primary,#3d6be5);font-size:12px;font-weight:600;line-height:18px;font-family:inherit;padding:0 12px;cursor:pointer;transition:background 140ms ease,border-color 140ms ease,box-shadow 140ms ease,transform 140ms ease}
-.skm-guide-full-btn:hover{border-color:#9db6ef;background:#e9f1ff;box-shadow:0 2px 8px rgba(61,107,229,.1)}
+.skm-guide-full-btn{flex:none;align-self:stretch;display:inline-flex;align-items:center;justify-content:center;gap:6px;margin-top:6px;height:32px;box-sizing:border-box;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 22%,transparent);border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5);font-size:12px;font-weight:600;line-height:18px;font-family:inherit;padding:0 12px;cursor:pointer;transition:background 140ms ease,border-color 140ms ease,box-shadow 140ms ease,transform 140ms ease}
+.skm-guide-full-btn:hover{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);box-shadow:0 2px 8px color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}
 .skm-guide-full-btn:active{transform:scale(.98)}
-.skm-guide-best{flex:none;display:flex;flex-direction:column;gap:8px;box-sizing:border-box;border:1px solid #dbe6fb;border-radius:14px;background:var(--dsw-alias-bg-module-platform,#eef4ff);padding:12px 12px 0;overflow:hidden;position:relative}
+.skm-guide-best{flex:none;display:flex;flex-direction:column;gap:8px;box-sizing:border-box;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);border-radius:14px;background:var(--dsw-alias-bg-module-platform,#eef4ff);padding:12px 12px 0;overflow:hidden;position:relative}
 .skm-guide-best-title{font-size:13px;font-weight:700;line-height:18px;color:var(--dsw-alias-label-primary,#1f2430)}
 .skm-guide-best-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .skm-guide-best-item{display:flex;align-items:center;gap:7px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary,#61666b)}
-.skm-guide-best-item svg{flex:none;color:#2fb26b}
+.skm-guide-best-item svg{flex:none;color:var(--dsw-alias-state-success-primary)}
 .skm-guide-more-btn{flex:none;align-self:flex-start;display:inline-flex;align-items:center;gap:5px;border:none;background:transparent;padding:2px 0;font-size:11px;line-height:16px;color:var(--dsw-alias-state-business-primary,#3d6be5);cursor:pointer;font-family:inherit;transition:color 140ms ease}
-.skm-guide-more-btn:hover{color:#3059cf}
+.skm-guide-more-btn:hover{color:var(--dsw-alias-state-business-primary)}
 .skm-guide-best-art{flex:none;display:inline-flex;align-items:flex-end;justify-content:center;margin:2px -12px 0;transform:scale(.8);transform-origin:bottom right;pointer-events:none}
 .skm-hub-side{flex:none;width:216px;box-sizing:border-box;padding:16px 14px 16px 16px;border-right:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.05));background:var(--dsw-alias-bg-base,#fff);overflow-y:auto;display:flex;flex-direction:column;gap:2px}
 .skm-cat-title{flex:none;margin:0 6px 10px;font-size:13px;font-weight:700;line-height:18px;color:var(--dsw-alias-label-primary,#1f2430)}
 .skm-cat-list{flex:none;display:flex;flex-direction:column;gap:4px;max-height:190px;overflow-y:auto;padding-right:2px;box-sizing:border-box;--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2,rgba(0,0,0,.18));--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2,rgba(0,0,0,.3))}
 .skm-cat-item{flex:none;display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;border:1px solid transparent;border-radius:10px;padding:8px 10px;background:transparent;cursor:pointer;font-family:inherit;color:var(--dsw-alias-label-secondary,#61666b);transition:background 140ms ease,border-color 140ms ease,color 140ms ease,box-shadow 140ms ease}
 .skm-cat-item:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.03));color:var(--dsw-alias-label-primary,#1f2430)}
-.skm-cat-item[data-active]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 12%,transparent);border-color:rgba(61,107,229,.10);color:var(--dsw-alias-state-business-primary,#3d6be5)}
+.skm-cat-item[data-active]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5)}
 .skm-cat-icon{flex:none;display:inline-flex;width:18px;height:18px;align-items:center;justify-content:center;color:var(--dsw-alias-label-caption,#adb2b8);transition:color 140ms ease}
 .skm-cat-icon[data-active]{color:var(--dsw-alias-state-business-primary,#3d6be5)}
 .skm-cat-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;font-size:13px;font-weight:500;line-height:18px}
 .skm-cat-item[data-active] .skm-cat-label{font-weight:600}
 .skm-cat-count{flex:none;font-size:12px;line-height:16px;color:var(--dsw-alias-label-caption,#adb2b8)}
 .skm-cat-item[data-active] .skm-cat-count{color:var(--dsw-alias-state-business-primary,#5b82e5)}
-.skm-cat-count[data-warn]{color:#e0851c;font-weight:600}
+.skm-cat-count[data-warn]{color:var(--dsw-alias-state-warn-primary);font-weight:600}
 .skm-filters-title{flex:none;margin:18px 6px 8px;font-size:13px;font-weight:700;line-height:18px;color:var(--dsw-alias-label-primary,#1f2430)}
 .skm-filter-block{flex:none;display:flex;flex-direction:column;gap:8px}
 /* 启用状态：平铺三档分段按钮 */
@@ -2236,11 +2224,11 @@ const SHEET = `
 .skm-status-seg-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;height:30px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));border-radius:999px;background:var(--dsw-alias-bg-base,#fff);padding:0 10px;font-size:12px;line-height:17px;font-family:inherit;color:var(--dsw-alias-label-secondary,#61666b);cursor:pointer;white-space:nowrap;transition:background 140ms ease,color 140ms ease,border-color 140ms ease,box-shadow 140ms ease,transform 140ms ease}
 .skm-status-seg-btn:hover{color:var(--dsw-alias-label-primary,#1f2430);border-color:var(--dsw-alias-border-l3,rgba(0,0,0,.16))}
 .skm-status-seg-btn:active{transform:scale(.96)}
-.skm-status-seg-btn[data-active]{background:var(--dsw-alias-state-business-primary,#3d6be5);border-color:var(--dsw-alias-state-business-primary,#3d6be5);color:#fff;box-shadow:0 2px 6px rgba(61,107,229,.28)}
+.skm-status-seg-btn[data-active]{background:var(--dsw-alias-state-business-primary,#3d6be5);border-color:var(--dsw-alias-state-business-primary,#3d6be5);color:#fff;box-shadow:0 2px 6px color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent)}
 .skm-filter-row-wrap{position:relative;flex:none}
 .skm-filter-row{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;height:34px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));border-radius:9px;background:var(--dsw-alias-bg-base,#fff);padding:0 10px;font-family:inherit;cursor:pointer;transition:border-color 140ms ease,box-shadow 140ms ease}
 .skm-filter-row:hover{border-color:var(--dsw-alias-border-l3,rgba(0,0,0,.16))}
-.skm-filter-row[aria-expanded='true']{border-color:var(--dsw-alias-state-business-primary,var(--dsw-alias-state-business-primary,#3d6be5));box-shadow:0 0 0 2px rgba(61,107,229,.12)}
+.skm-filter-row[aria-expanded='true']{border-color:var(--dsw-alias-state-business-primary,var(--dsw-alias-state-business-primary,#3d6be5));box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
 .skm-filter-row-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;font-size:12px;line-height:17px;color:var(--dsw-alias-label-secondary,#61666b)}
 .skm-filter-row-label-strong{font-weight:600;color:var(--dsw-alias-label-primary,#1f2430)}
 .skm-filter-row-chevron{flex:none;color:var(--dsw-alias-label-caption,#adb2b8);transition:transform 140ms ease}
@@ -2251,36 +2239,36 @@ const SHEET = `
 .skm-preset-dot{flex:none;justify-content:center;width:8px;height:8px;border-radius:50%;background:transparent;margin-left:auto}
 .skm-preset-dot[data-on]{background:var(--dsw-alias-state-business-primary,#e0851c)}
 /* 新建技能包按钮（左栏，添加技能卡上方） */
-.skm-new-bundle-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;width:100%;box-sizing:border-box;margin-top:18px;border:1px solid #c7d6f7;border-radius:10px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 12%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5);font-size:13px;font-weight:600;line-height:18px;font-family:inherit;padding:0 12px;cursor:pointer;transition:background 140ms ease,border-color 140ms ease,color 140ms ease,box-shadow 140ms ease,transform 140ms ease}
-.skm-new-bundle-btn:hover{border-color:#9db6ef;background:#e3ecff;box-shadow:0 2px 8px rgba(61,107,229,.12)}
+.skm-new-bundle-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;width:100%;box-sizing:border-box;margin-top:18px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent);border-radius:10px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 12%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5);font-size:13px;font-weight:600;line-height:18px;font-family:inherit;padding:0 12px;cursor:pointer;transition:background 140ms ease,border-color 140ms ease,color 140ms ease,box-shadow 140ms ease,transform 140ms ease}
+.skm-new-bundle-btn:hover{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);box-shadow:0 2px 8px color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
 .skm-new-bundle-btn:active{transform:scale(.98)}
-.skm-new-bundle-btn-open{border-color:var(--dsw-alias-state-business-primary,#3d6be5);background:var(--dsw-alias-state-business-primary,#3d6be5);color:#fff;box-shadow:0 2px 8px rgba(61,107,229,.3)}
-.skm-new-bundle-btn-open:hover{background:#3059cf;border-color:#3059cf;color:#fff}
+.skm-new-bundle-btn-open{border-color:var(--dsw-alias-state-business-primary,#3d6be5);background:var(--dsw-alias-state-business-primary,#3d6be5);color:#fff;box-shadow:0 2px 8px color-mix(in srgb,var(--dsw-alias-state-business-primary) 30%,transparent)}
+.skm-new-bundle-btn-open:hover{background:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);color:#fff}
 /* 添加技能卡 */
 .skm-add-card{flex:none;display:flex;flex-direction:column;gap:8px;margin-top:18px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.08));border-radius:14px;background:var(--dsw-alias-bg-base,#fff);padding:12px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.04);transition:border-color 140ms ease,box-shadow 140ms ease,transform 140ms ease}
 .skm-add-card:hover{border-color:var(--dsw-alias-border-l3,rgba(0,0,0,.14));box-shadow:0 4px 14px rgba(16,24,40,.08)}
-.skm-add-card-active{border-color:var(--dsw-alias-state-business-primary,#3d6be5);box-shadow:0 0 0 2px rgba(61,107,229,.14)}
+.skm-add-card-active{border-color:var(--dsw-alias-state-business-primary,#3d6be5);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent)}
 .skm-add-card-head{display:flex;align-items:center;gap:8px}
 .skm-add-card-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;color:var(--dsw-alias-state-business-primary,#3d6be5);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 12%,transparent)}
 .skm-add-card-title{font-size:13px;font-weight:700;line-height:18px;color:var(--dsw-alias-label-primary,#1f2430)}
 .skm-add-card-sub{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,#81858c)}
 .skm-add-drop{flex:none;display:flex;flex-direction:column;align-items:center;gap:2px;border:1px dashed var(--dsw-alias-border-l3,rgba(0,0,0,.18));border-radius:10px;padding:12px 8px;color:var(--dsw-alias-label-tertiary,#81858c);background:var(--dsw-alias-bg-module-platform,#fafbfc);transition:border-color 140ms ease,background 140ms ease}
-.skm-add-card:hover .skm-add-drop{border-color:rgba(61,107,229,.4);background:#f5f8ff}
+.skm-add-card:hover .skm-add-drop{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 40%,transparent);background:#f5f8ff}
 .skm-add-drop-icon{flex:none;display:inline-flex}
 .skm-add-drop-text{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary,#61666b)}
 .skm-add-drop-hint{font-size:10px;line-height:14px;color:var(--dsw-alias-label-caption,#adb2b8)}
-.skm-add-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;height:32px;box-sizing:border-box;border:none;border-radius:9px;background:var(--dsw-alias-state-business-primary,#3d6be5);color:#fff;font-size:13px;font-weight:600;line-height:18px;font-family:inherit;padding:0 12px;cursor:pointer;box-shadow:0 1px 3px rgba(61,107,229,.35);transition:background 140ms ease,transform 140ms ease,box-shadow 140ms ease}
-.skm-add-btn:hover{background:#3059cf;box-shadow:0 2px 8px rgba(61,107,229,.4);transform:translateY(-1px)}
+.skm-add-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;height:32px;box-sizing:border-box;border:none;border-radius:9px;background:var(--dsw-alias-state-business-primary,#3d6be5);color:#fff;font-size:13px;font-weight:600;line-height:18px;font-family:inherit;padding:0 12px;cursor:pointer;box-shadow:0 1px 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 35%,transparent);transition:background 140ms ease,transform 140ms ease,box-shadow 140ms ease}
+.skm-add-btn:hover{background:var(--dsw-alias-state-business-primary);box-shadow:0 2px 8px color-mix(in srgb,var(--dsw-alias-state-business-primary) 40%,transparent);transform:translateY(-1px)}
 .skm-add-btn:active{transform:translateY(0) scale(.98)}
 /* 快速上手指南卡（添加技能卡下方） */
-.skm-guide-card{flex:none;display:flex;flex-direction:column;gap:5px;margin-top:18px;box-sizing:border-box;border:1px solid #e4e9f8;border-radius:14px;background:var(--dsw-alias-bg-module-platform,#f3f7ff);padding:14px;overflow:hidden;position:relative;box-shadow:0 1px 2px rgba(16,24,40,.03);transition:border-color 140ms ease,box-shadow 140ms ease}
-.skm-guide-card:hover{border-color:#cdd9f7;box-shadow:0 4px 14px rgba(61,107,229,.08)}
+.skm-guide-card{flex:none;display:flex;flex-direction:column;gap:5px;margin-top:18px;box-sizing:border-box;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);border-radius:14px;background:var(--dsw-alias-bg-module-platform,#f3f7ff);padding:14px;overflow:hidden;position:relative;box-shadow:0 1px 2px rgba(16,24,40,.03);transition:border-color 140ms ease,box-shadow 140ms ease}
+.skm-guide-card:hover{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 18%,transparent);box-shadow:0 4px 14px color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent)}
 .skm-guide-title{font-size:13px;font-weight:700;line-height:18px;color:var(--dsw-alias-label-primary,#1f2430)}
 .skm-guide-desc{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,#81858c)}
-.skm-guide-btn{flex:none;align-self:flex-start;display:inline-flex;align-items:center;gap:5px;margin-top:4px;height:28px;box-sizing:border-box;border:none;border-radius:999px;background:var(--dsw-alias-state-business-primary,#3d6be5);color:#fff;font-size:12px;font-weight:600;line-height:18px;font-family:inherit;padding:0 12px;cursor:pointer;box-shadow:0 2px 6px rgba(61,107,229,.3);transition:background 140ms ease,box-shadow 140ms ease,transform 140ms ease}
-.skm-guide-btn:hover{background:#3059cf;box-shadow:0 3px 10px rgba(61,107,229,.38);transform:translateY(-1px)}
+.skm-guide-btn{flex:none;align-self:flex-start;display:inline-flex;align-items:center;gap:5px;margin-top:4px;height:28px;box-sizing:border-box;border:none;border-radius:999px;background:var(--dsw-alias-state-business-primary,#3d6be5);color:#fff;font-size:12px;font-weight:600;line-height:18px;font-family:inherit;padding:0 12px;cursor:pointer;box-shadow:0 2px 6px color-mix(in srgb,var(--dsw-alias-state-business-primary) 30%,transparent);transition:background 140ms ease,box-shadow 140ms ease,transform 140ms ease}
+.skm-guide-btn:hover{background:var(--dsw-alias-state-business-primary);box-shadow:0 3px 10px color-mix(in srgb,var(--dsw-alias-state-business-primary) 38%,transparent);transform:translateY(-1px)}
 .skm-guide-btn:active{transform:translateY(0) scale(.97)}
-.skm-guide-art{flex:none;display:inline-flex;align-items:flex-end;justify-content:center;margin:8px -14px 0;padding-top:6px;background:linear-gradient(180deg,rgba(61,107,229,.06),rgba(61,107,229,.14))}
+.skm-guide-art{flex:none;display:inline-flex;align-items:flex-end;justify-content:center;margin:8px -14px 0;padding-top:6px;background:linear-gradient(180deg,color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent),color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent))}
 .skm-guide-modal-text{margin:0;font-size:13px;line-height:22px;color:var(--dsw-alias-label-secondary,#4a4f5a)}
 .skm-hub-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 /* ── 统计卡（参考设计稿）：左圆形渐变图标 + 图标下光点，右侧标题/大数字/描述 ── */
@@ -2289,16 +2277,16 @@ const SHEET = `
 .skm-stat:hover{box-shadow:0 6px 18px rgba(16,24,40,.09);transform:translateY(-1px);border-color:var(--dsw-alias-border-l3,rgba(0,0,0,.13))}
 .skm-stat-icon-col{flex:none;width:46px;display:flex;flex-direction:column;align-items:center;gap:9px}
 .skm-stat-icon{flex:none;width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center}
-.skm-stat-icon[data-tone='blue']{color:#4f6af5;background:color-mix(in srgb,#4f6af5 13%,transparent)}
-.skm-stat-icon[data-tone='green']{color:#2fb26b;background:color-mix(in srgb,#2fb26b 13%,transparent)}
+.skm-stat-icon[data-tone='blue']{color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 13%,transparent)}
+.skm-stat-icon[data-tone='green']{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 13%,transparent)}
 .skm-stat-icon[data-tone='violet']{color:#8b5cf6;background:color-mix(in srgb,#8b5cf6 13%,transparent)}
-.skm-stat-icon[data-tone='orange']{color:#f28d0f;background:color-mix(in srgb,#f28d0f 13%,transparent)}
+.skm-stat-icon[data-tone='orange']{color:var(--dsw-alias-state-warn-primary);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 13%,transparent)}
 /* 图标正下方的渐变光点（与图标同色，向下淡出） */
 .skm-stat-glow{flex:none;width:4px;height:11px;border-radius:99px}
-.skm-stat-glow[data-tone='blue']{background:linear-gradient(to bottom,color-mix(in srgb,#4f6af5 65%,transparent),transparent)}
-.skm-stat-glow[data-tone='green']{background:linear-gradient(to bottom,color-mix(in srgb,#2fb26b 60%,transparent),transparent)}
+.skm-stat-glow[data-tone='blue']{background:linear-gradient(to bottom,color-mix(in srgb,var(--dsw-alias-state-business-primary) 65%,transparent),transparent)}
+.skm-stat-glow[data-tone='green']{background:linear-gradient(to bottom,color-mix(in srgb,var(--dsw-alias-state-success-primary) 60%,transparent),transparent)}
 .skm-stat-glow[data-tone='violet']{background:linear-gradient(to bottom,color-mix(in srgb,#8b5cf6 60%,transparent),transparent)}
-.skm-stat-glow[data-tone='orange']{background:linear-gradient(to bottom,color-mix(in srgb,#f28d0f 60%,transparent),transparent)}
+.skm-stat-glow[data-tone='orange']{background:linear-gradient(to bottom,color-mix(in srgb,var(--dsw-alias-state-warn-primary) 60%,transparent),transparent)}
 .skm-stat-body{flex:1;min-width:0;display:flex;flex-direction:column;align-items:stretch}
 .skm-stat-label{font-size:12px;line-height:17px;color:var(--dsw-alias-label-secondary,#8f96a3)}
 .skm-stat-value{font-size:26px;font-weight:700;line-height:31px;letter-spacing:-.2px;color:var(--dsw-alias-label-primary,#23273a);font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -2314,7 +2302,7 @@ const SHEET = `
 .skm-health-notice li{font-size:12px;line-height:17px;color:#8a5a17}
 .skm-toolbar{flex:none;display:flex;align-items:center;gap:8px;padding:12px 16px 4px;flex-wrap:wrap}
 .skm-search-box{flex:1;min-width:170px;display:flex;align-items:center;gap:8px;height:36px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.12));border-radius:10px;background:var(--dsw-alias-bg-base,#fff);padding:0 12px;color:var(--dsw-alias-label-caption,#adb2b8);transition:border-color 140ms ease,box-shadow 140ms ease}
-.skm-search-box:focus-within{border-color:var(--dsw-alias-state-business-primary,#4176e6);box-shadow:0 0 0 3px rgba(65,118,230,.14)}
+.skm-search-box:focus-within{border-color:var(--dsw-alias-state-business-primary,#4176e6);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent)}
 .skm-search-input{flex:1;min-width:0;border:none;outline:none;background:transparent;font-size:13px;line-height:18px;color:var(--dsw-alias-label-primary,#0f1115);font-family:inherit}
 .skm-search-input::placeholder{color:var(--dsw-alias-label-caption,#adb2b8)}
 .skm-tool-select-wrap{position:relative;flex:none;display:inline-flex;align-items:center}
@@ -2515,7 +2503,7 @@ body[data-ds-dark-theme] .skm-toast-err{color:#ff8a7a}
 .skm-bundle-empty-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#333)}
 .skm-bundle-empty-hint{flex:1 1 200px;min-width:160px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#8b9099)}
 .skm-bundle-empty-btn{flex:none;display:inline-flex;align-items:center;gap:6px;appearance:none;border:1px solid var(--dsw-alias-state-business-primary,#4176e6);border-radius:9px;padding:5px 12px;font-size:12px;line-height:18px;font-family:inherit;cursor:pointer;color:var(--dsw-alias-state-business-primary,#4176e6);background:transparent;transition:background 160ms ease,color 160ms ease,transform 160ms ease,box-shadow 160ms ease}
-.skm-bundle-empty-btn:hover{background:var(--dsw-alias-state-business-primary,#4176e6);color:#fff;transform:translateY(-1px);box-shadow:0 4px 14px rgba(65,118,230,.28)}
+.skm-bundle-empty-btn:hover{background:var(--dsw-alias-state-business-primary,#4176e6);color:#fff;transform:translateY(-1px);box-shadow:0 4px 14px color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent)}
 .skm-bundle-empty-btn:active{transform:translateY(0)}
 @keyframes skm-fade-up{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
@@ -3802,7 +3790,7 @@ export function SkillsPanel({ onClose, closing = false, anchor = null, onCardMou
             type="button"
             role="tab"
             aria-selected={kind === 'skill'}
-            className={`${css.kindTab} ${kind === 'skill' ? css.kindTabActive : ''}`}
+            className={css.kindTab}
             data-active={kind === 'skill' || undefined}
             onClick={() => { setKind('skill') }}
           >
@@ -3812,7 +3800,7 @@ export function SkillsPanel({ onClose, closing = false, anchor = null, onCardMou
             type="button"
             role="tab"
             aria-selected={kind === 'mcp'}
-            className={`${css.kindTab} ${kind === 'mcp' ? css.kindTabActive : ''}`}
+            className={css.kindTab}
             data-active={kind === 'mcp' || undefined}
             onClick={() => { setKind('mcp') }}
           >
@@ -3835,7 +3823,7 @@ export function SkillsPanel({ onClose, closing = false, anchor = null, onCardMou
           <div className={css.chipRow} role="group" aria-label={t('presetCatTitle')}>
             <button
               type="button"
-              className={`${css.catItem} ${activePreset === ALL_PRESETS ? css.catItemActive : ''}`}
+              className={css.catItem}
               data-active={activePreset === ALL_PRESETS || undefined}
               onClick={() => { setActivePreset(ALL_PRESETS) }}
             >
@@ -3849,7 +3837,7 @@ export function SkillsPanel({ onClose, closing = false, anchor = null, onCardMou
                 <button
                   key={preset.id}
                   type="button"
-                  className={`${css.catItem} ${activePreset === preset.id ? css.catItemActive : ''}`}
+                  className={css.catItem}
                   data-active={activePreset === preset.id || undefined}
                   onClick={() => { setActivePreset(preset.id) }}
                 >
@@ -3906,7 +3894,7 @@ export function SkillsPanel({ onClose, closing = false, anchor = null, onCardMou
               <button
                 key={value}
                 type="button"
-                className={`${css.statusSegBtn} ${statusFilter === value ? css.statusSegActive : ''}`}
+                className={css.statusSegBtn}
                 data-active={statusFilter === value || undefined}
                 aria-pressed={statusFilter === value}
                 onClick={() => { setStatusFilter(value) }}

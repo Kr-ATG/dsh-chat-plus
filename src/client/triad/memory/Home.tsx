@@ -32,15 +32,15 @@ type SortKey = 'updated' | 'created' | 'important';
 
 const KIND_META: Record<MemoryKind, { label: string; color: string; soft: string }> = {
   identity: { label: '身份', color: '#7C5CFC', soft: 'color-mix(in srgb,#7C5CFC 16%,transparent)' },
-  preference: { label: '偏好', color: '#3B7BF6', soft: 'color-mix(in srgb,#3B7BF6 15%,transparent)' },
+  preference: { label: '偏好', color: 'var(--dsw-alias-state-business-primary)', soft: 'color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent)' },
   fact: { label: '事实', color: '#64748B', soft: 'color-mix(in srgb,#64748B 18%,transparent)' },
   decision: { label: '决策', color: '#E8930C', soft: 'color-mix(in srgb,#E8930C 18%,transparent)' },
   gotcha: { label: '踩坑', color: '#EE4D6B', soft: 'color-mix(in srgb,#EE4D6B 15%,transparent)' },
   'session-summary': { label: '会话', color: '#1FA8C9', soft: 'color-mix(in srgb,#1FA8C9 16%,transparent)' },
 };
 
-const CAT_COLORS = ['#3B7BF6', '#22A06B', '#7C5CFC', '#E8930C', '#EE4D6B', '#1FA8C9'] as const;
-const CAT_SOFT = ['color-mix(in srgb,#3B7BF6 15%,transparent)', 'color-mix(in srgb,#22A06B 16%,transparent)', 'color-mix(in srgb,#7C5CFC 17%,transparent)', 'color-mix(in srgb,#E8930C 18%,transparent)', 'color-mix(in srgb,#EE4D6B 15%,transparent)', 'color-mix(in srgb,#1FA8C9 16%,transparent)'] as const;
+const CAT_COLORS = ['var(--dsw-alias-state-business-primary)', '#22A06B', '#7C5CFC', '#E8930C', '#EE4D6B', '#1FA8C9'] as const;
+const CAT_SOFT = ['color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent)', 'color-mix(in srgb,#22A06B 16%,transparent)', 'color-mix(in srgb,#7C5CFC 17%,transparent)', 'color-mix(in srgb,#E8930C 18%,transparent)', 'color-mix(in srgb,#EE4D6B 15%,transparent)', 'color-mix(in srgb,#1FA8C9 16%,transparent)'] as const;
 
 function entryTitle(content: string): string {
   const t = content.trim();
@@ -213,7 +213,7 @@ export function MemoryHome(props: MemoryHomeProps): JSX.Element {
   let acc = 0;
   const segs = kindDist.map(row => { const frac = kindTotal === 0 ? 0 : row.count / kindTotal; const s = { kind: row.kind, count: row.count, dash: (frac * C).toFixed(1), off: (-acc * C).toFixed(1) }; acc += frac; return s; });
   return (
-    <div className={hm.root + ' dsh-memory-home'}>
+    <div className="dsh-memory-home">
       <div className={hm.top}>
         <label className={hm.search}>
           <span className={hm.searchIcon}><SearchGlyph /></span>
@@ -231,14 +231,14 @@ export function MemoryHome(props: MemoryHomeProps): JSX.Element {
             <h2 className={hm.heroTitle}>{greeting()}</h2>
             <p className={hm.heroSub}>让每一份重要的信息，都成为你记忆的一部分。</p>
             <div className={hm.heroStats}>
-              <span className={hm.heroStat}><span className={hm.heroStatIcon} style={{ color: '#3B7BF6' }}><FileGlyph /></span><span><span className={hm.heroStatNum}>{total}</span><br /><span className={hm.heroStatLabel}>总记忆数</span></span></span>
+              <span className={hm.heroStat}><span className={hm.heroStatIcon} style={{ color: 'var(--dsw-alias-state-business-primary)' }}><FileGlyph /></span><span><span className={hm.heroStatNum}>{total}</span><br /><span className={hm.heroStatLabel}>总记忆数</span></span></span>
               <span className={hm.heroStat}><span className={hm.heroStatIcon} style={{ color: '#1FA8C9' }}><LinkGlyph /></span><span><span className={hm.heroStatNum}>{todayCount}</span><br /><span className={hm.heroStatLabel}>今日更新</span></span></span>
               <span className={hm.heroStat}><span className={hm.heroStatIcon} style={{ color: '#22A06B' }}><PlusGlyph /></span><span><span className={hm.heroStatNum}>{projectCount}</span><br /><span className={hm.heroStatLabel}>覆盖项目</span></span></span>
               <span className={hm.heroOk}><span className={hm.heroOkDot} />运行正常</span>
             </div>
           </section>
           <section className={hm.quicks}>
-            <button type='button' className={hm.quick} onClick={() => { nav.goAdd(); }}><span className={hm.quickIcon} style={{ background: 'color-mix(in srgb,#3B7BF6 15%,transparent)', color: '#3B7BF6' }}><FileGlyph /></span><span className={hm.quickTitle}>新增记忆</span><span className={hm.quickDesc}>记录重要信息，永久保存</span><span className={hm.quickArrow}>→</span></button>
+            <button type='button' className={hm.quick} onClick={() => { nav.goAdd(); }}><span className={hm.quickIcon} style={{ background: 'color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent)', color: 'var(--dsw-alias-state-business-primary)' }}><FileGlyph /></span><span className={hm.quickTitle}>新增记忆</span><span className={hm.quickDesc}>记录重要信息，永久保存</span><span className={hm.quickArrow}>→</span></button>
             <button type='button' className={hm.quick} onClick={() => { fileRef.current?.click(); }}><span className={hm.quickIcon} style={{ background: 'color-mix(in srgb,#22A06B 16%,transparent)', color: '#22A06B' }}><LinkGlyph /></span><span className={hm.quickTitle}>添加文件</span><span className={hm.quickDesc}>上传文档/图片，快速解析</span><span className={hm.quickArrow}>→</span></button>
             <button type='button' className={hm.quick} onClick={() => { setLinkOpen(v => !v); }}><span className={hm.quickIcon} style={{ background: 'color-mix(in srgb,#7C5CFC 17%,transparent)', color: '#7C5CFC' }}><LinkGlyph /></span><span className={hm.quickTitle}>导入链接</span><span className={hm.quickDesc}>从 URL 获取内容</span><span className={hm.quickArrow}>→</span></button>
             <button type='button' className={hm.quick} disabled={busyAI} onClick={() => { void runAI(); }}><span className={hm.quickIcon} style={{ background: 'color-mix(in srgb,#E8930C 18%,transparent)', color: '#E8930C' }}><SparkGlyph /></span><span className={hm.quickTitle}>{busyAI ? '整理中...' : 'AI 生成'}</span><span className={hm.quickDesc}>AI 整理去重，合并相似记忆</span><span className={hm.quickArrow}>→</span></button>
@@ -321,7 +321,7 @@ export function MemoryHome(props: MemoryHomeProps): JSX.Element {
               <select className={hm.trendRange} value={String(range)} aria-label='趋势范围' onChange={e => { setRange(Number(e.currentTarget.value) === 30 ? 30 : 7); }}><option value='7'>近7天</option><option value='30'>近30天</option></select>
             </div>
             <svg className={hm.trendSvg} viewBox='0 0 268 118' role='img' aria-label='记忆趋势图'>
-              <defs><linearGradient id='hm-area-grad' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stopColor='#3B7BF6' stopOpacity='0.28' /><stop offset='1' stopColor='#3B7BF6' stopOpacity='0.03' /></linearGradient></defs>
+              <defs><linearGradient id='hm-area-grad' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stopColor='var(--dsw-alias-state-business-primary)' stopOpacity='0.28' /><stop offset='1' stopColor='var(--dsw-alias-state-business-primary)' stopOpacity='0.03' /></linearGradient></defs>
               {[0.25, 0.5, 0.75].map(f => (<line key={f} className='hm-grid-line' x1='6' x2='262' y1={10 + (118 - 20) * f} y2={10 + (118 - 20) * f} />))}
               {tp.area !== '' && (<path className='hm-area' d={tp.area} />)}
               {tp.line !== '' && (<path className='hm-line' d={tp.line} />)}

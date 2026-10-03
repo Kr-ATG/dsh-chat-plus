@@ -278,9 +278,9 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
       style.id = 'webui-shot-editor-style'
       style.textContent = [
         'html, body { overflow: hidden !important; }',
-        '.webui-shot-hover{outline:2px dashed #e5484d !important;outline-offset:2px !important;cursor:crosshair !important}',
-        '.webui-shot-mark{outline:2px solid #e5484d !important;outline-offset:2px !important;position:relative !important;opacity:0.45 !important;overflow:visible !important;cursor:pointer !important}',
-        '.webui-shot-mark::after{content:"已选 · 点击取消";position:absolute;top:-20px;left:0;z-index:9999;padding:1px 6px;border-radius:4px;background:#e5484d;color:#fff;font:11px/16px sans-serif;pointer-events:none;white-space:nowrap;opacity:1 !important}',
+        '.webui-shot-hover{outline:2px dashed var(--dsw-alias-state-error-primary, #e5484d) !important;outline-offset:2px !important;cursor:crosshair !important}',
+        '.webui-shot-mark{outline:2px solid var(--dsw-alias-state-error-primary, #e5484d) !important;outline-offset:2px !important;position:relative !important;opacity:0.45 !important;overflow:visible !important;cursor:pointer !important}',
+        '.webui-shot-mark::after{content:"已选 · 点击取消";position:absolute;top:-20px;left:0;z-index:9999;padding:1px 6px;border-radius:4px;background:var(--dsw-alias-state-error-primary, #e5484d);color:#fff;font:11px/16px sans-serif;pointer-events:none;white-space:nowrap;opacity:1 !important}',
       ].join('\n')
       doc.head.appendChild(style)
 

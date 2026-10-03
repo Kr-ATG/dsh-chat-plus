@@ -907,7 +907,7 @@ body[data-kr-resizing="true"] * {
 
 .kr-task-item__tag--running {
   color: var(--dsw-alias-state-business-primary, #4176e6);
-  background: rgba(65, 118, 230, 0.1);
+  background: color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);
 }
 
 /* ══ 思考过程卡片 ══════════════════════════════════════════════════════════ */

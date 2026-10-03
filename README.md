@@ -49,6 +49,10 @@
   模型工具**。对话或浏览器自动化里凡是需要邮箱的地方（第三方站点注册/登录/订阅/找回
   密码、收验证码、发信回信转发、找邮件、下载附件）一律用这个地址，不必再问用户要个人
   邮箱。见「邮箱工作台」一节
+- **主题跟随（2026-10-03 整改）**：所有页面的强调 / 表面 / 文字 / 边框 / 状态色统一
+  走官方 `--dsw-alias-*` token（此前只有「能力」页是官方色，其余各写各的蓝，记忆面板
+  甚至在作用域里覆写官方变量把主题跟随掐死）。数据语义色板（记忆分类圆点、工具类型
+  徽章等）保留常量。亮 / 暗双主题实测零残留，详见下文「主题色统一」一节
 
 产物约 **5.4 MB**（host 3.9 MB + 浏览器半身 448 KB + mermaid 资源 968 KB），浏览器侧只加载
 448 KB。随包另分发**内置技能 2.79 MB**（`assets/skills/`，只落在磁盘、由 host 读文件，
@@ -501,6 +505,68 @@ agently-cli +me                               # 验证，打印邮箱地址
 `ERR_MODULE_NOT_FOUND`。所以一并 vendor 化到 `src/vendor/dsh-util-crypto/`，现在 host
 产物对 `@deepseek-ai/*` **零运行时依赖**，`assertHostExternals()` 的空 allowlist 就是
 这条约束的守门人。
+
+### 主题色统一：全文走官方 token（2026-10-03）
+
+原先只有「能力」页用的是官方主题色，其余页面各写各的蓝——**记忆面板更是在
+`.dsh-memory-panel` 作用域里把 `--dsw-alias-state-business-primary` 覆写成固定
+`#4176e6`**，等于把整棵子树的主题跟随掐死（实测暗色下 `body` 已经是 `#7aaaff`，
+面板内仍有 37 处 `#4176e6`）。
+
+改动口径：**UI chrome 的强调 / 表面 / 文字 / 边框 / 状态色全部走 `--dsw-alias-*`，
+强调色底上的半透明派生用 `color-mix()` 现算；数据语义色板（记忆分类圆点、项目图标、
+工具类型徽章、hero 装饰渐变）保留常量**——那是有意区分的分类色，不是主题色。
+
+| 位置 | 原写法 | 现写法 |
+|---|---|---|
+| 记忆面板 | 作用域覆写官方变量为 `#4176e6` | 删除覆写，`--m-*` 全部继承官方 token |
+| 记忆首页 | 自建 `--hm-*` 色板（`light-dark(#F6F8FC,#1D1E22)` 等） | 表面 / 文字继承官方 token |
+| 记忆详情 | `#5B8DEF` 字面色板 | 主题色走 token，「偏好」色与首页对齐 |
+| 邮箱面板 | 自造 `light-dark(#0e70df,#5aa2ff)` | 整套换官方 token |
+| 邮箱正文 | iframe 内硬编码明暗两套色 | 从宿主**实读**计算样式再注入（独立文档拿不到 CSS 变量） |
+| 用量面板 | 裸 `#3d6be5` | `var(--dsw-alias-state-business-primary)` |
+| 能力面板 | 主要色已是 token，但 hover / 浅底仍是写死的浅蓝 | 派生色一并转 `color-mix()` |
+
+真机双主题实测：暗色下记忆首页 / 面板 / 侧栏的旧主题蓝残留 **0 处**，页面底色与
+`body` 一致（`#151517`），强调色等于主题变量（`#7aaaff`）。
+
+同日清理：`--dsw-alias-*` 的**作用域覆写**、7 个 0 引用的死变量、19 个零 CSS 规则
+且零调用的死类名键。`--dsh-scrollbar-thumb` **保留**——它看着像自造名，实为官方自己
+定义并消费的滚动条钩子。
+
+### 热力图「假滚动条」（2026-10-03）
+
+Token 活动热力图右侧常驻一条滚动条，但内容并不溢出（实测 `scrollWidth == clientWidth`，
+无任何子元素撑宽）。根因是 `overflow-x: auto` 无条件挂着：容器一旦成为滚动容器，
+内部 `width: fit-content + margin: 0 auto` 就按 `scrollWidth` 参与居中，亚像素舍入足以
+让 `scrollWidth` 比 `clientWidth` 多 1px，于是滚动条常驻。
+
+改为**按测量结果决定**：网格自然宽度由格子尺寸纯计算得出（不用 `scrollWidth`——它会被
+「当前是否挂着滚动条」反向影响，判据一自反馈就在临界宽度上抖动），判据取 `offsetWidth`，
+`ResizeObserver` 跟随容器宽度。装得下 → `overflow: visible`；装不下 → `overflowX: auto`
++ `overflowY: hidden`（`overflow-x: auto` 会把 `overflow-y` 一并提升为 `auto`，多出一条
+纵向轨道）。双向实测：宽态零滚动条，压到 200px 自动恢复横向滚动。
+
+### 两处「哑类名」修真（2026-10-03）
+
+扫描发现两个类名落在 DOM 上却**没有任何 CSS 规则**（等于白加），性质不同、分开处理：
+
+- **`skm-mcp-empty-list`**：6 处在用，但 CSS 里只有 `.skm-mcp-empty`、没有 `-list`。
+  实测那段说明文字按浏览器默认的 16px / `line-height: normal` / `margin: 16px 0` 渲染，
+  比周围 12px 辅助文字大一整档。**这是缺样式，不是死代码**——按同类说明文字口径补齐
+  （12px / 18px / tertiary 色 / 外边距压到 10px）。
+- **`hm-root`**：`Home.tsx` 里 `className={hm.root + ' dsh-memory-home'}`，但 `.hm-root`
+  无规则，样式全由 `.dsh-memory-home` 承担。探针实测加 / 删该类名对计算样式零影响
+  （`identical: true`），**确认为冗余**，删键并简化为 `className="dsh-memory-home"`。
+
+另清掉 3 个「加了类名但样式已由 `[data-active]` 属性选择器承担」的哑类名
+（`skm-kind-tab-active` / `skm-cat-item-active` / `skm-status-seg-active`），删前逐个确认
+对应 `[data-active]` 规则在位。
+
+**一个避坑记录**：批量扫描时曾把 `dsh-memory-builtin-toggle` / `dsh-memory-inject-toggle`
+误判为死类名——它们**是 slot id 而非 class**（`smoke-client.mjs` 用它们断言座位注册），
+差一步就删掉测试依赖。现在锁定清单用三重判据（无 CSS 规则 + 无 `css.key` 调用 +
+无跨文件引用），并显式排除 `id:` 字段。
 
 ### 冒烟（四套 + 一套真实链路测试）
 

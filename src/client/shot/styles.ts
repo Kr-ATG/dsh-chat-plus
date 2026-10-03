@@ -40,7 +40,6 @@ export const cls = {
   editHint: 'tsh-edit-hint',
   editCount: 'tsh-edit-count',
   editSpacer: 'tsh-edit-spacer',
-  editor: 'tsh-editor',
   frame: 'tsh-frame',
   foot: 'tsh-foot',
   meta: 'tsh-meta',
@@ -51,8 +50,8 @@ export const cls = {
 } as const
 
 const SHEET = `
-:root{--tsh-control-surface:var(--dsw-static-neutral-bluish-50,#f9fafb);--tsh-control-surface-hover:var(--dsw-static-neutral-bluish-100,#ebeef2);--tsh-control-border:var(--dsw-static-neutral-bluish-200,#e1e5ee);--tsh-panel-surface:var(--dsw-static-neutral-bluish-00,#fff);--tsh-stage-surface:var(--dsw-static-neutral-bluish-100,#ebeef2)}
-body[data-ds-dark-theme]{--tsh-control-surface:var(--dsw-static-neutral-bluish-850,#212123);--tsh-control-surface-hover:var(--dsw-static-neutral-bluish-800,#292929);--tsh-control-border:rgba(255,255,255,.12);--tsh-panel-surface:var(--dsw-static-neutral-bluish-850,#212123);--tsh-stage-surface:var(--dsw-static-neutral-bluish-900,#0f1115)}
+:root{--tsh-control-surface:var(--dsw-static-neutral-bluish-50,#f9fafb);--tsh-panel-surface:var(--dsw-static-neutral-bluish-00,#fff);--tsh-stage-surface:var(--dsw-static-neutral-bluish-100,#ebeef2)}
+body[data-ds-dark-theme]{--tsh-control-surface:var(--dsw-static-neutral-bluish-850,#212123);--tsh-panel-surface:var(--dsw-static-neutral-bluish-850,#212123);--tsh-stage-surface:var(--dsw-static-neutral-bluish-900,#0f1115)}
 /* ── 对话流截图入口：透明无框，悬停仅提亮图标 ── */
 .tsh-btn{box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:6px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-tertiary,#888);cursor:pointer;transition:color .12s,background .12s}
 .tsh-btn:hover{background:transparent;color:var(--dsw-alias-label-primary,#eee)}

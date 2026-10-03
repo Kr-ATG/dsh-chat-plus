@@ -15,7 +15,7 @@
  *
  * 导出的 `buildActivityGrid` / `activityColor` 属插件公开 API，保持可用。
  */
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { formatUnits } from './format'
 import { css, CheckIcon } from './hub'
@@ -396,11 +396,35 @@ export function ActivityGrid({ days, mode, onMode, selectedKey, onSelect, metric
   const [metricMenuOpen, setMetricMenuOpen] = useState(false)
   const snapshot = useMemo(() => buildActivityGrid(days, mode, new Date(), metric), [days, mode, metric])
 
-  useEffect(() => ensureActivityStyles(), [])
-
   // 窄格子时（cellSize < 12）同步收窄圆角与星期标签列，否则留白比格子还抢眼。
   const radius = Math.max(2, Math.round(cellSize * RADIUS / CELL))
   const labelW = cellSize >= 12 ? 30 : 18
+
+  // 网格自然宽度（星期标签列 + 52 列格子 + 列间距），纯计算、不受容器影响。
+  // 用计算值而不是 scrollWidth：后者会被「当前是否挂着滚动条」反向影响，
+  // 判据一旦自反馈就会在临界宽度上抖动。
+  const naturalW = labelW + snapshot.columns * (cellSize + gap) - gap
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const [needsScroll, setNeedsScroll] = useState(false)
+  const measure = useCallback((): void => {
+    const box = scrollRef.current
+    if (box === null) return
+    // 判据统一用 offsetWidth（含滚动条占位，与挂不挂滚动条无关）：
+    // 它代表容器的可用外框宽度，是本次决策的稳定输入。
+    setNeedsScroll(box.offsetWidth < naturalW)
+  }, [naturalW])
+
+  useEffect(() => {
+    measure()
+    const box = scrollRef.current
+    if (box === null || typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(measure)
+    observer.observe(box)
+    return () => { observer.disconnect() }
+  }, [measure])
+
+  useEffect(() => ensureActivityStyles(), [])
+
   const weekLabel = cellSize >= 12 ? WEEKDAYS : WEEKDAYS_SHORT
   const gridVars = {
     '--dsh-activity-cell': `${cellSize}px`,
@@ -509,8 +533,20 @@ export function ActivityGrid({ days, mode, onMode, selectedKey, onSelect, metric
         </span>
       </div>
 
-      {/* 7 行 × 52 列贡献网格：正方形格子固定尺寸，不拉伸；窄视口横向滚动兜底 */}
-      <div style={{ overflowX: 'auto', marginTop: 12, paddingBottom: 2 }}>
+      {/* 7 行 × 52 列贡献网格：正方形格子固定尺寸，不拉伸。
+          滚动容器只在**真的装不下**时才挂：`overflow-x:auto` 会把容器变成滚动
+          容器，而里面 `width:fit-content + margin:0 auto` 在滚动容器里按
+          scrollWidth 参与居中，亚像素舍入就足以让 scrollWidth 比 clientWidth
+          多 1px —— 于是明明只有 52 列、内容装在容器里，右侧却常驻一条滚动条。
+          改成按测量结果决定 overflow，装得下时零滚动容器；挂上也显式压掉
+          纵向（`overflow-x:auto` 会把 overflow-y 一并提升为 auto，多出一条
+          纵向轨道）。 */}
+      <div
+        ref={scrollRef}
+        style={needsScroll
+          ? { overflowX: 'auto', overflowY: 'hidden', marginTop: 12, paddingBottom: 2 }
+          : { overflow: 'visible', marginTop: 12, paddingBottom: 2 }}
+      >
         <div style={{ display: 'flex', flexDirection: 'column', width: 'fit-content', margin: '0 auto', ...gridVars }}>
           {/* 月份标签行（GitHub 惯例：新月份第一周列首标注，跳过首列；按列比例定位，与拉伸后的列对齐） */}
           <div style={{ position: 'relative', height: 16, marginLeft: labelW }}>

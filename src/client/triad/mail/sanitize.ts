@@ -171,11 +171,32 @@ export function sanitizeCss(css: string): string {
     .replace(/-moz-binding\s*:[^;]*;?/gi, '')
 }
 
+/** 邮件正文皮肤：默认值与官方 light/dark 两套 alias token 取值一致。 */
+export interface MailSkin {
+  bg: string
+  fg: string
+  link: string
+}
+
+const LIGHT_SKIN: MailSkin = { bg: '#ffffff', fg: '#0f1115', link: '#4176e6' }
+const DARK_SKIN: MailSkin = { bg: '#151517', fg: '#f9fafb', link: '#7aaaff' }
+
+/** 从宿主实际计算样式读官方 alias token，读不到时回退到与官方一致的常量。 */
+export function readMailSkin(dark: boolean): MailSkin {
+  const fallback = dark ? DARK_SKIN : LIGHT_SKIN
+  if (typeof document === 'undefined') return fallback
+  const cs = getComputedStyle(document.body)
+  const pick = (name: string, alt: string): string => cs.getPropertyValue(name).trim() || alt
+  return {
+    bg: pick('--dsw-alias-bg-base', fallback.bg),
+    fg: pick('--dsw-alias-label-primary', fallback.fg),
+    link: pick('--dsw-alias-link', fallback.link),
+  }
+}
+
 /** 把邮件 HTML 包成一个完整文档（iframe srcdoc 用）。 */
-export function wrapMailHtml(body: string, dark: boolean): string {
-  const bg = dark ? '#1b1d21' : '#ffffff'
-  const fg = dark ? '#e6e6e6' : '#1a1a1a'
-  const link = dark ? '#7cb0ff' : '#0e70df'
+export function wrapMailHtml(body: string, dark: boolean, skin?: MailSkin): string {
+  const { bg, fg, link } = skin ?? readMailSkin(dark)
   return [
     '<!doctype html><html><head><meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width,initial-scale=1">',

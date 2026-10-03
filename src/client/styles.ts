@@ -148,7 +148,6 @@ function buildCss(): string {
    --dtt-rea-accent 只在本组件根上声明一次，子元素继承。 */
 .dtt__reasoning {
   --dtt-rea-accent: var(--dsw-alias-state-business-primary, #4176e6);
-  --dtt-rea-fill: var(--dsh-flow-veil, color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent));
   display: flex;
   flex-direction: column;
   align-items: stretch;

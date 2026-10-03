@@ -32,10 +32,10 @@ const SHEET = `
 .usm-range-btn:active { transform: scale(0.96); }
 /* 选中态与技能面板选中按钮一致：品牌蓝底白字（两种主题下均成立） */
 .usm-range-btn[data-active] {
-  background: #3d6be5;
-  border-color: #3d6be5;
+  background: var(--dsw-alias-state-business-primary);
+  border-color: var(--dsw-alias-state-business-primary);
   color: #fff;
-  box-shadow: 0 2px 6px color-mix(in srgb, #3d6be5 30%, transparent);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--dsw-alias-state-business-primary) 30%, transparent);
 }
 /* 紧凑形态（用量卡片顶行）：单行小胶囊，按钮矮一档 */
 .usm-range-grid[data-compact] { display: flex; flex-wrap: wrap; gap: 4px; padding: 0; }
@@ -90,7 +90,7 @@ const SHEET = `
   color: var(--dsw-alias-label-primary, #1f2430); outline: none;
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
-.usm-scope-search:focus { border-color: var(--dsw-alias-state-business-primary, #4176e6); box-shadow: 0 0 0 2px color-mix(in srgb, #4176e6 18%, transparent); }
+.usm-scope-search:focus { border-color: var(--dsw-alias-state-business-primary, #4176e6); box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-business-primary) 18%, transparent); }
 .usm-scope-item-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .usm-scope-item-num { flex: none; margin-left: auto; padding-left: 10px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-tertiary, #81858c); }
 .usm-scope-empty { padding: 8px 10px; font-size: 12px; color: var(--dsw-alias-label-tertiary, #81858c); }

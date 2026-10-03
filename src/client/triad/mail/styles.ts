@@ -25,8 +25,6 @@ export const css = {
   topInput: 'dsh-mail-top-input',
   topActions: 'dsh-mail-top-actions',
   topBtn: 'dsh-mail-top-btn',
-  topBtnBusy: 'dsh-mail-top-btn-busy',
-  watchOn: 'dsh-mail-watch-on',
   close: 'dsh-mail-close',
   // 三栏
   body: 'dsh-mail-body',
@@ -91,7 +89,6 @@ export const css = {
   composerLabel: 'dsh-mail-composer-label',
   input: 'dsh-mail-input',
   inputArea: 'dsh-mail-input-area',
-  inputGrow: 'dsh-mail-input-grow',
   composerFoot: 'dsh-mail-composer-foot',
   btn: 'dsh-mail-btn',
   btnPrimary: 'dsh-mail-btn-primary',
@@ -133,23 +130,22 @@ export const css = {
 const STYLE_ID = 'dsh-mail-styles'
 
 const SHEET = `
-/* ── 面板根：把常用 alias 变量在作用域内重映射成「独立应用」皮肤 ── */
+/* ── 面板根：全部走 DSH 官方 alias token，明暗两套由官方主题切换驱动 ── */
 .dsh-mail-panel{
-  --m-text:light-dark(#1a1d21,#e8eaed);
-  --m-text-2:light-dark(rgba(26,29,33,.62),rgba(232,234,237,.62));
-  --m-text-3:light-dark(rgba(26,29,33,.42),rgba(232,234,237,.42));
-  --m-side:light-dark(rgba(15,23,42,.03),rgba(255,255,255,.03));
-  --m-side-hover:light-dark(rgba(15,23,42,.06),rgba(255,255,255,.07));
-  --m-card:light-dark(#ffffff,rgba(255,255,255,.035));
-  --m-border:light-dark(rgba(15,23,42,.08),rgba(255,255,255,.09));
-  --m-border-2:light-dark(rgba(15,23,42,.13),rgba(255,255,255,.15));
-  --m-primary:light-dark(#0e70df,#5aa2ff);
-  --m-primary-soft:light-dark(rgba(14,112,223,.10),rgba(90,162,255,.16));
-  --m-warn:light-dark(#d97706,#f5b545);
-  --m-warn-soft:light-dark(rgba(217,119,6,.12),rgba(245,181,69,.16));
-  --m-danger:light-dark(#dc2626,#ff6b6b);
-  --m-danger-soft:light-dark(rgba(220,38,38,.10),rgba(255,107,107,.16));
-  --m-ok:light-dark(#0f9d58,#43c98a);
+  --m-text:var(--dsw-alias-label-primary);
+  --m-text-2:var(--dsw-alias-label-secondary);
+  --m-text-3:var(--dsw-alias-label-tertiary);
+  --m-side:var(--dsw-alias-bg-module-platform);
+  --m-side-hover:var(--dsw-alias-interactive-bg-hover-solid);
+  --m-card:var(--dsw-alias-bg-layer-1);
+  --m-border:var(--dsw-alias-border-l1);
+  --m-border-2:var(--dsw-alias-border-l2);
+  --m-primary:var(--dsw-alias-state-business-primary);
+  --m-primary-soft:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);
+  --m-warn:var(--dsw-alias-state-warn-primary);
+  --m-danger:var(--dsw-alias-state-error-primary);
+  --m-danger-soft:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);
+  --m-ok:var(--dsw-alias-state-success-primary);
   color:var(--m-text);
   display:flex;flex-direction:column;height:100%;min-height:0;
 }
@@ -299,7 +295,7 @@ const SHEET = `
 .dsh-mail-setting-value{margin-left:auto;flex:none;font-size:12px;color:var(--m-text-2);font-variant-numeric:tabular-nums;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-mail-switch{flex:none;margin-left:auto;position:relative;width:40px;height:22px;border:none;border-radius:11px;background:var(--m-border-2);cursor:pointer;transition:background .2s cubic-bezier(.2,.8,.2,1)}
 .dsh-mail-switch-on{background:var(--m-primary)}
-.dsh-mail-switch-knob{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.24);transition:transform .2s cubic-bezier(.2,.8,.2,1)}
+.dsh-mail-switch-knob{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--dsw-alias-switch-thumb);box-shadow:0 1px 3px rgba(0,0,0,.24);transition:transform .2s cubic-bezier(.2,.8,.2,1)}
 .dsh-mail-switch-on .dsh-mail-switch-knob{transform:translateX(18px)}
 .dsh-mail-tool-list{display:flex;flex-direction:column;gap:6px}
 .dsh-mail-tool-row{display:flex;align-items:baseline;gap:10px;padding:7px 12px;border:1px solid var(--m-border);border-radius:9px;background:var(--m-card)}

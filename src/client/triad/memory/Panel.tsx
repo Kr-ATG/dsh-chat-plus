@@ -134,16 +134,18 @@ const KIND_LABEL: Record<MemoryKind, MemoryLocaleKey> = {
   'session-summary': 'kindSession',
 }
 
-/** 分类圆点色板（按标签名哈希稳定取色；参考图：蓝/琥珀/玫红/紫/青…）。 */
-const DOT_COLORS = ['#5B8DEF', '#F5C242', '#F0366C', '#7C5CFC', '#2BA9E0', '#2AA57A', '#F59E0B', '#8B5CF6', '#22B8CF', '#F97316'] as const
+/** 分类圆点色板（按标签名哈希稳定取色；参考图：蓝/琥珀/玫红/紫/青…）。
+ *  首位是主题蓝——用官方 token 而非字面量，亮/暗主题下与 chrome 一致。 */
+const DOT_COLORS = ['var(--dsw-alias-state-business-primary)', '#F5C242', '#F0366C', '#7C5CFC', '#2BA9E0', '#2AA57A', '#F59E0B', '#8B5CF6', '#22B8CF', '#F97316'] as const
 
 /** 项目图标色板（按项目 hash 哈希稳定取色）。 */
-const PROJ_COLORS = ['#2AA57A', '#F59E0B', '#5B8DEF', '#F0366C', '#7C5CFC', '#22B8CF'] as const
+const PROJ_COLORS = ['#2AA57A', '#F59E0B', 'var(--dsw-alias-state-business-primary)', '#F0366C', '#7C5CFC', '#22B8CF'] as const
 
-/** 条目图标颜色（按 kind 着色：身份紫 / 偏好蓝 / 事实灰 / 决策琥珀 / 踩坑玫红 / 会话青）。 */
+/** 条目图标颜色（按 kind 着色：身份紫 / 偏好蓝 / 事实灰 / 决策琥珀 / 踩坑玫红 / 会话青）。
+ *  preference 走主题 token，与记忆首页的 KIND_META 口径保持一致。 */
 const KIND_COLORS: Record<MemoryKind, string> = {
   identity: '#7C5CFC',
-  preference: '#5B8DEF',
+  preference: 'var(--dsw-alias-state-business-primary)',
   fact: '#9CA3AF',
   decision: '#F5C242',
   gotcha: '#F0366C',

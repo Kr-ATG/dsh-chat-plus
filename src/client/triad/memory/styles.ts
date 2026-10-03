@@ -241,13 +241,11 @@ const SHEET = `
    面板自动跟进：浅色=白底，高亮/蓝字；深色=暗底，亮字。数据色板图标
    （分类圆点/项目文件夹/kind 图标色）不随主题变。 */
 .dsh-memory-panel{
-  --dsw-alias-state-business-primary:#4176e6;
-  --dsw-alias-state-business-primary-hover:#2e5fc4;
-  --m-primary:#4176e6;
-  --m-primary-hover:#2e5fc4;
+  --m-primary:var(--dsw-alias-state-business-primary);
+  --m-primary-hover:var(--dsw-alias-button-info-hover);
   --m-primary-soft:color-mix(in srgb,var(--m-primary) 14%,transparent);
   --m-primary-chip:color-mix(in srgb,var(--m-primary) 12%,transparent);
-  --m-primary-bar:#4176e6;
+  --m-primary-bar:var(--dsw-alias-state-business-primary);
   --m-accent-line:color-mix(in srgb,var(--m-primary) 55%,transparent);
   --m-card-bg-sel:color-mix(in srgb,var(--m-primary) 7%,var(--dsw-alias-bg-layer-1,#fff));
   --m-card-line:var(--dsw-alias-border-l2,rgba(255,255,255,.12));
@@ -285,13 +283,13 @@ const SHEET = `
 .dsh-memory-sidebar-logo{flex:none;width:26px;height:26px;border-radius:8px;background:var(--m-primary);display:inline-flex;align-items:center;justify-content:center;color:#fff}
 .dsh-memory-sidebar-title{font-size:16px;font-weight:700;line-height:24px;color:var(--m-text)}
 .dsh-memory-sidebar-add{width:100%;height:34px;padding:0 14px;margin-bottom:10px;border:none;border-radius:10px;background:var(--m-primary);color:#fff;font-size:13px;font-weight:600;line-height:20px;font-family:inherit;display:inline-flex;align-items:center;justify-content:center;gap:5px;cursor:pointer;transition:background .16s cubic-bezier(.2,.8,.2,1),box-shadow .16s ease,transform .12s ease}
-.dsh-memory-sidebar-add:hover{background:var(--m-primary-hover);box-shadow:0 4px 14px rgba(65,118,230,.28)}
+.dsh-memory-sidebar-add:hover{background:var(--m-primary-hover);box-shadow:0 4px 14px color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent)}
 .dsh-memory-sidebar-add:active{transform:scale(.985)}
 .dsh-memory-sidebar-add:disabled{opacity:.5;cursor:default}
 /* 一级：视图 tabs 收进分段控件底座，跟下面的胶囊拉开层级 */
 .dsh-memory-nav-list{display:flex;flex-direction:column;flex-wrap:nowrap;gap:2px;background:transparent;border:none;border-radius:0;padding:0}
 .dsh-memory-nav-item{display:flex;align-items:center;gap:8px;width:100%;flex:none;box-sizing:border-box;height:30px;border-radius:8px;padding:0 10px;border:none;border-radius:8px;background:transparent;color:var(--m-text-2);font-family:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer;transition:background .15s cubic-bezier(.2,.8,.2,1),color .15s cubic-bezier(.2,.8,.2,1)}
-.dsh-memory-nav-item:hover{background:rgba(65,118,230,.06);color:var(--m-text)}
+.dsh-memory-nav-item:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent);color:var(--m-text)}
 .dsh-memory-nav-item-active,.dsh-memory-nav-item-active:hover{background:var(--m-primary-soft);color:var(--m-primary);font-weight:600}
 .dsh-memory-nav-icon{flex:none;display:inline-flex;align-items:center;color:inherit}
 /* 计数徽章：取代「标签 + 裸数字」（旧样式在 4 位数时把整条导航撑得很难看）。
@@ -299,7 +297,7 @@ const SHEET = `
 .dsh-memory-nav-count{margin-left:auto;flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;box-sizing:border-box;padding:0 6px;border-radius:999px;background:var(--m-count-bg);color:var(--m-text-3);font-size:11px;font-weight:600;line-height:18px;letter-spacing:.2px;font-variant-numeric:tabular-nums;transition:background .18s cubic-bezier(.2,.8,.2,1),color .18s cubic-bezier(.2,.8,.2,1),box-shadow .18s ease}
 .dsh-memory-nav-count-zero{min-width:16px;padding:0 4px;background:transparent;color:var(--m-text-3);opacity:.55;font-weight:500}
 .dsh-memory-nav-item:hover .dsh-memory-nav-count,.dsh-memory-proj-row:hover .dsh-memory-nav-count,.dsh-memory-cat-row:hover .dsh-memory-nav-count{background:var(--m-count-bg-hover);color:var(--m-text-2)}
-.dsh-memory-nav-item-active .dsh-memory-nav-count,.dsh-memory-proj-row-active .dsh-memory-nav-count,.dsh-memory-cat-row-active .dsh-memory-nav-count{background:var(--m-primary);color:#fff;box-shadow:0 2px 8px rgba(65,118,230,.32)}
+.dsh-memory-nav-item-active .dsh-memory-nav-count,.dsh-memory-proj-row-active .dsh-memory-nav-count,.dsh-memory-cat-row-active .dsh-memory-nav-count{background:var(--m-primary);color:#fff;box-shadow:0 2px 8px color-mix(in srgb,var(--dsw-alias-state-business-primary) 32%,transparent)}
 .dsh-memory-nav-item-active:hover .dsh-memory-nav-count,.dsh-memory-proj-row-active:hover .dsh-memory-nav-count,.dsh-memory-cat-row-active:hover .dsh-memory-nav-count{background:var(--m-primary-hover);color:#fff}
 .dsh-memory-nav-count-pop{animation:dsh-memory-count-pop .3s cubic-bezier(.2,.8,.2,1)}
 @keyframes dsh-memory-count-pop{0%{transform:scale(.72);opacity:.25}55%{transform:scale(1.14)}100%{transform:scale(1);opacity:1}}
@@ -312,21 +310,21 @@ const SHEET = `
 .dsh-memory-section-header{display:flex;align-items:center;justify-content:space-between;padding:6px 8px 4px}
 .dsh-memory-section-title{font-size:13px;font-weight:500;line-height:20px;color:var(--m-text-2)}
 .dsh-memory-section-plus{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:none;border-radius:6px;background:transparent;color:var(--m-text-3);cursor:pointer;transition:background .14s ease,color .14s ease}
-.dsh-memory-section-plus:hover{background:rgba(65,118,230,.08);color:var(--m-primary)}
+.dsh-memory-section-plus:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent);color:var(--m-primary)}
 /* 二级布局：导航行占满首行，项目 / 分类各起新行；胶囊更小更轻 */
 .dsh-memory-proj-list{display:flex;flex-direction:column;flex-wrap:nowrap;gap:2px;flex:none;order:0;margin-top:0}
 .dsh-memory-proj-row{display:flex;align-items:center;gap:6px;width:100%;flex:none;box-sizing:border-box;height:28px;font-size:12px;border:1px solid var(--m-border);border-radius:999px;padding:0 10px 0 8px;padding:0 8px 0 6px;border:none;border-radius:7px;background:transparent;color:var(--m-text-2);font-family:inherit;font-size:12.5px;line-height:19px;text-align:left;cursor:pointer;transition:background .15s cubic-bezier(.2,.8,.2,1),color .15s cubic-bezier(.2,.8,.2,1)}
-.dsh-memory-proj-row:hover{background:rgba(65,118,230,.06);color:var(--m-text)}
+.dsh-memory-proj-row:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent);color:var(--m-text)}
 .dsh-memory-proj-row-active,.dsh-memory-proj-row-active:hover{background:var(--m-primary-soft);color:var(--m-primary);font-weight:600}
 .dsh-memory-cat-list{display:flex;flex-direction:column;flex-wrap:nowrap;gap:2px;flex:none;order:0}
 .dsh-memory-cat-row{display:flex;align-items:center;gap:6px;width:100%;flex:none;box-sizing:border-box;height:28px;font-size:12px;border:1px solid var(--m-border);border-radius:999px;padding:0 8px 0 8px;border:none;border-radius:6px;background:transparent;color:var(--m-text-2);font-family:inherit;font-size:12.5px;line-height:19px;text-align:left;cursor:pointer;transition:background .15s cubic-bezier(.2,.8,.2,1),color .15s cubic-bezier(.2,.8,.2,1)}
-.dsh-memory-cat-row:hover{background:rgba(65,118,230,.06);color:var(--m-text)}
+.dsh-memory-cat-row:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent);color:var(--m-text)}
 .dsh-memory-cat-row-active,.dsh-memory-cat-row-active:hover{background:var(--m-primary-soft);color:var(--m-primary);font-weight:600}
 .dsh-memory-cat-dot{flex:none;width:9px;height:9px;border-radius:50%;background:var(--dot,#5b8def)}
 .dsh-memory-cat-more{color:var(--m-text-3)}
 .dsh-memory-sidebar-foot{display:flex;margin:auto 0 0;padding:12px 0 0;border-top:1px solid var(--m-side-line);order:0}
 .dsh-memory-settings-nav{display:flex;align-items:center;gap:8px;width:100%;flex:none;box-sizing:border-box;height:32px;padding:0 10px;border:none;border-radius:8px;background:transparent;color:var(--m-text-2);font-family:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer;transition:background .15s cubic-bezier(.2,.8,.2,1),color .15s cubic-bezier(.2,.8,.2,1)}
-.dsh-memory-settings-nav:hover{background:rgba(65,118,230,.06);color:var(--m-text)}
+.dsh-memory-settings-nav:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent);color:var(--m-text)}
 .dsh-memory-settings-nav-active,.dsh-memory-settings-nav-active:hover{background:var(--m-primary-soft);color:var(--m-primary);font-weight:600}
 
 /* ── 顶栏：搜索框 + 统计 + 关闭 ───────────────────────────────────── */
@@ -335,7 +333,7 @@ const SHEET = `
 .dsh-memory-top-search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);display:inline-flex;color:var(--m-text-3);pointer-events:none}
 .dsh-memory-top-input{flex:1;min-width:0;height:34px;box-sizing:border-box;border:1px solid transparent;border-radius:10px;padding:0 66px 0 34px;font-size:13px;line-height:20px;font-family:inherit;color:var(--m-text);background:var(--dsw-alias-bg-module-platform,rgba(255,255,255,.04));transition:border-color .16s ease,background .16s ease,box-shadow .16s ease}
 .dsh-memory-top-input::placeholder{color:var(--m-text-3)}
-.dsh-memory-top-input:focus,.dsh-memory-top-input:focus-visible{outline:none;border-color:var(--m-primary);background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:0 0 0 3px rgba(65,118,230,.12)}
+.dsh-memory-top-input:focus,.dsh-memory-top-input:focus-visible{outline:none;border-color:var(--m-primary);background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
 .dsh-memory-top-kbd{position:absolute;right:10px;top:50%;transform:translateY(-50%);pointer-events:none;padding:1px 6px;border:1px solid var(--dsw-alias-border-l3,rgba(255,255,255,.16));border-radius:6px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--m-text-3);font-size:11px;line-height:16px}
 .dsh-memory-top-stats{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:13px;line-height:20px;color:var(--m-text-2);white-space:nowrap}
 .dsh-memory-top-stat{display:inline-flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums}
@@ -348,7 +346,7 @@ const SHEET = `
 .dsh-memory-filter-row{flex:none;display:flex;align-items:center;gap:8px;height:54px;padding:0 14px;background:var(--dsw-alias-bg-layer-1,#fff);border-bottom:1px solid var(--m-border)}
 .dsh-memory-filter-select{height:32px;box-sizing:border-box;border:1px solid var(--m-border-2);border-radius:10px;padding:0 30px 0 12px;font-size:13px;line-height:20px;font-family:inherit;color:var(--m-text);background-color:var(--dsw-alias-bg-layer-1,#fff);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%239CA3AF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;background-size:12px 12px;appearance:none;cursor:pointer;max-width:230px;transition:border-color .15s ease,box-shadow .15s ease}
 .dsh-memory-filter-select:hover{border-color:color-mix(in srgb,var(--m-text-3) 55%,transparent)}
-.dsh-memory-filter-select:focus,.dsh-memory-filter-select:focus-visible{outline:none;border-color:var(--m-primary);box-shadow:0 0 0 2px rgba(65,118,230,.12)}
+.dsh-memory-filter-select:focus,.dsh-memory-filter-select:focus-visible{outline:none;border-color:var(--m-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
 .dsh-memory-filter-tools{display:flex;align-items:center;gap:6px;margin-left:auto}
 .dsh-memory-tool-btn{flex:none;display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 12px;box-sizing:border-box;border:1px solid var(--m-border-2);border-radius:9px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--m-text-2);font-size:12.5px;font-weight:500;line-height:19px;font-family:inherit;cursor:pointer;transition:border-color .14s ease,color .14s ease,background .14s ease,transform .12s ease}
 .dsh-memory-tool-btn:hover:not(:disabled){border-color:var(--m-primary);color:var(--m-primary);background:var(--m-card-bg-sel)}
@@ -378,8 +376,8 @@ const SHEET = `
 
 /* ── 置顶卡（大卡：图标 + 标题 + 摘要 + 时间行） ──────────────────── */
 .dsh-memory-entry-card{position:relative;display:flex;flex-direction:column;min-width:0;max-width:calc(100% - 16px);box-sizing:border-box;margin:0 8px 6px;padding:8px 12px 7px;border:1px solid var(--m-card-line);border-radius:10px;background:var(--dsw-alias-bg-layer-1,#fff);cursor:pointer;transition:border-color .15s cubic-bezier(.2,.8,.2,1),background .15s cubic-bezier(.2,.8,.2,1),box-shadow .15s cubic-bezier(.2,.8,.2,1),transform .15s cubic-bezier(.2,.8,.2,1);animation:dsh-memory-entry-in .22s cubic-bezier(.2,.8,.2,1) both}
-.dsh-memory-entry-card:hover{border-color:var(--m-accent-line);box-shadow:0 2px 10px rgba(65,118,230,.07)}
-.dsh-memory-entry-card-sel,.dsh-memory-entry-card-sel:hover{border-color:var(--m-accent-line);background:var(--m-card-bg-sel);box-shadow:0 2px 12px rgba(65,118,230,.10)}
+.dsh-memory-entry-card:hover{border-color:var(--m-accent-line);box-shadow:0 2px 10px color-mix(in srgb,var(--dsw-alias-state-business-primary) 7%,transparent)}
+.dsh-memory-entry-card-sel,.dsh-memory-entry-card-sel:hover{border-color:var(--m-accent-line);background:var(--m-card-bg-sel);box-shadow:0 2px 12px color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}
 @keyframes dsh-memory-entry-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 /* 卡片是 align-items:flex-start 的纵向 flex：不给 top 行显式 stretch，
    长标题（white-space:nowrap）会把整行撑到卡片外，行尾的作用域徽章
@@ -436,13 +434,13 @@ const SHEET = `
    .dsh-memory-section-title 上，而面板用的是 -lg 后缀，等于没样式。 */
 .dsh-memory-section-title-lg{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;line-height:22px;color:var(--m-text);margin-top:12px}
 .dsh-memory-section-title{font-size:15px;font-weight:600;line-height:22px;color:var(--m-text);margin-top:12px}
-.dsh-memory-section-line{flex:none;width:28px;height:3px;border-radius:2px;background:#4176e6;margin:6px 0 8px}
+.dsh-memory-section-line{flex:none;width:28px;height:3px;border-radius:2px;background:var(--dsw-alias-state-business-primary);margin:6px 0 8px}
 .dsh-memory-stat{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;line-height:19px;color:var(--m-text-2);white-space:nowrap}
 .dsh-memory-stat-value{font-variant-numeric:tabular-nums;font-weight:600;color:var(--m-text)}
 .dsh-memory-stat-dot{flex:none;width:4px;height:4px;border-radius:50%;background:var(--dsw-alias-border-l3,rgba(255,255,255,.16))}
 .dsh-memory-relation-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .dsh-memory-relation-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border:1px solid var(--m-card-line);border-radius:10px;box-sizing:border-box;background:var(--dsw-alias-bg-layer-1,#fff);transition:border-color .15s ease,box-shadow .15s ease}
-.dsh-memory-relation-card:hover{border-color:var(--m-accent-line);box-shadow:0 2px 8px rgba(65,118,230,.06)}
+.dsh-memory-relation-card:hover{border-color:var(--m-accent-line);box-shadow:0 2px 8px color-mix(in srgb,var(--dsw-alias-state-business-primary) 6%,transparent)}
 .dsh-memory-relation-label{font-size:12px;line-height:18px;color:var(--m-text-3)}
 .dsh-memory-relation-main{display:flex;align-items:center;gap:6px;min-width:0;font-size:14px;font-weight:600;line-height:21px;color:var(--m-text)}
 .dsh-memory-relation-sub{font-size:12.5px;line-height:19px;color:var(--m-text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -458,7 +456,7 @@ const SHEET = `
 .dsh-memory-change-more[disabled]{opacity:.55;cursor:default;transform:none;box-shadow:none}
 .dsh-memory-related-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .dsh-memory-related-card{position:relative;display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:1px solid var(--m-card-line);border-radius:10px;box-sizing:border-box;background:var(--dsw-alias-bg-layer-1,#fff);cursor:pointer;text-align:left;font-family:inherit;transition:border-color .15s ease,box-shadow .15s ease,transform .15s cubic-bezier(.2,.8,.2,1)}
-.dsh-memory-related-card:hover{border-color:var(--m-accent-line);box-shadow:0 2px 8px rgba(65,118,230,.08);transform:translateY(-1px)}
+.dsh-memory-related-card:hover{border-color:var(--m-accent-line);box-shadow:0 2px 8px color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent);transform:translateY(-1px)}
 .dsh-memory-related-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600;line-height:20px;color:var(--m-text)}
 .dsh-memory-related-sub{display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;line-height:17px;color:var(--m-text-3)}
 .dsh-memory-related-arrow{position:absolute;top:8px;right:9px;color:var(--m-text-3);opacity:0;transition:opacity .14s ease,color .14s ease}
@@ -511,12 +509,12 @@ const SHEET = `
 .dsh-memory-search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);display:inline-flex;color:var(--m-text-3);pointer-events:none}
 .dsh-memory-search-input{flex:1;min-width:0;height:32px;box-sizing:border-box;border:1px solid var(--m-border-2);border-radius:9px;padding:0 30px 0 32px;font-size:13px;line-height:20px;font-family:inherit;color:var(--m-text);background:var(--dsw-alias-bg-layer-1,#fff);transition:border-color .15s ease,box-shadow .15s ease}
 .dsh-memory-search-input::placeholder{color:var(--m-text-3)}
-.dsh-memory-search-input:focus,.dsh-memory-search-input:focus-visible{outline:none;border-color:var(--m-primary);box-shadow:0 0 0 2px rgba(65,118,230,.12)}
+.dsh-memory-search-input:focus,.dsh-memory-search-input:focus-visible{outline:none;border-color:var(--m-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
 .dsh-memory-search-clear{position:absolute;right:6px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:none;border-radius:5px;padding:0;background:transparent;color:var(--m-text-3);cursor:pointer;transition:background .13s ease,color .13s ease}
 .dsh-memory-search-clear:hover{background:var(--m-hover);color:var(--m-text)}
 .dsh-memory-tag-select{height:32px;box-sizing:border-box;border:1px solid var(--m-border-2);border-radius:9px;padding:0 30px 0 11px;font-size:13px;line-height:20px;font-family:inherit;color:var(--m-text);background-color:var(--dsw-alias-bg-layer-1,#fff);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%239CA3AF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;background-size:12px 12px;appearance:none;max-width:240px;cursor:pointer;transition:border-color .15s ease,box-shadow .15s ease}
 .dsh-memory-tag-select:hover{border-color:color-mix(in srgb,var(--m-text-3) 55%,transparent)}
-.dsh-memory-tag-select:focus,.dsh-memory-tag-select:focus-visible{outline:none;border-color:var(--m-primary);box-shadow:0 0 0 2px rgba(65,118,230,.12)}
+.dsh-memory-tag-select:focus,.dsh-memory-tag-select:focus-visible{outline:none;border-color:var(--m-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
 .dsh-memory-scope-select{flex:none;max-width:190px}
 .dsh-memory-bar-sep{flex:none;width:1px;height:20px;background:var(--m-border-2)}
 .dsh-memory-segment{flex:none;display:inline-flex;align-items:center;gap:2px;padding:2px;height:32px;box-sizing:border-box;border-radius:9px;background:var(--m-side)}
@@ -535,10 +533,10 @@ const SHEET = `
 .dsh-memory-detail-form textarea,.dsh-memory-detail-form .dsh-memory-inline-input{box-sizing:border-box}
 .dsh-memory-inline-input{height:32px;box-sizing:border-box;border:1px solid var(--m-border-2);border-radius:9px;padding:0 10px;font-size:13px;line-height:20px;font-family:inherit;color:var(--m-text);background:var(--dsw-alias-bg-layer-1,#fff);transition:border-color .15s ease,box-shadow .15s ease}
 .dsh-memory-inline-input::placeholder{color:var(--m-text-3)}
-.dsh-memory-inline-input:focus,.dsh-memory-inline-input:focus-visible{outline:none;border-color:var(--m-primary);box-shadow:0 0 0 2px rgba(65,118,230,.12)}
+.dsh-memory-inline-input:focus,.dsh-memory-inline-input:focus-visible{outline:none;border-color:var(--m-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
 .dsh-memory-inline-textarea{min-height:64px;box-sizing:border-box;border:1px solid var(--m-border-2);border-radius:9px;padding:8px 10px;font-size:13px;line-height:20px;color:var(--m-text);background:var(--dsw-alias-bg-layer-1,#fff);resize:vertical;font-family:inherit;width:100%;transition:border-color .15s ease,box-shadow .15s ease}
 .dsh-memory-inline-textarea::placeholder{color:var(--m-text-3)}
-.dsh-memory-inline-textarea:focus,.dsh-memory-inline-textarea:focus-visible{outline:none;border-color:var(--m-primary);box-shadow:0 0 0 2px rgba(65,118,230,.12)}
+.dsh-memory-inline-textarea:focus,.dsh-memory-inline-textarea:focus-visible{outline:none;border-color:var(--m-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
 .dsh-memory-add-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .dsh-memory-check{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;line-height:19px;color:var(--m-text-2);cursor:pointer}
 .dsh-memory-check input{accent-color:var(--m-primary);margin:0}
@@ -572,7 +570,7 @@ const SHEET = `
 .dsh-memory-settings-hint{font-size:12px;line-height:18px;color:var(--m-text-3)}
 .dsh-memory-settings-control{flex:none;display:flex;align-items:center;gap:8px}
 .dsh-memory-number-input{width:96px;height:32px;box-sizing:border-box;border:1px solid var(--m-border-2);border-radius:9px;padding:0 10px;font-size:13px;line-height:20px;font-family:inherit;font-variant-numeric:tabular-nums;color:var(--m-text);background:var(--dsw-alias-bg-layer-1,#fff);transition:border-color .15s ease,box-shadow .15s ease}
-.dsh-memory-number-input:focus,.dsh-memory-number-input:focus-visible{outline:none;border-color:var(--m-primary);box-shadow:0 0 0 2px rgba(65,118,230,.12)}
+.dsh-memory-number-input:focus,.dsh-memory-number-input:focus-visible{outline:none;border-color:var(--m-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
 .dsh-memory-settings-foot{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding-top:4px}
 
 /* ── 骨架屏 ───────────────────────────────────────────────────────── */
@@ -672,7 +670,7 @@ body[data-ds-dark-theme] .dsh-memory-inject-card{background:var(--dsw-static-neu
    状态由开关本身承担：开 = 主文字色实心轨道 + 反色圆点，关 = 淡灰轨道。 */
 .dsh-memory-inject-row-on{background:transparent}
 @media (prefers-reduced-motion:reduce){.dsh-memory-inject-card,.dsh-memory-inject-card-on{transition:none}}
-.dsh-memory-switch:focus-visible,.dsh-memory-toggle:focus-visible{outline:none;box-shadow:0 0 0 2px rgba(65,118,230,.35)}
+.dsh-memory-switch:focus-visible,.dsh-memory-toggle:focus-visible{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 35%,transparent)}
 
 /* ── 窄屏适配 ─────────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
