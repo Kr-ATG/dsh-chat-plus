@@ -343,6 +343,56 @@ if (typeof activityColor === 'function') {
   }
 }
 
+// ── 用量筛选：下拉选项 id ↔ filterDaysByScope 比对值必须同口径 ──────────
+//
+// 真故障：模型下拉的 id 曾经是剥掉供应商前缀的短名（`deepseek-v4.1-flash`），
+// 而 filterDaysByScope 拿它跟完整 model 串（`wb/deepseek-v4.1-flash`）全等比较
+// —— 选任何模型都筛不出数据，四格归零、热力图全空、元信息显示
+// 「有量 0 天 · 0 个模型」；同时三个供应商下的同名模型会先在 Map 里被合并成
+// 一条，用户根本选不到其中任何一个。
+//
+// 口径固定为：**供应商选项 id = 前缀段；模型选项 id = 完整 model 串**。
+// 两条都必须能被 filterDaysByScope 原样吃下，这里用「选它筛出来的总量 =
+// 下拉里标的量」闭环断言，比断言字符串形状更抗改。
+{
+  const { collectModels, collectProviders, filterDaysByScope } = mod
+  if (typeof collectModels !== 'function' || typeof collectProviders !== 'function' || typeof filterDaysByScope !== 'function') {
+    fail('collectModels / collectProviders / filterDaysByScope must be exported from the client bundle')
+  } else {
+    const filterDays = [{
+      date: '2026-10-01',
+      inputTokens: 100, outputTokens: 50, cacheReadTokens: 10, cacheWriteTokens: 5, tokens: 165, cacheHitRate: 9,
+      models: [
+        { model: 'group/auto-deepseek-v4-1-flash', inputTokens: 100, outputTokens: 50, cacheReadTokens: 10, cacheWriteTokens: 5, tokens: 165, cacheHitRate: 9 },
+        { model: 'workbuddy-ai/deepseek-v4.1-flash', inputTokens: 20, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: 30, cacheHitRate: 0 },
+        { model: 'workbuddy/deepseek-v4.1-flash', inputTokens: 7, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: 10, cacheHitRate: 0 },
+        { model: 'plainmodel', inputTokens: 5, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: 6, cacheHitRate: 0 },
+      ],
+    }]
+
+    const models = collectModels(filterDays, null)
+    const providers = collectProviders(filterDays)
+    const mismatched = [
+      ...models.map((o) => ['model', o]),
+      ...providers.map((o) => ['provider', o]),
+    ].filter(([kind, o]) => {
+      const got = filterDaysByScope(filterDays, kind === 'provider' ? o.id : null, kind === 'provider' ? null : o.id)[0].tokens
+      return got !== o.tokens
+    })
+
+    // 同名不同供应商的模型必须是两条独立选项（合并 = 用户选不到其中任何一个）。
+    const sameName = models.filter((m) => m.label === 'deepseek-v4.1-flash')
+
+    if (mismatched.length > 0) {
+      fail(`下拉选项 id 与 filterDaysByScope 口径不一致（选了筛不出数据）：${mismatched.map(([k, o]) => `${k}:${o.id}`).join(' / ')}`)
+    } else if (sameName.length !== 2) {
+      fail(`同名不同供应商的模型必须各自独立成项，期望 2 条 deepseek-v4.1-flash，实际 ${sameName.length} 条`)
+    } else {
+      pass(`用量筛选口径一致：${models.length} 个模型 / ${providers.length} 个供应商选项都能筛出下拉里标的量（同名模型各自独立）`)
+    }
+  }
+}
+
 // ── 人话行动流：工具调用 → 中文人话 + 时间线组装 ────────────────────────
 //
 // extractIntent 已随「执行过程播报」整条通道下掉（2026-10-01）：承载它的预告行

@@ -266,5 +266,12 @@ export function apply(ctx: ClientContext): void {
 
 /** 纯逻辑再导出：供 smoke 断言「Token 活动」贡献热力模型 + 人话行动流翻译。 */
 export { buildActivityGrid, activityColor, ACTIVITY_COLUMNS }
+/**
+ * 纯逻辑再导出：用量筛选的下拉选项 ↔ filterDaysByScope 口径。
+ *
+ * 这条口径踩过真坑（选模型后四格全 0、热力图全空），冒烟要能直接断言它，
+ * 所以从 triad 半身一路转发到 client 入口。
+ */
+export { collectModels, collectProviders, filterDaysByScope, providerOfModel } from './triad/usage/dashboard/aggregate.ts'
 export { toPlainStep, plainToolName, siteOf, isMetaTool, spawnsSubagents, humanIssue } from './kr-chat/plain-language.ts'
 export { buildPlainTimeline, condenseSteps } from './kr-chat/plain-timeline.ts'

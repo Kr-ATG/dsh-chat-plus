@@ -69,3 +69,11 @@ export function applyTriadClient(ctx: ClientContext): void {
 
 /** 纯逻辑导出：供 smoke 测试直接断言「Token 活动」贡献热力模型。 */
 export { buildActivityGrid, activityColor, ACTIVITY_COLUMNS }
+/**
+ * 纯逻辑导出：供 smoke 断言「下拉选项 id ↔ 筛选比对值」口径一致。
+ *
+ * 这条口径踩过真坑（选模型后四格全 0、热力图全空），必须由冒烟钉死：
+ * 供应商选项的 id 是前缀段、模型选项的 id 是完整 model 串，两者都要能被
+ * `filterDaysByScope` 原样吃下。
+ */
+export { collectModels, collectProviders, filterDaysByScope, providerOfModel } from './usage/dashboard/aggregate.js'

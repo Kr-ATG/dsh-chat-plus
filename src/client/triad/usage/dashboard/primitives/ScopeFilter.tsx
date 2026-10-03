@@ -9,13 +9,19 @@
  * 供应商与模型是**级联**关系：选了供应商，模型下拉只列该供应商的模型；
  * 反过来选了模型（必然已经隐含了供应商），供应商下拉仍保持当前值不变，
  * 避免用户想「换个模型」时两级互相打架。
+ *
+ * ⚠️ 选项的 `id` 是**完整 model 串**（含 `provider/` 前缀），label 才是剥了前缀
+ * 的短名——筛选按 id 全等比对，曾经这里拿 label 当 id 用过，选任何模型都筛不出
+ * 数据（详见 aggregate.ts 的 collectOptions 注释）。因为 id 完整，同名不同供应商
+ * 的模型（`workbuddy-ai/deepseek-v4.1-flash` 与 `workbuddy/deepseek-v4.1-flash`）
+ * 是两个独立选项，展示时必须带上供应商前缀才不会读成同一个。
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { css, CheckIcon } from '../hub'
 import { formatUnits } from '../format'
-import type { ScopeOption } from '../aggregate'
+import { providerOfModel, type ScopeOption } from '../aggregate'
 
 export interface ScopeFilterProps {
   providers: ScopeOption[]
@@ -28,6 +34,24 @@ export interface ScopeFilterProps {
 
 const ALL_LABEL = '全部供应商'
 const ALL_MODEL_LABEL = '全部模型'
+
+/**
+ * 同名模型的消歧后缀。
+ *
+ * 只在**确实重名**时才加供应商前缀：`deepseek-v4.1-flash` 在三个供应商下都有，
+ * 三条并列时用户分不出选哪条；而唯一的模型加上前缀只是白白变长。
+ * @param options - 当前下拉的全部选项。
+ * @returns id → 追加的供应商前缀（无重名时为空串）。
+ */
+function disambiguationOf(options: ScopeOption[]): Map<string, string> {
+  const byLabel = new Map<string, number>()
+  for (const o of options) byLabel.set(o.label, (byLabel.get(o.label) ?? 0) + 1)
+  const out = new Map<string, string>()
+  for (const o of options) {
+    if ((byLabel.get(o.label) ?? 0) > 1) out.set(o.id, providerOfModel(o.id))
+  }
+  return out
+}
 
 /** 一个下拉：触发钮 + 透明遮罩 + 浮层菜单（可带搜索）。 */
 function Dropdown({
@@ -64,12 +88,24 @@ function Dropdown({
 
   useEffect(() => { if (!open) setQuery('') }, [open])
 
+  /** 重名模型的消歧后缀（id → 供应商前缀）。 */
+  const disambiguation = useMemo(() => disambiguationOf(options), [options])
+
+  /** 展示名：重名时补上 `供应商 · ` 前缀。 */
+  const displayOf = (o: ScopeOption): string => {
+    const prefix = disambiguation.get(o.id)
+    return prefix === undefined ? o.label : `${prefix} · ${o.label}`
+  }
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return q === '' ? options : options.filter((o) => o.label.toLowerCase().includes(q))
+    // 搜索同时匹配展示名与完整 id：用户可能记得 `workbuddy-ai/...` 这种全名。
+    return q === '' ? options : options.filter((o) => o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q))
   }, [options, query])
 
-  const current = value === null ? allLabel : (options.find((o) => o.id === value)?.label ?? value)
+  // 当前值也要带消歧前缀，否则选中重名模型后触发钮上读不出选的是哪一个。
+  const currentOption = value === null ? undefined : options.find((o) => o.id === value)
+  const current = value === null ? allLabel : (currentOption === undefined ? value : displayOf(currentOption))
 
   const toggle = (): void => {
     if (open) { setOpen(false); return }
@@ -142,7 +178,7 @@ function Dropdown({
                 onClick={() => { onSelect(o.id); setOpen(false) }}
               >
                 <span className={css.dropCheck} data-on={o.id === value || undefined} aria-hidden="true"><CheckIcon size={11} /></span>
-                <span className="usm-scope-item-label">{o.label}</span>
+                <span className="usm-scope-item-label">{displayOf(o)}</span>
                 <span className="usm-scope-item-num">{formatUnits(o.tokens)}</span>
               </button>
             ))}

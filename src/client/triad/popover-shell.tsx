@@ -61,8 +61,17 @@ const SHEET = `
 /* ── 卡片：compact 定尺寸小卡片 / 底部 sheet 回退 ── */
 .psh-card{position:fixed;z-index:1000;display:flex;flex-direction:column;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.14));border-radius:14px;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-2,#16181d));box-shadow:var(--dsw-shadow-lv3,0 8px 40px rgba(0,0,0,.5));overflow:hidden;transition:width ${MODAL_ANIM_MS}ms cubic-bezier(.2,.8,.2,1),height ${MODAL_ANIM_MS}ms cubic-bezier(.2,.8,.2,1)}
 /* compact：贴入口弹出的小卡片。宽高与位置由组件内联给（已按视口夹紧），这里
-   只需撤掉尺寸过渡（改视口时即时跟随，别拖动画）。 */
-.psh-card[data-mode='compact']{right:auto;bottom:auto;max-height:none;transition:none}
+   只需撤掉尺寸过渡（改视口时即时跟随，别拖动画）。
+   max-height 是**内容超出视口时**的最后兜底：正常内容下卡片高度=内容高度、
+   完全没有滚动；只有当日模型明细多到一屏放不下时才出现滚动条（那时没有别的
+   出路，fixed 卡片没法把溢出部分推到屏幕外）。
+   注意 psh-body 在这里必须 flex:none —— 卡片高度由内容决定时，flex:1 的
+   子项会按 flex-basis:0 被压成 0 高（auto 高度容器里没有"剩余空间"可分配）。 */
+.psh-card[data-mode='compact']{right:auto;bottom:auto;max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);transition:none;overflow-y:auto}
+.psh-card[data-mode='compact'] .psh-body{flex:none;overflow:visible}
+/* sheet（窄屏全屏）是固定 100dvh 的，内容再长也长不出屏幕，只能让主体滚——
+   这是「卡片自适应」在窄屏唯一可行的兜底（桌面端 compact 永远不滚）。 */
+.psh-card[data-mode='sheet'] .psh-body{overflow-y:auto}
 .psh-card[data-mode='compact'][data-anim='in']{animation:dsh-psh-pop-in 200ms cubic-bezier(.2,.8,.2,1)}
 .psh-card[data-mode='compact'][data-anim='out']{animation:dsh-psh-pop-out 180ms cubic-bezier(.4,0,.2,1) both}
 @keyframes dsh-psh-pop-in{from{opacity:0;transform:translateY(10px) scale(.975)}to{opacity:1;transform:translateY(0) scale(1)}}
@@ -93,10 +102,18 @@ html[data-dsh-glass] body[data-ds-dark-theme] .psh-card[data-solid]{
 /* ── 移动端：compact 强制全屏 sheet（100vw / 100dvh，radius 0）。
      参考 tool-summary .dts__modal 的 767.98px 写法；!important 压过组件内联
      left/top/width/height。page 形态本来就是铺满 main，无需适配。
+
+     ⚠️ 选择器必须带 [data-mode]，不能只写 .psh-card。
+     踩过的坑：这里原本是 .psh-card（特异性 0,1,0），而上面那条
+     .psh-card[data-mode='sheet']（0,2,0）里写的是 top:auto !important /
+     bottom:12px。两条都带 !important 时按特异性决胜 → top 被 sheet 规则的
+     auto !important 拿走、bottom 被本块的 auto !important 拿走，卡片既没有
+     top 也没有 bottom，落回**静态位置**（视口下方，实测 top=视口高），窄屏下
+     用量卡片整个看不见。选择器提到同等特异性（0,2,0）并靠顺序取胜即可。
      transform:none 仅作静态兜底，滑入/滑出动画的 keyframe transform 仍优先播放；
      本块注释内容未写出「星号紧跟正斜杠」两字符序列。 ── */
 @media (max-width: 767.98px){
-  .psh-card{
+  .psh-card[data-mode]{
     left:0 !important;
     top:0 !important;
     right:auto !important;
@@ -206,26 +223,59 @@ export function PopoverShell({
   }, [page])
   const vw = vp.w
   const anim = closing ? 'out' : 'in'
-  // 窄屏回退全屏 sheet；桌面端 compact 走定尺寸小卡片。
+  // 窄屏回退全屏 sheet；桌面端 compact 走内容自适应的小卡片。
   const narrow = vw < NARROW_VP
   const compact = variant === 'compact' && !narrow
   const mode = narrow ? 'sheet' : 'compact'
+  /*
+   * 卡片实高（内容撑开后的真实高度）。
+   *
+   * compact 形态不再写死高度：卡片高度 = 内容高度（选某天多一张明细卡就自动
+   * 长高），所以定位要用的 h 只能**测**出来。测到之前先用一个保守初值，避免
+   * 首帧把卡片放到视口外（测完那一帧修正，位置过渡是关掉的，不会看到抖动）。
+   */
+  const [measuredH, setMeasuredH] = useState<number | null>(null)
   const style: CSSProperties | undefined = compact
     ? ((): CSSProperties => {
-      // 卡片贴着侧栏右缘 + 12px；宽高取理想值并夹在「主区宽 - 24」「视口高 - 24」内，
-      // 位置再夹一次，保证任何窗口尺寸下都不会溢出屏幕。
+      // 卡片贴着侧栏右缘 + 12px；宽度取理想值并夹在「主区宽 - 24」内，
+      // 高度取实测值（未测到先按 360 估），位置再夹一次，保证不溢出屏幕。
       const w = Math.min(size?.width ?? width, Math.max(280, vw - mainLeft - 24))
-      const h = Math.min(size?.height ?? 560, Math.max(220, vp.h - 24))
+      const h = size?.height ?? measuredH ?? 360
       const wantLeft = Math.max(mainLeft + 12, anchor?.left ?? mainLeft + 12)
       const wantTop = anchor?.top ?? 12
       return {
         left: Math.min(wantLeft, Math.max(12, vw - w - 12)),
         top: Math.min(Math.max(12, wantTop), Math.max(12, vp.h - h - 12)),
         width: w,
-        height: h,
+        // 显式高度只在调用方给了固定值时才设；否则交给内容（配合 CSS 的
+        // max-height 兜底），这样卡片永远不多出一截空白、也不裁内容。
+        ...(size?.height !== undefined ? { height: size.height } : {}),
       }
     })()
     : undefined
+
+  /*
+   * 测量 compact 卡片的真实高度。
+   *
+   * 用 ResizeObserver 而不是 useLayoutEffect 一次性读：卡片内容会变（选中某天
+   * 多出明细卡、后台更新提示出现/消失、模型名换行），高度得跟着走。
+   * 只依赖 CSS 的 max-height 兜底还不够——定位（top 夹紧）要用 h 才能保证
+   * 长卡片不会从视口下缘伸出去。
+   */
+  const cardRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!compact || closing) return undefined
+    const card = cardRef.current
+    if (card === null || typeof ResizeObserver === 'undefined') return undefined
+    const read = (): void => {
+      const h = card.getBoundingClientRect().height
+      setMeasuredH((prev) => (prev !== null && Math.abs(prev - h) < 1 ? prev : Math.round(h)))
+    }
+    read()
+    const observer = new ResizeObserver(read)
+    observer.observe(card)
+    return () => { observer.disconnect() }
+  }, [compact, closing])
 
   /*
    * Esc 关闭。
@@ -251,7 +301,6 @@ export function PopoverShell({
    * 进得去面板——面板等于键盘不可达。focus 记在 ref 里（不用模块级变量），
    * 多个面板同时存在也不会串。
    */
-  const cardRef = useRef<HTMLDivElement | null>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
     if (page || closing) return undefined

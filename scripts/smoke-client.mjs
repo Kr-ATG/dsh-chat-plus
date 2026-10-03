@@ -1341,6 +1341,37 @@ if (krEnabled) {
   }
 }
 
+// ── 用量卡片：高度内容自适应 + 卡片内不滚动（用户明确要求） ────────────
+//
+// 用户原话：「用量页面不能够自动自适应卡片长度，这让我很困惑，我不想要滚动的方式」。
+// 旧实现是 414 / 560 两档写死高度，配上 `.usm-uc { overflow-y:auto }` —— 内容
+// 只有 298px 时卡片仍占 414，多出来的部分既空又带一条滚动条；选中某天后高度
+// 跳一档，长模型名还会被裁。
+//
+// 契约（三条一起才成立）：
+//   1. UsagePanel 不再给 size.height（只给宽度）→ 走内容自适应分支；
+//   2. .usm-uc 不得再有 overflow-y:auto / flex:1（否则内容没超出也留滚动条）；
+//   3. PopoverShell 必须实测卡片高度并据此夹紧 top（否则长卡片会伸出视口下缘）。
+{
+  const usageSrc = readFileSync(resolve(ROOT, 'src/client/triad/usage/dashboard/UsagePanel.tsx'), 'utf-8')
+  const shellSrc = readFileSync(resolve(ROOT, 'src/client/triad/popover-shell.tsx'), 'utf-8')
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+
+  const usageCode = strip(usageSrc)
+  const ucRule = /\.usm-uc\s*\{([^}]*)\}/.exec(usageCode)?.[1] ?? ''
+  const violations = []
+  if (/size=\{\{\s*width:[^}]*height:/.test(usageCode)) violations.push('UsagePanel 不得再给 size.height（卡片高度必须由内容决定）')
+  if (/overflow-y\s*:\s*auto/.test(ucRule)) violations.push('.usm-uc 不得再滚动（overflow-y:auto）')
+  if (/flex\s*:\s*1\s+1\s+auto/.test(ucRule)) violations.push('.usm-uc 不得再 flex:1（内容高度容器里没有剩余空间可分配）')
+  if (!/ResizeObserver/.test(shellSrc)) violations.push('PopoverShell 必须实测卡片高度（ResizeObserver），否则长卡片会伸出视口下缘')
+
+  if (violations.length > 0) {
+    fail(`用量卡片自适应契约被破坏：${violations.join(' / ')}`)
+  } else {
+    pass('用量卡片：高度内容自适应（不给 size.height / 主体不滚动 / 实测高度夹紧定位）')
+  }
+}
+
 // ── 邮箱工作台（Agent Mail）座位契约 ─────────────────────────────────
 // 2026-10-04 改版：入口由「自绘导航行 + portal 到 body 的 fixed 抽屉」改为官方
 // `main` 页 + `sidebar.panellist` 菜单行。旧契约（open=false 必须返回 null）防的是

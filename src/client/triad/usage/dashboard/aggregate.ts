@@ -70,29 +70,57 @@ export function modelNameOf(model: string): string {
 /** 某个下拉项：id 参与筛选，label 展示，tokens 供排序与占比提示。 */
 export interface ScopeOption { id: string; label: string; tokens: number }
 
-/** 按 tokens 降序汇总选项；`within` 限定在某供应商内的模型（null = 全部）。 */
-function collectOptions(days: UsageDay[], within: string | null, key: (model: string) => string): ScopeOption[] {
+/**
+ * 按 tokens 降序汇总选项。
+ *
+ * ⚠️ **`idOf`（分组键 / 筛选比对值）与 `labelOf`（展示名）必须分开**，两者的
+ * 取值域由 `filterDaysByScope` 决定：
+ *
+ *  - 供应商：筛选时比的是 `providerOfModel(m.model)`，所以 id 必须是**前缀段**
+ *    （`workbuddy-ai`），不是完整 model 串；
+ *  - 模型：筛选时比的是完整 `m.model`，所以 id 必须是**完整串**
+ *    （`workbuddy-ai/deepseek-v4.1-flash`），label 才可以剥成短名。
+ *
+ * 这里踩过一次真坑：曾经只用**一个** `key` 同时当分组键、id 与展示名，于是
+ *  - 模型下拉的 id 成了剥前缀的 `deepseek-v4.1-flash`，拿它跟完整 model id 全等
+ *    比较 → 选任何模型都筛不出数据，四格归零、热力图全空、元信息显示
+ *    「有量 0 天 · 0 个模型」；
+ *  - 三个供应商下的同名模型会先在 Map 里被合并成一条，用户根本选不到其中任何一个。
+ *
+ * @param days - 参与汇总的日期。
+ * @param within - 限定在某供应商内（null = 全部）。
+ * @param idOf - 原始 model id → 分组键（同时是筛选比对值）。
+ * @param labelOf - 原始 model id → 展示名。
+ * @returns 按 tokens 降序的选项。
+ */
+function collectOptions(
+  days: UsageDay[],
+  within: string | null,
+  idOf: (model: string) => string,
+  labelOf: (model: string) => string,
+): ScopeOption[] {
   const totals = new Map<string, number>()
   for (const d of days) {
     for (const m of d.models ?? []) {
       if (within !== null && providerOfModel(m.model) !== within) continue
-      const id = key(m.model)
+      const id = idOf(m.model)
       totals.set(id, (totals.get(id) ?? 0) + (m.tokens ?? 0))
     }
   }
   return [...totals]
-    .map(([id, tokens]) => ({ id, label: within === null && key === modelNameOf ? modelNameOf(id) : id, tokens }))
+    .map(([id, tokens]) => ({ id, label: labelOf(id), tokens }))
     .sort((a, b) => b.tokens - a.tokens || a.id.localeCompare(b.id))
 }
 
-/** 范围内出现过的供应商，按 token 降序。 */
+/** 范围内出现过的供应商，按 token 降序。id 与展示名同为前缀段。 */
 export function collectProviders(days: UsageDay[]): ScopeOption[] {
-  return collectOptions(days, null, providerOfModel)
+  return collectOptions(days, null, providerOfModel, (provider) => provider)
 }
 
 /** 范围内的模型（`within` 给了供应商则只看该供应商），按 token 降序。 */
 export function collectModels(days: UsageDay[], within: string | null): ScopeOption[] {
-  return collectOptions(days, within, modelNameOf)
+  // id 保留完整 model 串（筛选按它全等比对），展示名剥掉前缀读起来更短。
+  return collectOptions(days, within, (model) => model, modelNameOf)
 }
 
 /**

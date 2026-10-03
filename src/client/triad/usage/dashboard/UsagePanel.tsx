@@ -27,15 +27,15 @@ import { modalStaggerClass } from '../../triad-modal-animation'
 import { ensureHubStyles, CloseIcon, tokensIcon, inputIcon, outputIcon, hitIcon } from './hub'
 
 /**
- * 卡片尺寸（px）：比工作台小一个量级，仍能一行放下 52 周热力（9px 格）。
+ * 卡片宽度（px）：比工作台小一个量级，仍能一行放下 52 周热力（9px 格）。
  *
- * 两档高度对应两种内容形态，各自刚好填满：默认「范围 + 供应商/模型 + 四格 +
- * 热力」约 356px，选中某天后多出当日模型明细卡（约 530px）。沿用 560 会让默认
- * 态在卡片下半截留两百多像素空白，而 compact 形态刻意关掉了 height transition
- * （避免和入场 pop 动画抢 height），所以靠两档定值而不是动画过渡。
+ * 高度**不再写死**（2026-10-04）：曾经用 414 / 560 两档定值去凑两种内容形态，
+ * 结果是「选某天」时高度跳一档、长模型名换行时内容被裁、而 `.usm-uc` 上还留着
+ * `overflow-y:auto` —— 用户看到的是卡片里凭空多出一条滚动条，且卡底一片空白
+ * （默认态 414 里内容只占 298）。现在 compact 形态的高度完全由内容撑开
+ * （`PopoverShell` 的 `size.height` 不传），内部也不滚动。
  */
-const CARD_SIZE = { width: 648, height: 414 }
-const CARD_SIZE_WITH_DAY = { width: 648, height: 560 }
+const CARD_WIDTH = 648
 
 const STYLE_ID = 'dsh-usage-compact-styles'
 
@@ -48,7 +48,11 @@ const STALE_POLL_MS = 1500
  * 注释里不出现会提前闭合注释块的字符序列。
  */
 const SHEET = `
-.usm-uc { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; overflow-y: auto; }
+/* 卡片主体：高度由内容撑开（不设 flex:1 / overflow），卡片多高它多高。
+   曾经这里是 flex:1 1 auto + min-height:0 + overflow-y:auto —— 在写死高度的
+   卡片里那是必要的（内容超出靠内部滚动），但用户明确不要滚动，且卡片高度现在
+   自适应，这行就成了「内容没超出也留着一条滚动条」的来源。 */
+.usm-uc { flex: none; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; }
 .usm-uc-top { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .usm-uc-meta { flex: 1 1 auto; min-width: 0; text-align: right; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary, #81858c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .usm-uc-sync { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; line-height: 16px; color: var(--dsw-alias-state-business-primary, #4176e6); white-space: nowrap; animation: usm-sync-in 180ms ease-out; }
@@ -68,6 +72,9 @@ const SHEET = `
 .usm-uc-day-sum { font-size: 11px; line-height: 18px; color: var(--dsw-alias-label-tertiary, #81858c); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .usm-uc-close { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: auto; border: none; border-radius: 6px; padding: 0; background: transparent; cursor: pointer; color: var(--dsw-alias-label-tertiary, #81858c); }
 .usm-uc-close:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.06)); color: var(--dsw-alias-label-primary, #0f1115); }
+/* 当日模型明细：同样不滚动（当日模型通常 1–5 个，几十个的极端情况由卡片整体
+   高度自适应承担，而不是在卡内再嵌一层滚动条）。 */
+.usm-uc-models { display: flex; flex-direction: column; }
 .usm-uc-model { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 3px 0; font-size: 12px; line-height: 17px; }
 .usm-uc-model + .usm-uc-model { border-top: 1px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.05)); }
 .usm-uc-model-name { flex: 1 1 auto; min-width: 0; color: var(--dsw-alias-label-primary, #0f1115); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -209,7 +216,9 @@ export function UsagePanel({ closing = false, onClose, anchor = null }: UsagePan
       closing={closing}
       onClose={onClose}
       anchor={anchor}
-      size={selectedDay === null ? CARD_SIZE : CARD_SIZE_WITH_DAY}
+      /* 只给宽度、不给高度：compact 形态据此走「内容自适应」分支，
+         卡片高度由 .usm-uc 的实际内容撑开（选某天多一张明细卡就自动长高）。 */
+      size={{ width: CARD_WIDTH }}
       variant="compact"
       ariaLabel="用量"
     >
@@ -330,7 +339,9 @@ function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChang
               <CloseIcon size={11} />
             </button>
           </div>
-          <div style={{ maxHeight: 132, overflowY: 'auto' }}>
+          {/* 当日模型明细：不设 maxHeight / overflow —— 卡片高度由内容撑开，
+              在这里再嵌一层滚动条就是用户说的「卡片里凭空多出一条滚动」。 */}
+          <div className="usm-uc-models">
             {[...(day.models ?? [])].sort((a, b) => b.tokens - a.tokens).map(m => (
               <div key={m.model} className="usm-uc-model">
                 <span className="usm-uc-model-name" title={m.model}>{m.model}</span>

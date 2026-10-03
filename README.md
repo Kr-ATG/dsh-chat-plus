@@ -323,7 +323,7 @@ host 侧**零改动**：复用面板那套 `/delete-batch`（一次事务删完�
 （不 portal、不遮罩、不抢焦点，只做 140ms opacity 淡入——刻意不用 transform：动画的
 transform 会把本根变成后代 `position:fixed` 元素（图表 tooltip）的包含块，浮层会整体偏移）。
 
-**用量为什么保留浮层**：它点开的是贴入口弹出的 **648×414 紧凑小卡**而不是整页视图，
+**用量为什么保留浮层**：它点开的是贴入口弹出的 **648px 宽紧凑小卡**（高度随内容）而不是整页视图，
 官方菜单行只表达「选中一个 main 页面」，装不下这个语义。点用量导航行前会先
 `selectPanel(null)` 把 main 切回会话——否则卡片会压在别人那一页上面，用户以为自己
 还在那个工作台里。
@@ -505,8 +505,9 @@ agently-cli +me                               # 验证，打印邮箱地址
 侧边栏「用量」原本是**铺满会话主区的四 tab 工作台**（明细 / 趋势 / 信号 / 余额·配额），
 这一轮按「只要热力图 + token 消耗查询」的诉求砍到一张小卡片：
 
-- **形态**：从 drawer 变 compact —— 不再盖住整个主区，而是贴入口弹出 **648×560** 的浮层
-  （`PopoverShell` 新增 `variant="compact"`，宽高内联并按视口夹紧，窄屏仍回退全屏 sheet）。
+- **形态**：从 drawer 变 compact —— 不再盖住整个主区，而是贴入口弹出 **648px 宽**的浮层
+  （`PopoverShell` 新增 `variant="compact"`，宽度内联并按视口夹紧，高度由内容撑开——
+  2026-10-04 起不再写死；窄屏仍回退全屏 sheet）。
   技能面板 / 记忆面板继续走原 drawer 形态，行为不变。
 - **内容**：只留 52 周 Token 活动热力（每周 / 累计口径 + 指标下拉，点格子看当日模型明细）
   与范围胶囊查询（今日 … 自定义）联动的四格汇总：合计 / 输入 / 输出 / 缓存。范围只作用于
@@ -549,8 +550,68 @@ agently-cli +me                               # 验证，打印邮箱地址
   全量对不上会被当成 bug。
 - **筛选态下摘掉「调用次数」指标**：host 的 models 项不带调用次数，按模型拆不出来，
   归零后热力图会是一片全空的格子。
-- 刷新按钮真正走 `?refresh=1`（之前只是重新拉一次，拿到的是同一份旧快照）；
-  卡片高度改两档定值（414 / 560），消掉下半截约 200px 空白与内容溢出。
+- 刷新按钮真正走 `?refresh=1`（之前只是重新拉一次，拿到的是同一份旧快照）。
+
+### 用量：修模型选择筛不出数据 + 卡片高度自适应（2026-10-04）
+
+用户报了两件事：「用量的模型选择有问题」「用量页面不能够自动自适应卡片长度，这让我很困惑，
+我不想要滚动的方式」。两个都复现到了，根因各自独立。
+
+**① 选任何模型都筛不出数据**（四格归零、热力图全空、元信息显示「有量 0 天 · 0 个模型」）。
+
+根因是**一处 `key` 被当成三种语义用**：`collectOptions(days, within, key)` 里
+`const id = key(m.model)` 同时充当分组键、下拉选项 id 与展示名。对模型来说 `key` 是
+`modelNameOf`（剥掉 `provider/` 前缀），于是选项 id 成了 `deepseek-v4.1-flash`；而
+`filterDaysByScope` 拿它跟**完整** model 串（`wb/deepseek-v4.1-flash`）做全等比较 ——
+永远匹配不上。更隐蔽的第二个症状：三个供应商下的同名模型会先在 `Map` 里被合并成一条，
+用户根本选不到其中任何一个。
+
+修法是把两种语义**彻底拆开**，取值域由 `filterDaysByScope` 反推：
+
+| | 分组键 / 选项 id（筛选比对值） | 展示名 |
+|---|---|---|
+| 供应商 | `providerOfModel(m)` → 前缀段 `wb` | 同 id |
+| 模型 | `m` 本身 → 完整串 `wb/deepseek-v4.1-flash` | `modelNameOf` → `deepseek-v4.1-flash` |
+
+连带两处呈现修正（否则「能筛了」仍不好用）：重名模型在菜单与触发钮上补
+`供应商 · 短名` 消歧后缀（**只在确实重名时加**，唯一模型加前缀只是白白变长）；
+搜索同时匹配展示名与完整 id（用户可能记得 `workbuddy-ai/...` 这种全名）。
+
+**② 卡片高度写死 + 卡内滚动条**。
+
+旧实现是 414 / 560 两档定值去凑两种内容形态，配上 `.usm-uc { flex:1 1 auto;
+min-height:0; overflow-y:auto }` —— 默认态内容只有 298px 却占满 414px（下半截空白
++ 一条常驻滚动条），选中某天后高度跳一档，长模型名还会被裁。当日明细区另有一层
+`maxHeight:132; overflowY:auto`，于是卡片里出现**第二条**滚动条。
+
+改成**高度完全由内容撑开**：
+
+- `UsagePanel` 只给 `size={{ width }}`、不再给 `height` → `PopoverShell` 走自适应分支
+  （不给内联 height，交给内容；`max-height: calc(100dvh - 24px)` 只作最后兜底）；
+- `.usm-uc` 去掉 `flex:1 / min-height:0 / overflow-y:auto`，当日明细去掉 `maxHeight`；
+- `PopoverShell` 用 `ResizeObserver` **实测**卡片高度并据此夹紧 `top` —— 内容会变
+  （选中某天多出明细卡、后台更新提示出现/消失），高度得跟着走，否则长卡片会从视口
+  下缘伸出去。实测：默认 397px → 选某天 476px → 7 个模型 620px，全程无滚动。
+
+**③ 顺手修掉窄屏 sheet 定位到视口外的既有 bug**（上一轮报告过）。
+
+窄屏（<768px）用量卡片回退全屏 sheet 时，实测 `top: 800px`（= 视口高）、完全不可见。
+根因是 **`!important` 之间的特异性冲突**：`.psh-card[data-mode='sheet']`（0,2,0）写
+`top:auto !important`，而媒体查询里的 `.psh-card`（0,1,0）写 `top:0 !important` /
+`bottom:auto !important` —— 按特异性决胜后 `top` 归 sheet 规则的 `auto`、`bottom` 归
+媒体查询的 `auto`，卡片既无 top 也无 bottom，落回静态位置。修法是把媒体查询选择器提到
+同等特异性（`.psh-card[data-mode]`，0,2,0）靠顺序取胜；同时给 sheet 的 `.psh-body`
+补 `overflow-y:auto`（固定 100dvh 的容器里内容再长也长不出屏幕，这是窄屏唯一可行的兜底；
+桌面端 compact 永远不滚）。
+
+> 两处踩到的构建守卫：CSS 注释里写了反引号，模板字面量提前闭合 → esbuild 报
+> `Expected ";" but found "flex"`。`build.mjs` 的注入式 CSS 守卫（`assertInjectedCssStrings`）
+> 与 esbuild 语法检查一起把这类错误挡在构建期，注释里一律不要出现反引号。
+
+`smoke-client.mjs` 新增「用量卡片自适应契约」三条断言（不给 `size.height` / `.usm-uc`
+不滚动 / `PopoverShell` 必须有 `ResizeObserver`）；`smoke-triad-client.mjs` 新增口径闭环
+断言：**每个下拉选项用它的 id 去 `filterDaysByScope`，筛出来的总量必须等于下拉里标的量**，
+外加「同名不同供应商的模型必须各自独立成项」——比断言字符串形状更抗改。
 
 ### 一个被实测证伪的假设
 
