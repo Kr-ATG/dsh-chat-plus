@@ -10,7 +10,6 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MemoryConfigView, ModelCatalogView } from './api.js'
-import { readBadgePref, useBadgePref, writeBadgePref } from './Notify.js'
 import type { MemoryT } from './locales.js'
 import { css } from './styles.js'
 
@@ -187,14 +186,6 @@ export function SettingsTab({ config, busy = false, t, onPatch, onReset, listMod
     return () => { alive = false }
   }, [listModels])
 
-  // 侧边栏「记忆」入口未读角标的显隐（界面偏好）。
-  // ⚠ 必须留在所有早退（config === null 的 skeleton）之前：hook 调用次数在
-  // 同一组件的每次渲染里必须一致，否则触发 React #310（hooks 数量变化），
-  // 设置 Tab 整个崩溃、ErrorBoundary 把面板收掉——真机踩过：点「设置」面板
-  // 直接消失且无任何报错入口。
-  const badgeVisible = useBadgePref()
-  const setBadgePref = (show: boolean): void => { writeBadgePref(show) }
-
   if (config === null) {
     return (
       <div className={css.skeleton} aria-busy="true">
@@ -316,16 +307,9 @@ export function SettingsTab({ config, busy = false, t, onPatch, onReset, listMod
         )}
       </section>
 
-      <section className={css.settingsGroup}>
-        <h4 className={css.settingsGroupTitle}>{t('settingsGroupUi')}</h4>
-        {/* 本地界面偏好（localStorage），不经 host config——所以不吃 busy 态。 */}
-        <SwitchRow
-          label={t('cfgUnreadBadge')}
-          hint={t('cfgUnreadBadgeHint')}
-          value={badgeVisible}
-          onChange={setBadgePref}
-        />
-      </section>
+      {/* 「界面」分组整块删除：它此前只有一枚「侧边栏未读角标」开关，而入口现在
+          是官方 sidebar.panellist 菜单行（官方只渲染图标 + 文案，没有角标位），
+          开关拨了不会有任何效果——按「删 UI 不留痕」的约定连同分组标题一起撤掉。 */}
 
       <section className={css.settingsGroup}>
         <h4 className={css.settingsGroupTitle}>{t('settingsGroupDiag')}</h4>

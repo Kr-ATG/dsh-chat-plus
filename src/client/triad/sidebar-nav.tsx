@@ -1,11 +1,16 @@
 /**
- * sidebar-nav — 侧边栏导航区共享挂载器。
+ * sidebar-nav — 侧边栏导航区共享挂载器（**只服务「用量」一个入口**）。
  *
  * 在 sidebar 的浏览区容器（`[data-slot="sidebar.workspaces"]`）正上方插
- * 一个 host，host 内按固定顺序（usage / skills / memory / team）
- * 放四个 `data-nav-slot` 槽位容器；各入口（usage / skills /
- * memory 三个 React 组件，以及 team）经 `useNavSlot` 轮询拿到
- * 自己的槽位后 `createPortal` 进去——顺序确定、互不覆盖、跟 React 首次提交不竞态。
+ * 一个 host，host 内放 `data-nav-slot` 槽位容器；入口（用量 React 组件）经
+ * `useNavSlot` 轮询拿到自己的槽位后 `createPortal` 进去——顺序确定、互不覆盖、
+ * 跟 React 首次提交不竞态。
+ *
+ * 2026-10-04 收缩：记忆 / 能力 / 邮箱三个入口已改为官方 `sidebar.panellist`
+ * 菜单行（行本体、图标槽、hover / 选中态、rail 折叠态全由官方 SidebarRoot
+ * 渲染，见 `./panel-seat.tsx`），本模块因此只剩用量一格——用量点开的是贴入口
+ * 弹出的紧凑小卡而不是整页工作台，官方菜单行只表达「选中一个 main 页面」，
+ * 装不下这个语义，故保留自绘行。
  *
  * rail 折叠态由 `useRail` 观察 `data-shell-overlay` 框架容器的
  * `data-sidebar-collapsed` 属性切换，rail 下导航行收缩为图标钮。
@@ -25,18 +30,15 @@ const FRAME_SELECTOR = 'div:has(> [data-shell-overlay])'
 /**
  * nav host 的行布局：每个数组元素是一行，行内数组是并排的槽位。
  *
- *   [usage][skills][memory] 合并一行 → mail 独立一行 → team 独立一行
+ *   [usage]  独立一行
  *
- * 历史：自动化入口从本插件删除后（官方 schedule bundle 接管），原本独占一行的
- * 用量并回首行最左，首行由 usage / skills / memory 三人共用；team 仍旧独立一行。
- * 2026-10-02 新增 mail（Agent 邮箱工作台）：它比三个工作台更「常开」——未读与
- * 待确认都要看角标，与三格挤在一行会让每格约 1/4 侧栏宽、文字被压掉，故独立成行。
- * 合并行由本模块自建的 `.dsh-nav-row` 容器承载。
+ * 历史：2026-10-04 之前这里还有 skills / memory / mail / team 四格（首行
+ * usage+skills+memory 并排、mail 与 team 各占一行），全部改走官方菜单行后
+ * 只剩用量。team 槽位自始自终没有注册方，是 `SLOT_LAYOUT` 里的空占位，
+ * 一并清掉。
  */
 const SLOT_LAYOUT = [
-  ['usage', 'skills', 'memory'],
-  ['mail'],
-  ['team'],
+  ['usage'],
 ] as const
 
 /** 槽位名。 */
@@ -99,7 +101,7 @@ function ensureHostPlaced(): boolean {
  */
 function watchHostParent(): void {
   const parent = document.getElementById(HOST_ID)?.parentElement
-  if (parent === undefined) return
+  if (parent === undefined || parent === null) return
   hostObserver?.disconnect()
   hostObserver = new MutationObserver(() => {
     const before = document.getElementById(HOST_ID)?.parentElement
@@ -192,7 +194,7 @@ export function useRail(): boolean {
 const STYLE_ID = 'dsh-triad-nav-styles'
 
 const SHEET = `
-/* 导航行：与自动化菜单行同款几何（透明底 + hover 高亮 + 文字省略）。
+/* 导航行：与官方自动化菜单行同款几何（透明底 + hover 高亮 + 文字省略）。
    内边距 8px 是**实测对齐官方行**的结果：官方「插件」「自动化任务」行按钮
    x=14、图标 x=22（= padding-left 8px）。取 10px 会让本插件的行整体右移 2px。 */
 .dsh-nav-btn{position:relative;display:flex;align-items:center;gap:8px;width:calc(100% - 4px);height:34px;padding:0 8px;margin:0 2px 4px;box-sizing:border-box;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary,#eee);font-size:14px;line-height:20px;font-family:inherit;cursor:pointer;text-align:left;user-select:none;overflow:hidden;transition:background 120ms ease}
@@ -200,53 +202,31 @@ const SHEET = `
 .dsh-nav-btn[data-open='true']{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}
 .dsh-nav-btn>svg{flex:none;color:var(--dsw-alias-label-secondary,#bbb)}
 .dsh-nav-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* 行尾附加内容（今日用量等）：等宽数字右贴 */
-.dsh-nav-trailing{flex:none;margin-left:auto;font-size:13px;line-height:18px;color:var(--dsw-alias-label-secondary,#bbb);font-family:ui-monospace,SFMono-Regular,monospace}
 /* 折叠 rail 态：只留图标 */
 .dsh-nav-btn[data-rail='true']{width:36px;height:36px;padding:0;margin:0 0 8px;justify-content:center;border-radius:8px}
-/* 未读 badge（记忆入口）：右上角小圆标 */
-.dsh-nav-badge{position:absolute;top:2px;right:2px;min-width:16px;height:16px;box-sizing:border-box;padding:0 4px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:var(--dsw-alias-state-warn-primary,#e8a33d);color:#0e1116;font-size:10px;font-weight:700;line-height:16px}
-/* nav host：各行纵向堆叠；独立行的槽位 display:contents，按钮直接撑满整行。 */
+/* nav host：槽位纵向堆叠；槽位 display:contents，按钮直接撑满整行。 */
 /* 宽度对齐官方相邻行：侧栏导航区（官方 panelRow/会话行）右边界在 268，
    而本 host 的父容器带 margin-right:-12px，width:100% 会一路顶到 280 —— 右边缘比
-   官方行多探出 12px，「记忆」等按钮几乎贴住侧栏边缘。扣掉这 12px 即与官方对齐。 */
+   官方行多探出 12px，按钮几乎贴住侧栏边缘。扣掉这 12px 即与官方对齐。 */
 #dsh-triad-nav-host{display:flex;flex-direction:column;align-items:stretch;width:calc(100% - 12px)}
 #dsh-triad-nav-host>[data-nav-slot]{display:contents}
-/* 合并行：[用量][技能][记忆] 并排；槽位 display:contents 让按钮直接参与行布局，
-   按钮等分整行（flex:1 1 0），与独立行的视觉节奏一致——
-   否则收缩为内容宽时行尾会留出大片空白。
-
-   ⚠️ 内容必须**左对齐**（justify-content:flex-start + text-align:left），
-   绝不能居中：独立行（自动化任务 / 邮箱）是 padding-left 10px 左对齐的，而居中会
-   让图标 x 坐标随格子宽度浮动（≈ 格子宽的一半），于是上下两行的图标不在同一条
-   垂直线上 —— 用户看到的就是「用量跟自动化、邮箱不平齐」。
-
-   左内边距必须与官方导航行**逐像素一致**（实测官方「插件」「自动化任务」行是
-   按钮 x=14 / 图标 x=22，即 padding-left 8px），否则本插件的行会整体右移
-   2px —— 单独看不明显，与官方行上下相邻时就是一条肉眼可辨的错位。
-   合并行的左边缘由 .dsh-nav-row 的 padding 2px 补足，合计仍与独立行相同。 */
-.dsh-nav-row{display:flex;flex-wrap:wrap;align-items:stretch;gap:2px;padding:0 2px}
-.dsh-nav-row>[data-nav-slot]{display:contents;min-width:0}
-.dsh-nav-row .dsh-nav-btn{width:auto;flex:1 1 0;min-width:0;margin:0 0 4px;justify-content:flex-start;text-align:left;padding:0 8px}
-.dsh-nav-row .dsh-nav-btn .dsh-nav-label{min-width:0}
-/* 三等分后每格约 1/3 侧栏宽，放不下「文字 + 行尾数字」（行尾的 margin-left:auto
-   会把文字挤成省略号）。合并行统一不显示行尾附加内容（今日总量等）——
-   完整数据点开工作台卡片即可。 */
-.dsh-nav-row .dsh-nav-trailing{display:none}
-/* 折叠 rail 态：合并行恢复纵向图标列（与原生 rail 图标钮节奏一致） */
-#dsh-triad-nav-host:has(.dsh-nav-btn[data-rail]) .dsh-nav-row{flex-direction:column;align-items:flex-start;gap:0}
-#dsh-triad-nav-host:has(.dsh-nav-btn[data-rail]) .dsh-nav-row .dsh-nav-btn{width:36px;flex:none;margin:0 0 8px}
 `
 
 /** 注入导航行样式（幂等）。 */
 export function ensureNavStyles(): void {
   if (typeof document === 'undefined') return
-  if (document.getElementById(STYLE_ID) !== null) return
-  const tag = document.createElement('style')
-  tag.id = STYLE_ID
-  tag.dataset.plugin = 'dsh-triad'
-  tag.textContent = SHEET
-  document.head.appendChild(tag)
+  const tag = document.getElementById(STYLE_ID)
+  if (tag !== null) {
+    // 内容比对：插件升级后已打开的页面里那份旧 <style> 会一直命中早退分支，
+    // JSX 拿到新 class 名却匹配不到新规则（删掉的行样式还会继续生效）。
+    if (tag.textContent !== SHEET) tag.textContent = SHEET
+    return
+  }
+  const created = document.createElement('style')
+  created.id = STYLE_ID
+  created.dataset.plugin = 'dsh-triad'
+  created.textContent = SHEET
+  document.head.appendChild(created)
 }
 
 /** NavButton 属性。 */
@@ -259,14 +239,8 @@ export interface NavButtonProps {
   rail?: boolean
   /** 面板展开态（高亮底色）。 */
   expanded?: boolean
-  /** 未读角标数（0/undefined 不显示；>99 显示 99+）。 */
-  badge?: number
-  /** 角标悬停提示。 */
-  badgeTitle?: string
   /** 无障碍名（缺省用 label）。 */
   ariaLabel?: string
-  /** 行尾附加内容（如今日用量数字；rail 态不渲染）。 */
-  trailing?: ReactNode
   /** 悬停：滑出卡片（hover 模式）。 */
   onMouseEnter?: (e: MouseEvent<HTMLButtonElement>) => void
   /** 移出按钮：启动自动收回计时（hover 模式）。 */
@@ -277,7 +251,7 @@ export interface NavButtonProps {
 
 /** 渲染一条导航行按钮（与 auto-nav 同款观感）。 */
 export function NavButton({
-  icon, label, rail = false, expanded = false, badge = 0, badgeTitle, ariaLabel, trailing,
+  icon, label, rail = false, expanded = false, ariaLabel,
   onMouseEnter, onMouseLeave, onClick,
 }: NavButtonProps): JSX.Element {
   return (
@@ -295,12 +269,6 @@ export function NavButton({
     >
       {icon}
       {!rail && <span className="dsh-nav-label">{label}</span>}
-      {!rail && trailing !== undefined && (
-        <span className="dsh-nav-trailing">{trailing}</span>
-      )}
-      {badge > 0 && (
-        <span className="dsh-nav-badge" title={badgeTitle}>{badge > 99 ? '99+' : String(badge)}</span>
-      )}
     </button>
   )
 }
@@ -311,18 +279,6 @@ export function NavPortal({ name, children }: { name: NavSlotName; children: Rea
   if (slot === null) return null
   return createPortal(children, slot)
 }
-
-/** 面板互斥 + 切会话自动收：三个入口共用的面板行为 hook。
- *
- *  - 互斥：任一面板打开时广播，其余已打开的面板自动收回（用量/能力/记忆
- *    同时只占住一个主区，不叠罗汉）；
- *  - 切会话自动收：面板盖住会话主区、无遮罩，侧栏保持可点；侧栏会话区内
- *    的点击（会话行/新会话/设置等，自己导航行与面板内部除外）直接收面板，
- *    跟「点会话回到会话」的直觉一致。
- */
-export type TriadPanelName = 'usage' | 'skills' | 'memory' | 'mail'
-
-const PANEL_OPEN_EVENT = 'dsh-triad:panel-open'
 
 /** 点击是否落在侧栏列内（按几何判定，不依赖宿主的哈希类名）。
  *
@@ -342,38 +298,39 @@ function clickInSidebar(target: Element): boolean {
   return false
 }
 
-export function usePanelAutoClose(name: TriadPanelName, open: boolean, requestClose: () => void): void {
-  // 打开时广播，挤掉别的面板。
-  useEffect(() => {
-    if (!open) return
-    window.dispatchEvent(new CustomEvent(PANEL_OPEN_EVENT, { detail: name }))
-  }, [open, name])
-  // 听别人的广播 + 侧栏会话区点击。
+/**
+ * 面板行为 hook：切会话自动收。
+ *
+ * 2026-10-04 收缩：原先还带一层「面板互斥」（任一面板打开时广播挤掉其余），
+ * 那是四个入口各弹一个 body 级浮层时代的产物——现在只剩用量一张 compact 卡片
+ * 是浮层，能力/记忆/邮箱都是官方 main 页（切页天然互斥，由 layout 负责），
+ * 互斥广播连同 `TriadPanelName` 联合类型一起删掉。
+ *
+ * 留下的这条仍然必要：卡片盖住会话主区、无遮罩、侧栏保持可点，用户在侧栏
+ * 会话区里的点击（会话行 / 新会话 / 设置等，自己导航行与卡片本体除外）应当
+ * 直接收卡片——跟「点会话回到会话」的直觉一致。
+ * @param open - 卡片是否打开。
+ * @param requestClose - 收卡片（播退场动画）。
+ */
+export function usePanelAutoClose(open: boolean, requestClose: () => void): void {
   useEffect(() => {
     if (!open) return undefined
-    const onSiblingOpen = (event: Event): void => {
-      if ((event as CustomEvent<TriadPanelName>).detail !== name) requestClose()
-    }
     const onDocClick = (event: globalThis.MouseEvent): void => {
       const target = event.target
       if (!(target instanceof Element)) return
-      // 自己导航行、面板本体（含面板内弹到 body 的二级弹窗）不收。
+      // 自己导航行、卡片本体（含卡片内弹到 body 的二级弹窗）不收。
       if (target.closest(`#${HOST_ID}, .psh-card`) !== null) return
       if (clickInSidebar(target)) requestClose()
     }
-    window.addEventListener(PANEL_OPEN_EVENT, onSiblingOpen)
     document.addEventListener('click', onDocClick, true)
-    return () => {
-      window.removeEventListener(PANEL_OPEN_EVENT, onSiblingOpen)
-      document.removeEventListener('click', onDocClick, true)
-    }
-  }, [open, name, requestClose])
+    return () => { document.removeEventListener('click', onDocClick, true) }
+  }, [open, requestClose])
 }
 
-/** 「导航行右缘」滑出锚点（兼容保留：右侧抽屉不再跟随按钮定位）。
+/** 「导航行右缘」滑出锚点。
  *
  * 取按钮所在行容器（dsh-triad 的 nav host）的右缘 +8 作水平位；top 取按钮
- * 顶缘 -6。nav host 是统一的行容器，三个入口共用。 */
+ * 顶缘 -6。nav host 是统一的行容器。 */
 export function navAnchorFrom(el: Element | null): PopoverAnchor | null {
   if (el === null) return null
   const row = el.closest(`#${HOST_ID}`)

@@ -1,13 +1,17 @@
 /**
- * popover-shell — 面板外壳（用量卡片/技能面板/记忆面板共用）。
+ * popover-shell — 面板外壳（三个工作台页 + 用量卡片共用）。
  *
  * 两种形态：
- *  - drawer（默认）：直接盖住会话主区（侧栏右缘 → 视口右缘，全高，无遮罩），
- *    自右向左滑入（translateX(56px)→0），关闭反向收回；侧栏保持可点，
- *    随时切会话（切会话自动收面板）；
- *  - compact：贴入口弹出的定尺寸小卡片（用量面板用），按 size 内联宽高并
- *    夹紧在视口内，配一层透明遮罩吃掉卡片外的点击；
- *  - 两者在窄屏都回退全屏 sheet（translateY(24px) 上滑，同 auto-sheet-in，带遮罩）；
+ *  - page（默认，能力 / 记忆 / 邮箱用）：**不 portal**，直接铺满官方 `main`
+ *    槽位（`[data-slot="main"]` 是 `display:contents`，本根就是 centerCol 的
+ *    直接 flex item），与官方「自动化任务」页同座位、同尺寸、同层级。
+ *    入场只有 140ms 的 opacity 淡入——刻意不用 transform（动画的 transform 会
+ *    把本根变成后代 `position:fixed` 元素（图表 tooltip）的包含块，浮层会整体
+ *    偏移），也不用 mask：切页跟点会话是一回事，没有"对话框"语义。
+ *  - compact（用量用）：贴入口弹出的定尺寸小卡片，按 size 内联宽高并夹紧在
+ *    视口内，配一层透明遮罩吃掉卡片外的点击；portal 到 body（卡片不能留在
+ *    侧边栏那棵由本插件手工插入的裸节点里）。
+ *  - compact 在窄屏回退全屏 sheet（translateY(24px) 上滑，带遮罩）。
  *  - Esc 关闭走 props.onClose（面板可自行拦截）。
  *
  * z 层级：mask 999 / card 1000——与 ui-primitives Modal 的 root(1000) 同层，
@@ -21,9 +25,9 @@ import { MODAL_ANIM_MS, modalDrawerAnimClass } from './triad-modal-animation.js'
 
 const STYLE_ID = 'dsh-popover-shell-styles'
 
-/** 会话主区左缘回退值（px）：侧栏实测失败时盖住 280px 右侧全部区域。 */
+/** 会话主区左缘回退值（px）：侧栏实测失败时按 280 起算。 */
 const FALLBACK_MAIN_LEFT = 280
-/** 窄屏阈值（px）：低于该宽度回退全屏 sheet（与移动端全屏媒体查询同值）。 */
+/** 窄屏阈值（px）：低于该宽度 compact 回退全屏 sheet（与移动端全屏媒体查询同值）。 */
 const NARROW_VP = 768
 
 /** 读会话主区左缘 = 侧栏列右缘（跟随侧栏折叠变化；失败回退 280）。 */
@@ -46,22 +50,18 @@ function readMainLeft(): number {
 }
 
 const SHEET = `
+/* ── page：官方 main 槽位里的整页视图（与自动化任务页同座位） ── */
+.psh-page{position:relative;flex:1 1 auto;width:100%;min-width:0;height:100%;min-height:0;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;background:var(--dsw-alias-bg-base,var(--dsw-alias-bg-layer-1,#fff));color:var(--dsw-alias-label-primary,#eee);animation:dsh-psh-page-in 140ms ease-out}
+@keyframes dsh-psh-page-in{from{opacity:0}to{opacity:1}}
 /* ── 遮罩：淡入淡出（compact 卡片用透明遮罩，只吃点击不遮视野） ── */
 .psh-mask{position:fixed;inset:0;z-index:999;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.45))}
 .psh-mask[data-plain]{background:transparent}
 .psh-mask[data-anim='in']{animation:dsh-modal-mask-in ${MODAL_ANIM_MS}ms ease both}
 .psh-mask[data-anim='out']{animation:dsh-modal-mask-out ${MODAL_ANIM_MS}ms ease both}
-/* ── 卡片：会话式右侧抽屉 / 底部 sheet 回退 ── */
+/* ── 卡片：compact 定尺寸小卡片 / 底部 sheet 回退 ── */
 .psh-card{position:fixed;z-index:1000;display:flex;flex-direction:column;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.14));border-radius:14px;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-2,#16181d));box-shadow:var(--dsw-shadow-lv3,0 8px 40px rgba(0,0,0,.5));overflow:hidden;transition:width ${MODAL_ANIM_MS}ms cubic-bezier(.2,.8,.2,1),height ${MODAL_ANIM_MS}ms cubic-bezier(.2,.8,.2,1)}
-/* 覆盖会话主区：侧栏右缘 → 视口右缘全高平铺，无圆角无阴影，像切了个视图 */
-.psh-card[data-mode='drawer']{top:0;right:0;bottom:0;height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;border-radius:0;border:none;border-left:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.06));box-shadow:none;transition:left ${MODAL_ANIM_MS}ms cubic-bezier(.2,.8,.2,1)}
-/* in 动画不得带 fill-mode（both/forwards 会残留 to 帧 transform，使卡片成为
-   后代 position:fixed 元素（图表 tooltip）的包含块，浮层整体偏移）；out 需要
-   forwards 保持隐藏态直到卸载，此时无交互、无副作用。 */
-.psh-card[data-mode='drawer'][data-anim='in']{animation:dsh-modal-drawer-in ${MODAL_ANIM_MS}ms cubic-bezier(.2,.8,.2,1)}
-.psh-card[data-mode='drawer'][data-anim='out']{animation:dsh-modal-drawer-out ${MODAL_ANIM_MS}ms cubic-bezier(.4,0,.2,1) both}
 /* compact：贴入口弹出的小卡片。宽高与位置由组件内联给（已按视口夹紧），这里
-   只需撤掉抽屉的贴边/满高语义与尺寸过渡（改视口时即时跟随，别拖动画）。 */
+   只需撤掉尺寸过渡（改视口时即时跟随，别拖动画）。 */
 .psh-card[data-mode='compact']{right:auto;bottom:auto;max-height:none;transition:none}
 .psh-card[data-mode='compact'][data-anim='in']{animation:dsh-psh-pop-in 200ms cubic-bezier(.2,.8,.2,1)}
 .psh-card[data-mode='compact'][data-anim='out']{animation:dsh-psh-pop-out 180ms cubic-bezier(.4,0,.2,1) both}
@@ -90,11 +90,11 @@ html[data-dsh-glass] body[data-ds-dark-theme] .psh-card[data-solid]{
 .psh-close:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06));color:var(--dsw-alias-label-primary,#eee)}
 /* 卡片主体滚动区 */
 .psh-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-/* ── 移动端：任何模式强制全屏 sheet（100vw / 100dvh，radius 0）。
-    参考 tool-summary .dts__modal 的 767.98px 写法；!important 压过组件内联
-    left/top/width/height（drawer 模式用内联宽度，必须覆盖到 0/全屏）。
-    transform:none 仅作静态兜底，滑入/滑出动画的 keyframe transform 仍优先播放；
-    本块注释内容未写出「星号紧跟正斜杠」两字符序列。 ── */
+/* ── 移动端：compact 强制全屏 sheet（100vw / 100dvh，radius 0）。
+     参考 tool-summary .dts__modal 的 767.98px 写法；!important 压过组件内联
+     left/top/width/height。page 形态本来就是铺满 main，无需适配。
+     transform:none 仅作静态兜底，滑入/滑出动画的 keyframe transform 仍优先播放；
+     本块注释内容未写出「星号紧跟正斜杠」两字符序列。 ── */
 @media (max-width: 767.98px){
   .psh-card{
     left:0 !important;
@@ -112,7 +112,7 @@ html[data-dsh-glass] body[data-ds-dark-theme] .psh-card[data-solid]{
   }
 }
 @media (prefers-reduced-motion:reduce){
-  .psh-mask,.psh-card{animation:none!important}
+  .psh-page,.psh-mask,.psh-card{animation:none!important}
   .psh-card{transition:none!important}
 }
 `
@@ -134,52 +134,61 @@ export interface PopoverAnchor {
   top: number
 }
 
-/** 理想尺寸（px）：抽屉宽度随 tab 切换以 240ms 平滑过渡。 */
+/** 理想尺寸（px）。 */
 export interface PopoverSize {
   width: number
-  /** compact 卡片的高度上限；抽屉模式下忽略（抽屉一律满高）。 */
+  /** compact 卡片的高度上限。 */
   height?: number
   fill?: boolean
 }
 
-/** 面板形态：drawer = 盖住会话主区；compact = 贴入口的小卡片。 */
-export type PopoverVariant = 'drawer' | 'compact'
+/** 面板形态：page = 铺满官方 main 槽位的整页视图；compact = 贴入口的小卡片。 */
+export type PopoverVariant = 'page' | 'compact'
 
 /** PopoverShell 属性。 */
 export interface PopoverShellProps {
-  /** 正在播放收回动画（此时仍挂载，播 out 动画）。 */
-  closing: boolean
-  /** 请求关闭（遮罩点击 / Esc / 关闭钮统一走这里）。 */
+  /** 正在播放收回动画（仅 compact 有意义：此时仍挂载，播 out 动画）。 */
+  closing?: boolean
+  /** 请求关闭（遮罩点击 / Esc / 关闭钮统一走这里；page 形态=切回会话）。 */
   onClose: () => void
-  /** 入口锚点（compact 卡片据此定位；抽屉形态忽略）。 */
+  /** 入口锚点（compact 卡片据此定位；page 形态忽略）。 */
   anchor?: PopoverAnchor | null
-  /** 兼容保留：面板直接铺满会话主区，理想宽度不再生效。 */
+  /** compact 理想宽度。 */
   width?: number
-  /** 理想尺寸（compact 卡片按此内联宽高，drawer 模式仅取 width 做兼容）。 */
+  /** 理想尺寸（compact 卡片按此内联宽高）。 */
   size?: PopoverSize
-  /** 形态：默认 drawer 盖住会话主区；compact 为贴入口弹出的定尺寸小卡片。 */
+  /** 形态：默认 page 铺满 main 槽位；compact 为贴入口弹出的定尺寸小卡片。 */
   variant?: PopoverVariant
-  /** 鼠标进入卡片（hover 模式：取消自动收回）。 */
+  /** 鼠标进入卡片（compact hover 模式：取消自动收回）。 */
   onCardMouseEnter?: () => void
-  /** 鼠标离开卡片（hover 模式：启动自动收回计时）。 */
+  /** 鼠标离开卡片（compact hover 模式：启动自动收回计时）。 */
   onCardMouseLeave?: () => void
-  /** 无障碍名（role=dialog 的 aria-label）。 */
+  /** 无障碍名（page 的 region 名 / compact 的 dialog 名）。 */
   ariaLabel: string
-  /** 实底卡片：玻璃质感开启时也不透明（内容密集的数据面板用，避免背景穿透干扰阅读）。 */
+  /** 兼容保留：page 形态下底色已由官方 token 承担，该值不再生效。 */
   solid?: boolean
-  /** 兼容保留：抽屉一律全高，该值不再生效。 */
-  bottomInset?: number
   children: ReactNode
 }
 
-/** 渲染面板（compact 形态含透明遮罩）。内容自带头部时无需再用 PshHead。 */
+/**
+ * 渲染面板。
+ *
+ * page 形态直接返回根元素（不 portal）——它必须留在官方 main 槽位里才能拿到
+ * centerCol 的 flex 布局、窗口标题栏内距与右栏让位；portal 到 body 就又变成
+ * 浮层了。compact 形态 portal 到 body：卡片不能留在入口所在的 DOM 子树里
+ * （入口 portal 进侧边栏导航槽，而槽位宿主是手工插进 DSH 自有 React 树的裸
+ * 节点，侧边栏任何一次重渲染都可能连带回收它，且 position:fixed 会被侧边栏
+ * 的 transform 祖先变成局部定位）。
+ */
 export function PopoverShell({
-  closing, onClose, anchor = null, width = 560, size, variant = 'drawer', onCardMouseEnter, onCardMouseLeave, ariaLabel, solid = false, children,
+  closing = false, onClose, anchor = null, width = 560, size, variant = 'page', onCardMouseEnter, onCardMouseLeave, ariaLabel, solid = false, children,
 }: PopoverShellProps): JSX.Element {
   // 视口宽高 + 会话主区左缘走 state：窗口缩放/侧栏折叠时实时跟随。
   const [vp, setVp] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }))
   const [mainLeft, setMainLeft] = useState(readMainLeft)
+  const page = variant === 'page'
   useEffect(() => {
+    if (page) return undefined
     const reread = (): void => {
       setVp({ w: window.innerWidth, h: window.innerHeight })
       setMainLeft(readMainLeft())
@@ -194,13 +203,13 @@ export function PopoverShell({
       observer.disconnect()
       window.clearInterval(timer)
     }
-  }, [])
+  }, [page])
   const vw = vp.w
   const anim = closing ? 'out' : 'in'
-  // 窄屏回退全屏 sheet；桌面端 compact 走定尺寸小卡片，drawer 盖住会话主区。
+  // 窄屏回退全屏 sheet；桌面端 compact 走定尺寸小卡片。
   const narrow = vw < NARROW_VP
   const compact = variant === 'compact' && !narrow
-  const mode = narrow ? 'sheet' : compact ? 'compact' : 'drawer'
+  const mode = narrow ? 'sheet' : 'compact'
   const style: CSSProperties | undefined = compact
     ? ((): CSSProperties => {
       // 卡片贴着侧栏右缘 + 12px；宽高取理想值并夹在「主区宽 - 24」「视口高 - 24」内，
@@ -216,8 +225,15 @@ export function PopoverShell({
         height: h,
       }
     })()
-    : narrow ? undefined : { left: mainLeft }
+    : undefined
 
+  /*
+   * Esc 关闭。
+   *
+   * page 形态的"关闭"是切回会话（与点侧边栏会话行同一效果），compact 是收起
+   * 卡片；两者都由 onClose 收口。面板可自行拦截（技能面板在安装/确认进行中
+   * 直接 return，不放行）。
+   */
   useEffect(() => {
     if (closing) return undefined
     const onKey = (event: KeyboardEvent): void => {
@@ -238,7 +254,7 @@ export function PopoverShell({
   const cardRef = useRef<HTMLDivElement | null>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
-    if (closing) return undefined
+    if (page || closing) return undefined
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const card = cardRef.current
     if (card !== null) {
@@ -254,13 +270,18 @@ export function PopoverShell({
       if (back !== null && back.isConnected) back.focus()
       returnFocusRef.current = null
     }
-  }, [closing])
+  }, [page, closing])
 
-  // portal 到 body：卡片不能留在入口所在的 DOM 子树里。
-  // 入口是 portal 进侧边栏导航槽的，而槽位宿主是我们手工插进 DSH 自有
-  // React 树的裸节点——弹层一旦留在里面，侧边栏任何一次重渲染都可能连带
-  // 回收它，且 position:fixed 会被侧边栏的 transform 祖先变成局部定位。
-  // 挪到 body 后：不受侧边栏渲染影响、fixed 锚定视口、层级与 DOM 顺序可控。
+  if (page) {
+    // page：不 portal、不遮罩、不抢焦点。它是一个视图而不是对话框，焦点按
+    // 浏览器默认顺序走（与官方自动化任务页一致）。
+    return (
+      <section className="psh-page" aria-label={ariaLabel}>
+        {children}
+      </section>
+    )
+  }
+
   return createPortal(
     <>
       {(narrow || compact) && (
@@ -277,9 +298,7 @@ export function PopoverShell({
         role="dialog"
         /*
          * aria-modal 只在**真的有遮罩**时才是对的（narrow || compact）。
-         * drawer 形态（桌面默认）不渲染遮罩，页面其余部分仍可交互、侧栏也仍
-         * 可点，却对辅助技术声明「背景已惰性化」——读屏会被告知背景不可达，
-         * 实际并没有。标错比不标更糟。
+         * sheet 形态带遮罩，标了才准；没有遮罩时不标。
          */
         aria-modal={narrow || compact ? true : undefined}
         aria-label={ariaLabel}

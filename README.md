@@ -31,9 +31,16 @@
   无新增的分区整个不出现，支持多选批量删除；
   右栏被挤压时操作面板与记忆卡各缩一档
 - **三工作台（原 dsh-triad，已融合）**：自动沉淀的长期记忆 · 用量（52 周热力 +
-  token 消耗查询）· 技能与 MCP Server 管理。`dsh-triad` 自此退役，其座位（slot id / order /
-  locale namespace）、7 组 HTTP 路由前缀、数据与配置目录全部原样保留，用户零迁移。
+  token 消耗查询）· 技能与 MCP Server 管理。`dsh-triad` 自此退役，其座位（locale
+  namespace）、7 组 HTTP 路由前缀、数据与配置目录全部原样保留，用户零迁移。
   定时自动化于 2026-09-28 交给官方 schedule bundle，本插件不再提供。
+  **2026-10-04 座位改版**：记忆 / 能力 / 邮箱三个工作台页从「自绘侧边栏导航行 +
+  `createPortal` 到 `document.body` 的 fixed 浮层」改为**官方座位**——页面本体注册进
+  `main`（keyed，渲染在 `[data-slot="main"]`，与对话平级），入口注册进
+  `sidebar.panellist`（官方「全局面板」菜单行，行本体 / 图标槽 / hover / 选中态 /
+  rail 折叠全由官方 SidebarRoot 渲染），开合走 `ctx.layout.selectPanel`，与官方
+  「自动化任务」页完全同座位。用量仍是自绘导航行 + 贴入口的紧凑小卡（官方菜单行
+  装不下「弹出小卡片」这个语义），点它前会先把 main 切回会话。详见「工作台」一节
   MCP 页（2026-10-03 修复）**两个视图都扫**：除 `cordis.patch.yml` 里 insert 的
   mcp-client（全局层 `ctx.tools.schemas()`）外，还逐个 Agent 取会话作用域视图
   `ctx.tools.schemas(agent)` —— 官方 browser-use 用 `mountSessionMcp` 把
@@ -293,7 +300,54 @@ host 侧**零改动**：复用面板那套 `/delete-batch`（一次事务删完�
 
 2026-09-24 把 `dsh-triad` 整体并入本插件，`dsh-triad` 从 profile bundles 摘除；
 2026-09-28 再把其中的定时自动化整块删除（官方 `@deepseek-ai/dsh-experimental-schedule-bundle`
-已提供同样的能力），侧边栏现存记忆 / 能力 / 用量三个入口与各自的面板。
+已提供同样的能力），侧边栏现存记忆 / 能力 / 邮箱 / 用量四个入口与各自的面板。
+
+### 工作台页改走官方座位（2026-10-04）
+
+**症状**：记忆 / 能力 / 邮箱三个工作台原先都是 `createPortal(…, document.body)` 的浮层
+（`position:fixed` 全高抽屉，自算侧栏宽度、自绘导航行），DOM 上挂在 `#root` 旁边——
+与官方「自动化任务」页（`ctx.slots.register({ name: 'main', key: 'schedules' })`，
+渲染在 `[data-slot="main"]` 里）不是同一套做法。
+
+**改法**：新增 `src/client/triad/panel-seat.tsx`，把官方任务页的三件事抽成可复用注册器：
+
+| 官方做法 | 本插件对应 |
+|---|---|
+| `main`（keyed / root）页面本体 | 同：渲染在 `[data-slot="main"]`，与对话平级 |
+| `sidebar.panellist`（list）菜单行 | 同：行本体 / 图标槽 / hover / 选中态 / rail 全由官方 SidebarRoot 渲染 |
+| 关闭 = `ctx.layout.selectPanel(null)` | 同：Esc、点会话行、点别的菜单行都走它 |
+
+`main` 是 **keyed** 槽位——AppFrame 每帧只渲染 `entryKey === activePanelId` 的那一条，
+所以**取消选中会自动卸载页面**：插件侧不再需要 `open` / `closing` 状态机，也就不存在
+「退场动画播到一半用户切了会话」那类竞态。`PopoverShell` 因此新增 **page 形态**
+（不 portal、不遮罩、不抢焦点，只做 140ms opacity 淡入——刻意不用 transform：动画的
+transform 会把本根变成后代 `position:fixed` 元素（图表 tooltip）的包含块，浮层会整体偏移）。
+
+**用量为什么保留浮层**：它点开的是贴入口弹出的 **648×414 紧凑小卡**而不是整页视图，
+官方菜单行只表达「选中一个 main 页面」，装不下这个语义。点用量导航行前会先
+`selectPanel(null)` 把 main 切回会话——否则卡片会压在别人那一页上面，用户以为自己
+还在那个工作台里。
+
+**顺带清掉的死代码**（删 UI 不留痕）：
+
+- `memory/Entry.tsx` / `mail/Entry.tsx` 两个自绘导航行入口整文件删除；
+  `usage/entry.tsx` 里的 `SkillsEntry` 拆出为 `usage/skills-seat.tsx`
+- `sidebar-nav.tsx` 收缩到只服务用量：`SLOT_LAYOUT` 从 4 行 6 格降到 1 行 1 格
+  （`team` 槽位自始自终没有注册方，是空占位），删掉整套合并行 CSS
+  （`.dsh-nav-row` / `.dsh-nav-trailing` / `.dsh-nav-badge`）与 `NavButton` 的
+  `badge` / `badgeTitle` / `trailing` 三个 prop
+- `usePanelAutoClose` 去掉「面板互斥」广播（`TriadPanelName` 类型一并删）：
+  四个浮层各弹一个 body 级遮罩时代的产物，现在只剩用量一张卡片是浮层
+- 记忆入口角标整套设施删除：`Notify.tsx` 的 `useUnreadChanges` 60s 轮询、
+  `readBadgePref` / `writeBadgePref` / `useBadgePref` 跨根订阅，以及设置 Tab 的
+  「界面」分组（它只有那一枚开关，官方菜单行没有角标位，拨了不会有任何效果）。
+  未读语义改为**页面自己承担**：挂载时拉一次变更，有未读就直达「变更」Tab 并标记已读
+  （`readIds` / `markReadIds` 两个纯原语保留在 `Notify.tsx`）
+- `PopoverShell` 的 drawer 形态、`modalDrawerAnimClass`、`PshHead` 全部删除
+
+**smoke 契约同步**：座位数 8 → 14（三个工作台各两枚 + 用量导航行 + 对话增强五枚），
+并逐条断言 `main / <id>` 与 `sidebar.panellist / <id>` 成对存在且 order 正确——
+任何一处回退成 body 浮层都会让它失败。
 
 **为什么整包搬而不是各自调用**：dsh-triad 的 client 半身本来就是「纯 fetch + 同源
 路由」的形态（`createMemoryApi()` 就是 fetch 包装），host 半身的路由与工具在 DSH 的
@@ -408,14 +462,16 @@ Agent Mail 的规则是「`+trash` 只作用于不在回收站里的邮件、`+d
    **子进程 cwd**。所以调用方先算公共父目录把 cwd 定在那里，参数用相对路径；跨盘符时明确
    报错不猜。
 
-### 面板开合契约（踩过一个真坑）
+### 面板开合契约（踩过一个真坑，2026-10-04 已随改版作废）
 
-`MailPanel` 在 `open=false` 且不在退场时**必须返回 `null`**，`MailNavApp` 也必须
-`{open || closing} && <MailPanel/>` 条件挂载。**两处守卫都要有**：`PopoverShell` 的
-drawer 形态是 `position:fixed` 全高覆盖会话主区的，无条件渲染会让面板从**插件加载那一刻**
-就盖住整个界面，而关闭路径只翻 `open` 状态 —— 用户看到的就是「一进邮箱界面就再也退不出去」。
-三个已有工作台靠调用方的 `{open && ...}` 规避，本面板当时漏了，所以组件内部再留一道早退
-互为兜底。`smoke-client.mjs` 有对应断言钉死这条契约。
+> 历史记录：`MailPanel` 曾在 `open=false` 且不在退场时**必须返回 `null`**，`MailNavApp`
+> 也必须 `{open || closing} && <MailPanel/>` 条件挂载。原因是 `PopoverShell` 的 drawer
+> 形态是 `position:fixed` 全高覆盖会话主区的，无条件渲染会让面板从**插件加载那一刻**就
+> 盖住整个界面，而关闭路径只翻 `open` 状态 —— 用户看到的就是「一进邮箱界面就再也退不
+> 出去」。2026-10-04 三个工作台改挂官方 `main` 页座位后，页面是 centerCol 里的普通
+> flex item、只在被选中时才渲染，那条守卫连同 `open` / `closing` / `anchor` 三个 prop
+> 一并删除；`smoke-client.mjs` 的断言改为**反向**钉死这一点（面板不得再出现
+> `closing` / `PopoverAnchor`，且必须走 `registerPanelSeat`）。
 
 ### 授权与配置
 
@@ -773,19 +829,19 @@ src/
         ├── KrLiveActivityCard.tsx   — 左栏对话流那张瞬态状态卡
         └── styles.ts                — KR 专属 CSS（含统一简约滚动条）
     └── triad/                       — 原 dsh-triad 工作台 client 半身（整体搬迁）
-        ├── index.ts                 — applyTriadClient（四模块各 try/catch）
-        ├── memory/                  — 记忆面板 + composer 两枚注入开关（记忆注入 / 内置提示词通道，纯 fetch）
-        ├── usage/                   — 用量卡片（热力图 + token 消耗查询）+ 技能面板
-        ├── skill-source/            — 技能面板 + `/` slash source
+        ├── index.ts                 — applyTriadClient（五模块各 try/catch）
+        ├── panel-seat.tsx           — 工作台页座位注册器（官方 main 页 + sidebar.panellist 菜单行）
+        ├── memory/                  — 记忆工作台页 + composer 两枚注入开关（记忆注入 / 内置提示词通道，纯 fetch）
+        ├── usage/                   — 用量卡片（热力图 + token 消耗查询）+ skills-seat（能力工作台页座位）
+        ├── skill-source/            — `/` slash source + skill 工具行
         ├── mail/                    — 邮箱工作台（Agent Mail）
-        │   ├── index.ts             — applyMailClient（导航行挂载）
-        │   ├── Entry.tsx            — 侧边栏入口（未读角标、开合状态机、条件挂载）
+        │   ├── index.ts             — applyMailClient（官方 main 页 + 菜单行座位）
         │   ├── Panel.tsx            — 三栏工作台（列表 / 读信 / 写信 / 设置；写操作点一下就执行）
         │   ├── api.ts               — /api/dsh-mail/* 最小 fetch 客户端
         │   ├── sanitize.ts          — 邮件 HTML 净化 + 沙箱 iframe 文档包装
         │   └── styles.ts            — 面板皮肤与动效（stagger / rise / 呼吸 / 脉冲）
-        ├── sidebar-nav.tsx          — 侧边栏导航行（mail 独立一行；首行 usage+skills+memory 左对齐同官方行）
-        ├── popover-shell.tsx        — 面板外壳（drawer / compact 两种形态）
+        ├── sidebar-nav.tsx          — 侧边栏导航行（只服务「用量」；三个工作台已改官方菜单行）
+        ├── popover-shell.tsx        — 面板外壳（page 铺满 main / compact 贴入口小卡片）
         ├── responsive.ts            — 响应式
         └── triad-modal-animation.ts —  triad 版弹窗动画（与主插件那版不等价，故改名）
 src/triad/                           — 原 dsh-triad 工作台 host 半身

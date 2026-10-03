@@ -41,7 +41,7 @@ import { MailApiError } from './api.js'
 import { css, ensureMailStyles } from './styles.js'
 import { wrapMailHtml } from './sanitize.js'
 import { ConfirmDialog } from '../memory/ConfirmDialog.js'
-import { PopoverShell, type PopoverAnchor } from '../popover-shell.js'
+import { PopoverShell } from '../popover-shell.js'
 
 /** 文件夹。 */
 type Folder = 'inbox' | 'sent' | 'trash' | 'spam'
@@ -168,23 +168,14 @@ async function pickDirectory(): Promise<string | null> {
 /**
  * 面板属性。
  *
- * ⚠️ **open=false 且不在退场时必须返回 null**（见下方渲染前的早退）。
- *
- * 这一条踩过真实的坑：`PopoverShell` 的 drawer 形态是 `position:fixed` 全高
- * 覆盖会话主区的，如果无条件渲染，面板会从**插件加载那一刻**就盖住整个界面；
- * 而关闭路径只翻 `open` 状态，对「本来就一直挂着的面板」毫无作用 ——
- * 用户看到的就是「一进邮箱界面就再也退不出去」。
- *
- * 三个已有工作台（用量/能力/记忆）都靠 `{open && <Panel/>}` 规避，本面板当时
- * 漏了。所以这里在组件内部也留一道守卫：**渲染前判断，而不是只靠调用方**。
- * 两处守卫（调用方的条件挂载 + 本组件的早退）互为兜底，任何一处写错都不会
- * 再出现「盖住整屏退不出去」。
+ * 2026-10-04 入口改版后不再有 open / closing：页面挂在官方 `main` 槽位
+ * （keyed），只有被选中时才渲染、切走即卸载——挂载即打开、卸载即关闭。
+ * 原先那套「open=false 且不在退场时必须返回 null」的守卫随之删除：它防的是
+ * 「position:fixed 全高抽屉从插件加载那一刻就盖住界面」，而 page 形态是
+ * centerCol 里的普通 flex item，无条件渲染也只会占住 main（本来就是它的位置）。
  */
 export interface MailPanelProps {
-  open: boolean
-  closing?: boolean
   onClose: () => void
-  anchor?: PopoverAnchor | null
   api: MailApi
   /** 打开时的初始文件夹（默认收件箱）。 */
   initialFolder?: Folder
@@ -193,7 +184,7 @@ export interface MailPanelProps {
 }
 
 /** 邮箱工作台面板。 */
-export function MailPanel({ open, closing = false, onClose, anchor = null, api, initialFolder, initialMessageId }: MailPanelProps): JSX.Element | null {
+export function MailPanel({ onClose, api, initialFolder, initialMessageId }: MailPanelProps): JSX.Element {
   ensureMailStyles()
 
   const [view, setView] = useState<View>('mail')
@@ -303,17 +294,17 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
     }
   }, [api])
 
-  // 打开 / 换文件夹 / 换过滤条件 → 重新拉列表。
+  // 换文件夹 / 换过滤条件 → 重新拉列表（挂载时也会跑一次）。
   useEffect(() => {
-    if (!open || view !== 'mail') return
+    if (view !== 'mail') return
     void loadList(folder, { q: query, unread: onlyUnread, attach: onlyAttach })
     // query 走 320ms 防抖，见下面的 effect；这里只依赖结构化条件。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, view, folder, onlyUnread, onlyAttach])
+  }, [view, folder, onlyUnread, onlyAttach])
 
   // 搜索防抖：输入停顿 320ms 才打接口（邮箱接口有每分钟 10 次的限额）。
   useEffect(() => {
-    if (!open || view !== 'mail') return undefined
+    if (view !== 'mail') return undefined
     const timer = window.setTimeout(() => {
       void loadList(folder, { q: query, unread: onlyUnread, attach: onlyAttach })
     }, 320)
@@ -322,18 +313,17 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
   }, [query])
 
   useEffect(() => {
-    if (!open) return
     void loadAccount()
     void loadConfig()
-  }, [open, loadAccount, loadConfig])
+  }, [loadAccount, loadConfig])
 
-  // 打开时定位到指定邮件。
+  // 挂载时定位到指定邮件。
   useEffect(() => {
-    if (!open || initialMessageId === undefined) return
+    if (initialMessageId === undefined) return
     setPane({ kind: 'read', id: initialMessageId })
     void loadDetail(initialMessageId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialMessageId])
+  }, [initialMessageId])
 
   // 选中邮件 → 拉详情。
   useEffect(() => {
@@ -344,7 +334,6 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
   /* ── 新邮件提示（轮询 watch 事件缓冲） ────────────────────────────── */
 
   useEffect(() => {
-    if (!open) return undefined
     let alive = true
     const tick = async (): Promise<void> => {
       try {
@@ -365,7 +354,7 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
     const timer = window.setInterval(() => { void tick() }, 5000)
     return () => { alive = false; window.clearInterval(timer) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, folder, query, onlyUnread, onlyAttach])
+  }, [folder, query, onlyUnread, onlyAttach])
 
   // toast 3.6 秒后自动消失。
   useEffect(() => {
@@ -458,12 +447,6 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
 
   const unreadCount = useMemo(() => messages.filter(item => !item.is_read).length, [messages])
 
-  // 渲染守卫（详见 MailPanelProps 的注释）：不在开/关动画期间就什么都不渲染。
-  // 少了这一行，drawer 形态的 PopoverShell 会一直 fixed 覆盖会话主区，
-  // 表现为「进了邮箱界面退不出来」。closing 期间必须继续渲染，否则退场动画
-  // 会被直接掐掉（面板瞬间消失而不是滑出）。
-  if (!open && !closing) return null
-
   const head = (
     <div className={css.topbar}>
       <div className={css.brand}>
@@ -534,11 +517,7 @@ export function MailPanel({ open, closing = false, onClose, anchor = null, api, 
 
   return (
     <PopoverShell
-      closing={closing}
       onClose={onClose}
-      anchor={anchor}
-      variant="drawer"
-      solid
       ariaLabel="邮箱工作台"
     >
       <div className={css.panel}>

@@ -237,7 +237,8 @@ const slotsStub = {
 }
 const ctx = {
   effect: (fn) => { registered.push(typeof fn === 'function' ? fn() : undefined); return () => {} },
-  locale: { register: () => () => {} },
+  // locale.bind：工作台菜单行文案走官方 locale 命名空间（thunk 每次读取都重跑）。
+  locale: { register: () => () => {}, bind: () => (key) => key },
   slots: slotsStub,
   get: (name) => (name === 'sessions' ? { list: { getSnapshot: () => ({ byId: {} }) } } : undefined),
   inject: (names, fn) => {
@@ -246,6 +247,7 @@ const ctx = {
     for (const n of names) {
       if (n === 'sessions') scope.sessions = ctx.get('sessions')
       else if (n === 'inputTriggers') scope.inputTriggers = { register: () => () => {} }
+      else if (n === 'layout') scope.layout = { selectPanel: () => {}, panelInfo: { getSnapshot: () => ({ activePanelId: null }), subscribe: () => () => {} } }
       else scope[n] = undefined
     }
     fn?.(scope)

@@ -228,6 +228,23 @@ sandbox.document.body.appendChild = (child) => {
   bodyItems.push(child)
   return originalBodyAppend(child)
 }
+/*
+ * getElementById 必须真的按 id 查找。
+ *
+ * 幂等注入的样式表全靠它判重（`if (document.getElementById(id) !== null) return`），
+ * 恒返回 null 会让每处调用都新建一份 <style>：三个工作台各自 ensureShellStyles()
+ * 一次，head 里就出现三份 dsh-popover-shell-styles —— 那是桩的假象，真实浏览器
+ * 里只有一份，但断言会把它报成"多余样式"。
+ */
+sandbox.document.getElementById = (id) => {
+  const pool = [...headItems, ...bodyItems]
+  for (const node of pool) {
+    if (node?.id === id) return node
+    const hit = node?.children?.find?.((child) => child?.id === id)
+    if (hit !== undefined) return hit
+  }
+  return null
+}
 
 const context = vm.createContext(sandbox)
 const code = readFileSync(CLIENT, 'utf8')
@@ -255,11 +272,12 @@ else pass('factory exports apply()')
 if (!Array.isArray(mod.inject)) fail('factory did not export inject[]')
 else pass(`factory exports inject[] = [${mod.inject.join(', ')}]`)
 // inject[] 取并集：原 dsh-chat-plus 的 slots + 原 dsh-triad 的
-// locale / inputTriggers / sessions（四个工作台的服务面）。
-if (JSON.stringify(mod.inject) !== JSON.stringify(['slots', 'locale', 'inputTriggers', 'sessions'])) {
-  fail(`expected inject = ['slots','locale','inputTriggers','sessions'], got [${mod.inject.join(', ')}]`)
+// locale / inputTriggers / sessions（四个工作台的服务面）+ layout（2026-10-04 起
+// 记忆/能力/邮箱三个工作台改挂官方 main 页座位，开合走 ctx.layout.selectPanel）。
+if (JSON.stringify(mod.inject) !== JSON.stringify(['slots', 'locale', 'inputTriggers', 'sessions', 'layout'])) {
+  fail(`expected inject = ['slots','locale','inputTriggers','sessions','layout'], got [${mod.inject.join(', ')}]`)
 } else {
-  pass('client inject = ["slots","locale","inputTriggers","sessions"] (chat-plus + triad union)')
+  pass('client inject = ["slots","locale","inputTriggers","sessions","layout"] (chat-plus + triad union)')
 }
 
 // ── run apply() against a stub client context ────────────────────────────
@@ -279,20 +297,29 @@ const slotsService = {
   },
   entries: (name) => [],
 }
-// 融合后的 client 需要四类 service（slots 之外）。原 dsh-chat-plus 只要 slots；
-// 原 dsh-triad 的四个工作台要 locale / inputTriggers / sessions / modelDirectories。
+// 融合后的 client 需要五类 service（slots 之外）。原 dsh-chat-plus 只要 slots；
+// 原 dsh-triad 的四个工作台要 locale / inputTriggers / sessions / modelDirectories，
+// 2026-10-04 起再加 layout（三个工作台页挂在官方 main 座位，开合走 selectPanel）。
 // 缺了哪个，对应工作台的 try/catch 就吃掉它、座位少注册一个——所以这里必须
 // 给全，否则下面的座位数断言分不清「真没注册」与「stub 不够」。
 const sessionsStub = { list: { getSnapshot: () => ({ byId: {} }) } }
 const inputTriggersStub = { register: () => () => {} }
 const modelDirectoriesStub = { list: () => Promise.resolve([]) }
+// layout 桩：selectPanel 记录调用（下面断言「点用量入口先切回会话」）。
+const layoutCalls = []
+const layoutStub = {
+  selectPanel: (id) => { layoutCalls.push(id) },
+  panelInfo: { getSnapshot: () => ({ activePanelId: null }), subscribe: () => () => {} },
+}
 const ctx = {
   effect: (fn) => { const stop = typeof fn === 'function' ? fn() : undefined; return stop ?? (() => {}) },
-  locale: { register: () => () => {} },
+  // locale.bind：菜单行文案走官方 locale 命名空间（register 保留 + bind 返回翻译函数）。
+  locale: { register: () => () => {}, bind: () => (key) => key },
   get: (name) => {
     if (name === 'sessions') return sessionsStub
     if (name === 'inputTriggers') return inputTriggersStub
     if (name === 'modelDirectories') return modelDirectoriesStub
+    if (name === 'layout') return layoutStub
     return undefined
   },
   slots: slotsService,
@@ -335,6 +362,9 @@ const expectedStyles = [
   'dsh-chat-flow-proto-styles', 'dsh-chat-flow-diagram-styles',
   'dsh-chat-flow-download-styles',
   'dsh-triad-skill-source-styles',
+  // 面板外壳（page / compact 两种形态）。2026-10-04 起由 registerPanelSeat 在
+  // apply() 时同步注入（三个工作台页共用一个座位注册器），不再等 React 首帧。
+  'dsh-popover-shell-styles',
   // 工作台的窄屏覆盖（src/client/triad/responsive.ts）。曾经定义了却没人
   // 调用，整段样式被 tree-shake 掉、从未注入 —— 窄屏下设置面板与居中对话框
   // 全是坏的。断言它必须在册，防止再次掉线。
@@ -560,15 +590,27 @@ if (!code.includes('data-dsh-anim-paused') || !code.includes('animation-play-sta
   pass('global animation throttle pauses all CSS animations when the page is hidden')
 }
 
-// 八枚槽位：对话增强五枚（turn-process / assistant-step keyed / 截图按钮 /
-// download toolview / kr-todo-bridge）+ 融合工作台三枚（dsh-memory-builtin-toggle、
-// dsh-memory-inject-toggle、skill toolview）。座位 id/order/locale 全部原样保留；
-// 原 automation-notifier 随自动化模块一起下线。
+// 十四枚槽位：对话增强五枚（turn-process / assistant-step keyed / 截图按钮 /
+// download toolview / kr-todo-bridge）+ 融合工作台九枚（记忆 / 能力 / 邮箱三个
+// 工作台各两枚：main 页 + sidebar.panellist 菜单行，共 6；composer 两枚开关
+// dsh-memory-builtin-toggle / dsh-memory-inject-toggle；skill toolview 一枚）。
+// 座位 id/order/locale 全部原样保留；原 automation-notifier 随自动化模块一起下线。
 const cell = (key) => registeredSlots.find((s) => s?.slot === 'conversation.chat.node' && s?.key === key)
-if (registeredSlots.length !== 8) {
-  fail(`expected 8 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
+if (registeredSlots.length !== 14) {
+  fail(`expected 14 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
 } else {
-  pass('registered 8 seats (5 chat-plus + 3 triad: builtin+memory toggles / skill toolview)')
+  pass('registered 14 seats (5 chat-plus + 9 triad: 3 workbench pages/rows + 2 toggles + skill toolview)')
+}
+
+// 工作台页面：三个页面本体挂官方 `main`（keyed），与官方「自动化任务」页同座位。
+// 这条断言是本次改版的契约——任何一处回退成 body 浮层都会让它失败。
+for (const [id, order] of [['memory', 20], ['skills', 25], ['mail', 30]]) {
+  const page = registeredSlots.find((s) => s?.slot === 'main' && s?.key === id)
+  const row = registeredSlots.find((s) => s?.slot === 'sidebar.panellist' && s?.id === id)
+  if (page === undefined) fail(`missing workbench page seat main / ${id}`)
+  else if (row === undefined) fail(`missing sidebar row seat sidebar.panellist / ${id}`)
+  else if (row.order !== order) fail(`sidebar row ${id} order = ${row.order}, expected ${order}`)
+  else pass(`seat main / ${id} + sidebar.panellist / ${id} @ order ${order}`)
 }
 
 const downloadSeat = registeredSlots.find((s) => s?.slot === 'tool.call.toolview' && s?.key === 'download')
@@ -1299,17 +1341,25 @@ if (krEnabled) {
   }
 }
 
-// ── 邮箱工作台（Agent Mail）抽屉开合契约 ─────────────────────────────
+// ── 邮箱工作台（Agent Mail）座位契约 ─────────────────────────────────
+// 2026-10-04 改版：入口由「自绘导航行 + portal 到 body 的 fixed 抽屉」改为官方
+// `main` 页 + `sidebar.panellist` 菜单行。旧契约（open=false 必须返回 null）防的是
+// 「fixed 全高抽屉从插件加载那一刻就盖住界面」，page 形态是 centerCol 里的普通
+// flex item、只在被选中时才渲染，那条守卫连同 open/closing 状态机一并删除。
+// 新契约：面板不得再依赖 open/closing/anchor（否则等于没改完），且必须仍能被
+// 官方座位装配起来。
 {
   const mailPanelSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Panel.tsx'), 'utf-8')
-  const mailEntrySrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Entry.tsx'), 'utf-8')
+  const mailIndexSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/index.ts'), 'utf-8')
 
-  if (!/if\s*\(!open\s*&&\s*!closing\)\s*return\s*null/.test(mailPanelSrc)) {
-    fail('MailPanel 必须在未打开且未退场时返回 null（否则启动即挂载在 body 无法关闭）')
-  } else if (!/\(open\s*\|\|\s*closing\)\s*&&/.test(mailEntrySrc)) {
-    fail('MailNavApp 必须仅在 open || closing 时挂载 MailPanel')
+  if (/\bclosing\b/.test(mailPanelSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 '))) {
+    fail('MailPanel 不得再有 closing（page 形态由官方 main keyed 槽位负责挂载/卸载，没有退场动画阶段）')
+  } else if (/PopoverAnchor/.test(mailPanelSrc)) {
+    fail('MailPanel 不得再依赖 PopoverAnchor（page 形态铺满 main，不需要贴入口定位）')
+  } else if (!/registerPanelSeat/.test(mailIndexSrc)) {
+    fail('邮箱入口必须走 registerPanelSeat（main 页 + sidebar.panellist 菜单行）')
   } else {
-    pass('邮箱工作台：未打开态返回 null + Entry 条件挂载（启动不自启、关闭即收口）')
+    pass('邮箱工作台：page 形态（无 open/closing/anchor）+ 官方 main / sidebar.panellist 座位')
   }
 }
 
@@ -1371,7 +1421,7 @@ if (krEnabled) {
 // ── 面板写操作：点一下就执行，不给「待确认」条 ──────────────────────────
 {
   const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Panel.tsx'), 'utf-8')
-  const entrySrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Entry.tsx'), 'utf-8')
+  const entrySrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/index.ts'), 'utf-8')
   const serviceSrc = readFileSync(resolve(ROOT, 'src/mail/service.ts'), 'utf-8')
   const typesSrc = readFileSync(resolve(ROOT, 'src/mail/types.ts'), 'utf-8')
 

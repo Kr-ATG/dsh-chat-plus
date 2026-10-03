@@ -1,41 +1,44 @@
 /**
- * 用量卡片 + 技能面板入口：侧边栏导航行。
+ * 用量入口：侧边栏导航行 + 点击打开用量卡片。
  *
- * 「用量」「能力」两个入口合并成一行；用量点开的是贴入口弹出的小卡片
- * （热力图 + token 消耗查询），技能点开覆盖会话主区（跟点会话一样占住主区，
- * 移动端回退底部 sheet）。
+ * 「用量」是本插件唯一保留自绘导航行的入口——它点开的不是一整页工作台，而是
+ * 贴入口弹出的 **648×414 紧凑小卡**（热力图 + token 消耗查询），做成整页视图
+ * 反而要在 main 里放一张小卡、周围全是空白。其余三个工作台（记忆 / 能力 /
+ * 邮箱）2026-10-04 起改走官方 `main` 页 + `sidebar.panellist` 菜单行，见
+ * `../panel-seat.tsx`。
+ *
+ * 与官方菜单行的互斥：点本行打开卡片前先把 main 切回会话
+ * （`ctx.layout.selectPanel(null)`）——否则卡片会浮在别人那一页上面，
+ * 用户以为自己还在那个工作台里。
+ *
+ * 本行原先在行尾常驻「今日总用量」并每 60s 轮询一次。多个入口合并成一行后
+ * 每格只有约 1/2 侧栏宽，放不下「文字 + 数字」（且行尾的 margin-left:auto
+ * 会顶掉居中），故整块去掉——完整数据点开卡片即可，顺带省掉轮询。
  */
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { IconDataOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { UsagePanel } from './dashboard/UsagePanel'
-import { SkillsPanel } from './dashboard/SkillsPanel'
 import { ensureModalAnimStyles, useModalClose } from '../triad-modal-animation'
 import { ErrorBoundary } from '../../error-boundary'
 import { NavButton, NavPortal, ensureNavMount, ensureNavStyles, navAnchorFrom, usePanelAutoClose, useRail } from '../sidebar-nav'
 import { ensureShellStyles, type PopoverAnchor } from '../popover-shell'
+import { closePanelSeat } from '../panel-seat'
 
-/** 从点击事件取锚点：所在导航行右缘 +8、按钮顶缘 -6（合并行统一滑出位）。 */
+/** 从点击事件取锚点：所在导航行右缘 +8、按钮顶缘 -6。 */
 function anchorFromEvent(e: React.MouseEvent<HTMLButtonElement>): PopoverAnchor | null {
   return navAnchorFrom(e.currentTarget)
 }
 
-/**
- * 用量入口：导航行 + 点击打开用量卡片。
- *
- * 本行原先在行尾常驻「今日总用量」并每 60s 轮询一次。多个入口合并成一行后
- * 每格只有约 1/2 侧栏宽，放不下「文字 + 数字」（且行尾的 margin-left:auto
- * 会顶掉居中），故整块去掉——完整数据点开卡片即可，顺带省掉轮询。
- */
-function UsagePanelEntry(): JSX.Element {
+function UsagePanelEntry({ ctx }: { ctx: ClientContext }): JSX.Element {
   ensureModalAnimStyles()
   ensureShellStyles()
   const [open, setOpen] = useState(false)
   const [anchor, setAnchor] = useState<PopoverAnchor | null>(null)
   const { closing, requestClose, cancelClose } = useModalClose(open, () => { setOpen(false) })
   const rail = useRail()
-  usePanelAutoClose('usage', open, requestClose)
+  usePanelAutoClose(open, requestClose)
 
   // 导航行是这一格唯一的开关，三种落点必须各自成立：
   //   退场中 → 原地弹回（必须清掉待执行的关闭，否则动画结束时仍会把它关掉）
@@ -53,6 +56,9 @@ function UsagePanelEntry(): JSX.Element {
       requestClose()
       return
     }
+    // 打开前先离开任何 main 工作台页：卡片是浮层，压在别人那一页上会让人
+    // 误判当前所在视图（官方菜单行的选中态也还亮着）。
+    closePanelSeat(ctx)
     if (next !== null) setAnchor(next)
     setOpen(true)
   }
@@ -77,67 +83,13 @@ function UsagePanelEntry(): JSX.Element {
   )
 }
 
-/** 技能入口：导航行 + 覆盖会话主区的面板。 */
-function SkillsEntry(): JSX.Element {
-  ensureModalAnimStyles()
-  ensureShellStyles()
-  const [open, setOpen] = useState(false)
-  const [anchor, setAnchor] = useState<PopoverAnchor | null>(null)
-  const { closing, requestClose, cancelClose } = useModalClose(open, () => { setOpen(false) })
-  const rail = useRail()
-  usePanelAutoClose('skills', open, requestClose)
-  // 同 UsagePanelEntry：退场中再点是弹回，不是收起。
-  const toggle = (e: React.MouseEvent<HTMLButtonElement>): void => {
-    e.stopPropagation()
-    const next = anchorFromEvent(e)
-    if (closing) {
-      cancelClose()
-      if (next !== null) setAnchor(next)
-      return
-    }
-    if (open) {
-      requestClose()
-      return
-    }
-    if (next !== null) setAnchor(next)
-    setOpen(true)
-  }
-  return (
-    <>
-      {/* 能力（闪电，Feather zap 线性风，与自动化/记忆的自绘图标同款描边） */}
-      <NavButton
-        icon={(
-          <svg width={rail ? 18 : 16} height={rail ? 18 : 16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z" />
-          </svg>
-        )}
-        label="能力"
-        rail={rail}
-        expanded={open}
-        onClick={toggle}
-      />
-      {open && (
-        <ErrorBoundary label="技能面板" fallback={null} onError={requestClose}>
-          <SkillsPanel closing={closing} onClose={requestClose} anchor={anchor} />
-        </ErrorBoundary>
-      )}
-    </>
-  )
-}
-
-/** 导航行应用：用量入口 portal 到 nav host 的 usage 槽（独立行）；
- * 技能入口 portal 到 skills 槽——与自动化、记忆合成首行。 */
-function UsageSkillsNavApp(): JSX.Element | null {
+/** 导航行应用：用量入口 portal 到 nav host 的 usage 槽（独立一行）。 */
+function UsageNavApp({ ctx }: { ctx: ClientContext }): JSX.Element | null {
   ensureNavStyles()
   return (
-    <>
-      <NavPortal name="usage">
-        <UsagePanelEntry />
-      </NavPortal>
-      <NavPortal name="skills">
-        <SkillsEntry />
-      </NavPortal>
-    </>
+    <NavPortal name="usage">
+      <UsagePanelEntry ctx={ctx} />
+    </NavPortal>
   )
 }
 
@@ -148,7 +100,7 @@ export function apply(ctx: ClientContext): void {
     // 落到 sidebar-nav 的槽位 div。
     const holder = document.createElement('div')
     const root = createRoot(holder)
-    root.render(<UsageSkillsNavApp />)
+    root.render(<UsageNavApp ctx={ctx} />)
     return () => { root.unmount() }
-  }, 'triad: usage/skills nav entries')
+  }, 'triad: usage nav entry')
 }

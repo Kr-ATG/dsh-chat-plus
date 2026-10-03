@@ -31,7 +31,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { modalStaggerClass } from '../../triad-modal-animation'
 import { ConfirmDialog } from '../../memory/ConfirmDialog'
-import { PshBody, PopoverShell, type PopoverAnchor } from '../../popover-shell'
+import { PshBody, PopoverShell } from '../../popover-shell'
 
 /** ---------------------------------------------------------------- 数据模型 */
 
@@ -3025,7 +3025,7 @@ function frontmatterName(text: string): string | null {
   return null
 }
 
-export function SkillsPanel({ onClose, closing = false, anchor = null, onCardMouseEnter, onCardMouseLeave }: { onClose: () => void; closing?: boolean; anchor?: PopoverAnchor | null; onCardMouseEnter?: () => void; onCardMouseLeave?: () => void }): JSX.Element {
+export function SkillsPanel({ onClose }: { onClose: () => void }): JSX.Element {
   ensureStyles()
   const [state, setState] = useState<PanelState>({ status: 'loading' })
   const [reload, setReload] = useState(0)
@@ -3282,12 +3282,12 @@ export function SkillsPanel({ onClose, closing = false, anchor = null, onCardMou
     for (const timer of toastTimers.current) window.clearTimeout(timer)
   }, [])
 
-  /** 指南/MCP 解释浮层的位置：贴着面板卡片右缘内侧（面板铺满主区，外侧已无空间）。 */
+  /** 指南/MCP 解释浮层的位置：贴着本页根容器右缘内侧（页面铺满 main，外侧已无空间）。 */
   const [guidePos, setGuidePos] = useState<{ left: number; top: number; height: number } | null>(null)
   useEffect(() => {
     if (!guideOpen && !mcpInfoOpen) return
     const marker = document.querySelector('[data-skm-panel-marker]')
-    const card = marker?.closest('.psh-card')
+    const card = marker?.closest('.psh-page')
     if (!(card instanceof HTMLElement)) return
     const rect = card.getBoundingClientRect()
     const vh = window.innerHeight
@@ -3768,21 +3768,17 @@ export function SkillsPanel({ onClose, closing = false, anchor = null, onCardMou
 
   return (
     <PopoverShell
-      solid
-      closing={closing}
       onClose={() => {
         // 安装/确认进行中禁止关闭；二级弹窗（新建/添加/确认/查看器/归组）打开时 Esc 归二级弹窗。
         if (installing || confirming) return
         if (newBundleOpen || addOpen || confirm !== null || viewer !== null || assignTarget !== null || catTarget !== null) return
         onClose()
       }}
-      anchor={anchor}
-      onCardMouseEnter={onCardMouseEnter}
-      onCardMouseLeave={onCardMouseLeave}
-      size={{ width: 1150, height: 860 }}
       ariaLabel={t('panelTitle')}
     >
-      {/* 头部：标题（能力管理）+ 紧贴文字右侧的 SKILL/MCP 顶层 tab + 关闭 */}
+      {/* 头部：标题（能力管理）+ 紧贴文字右侧的 SKILL/MCP 顶层 tab。整页形态下
+          关闭钮已去掉——离开这一页是「点侧边栏会话行 / 点别的菜单行 / Esc」，
+          与官方自动化任务页同一套；标题行只承担标题与顶层 tab。 */}
       <div className="psh-head">
         <span className="psh-title" style={{ flex: 'none' }}>{t('panelTitle')}</span>
         <div className={css.kindTabs} role="tablist" aria-label="SKILL / MCP">

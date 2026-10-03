@@ -31,8 +31,10 @@
       "@deepseek-ai/dsh-client-ui-primitives": ["../../deepseek-harness/packages/client/ui-primitives/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-client-ui-conversation/client": ["../../deepseek-harness/packages/client/ui-conversation/lib/types/client/index.d.ts"],
       "@deepseek-ai/dsh-client-ui-conversation": ["../../deepseek-harness/packages/client/ui-conversation/lib/types/index.d.ts"],
-      "@deepseek-ai/dsh-client-ui-layout/client": ["../../deepseek-harness/packages/client/ui-layout/lib/types/client/index.d.ts"],
-      "@deepseek-ai/dsh-client-ui-layout": ["../../deepseek-harness/packages/client/ui-layout/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-layout/client": ["../dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/types/client/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-layout": ["../dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-sidebar/client": ["../dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-sidebar/lib/types/client/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-sidebar": ["../dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-sidebar/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-client-locale/client": ["../../deepseek-harness/packages/client/locale/lib/types/client/index.d.ts"],
       "@deepseek-ai/dsh-client-locale": ["../../deepseek-harness/packages/client/locale/lib/types/index.d.ts"],
       "react": ["../../deepseek-harness/node_modules/.pnpm/@types+react@18.3.31/node_modules/@types/react/index.d.ts"],
@@ -49,3 +51,4 @@
   },
   "include": ["src", "types"]
 }
+

@@ -46,8 +46,10 @@ import { setClientCtx } from './client-ctx.ts'
 
 /** 顶层服务依赖（client boot graph 用）。 */
 // 并集 = 原 dsh-chat-plus 的 slots + 原 dsh-triad 的 locale/inputTriggers/sessions
-// （四工作台融合后由本插件统一提供，少了哪个哪个工作台就不挂载）。
-export const inject = ['slots', 'locale', 'inputTriggers', 'sessions']
+// （四工作台融合后由本插件统一提供，少了哪个哪个工作台就不挂载）
+// + layout：2026-10-04 起记忆/能力/邮箱三个工作台改挂官方 `main` 页座位，
+//   开合走 `ctx.layout.selectPanel`（与官方 ui-sidebar / ui-schedule 同一依赖）。
+export const inject = ['slots', 'locale', 'inputTriggers', 'sessions', 'layout']
 
 /** 单个模块失败不拖垮插件整体。 */
 function guarded(ctx: ClientContext, label: string, mount: () => void): void {

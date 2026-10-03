@@ -52,7 +52,8 @@ import { MemoryHome } from './Home.js'
 import { makeT, type MemoryLocaleKey, type MemoryT } from './locales.js'
 import { modalStaggerClass } from '../triad-modal-animation.js'
 import { ConfirmDialog } from './ConfirmDialog.js'
-import { PshBody, PopoverShell, type PopoverAnchor } from '../popover-shell.js'
+import { PshBody, PopoverShell } from '../popover-shell.js'
+import { markReadIds, readIds } from './Notify.js'
 
 /** 面板视图（左栏导航决定）。 */
 export type MemoryTab = 'home' | 'all' | 'changes' | 'revisions' | 'trash' | 'settings'
@@ -106,17 +107,8 @@ interface RelatedState {
 
 /** 面板 props。 */
 export type MemoryPanelProps = {
-  open: boolean
-  /** 正在播放收回动画（此时卡片仍挂载，播放滑出）。 */
-  closing?: boolean
   onClose: () => void
   initialTab?: MemoryTab
-  /** 入口锚点（按钮右缘+顶缘视口坐标）：卡片贴其右侧滑出；null 回退底部 sheet。 */
-  anchor?: PopoverAnchor | null
-  /** 鼠标进入卡片（hover 模式：取消自动收回）。 */
-  onCardMouseEnter?: () => void
-  /** 鼠标离开卡片（hover 模式：启动自动收回计时）。 */
-  onCardMouseLeave?: () => void
   /** 轻量翻译函数（入口经 makeT 提供）。 */
   t?: MemoryT
 } & MemoryApi
@@ -558,7 +550,7 @@ function importancePercent(importance: number): number {
 }
 
 /** 主面板。 */
-export function MemoryPanel({ open, closing = false, onClose, initialTab, anchor = null, onCardMouseEnter, onCardMouseLeave, t = makeT(), ...api }: MemoryPanelProps): JSX.Element | null {
+export function MemoryPanel({ onClose, initialTab, t = makeT(), ...api }: MemoryPanelProps): JSX.Element {
   ensureStyles()
   // slots 的 inject 函数每次渲染返回新 api 对象；用 ref 固定引用，
   // 否则 load 的 useCallback 依赖 api 每次变化 → useEffect 无限重触发请求风暴。
@@ -627,9 +619,8 @@ export function MemoryPanel({ open, closing = false, onClose, initialTab, anchor
     return () => { window.clearTimeout(timer) }
   }, [q, debouncedQ])
 
-  // ⌘K / Ctrl+K：聚焦顶栏搜索（面板打开时生效）。
+  // ⌘K / Ctrl+K：聚焦顶栏搜索（本页挂在 main 槽位，页面在=生效）。
   useEffect(() => {
-    if (!open) return undefined
     const onKey = (event: KeyboardEvent): void => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
@@ -638,7 +629,7 @@ export function MemoryPanel({ open, closing = false, onClose, initialTab, anchor
     }
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('keydown', onKey) }
-  }, [open])
+  }, [])
 
   // ── 数据加载（分片：条目 / 概览 / 变更 / 修订 / 配置各自独立）───────
 
@@ -737,35 +728,45 @@ export function MemoryPanel({ open, closing = false, onClose, initialTab, anchor
     await loadRevisions()
   }, [load, loadSummary, loadChanges, loadRevisions])
 
+  // 挂载即加载。本页现在挂在官方 main 槽位（keyed），只有被选中时才渲染、
+  // 切走即卸载，所以「打开」= 挂载，不再需要 open 依赖。
   useEffect(() => {
-    if (!open) return
     void load()
     void loadSummary()
     void loadChanges()
     void loadRevisions()
-  }, [open, load, loadSummary, loadChanges, loadRevisions])
+  }, [load, loadSummary, loadChanges, loadRevisions])
 
-  // 视图按需加载：设置只在被打开时拉取。
+  // 视图按需加载：设置只在被切到该 Tab 时拉取。
   useEffect(() => {
-    if (!open) return
     if (tab === 'settings') void loadConfig()
-  }, [open, tab, loadConfig])
+  }, [tab, loadConfig])
 
+  /*
+   * 有未读变更时直达「变更」Tab，并顺手清掉未读。
+   *
+   * 这是原侧边栏入口的点击语义（`openPanel(unread.count > 0 ? 'changes' :
+   * 'home')` + `markRead()`）。入口改成官方菜单行后那段逻辑没地方挂了，就挪到
+   * 页面自己身上：挂载后拉一次未读，有就跳并标记已读，只跳一次（jumpedRef 守
+   * 住，用户自己切回「全部」不会被再拽走）。
+   *
+   * 只拉一次、不轮询：官方菜单行没有角标位（`sidebar.panellist` 只渲染图标 +
+   * 文案），常驻轮询已经没有消费方；原先 60s 一次的那条轮询随入口一并去掉。
+   */
+  const jumpedRef = useRef(false)
   useEffect(() => {
-    if (open && initialTab !== undefined) setTab(initialTab)
-  }, [open, initialTab])
-
-  // 面板关闭时复位一次性态（多选集合 / 表单 / 提示语），避免重开时残留。
-  useEffect(() => {
-    if (open) return
-    setSelecting(false)
-    setCheckedIds(new Set())
-    setEditing(null)
-    setMoving(null)
-    setAdding(false)
-    setNotice('')
-    setError('')
-  }, [open])
+    if (jumpedRef.current) return
+    jumpedRef.current = true
+    void apiRef.current.changes().then(
+      (response) => {
+        const seen = readIds()
+        if (!response.changes.some(change => !seen.has(change.id))) return
+        markReadIds(response.changes.map(change => change.id))
+        setTab('changes')
+      },
+      () => { /* 未读是尽力而为的副产物：拉不到就停在「首页」。 */ },
+    )
+  }, [])
 
   // 切项目时清空别名草稿：草稿是「当前选中项目」的编辑态，跟着筛选一起复位。
   useEffect(() => { setAliasDraft(null) }, [scope])
@@ -1757,8 +1758,6 @@ export function MemoryPanel({ open, closing = false, onClose, initialTab, anchor
     ? projects.find(candidate => candidate.hash === scope.slice('project:'.length))
     : undefined
 
-  if (!open) return null
-
   /* 左侧导航项。 */
   const navItem = (key: MemoryTab, icon: JSX.Element, label: string, count: number, hint?: string, badge = true): JSX.Element => (
     <button
@@ -1782,20 +1781,17 @@ export function MemoryPanel({ open, closing = false, onClose, initialTab, anchor
 
   return (
     <>
+    {/*
+      页面形态（PopoverShell 的 page）：铺满官方 main 槽位，与「自动化任务」
+      页同座位。原来那条只有标题的 psh-head 一并去掉——左栏 sidebarBrand 已经
+      写着同一个标题，抽屉时代需要它是因为卡片没有别的 chrome，整页形态下
+      两行同名标题叠在一起纯属噪声。
+    */}
     <PopoverShell
-      closing={closing}
       onClose={onClose}
-      anchor={anchor}
-      onCardMouseEnter={onCardMouseEnter}
-      onCardMouseLeave={onCardMouseLeave}
-      width={1312}
       ariaLabel={t('panelTitle')}
-      solid
     >
       <PshBody className={css.modalBody}>
-      <div className="psh-head">
-        <span className="psh-title">{t('panelTitle')}</span>
-      </div>
       <div className={`${css.panel} ${modalStaggerClass}`} aria-busy={state.status === 'loading'}>
         {/* ── 底部 dock：图标坞（文字进 tooltip） ── */}
         <aside className={css.sidebar}>
