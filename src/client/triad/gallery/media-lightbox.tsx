@@ -25,6 +25,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { formatRelativeTime, formatSize, resolveGeneratedUrls, type GalleryKind } from './api.js'
+import { ensureGalleryStyles } from './styles.js'
 
 /** Lightbox 条目（画廊 GalleryItem 与产出物 OutputItem 的公共超集）。 */
 export interface LightboxItem {
@@ -108,6 +109,11 @@ export interface MediaLightboxProps {
 export function MediaLightbox({
   items, index, fileUrlOf, onNavigate, onClose, onOpenSession, onOpenSidebar,
 }: MediaLightboxProps): JSX.Element | null {
+  // 样式自注入（2026-10-04 修「点一下就跑到下面」的真根因）：tg-* 样式表此前
+  // 只在 GalleryPanel 里注入，产出物卡从右栏直接打开本组件时样式表不存在 ——
+  // 无样式的 portal div 以普通块排在 body 末尾，把整页内容顶到视口下方，
+  // 视觉上就是「一点就跳到底」。共享组件必须自带样式，不能依赖调用方。
+  ensureGalleryStyles()
   const item = items[index]
   const [closing, setClosing] = useState(false)
   const [full, setFull] = useState(false)

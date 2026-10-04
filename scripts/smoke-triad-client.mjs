@@ -765,6 +765,8 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     fail('共享 MediaLightbox 的 html 预览 iframe 必须带 sandbox 且**不给 allow-same-origin**（成品页不得读宿主同源状态）')
   } else if (/allow-same-origin/.test(lbSrc)) {
     fail('Lightbox iframe 的 sandbox 绝不能含 allow-same-origin')
+  } else if (!/ensureGalleryStyles\(\)/.test(lbSrc)) {
+    fail('共享 MediaLightbox 必须自注 tg-* 样式表：产出物卡从右栏直接打开时 GalleryPanel 没挂载，样式缺失会让无样式 portal 把内容顶到视口下方（点一下就跳底的根因）')
   } else if (!/data-full=\{full/.test(lbSrc) || !/tg-lb__fullbtn/.test(lbSrc)) {
     fail('共享 MediaLightbox 必须有全屏切换钮（data-full 态 + tg-lb__fullbtn，用户 2026-10-04 点名）')
   } else if (!/event\.key === 'f' \|\| event\.key === 'F'/.test(lbSrc)) {
