@@ -3,8 +3,15 @@
  *
  * 回答一个问题：**所有对话产出过的图片 / 网页 / 演示 / 文档，在哪儿一次看全。**
  *
- * 布局：工具条（类别 chips + 搜索 + 刷新）→ 会话筛选条（选中某会话时出现）
- * → 卡片网格 → Lightbox。数据来自 host 的 /api/triad/gallery/media（跨会话
+ * 布局：工具条（类别 chips + 时间筛选 + 搜索 + 视图切换 + 刷新）→ 筛选条
+ * （会话 / 时间，选中时出现）→ 卡片网格或时间轴 → Lightbox。
+ *
+ * 时间能力（2026-10-04 增补）：
+ *  · 时间轴视图 —— 按天分组，左侧竖轨 + 日期钉住头，卡片仍走同一张 GalleryCard；
+ *  · 时间筛选 —— 工具条时钟钮弹预设（今天/昨天/近7天/近30天/本周/本月/上月）
+ *    或自定义起止日期；
+ *  · 时间搜索 —— 搜索框直接输入时间表达（「昨天」「最近30天」「2026-10-01」
+ *    「10月」…），parseTimeQuery 认出来就按时间过滤而不是按文本。数据来自 host 的 /api/triad/gallery/media（跨会话
  * 增量折叠，stat 核对过才下发）；generated（生图/生视频）条目经既有的
  * /api/chat-flow/generated-images 二次解析成可显示 URL。
  *
@@ -23,15 +30,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import {
+  dayKeyOf,
+  dayLabelOf,
   fetchGalleryMedia,
   formatRelativeTime,
   formatSize,
   galleryRawUrl,
+  inTimeRange,
   KIND_LABEL,
+  parseTimeQuery,
+  presetRange,
   resolveGeneratedUrls,
+  TIME_PRESET_LABEL,
   type GalleryItem,
   type GalleryKind,
   type GallerySession,
+  type TimePresetId,
+  type TimeRange,
 } from './api.js'
 import { ensureGalleryStyles } from './styles.js'
 import { generatedUrlCache, INLINE_PREVIEW_KINDS, MediaLightbox } from './media-lightbox.js'
@@ -43,6 +58,49 @@ const KIND_ORDER: readonly GalleryKind[] = ['image', 'page', 'video', 'pdf', 'sl
 
 /** 筛选状态：null = 全部。 */
 type KindFilter = GalleryKind | null
+
+/** 视图形态：网格 / 时间轴。 */
+type ViewMode = 'grid' | 'timeline'
+
+/** 时间轴的一天分组。 */
+interface DayGroup {
+  readonly key: string
+  readonly label: string
+  readonly weekday: string
+  readonly items: readonly GalleryItem[]
+}
+
+const WEEKDAY_LABEL = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const
+
+/** 按天分组（items 已由 host 时间降序，分组保持顺序）。 */
+function groupByDay(items: readonly GalleryItem[], now: number): readonly DayGroup[] {
+  const groups: DayGroup[] = []
+  const byKey = new Map<string, GalleryItem[]>()
+  for (const item of items) {
+    const key = dayKeyOf(item.time)
+    let bucket = byKey.get(key)
+    if (bucket === undefined) {
+      bucket = []
+      byKey.set(key, bucket)
+      groups.push({
+        key,
+        label: dayLabelOf(key, now),
+        weekday: WEEKDAY_LABEL[new Date(item.time).getDay()] ?? '',
+        items: bucket,
+      })
+    }
+    bucket.push(item)
+  }
+  return groups
+}
+
+/** YYYY-MM-DD（date input 的 value 形状，本地时区）。 */
+function toDateInputValue(time: number): string {
+  const date = new Date(time)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
 
 /** 相对时间要跟着走：每 30s 触发一次重渲染（与 tool-summary 的 use-now 同思路）。 */
 function useNow(intervalMs = 30_000): number {
@@ -293,8 +351,34 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
+  /** 视图形态（网格 ⇄ 时间轴）。 */
+  const [view, setView] = useState<ViewMode>('grid')
+  /** 显式时间筛选（时钟钮弹层设置）；null = 不限。 */
+  const [timeFilter, setTimeFilter] = useState<TimeRange | null>(null)
+  const [timePopover, setTimePopover] = useState(false)
+  /** 自定义区间的两个 date input（弹层内）。 */
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
   const now = useNow()
   const mounted = useRef(true)
+  const popoverRef = useRef<HTMLDivElement | null>(null)
+
+  // 点弹层外部 / Esc 关闭时间筛选弹层。
+  useEffect(() => {
+    if (!timePopover) return undefined
+    const onPointer = (event: MouseEvent) => {
+      if (!popoverRef.current?.contains(event.target as Node)) setTimePopover(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setTimePopover(false)
+    }
+    document.addEventListener('mousedown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [timePopover])
 
   useEffect(() => {
     mounted.current = true
@@ -349,13 +433,27 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
     return counts
   }, [items, sessionId])
 
+  /** 搜索词里的时间表达（认出来就按时间过滤，不再按文本匹配搜索词）。 */
+  const queryTimeRange = useMemo(() => parseTimeQuery(query, now), [query, now])
+
+  /** 生效的时间区间：显式筛选与搜索词取交集（都可独立为 null）。 */
+  const effectiveRange = useMemo<TimeRange | null>(() => {
+    if (timeFilter === null) return queryTimeRange
+    if (queryTimeRange === null) return timeFilter
+    const from = Math.max(timeFilter.from, queryTimeRange.from)
+    const to = Math.min(timeFilter.to, queryTimeRange.to)
+    if (from >= to) return { from, to, label: '空区间' }
+    return { from, to, label: `${timeFilter.label} ∩ ${queryTimeRange.label}` }
+  }, [timeFilter, queryTimeRange])
+
   /** 过滤后的展示清单（时间降序，host 已排好，这里只做筛选）。 */
   const visible = useMemo(() => {
     const base = items ?? []
-    const needle = query.trim().toLowerCase()
+    const needle = queryTimeRange === null ? query.trim().toLowerCase() : ''
     return base.filter((item) => {
       if (sessionId !== null && item.sessionId !== sessionId) return false
       if (kind !== null && item.kind !== kind) return false
+      if (effectiveRange !== null && !inTimeRange(item.time, effectiveRange)) return false
       if (needle !== '') {
         const title = sessionById.get(item.sessionId)?.title ?? ''
         if (!item.name.toLowerCase().includes(needle)
@@ -364,10 +462,31 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
       }
       return true
     })
-  }, [items, sessionId, kind, query, sessionById])
+  }, [items, sessionId, kind, query, queryTimeRange, effectiveRange, sessionById])
+
+  /** 时间轴分组（visible 的按天折叠）。 */
+  const dayGroups = useMemo(() => groupByDay(visible, now), [visible, now])
 
   /** 切换筛选时网格重建（key 变化 → 入场动画重播，形成「换一批」的视觉反馈）。 */
-  const gridKey = `${kind ?? 'all'}|${sessionId ?? 'all'}|${query.trim().toLowerCase()}`
+  const gridKey = `${kind ?? 'all'}|${sessionId ?? 'all'}|${query.trim().toLowerCase()}|${view}|${effectiveRange?.from ?? ''}-${effectiveRange?.to ?? ''}`
+
+  /** 应用一个时间预设（'all' = 清除）。 */
+  const applyPreset = useCallback((id: Exclude<TimePresetId, 'custom'>) => {
+    setTimePopover(false)
+    setTimeFilter(id === 'all' ? null : presetRange(id))
+  }, [])
+
+  /** 应用自定义区间（date input：起日 00:00 → 止日次日 00:00）。 */
+  const applyCustom = useCallback(() => {
+    if (customFrom === '' && customTo === '') return
+    const fromDate = customFrom === '' ? new Date(0) : new Date(`${customFrom}T00:00:00`)
+    const toDate = customTo === '' ? new Date(8.64e15) : new Date(`${customTo}T00:00:00`)
+    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) return
+    const from = fromDate.getTime()
+    const to = toDate.getTime() + 86_400_000
+    setTimeFilter({ from, to, label: `${customFrom || '起始'} ~ ${customTo || '现在'}` })
+    setTimePopover(false)
+  }, [customFrom, customTo])
 
   const openItem = useCallback((item: GalleryItem) => {
     // Office 家族（slide/sheet/doc）不进 Lightbox：直接走官方右栏文档预览。
@@ -437,6 +556,67 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
             </button>
           ))}
         </div>
+        {/* 时间筛选钮 + 预设弹层 */}
+        <div className="tg-time" ref={popoverRef}>
+          <button
+            type="button"
+            className="tg-icon-btn tg-time__btn"
+            data-active={timeFilter !== null ? 'true' : undefined}
+            title="按时间筛选"
+            aria-label="按时间筛选"
+            aria-expanded={timePopover}
+            onClick={() => { setTimePopover((open) => !open) }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+            {timeFilter !== null && <span className="tg-time__badge">{timeFilter.label}</span>}
+          </button>
+          {timePopover && (
+            <div className="tg-time-pop" role="menu">
+              <div className="tg-time-pop__presets">
+                {(['all', 'today', 'yesterday', 'last7', 'last30', 'thisWeek', 'thisMonth', 'lastMonth'] as const).map((id) => {
+                  const isCurrent = id === 'all'
+                    ? timeFilter === null
+                    : timeFilter !== null && timeFilter.label === TIME_PRESET_LABEL[id]
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      className="tg-time-pop__preset"
+                      data-active={isCurrent ? 'true' : undefined}
+                      onClick={() => { applyPreset(id) }}
+                    >
+                      {TIME_PRESET_LABEL[id]}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="tg-time-pop__custom">
+                <span className="tg-time-pop__custom-label">自定义区间</span>
+                <div className="tg-time-pop__custom-row">
+                  <input
+                    className="tg-time-pop__date"
+                    type="date"
+                    value={customFrom}
+                    max={customTo === '' ? undefined : customTo}
+                    onChange={(event) => { setCustomFrom(event.target.value) }}
+                  />
+                  <span className="tg-time-pop__sep">至</span>
+                  <input
+                    className="tg-time-pop__date"
+                    type="date"
+                    value={customTo}
+                    min={customFrom === '' ? undefined : customFrom}
+                    onChange={(event) => { setCustomTo(event.target.value) }}
+                  />
+                  <button type="button" className="tg-time-pop__apply" onClick={applyCustom}>应用</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
         <label className="tg-search">
           <span className="tg-search__icon">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
@@ -444,11 +624,47 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
           <input
             className="tg-search__input"
             type="search"
-            placeholder="搜文件名 / 路径 / 会话标题…"
+            placeholder="搜文件名 / 会话 / 时间（如「昨天」「近30天」「2026-10-01」）…"
             value={query}
             onChange={(event) => { setQuery(event.target.value) }}
+            data-time-hit={queryTimeRange !== null ? 'true' : undefined}
           />
+          {queryTimeRange !== null && (
+            <span className="tg-search__time-tag" title={`按时间过滤：${queryTimeRange.label}`}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+              {queryTimeRange.label}
+            </span>
+          )}
         </label>
+        {/* 视图切换：网格 ⇄ 时间轴 */}
+        <div className="tg-view" role="tablist" aria-label="视图">
+          <button
+            type="button"
+            className="tg-view__btn"
+            data-active={view === 'grid' ? 'true' : undefined}
+            title="网格视图"
+            aria-label="网格视图"
+            onClick={() => { setView('grid') }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="tg-view__btn"
+            data-active={view === 'timeline' ? 'true' : undefined}
+            title="时间轴视图"
+            aria-label="时间轴视图"
+            onClick={() => { setView('timeline') }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M6 3v18" /><circle cx="6" cy="8" r="2" /><circle cx="6" cy="16" r="2" />
+              <path d="M11 8h9M11 16h6" />
+            </svg>
+          </button>
+        </div>
         <span className="tg-count">
           {visible.length === totalCount ? `${totalCount} 项` : `${visible.length} / ${totalCount} 项`}
         </span>
@@ -473,6 +689,30 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
         <div className="tg-stale">
           <span className="tg-stale__dot" />
           <span>正在后台扫描全部会话，当前显示的是缓存快照…</span>
+        </div>
+      )}
+
+      {/* 时间筛选条（显式预设/自定义，或搜索词命中时间表达时出现） */}
+      {(timeFilter !== null || queryTimeRange !== null) && (
+        <div className="tg-time-bar">
+          <span className="tg-time-bar__icon">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+          </span>
+          <span>已按时间筛选：</span>
+          <span className="tg-time-bar__name">{effectiveRange?.label ?? ''}</span>
+          <span>（{visible.length} 项）</span>
+          {timeFilter !== null && (
+            <button type="button" className="tg-session-clear" onClick={() => { setTimeFilter(null) }}>
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+              清除
+            </button>
+          )}
+          {queryTimeRange !== null && (
+            <button type="button" className="tg-session-clear" onClick={() => { setQuery('') }}>
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+              清除搜索时间
+            </button>
+          )}
         </div>
       )}
 
@@ -540,8 +780,39 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
           <span className="tg-empty__hint">
             {totalCount === 0
               ? '对话中生成的图片、网页、演示、文档、音视频会出现在这里。产出物来自全部会话的工具调用记录，新对话完成后点右上角刷新即可看到。'
-              : '换一个类别、清空搜索词，或清除会话筛选试试。'}
+              : '换一个类别、清空搜索词或时间筛选（工具条时钟钮），或清除会话筛选试试。'}
           </span>
+        </div>
+      ) : view === 'timeline' ? (
+        /* 时间轴：左侧竖轨 + 按天分组，日期头钉住，卡片仍是同一张 GalleryCard。 */
+        <div className="tg-scroll" key={gridKey}>
+          {dayGroups.map((group, groupIndex) => (
+            <section
+              className="tg-day"
+              key={group.key}
+              style={{ '--tg-day-i': Math.min(groupIndex, 12) } as CSSProperties}
+            >
+              <header className="tg-day__head">
+                <span className="tg-day__dot" aria-hidden="true" />
+                <span className="tg-day__label">{group.label}</span>
+                <span className="tg-day__weekday">{group.weekday}</span>
+                <span className="tg-day__count">{group.items.length} 项</span>
+                <span className="tg-day__rule" aria-hidden="true" />
+              </header>
+              <div className="tg-day__grid">
+                {group.items.map((item, index) => (
+                  <GalleryCard
+                    key={item.path + '|' + item.sessionId}
+                    item={item}
+                    index={index}
+                    sessionTitle={sessionById.get(item.sessionId)?.title ?? null}
+                    now={now}
+                    onOpen={openItem}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
         </div>
       ) : (
         <div className="tg-scroll">

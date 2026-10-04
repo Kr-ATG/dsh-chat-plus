@@ -789,6 +789,20 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     pass('画廊面板：沙箱 iframe + raw 白名单 + 右栏 Office 预览 + spill 懒解析 + 动效在位')
   }
 
+  if (!/parseTimeQuery/.test(apiSrc) || !/presetRange/.test(apiSrc) || !/groupByDay|dayKeyOf/.test(apiSrc + panelSrc)) {
+    fail('画廊必须有时间能力：parseTimeQuery（时间搜索）+ presetRange（时间预设）+ dayKeyOf/groupByDay（时间轴分组）')
+  } else if (!/tg-day__/.test(panelSrc) || !/tg-day__/.test(srcOf('src/client/triad/gallery/styles.ts'))) {
+    fail('时间轴视图必须渲染 tg-day__* 分组（面板与样式表两侧都要有）')
+  } else if (!/view === 'timeline'/.test(panelSrc) || !/setView/.test(panelSrc)) {
+    fail('画廊必须有网格 ⇄ 时间轴视图切换')
+  } else if (!/tg-time-pop/.test(panelSrc) || !/TimeRange/.test(panelSrc)) {
+    fail('画廊必须有时间筛选弹层（预设 + 自定义区间）')
+  } else if (!/inTimeRange\(item\.time/.test(panelSrc)) {
+    fail('时间筛选必须作用于条目过滤（inTimeRange）')
+  } else {
+    pass('画廊时间能力：时间轴视图 + 时间预设/自定义筛选 + 搜索词时间解析在位')
+  }
+
   if (!/res\.status === 404/.test(apiSrc) || !/重启 DSH 服务/.test(apiSrc)) {
     fail('gallery api 必须把 404（host 未挂载）翻成人话「请重启 DSH 服务」，不得把 JSON 解析错误糊给用户')
   } else if (!/\/api\/triad\/gallery\/media/.test(apiSrc) || !/\/api\/triad\/gallery\/raw/.test(apiSrc)) {
