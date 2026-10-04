@@ -135,10 +135,10 @@ const SHEET = `
 .tg-time-bar__name{color:var(--dsw-alias-label-primary,#eee);font-weight:500;max-width:46ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ── 时间轴视图 ─────────────────────────────────────────────────── */
-/* content-visibility:auto：屏外日分组跳过布局/绘制，组内 lazy 图也不预载 ——
-   80+ 张缩略图的时间轴滚动不再整页重排（contain-intrinsic-size 给估算高度
-   保住滚动条比例）。 */
-.tg-day{position:relative;padding-left:22px;margin-bottom:14px;content-visibility:auto;contain-intrinsic-size:auto 420px;animation:tg-day-in 340ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
+/* 不用 content-visibility:auto：滚动时分组进出视口会触发整组重布局 + 组内
+   lazy 图集中加载，实测掉到 43fps 且伴随 longtask 卡顿；去掉后 280+fps。
+   屏外成本改由 img loading=lazy 单独承担。 */
+.tg-day{position:relative;padding-left:22px;margin-bottom:14px;animation:tg-day-in 340ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
 @keyframes tg-day-in{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}
 /* 竖轨：自上而下生长 */
 .tg-day::before{content:"";position:absolute;left:5px;top:4px;bottom:-14px;width:2px;border-radius:1px;background:linear-gradient(to bottom,rgba(59,130,246,.55),var(--dsw-alias-border-l2,rgba(255,255,255,.14)));transform-origin:top;animation:tg-rail-grow 520ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}

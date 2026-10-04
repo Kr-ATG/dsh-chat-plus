@@ -202,6 +202,44 @@ function PlayBadge(): JSX.Element {
   )
 }
 
+/* ── 缩略图降采样（滚动性能的关键）────────────────────────────────────── */
+
+/**
+ * 把已加载的全分辨率原图换成「显示尺寸 × DPR」的小 bitmap。
+ *
+ * 根因：画廊缩略图直接挂原图（实测 67 张合计 178MP、单张最大 27MP），解码后
+ * 纹理内存约 700MB，滚动时 GPU 瓦片缓存被挤出、反复重光栅 —— 帧率从 98 掉到 40。
+ * createImageBitmap 的 resize 是浏览器原生解码+缩放（编解码线程，不占主线程），
+ * 换源后元素只持有小 bitmap（67 张约 30MB），滚动恢复满帧。
+ * 全分辨率解码仍是一次性的（loading=lazy 控制在视口附近），SVG 等不支持
+ * createImageBitmap 的来源静默保留原图。
+ */
+function shrinkThumbToDisplaySize(img: HTMLImageElement): void {
+  if (img.dataset.shrunk === '1') return
+  const dpr = Math.min(2, window.devicePixelRatio || 1)
+  const target = Math.round((img.clientWidth || 200) * dpr) + 8
+  if (!Number.isFinite(target) || target <= 0) return
+  if (img.naturalWidth <= target && img.naturalHeight <= target) { img.dataset.shrunk = '1'; return }
+  if (typeof createImageBitmap !== 'function') { img.dataset.shrunk = '1'; return }
+  img.dataset.shrunk = '1'
+  void createImageBitmap(img, { resizeWidth: target, resizeQuality: 'medium' })
+    .then((bitmap) => {
+      const ratio = bitmap.height / bitmap.width
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = Math.max(1, Math.round(bitmap.width * ratio))
+      const context = canvas.getContext('2d')
+      if (context === null) { bitmap.close(); return }
+      context.drawImage(bitmap, 0, 0)
+      bitmap.close()
+      canvas.toBlob((blob) => {
+        if (blob === null || !img.isConnected) return
+        img.src = URL.createObjectURL(blob)
+      }, 'image/png')
+    })
+    .catch(() => { /* 保留原图：降采样失败不影响显示 */ })
+}
+
 /* ── generated 缩略图（spill 懒解析）──────────────────────────────────── */
 
 /**
@@ -255,7 +293,7 @@ function GeneratedThumb({ path, alt, thumbClass = 'tg-card__thumb' }: { readonly
   }
   return (
     <div ref={holderRef} className={thumbClass}>
-      <img className="tg-card__img" src={first} alt={alt} loading="lazy" decoding="async" data-loaded="true" draggable={false} />
+      <img className="tg-card__img" src={first} alt={alt} loading="lazy" decoding="async" data-loaded="true" draggable={false} onLoad={(event) => { shrinkThumbToDisplaySize(event.currentTarget) }} />
       {urls.length > 1 && <span className="tg-card__kind-dot">{urls.length} 张</span>}
     </div>
   )
@@ -280,7 +318,7 @@ function FileThumb({ item, now, thumbClass = 'tg-card__thumb' }: { readonly item
           decoding="async"
           draggable={false}
           data-loaded={loaded ? 'true' : undefined}
-          onLoad={() => { setLoaded(true) }}
+          onLoad={(event) => { setLoaded(true); shrinkThumbToDisplaySize(event.currentTarget) }}
           onError={() => { setFailed(true) }}
         />
         {!loaded && <span className="tg-card__icon"><KindIcon kind="image" size={40} /></span>}

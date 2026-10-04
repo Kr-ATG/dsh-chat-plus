@@ -489,10 +489,15 @@ PPT/Word/Excel 走官方右栏文档预览（`tryOpenInSidebar`，与对话流�
   （正方形缩略图 auto-fill minmax(150px) + 12px 间距），文件名 + 相对时间**常驻
   缩略图下方**、左上角类别徽标**常显**（不 hover 也知道是啥、啥类型），方格复用
   GalleryCard 的 compact 模式与同一套缩略图懒加载。
-  滚动性能三板斧（实测 80 项时间轴从 ~10fps 到 110+fps）：日分组
-  `content-visibility:auto` + `contain-intrinsic-size` 跳过屏外渲染；类别徽标
+  滚动性能（实测 80 项时间轴从 ~10fps 到 85+fps、longtask 归零）：类别徽标
   **不用 backdrop-filter**（80 个徽标各建 backdrop root，滚动时整页重采样）；
   日期头**不 sticky**（sticky 头滚动期每帧参与合成重绘），分组感交给竖轨节点；
+  **缩略图加载后客户端降采样**（`shrinkThumbToDisplaySize`：`createImageBitmap`
+  原生 resize 到显示尺寸×DPR 再换 blob 源）—— 根因是缩略图直接挂全分辨率原图
+  （实测 67 张合计 178MP、单张最大 27MP，解码纹理约 700MB，滚动时 GPU 瓦片缓存
+  被挤出反复重光栅），降采样后合计 2MP，热滚/冷滚都满帧。试过
+  `content-visibility:auto` 跳屏外渲染，反而更卡（分组进出视口触发整组重布局 +
+  组内 lazy 图集中加载），已弃用；
 · **时间筛选**：时钟钮弹预设层（全部/今天/昨天/近7天/近30天/本周/本月/上月）+
   自定义起止日期（date input，min/max 互锁），选中后工具条钮上挂区间徽标、
   面板顶部出时间筛选条（可清除）；
