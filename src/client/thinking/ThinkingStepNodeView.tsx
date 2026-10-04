@@ -566,6 +566,33 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
   // 工具执行期通常没有 assistant-step 处于 running；两段任一仍在推进都算整轮活跃。
   const turnRunning = steps.some(step => step.data.status === 'running') || toolsRunning
 
+  /*
+   * 本次渲染是否属于官方的**过程投影**（groupPart=reasoning）。
+   *
+   * 官方对同一个 assistant-step 最多投影两份 DOM：reasoning（过程组里的思考
+   * 材料）与 response（答案正文）。官方自己的 AssistantMarkdown 在 reasoning
+   * 投影里**只渲染 reasoning 块**（`groupPart === "reasoning" && block.kind !==
+   * "reasoning" → continue`），正文永远由 response 投影负责。本组件接管
+   * assistant-step 座位后丢掉了这条过滤：reasoning 投影里也把 text 块全量渲染。
+   *
+   * 平时看不出问题——KR 样式把 [data-turn-process-member] 整类压掉，reasoning
+   * 投影不可见。但**总结期**（最终答案流式）恰好踩中放行例外：模型常常在最后
+   * 一步「思考 → 写答案」，思考卡锚点（firstReasoningStepKey）就落在答案 step
+   * 上，它的 reasoning 投影因 :has(.kr-card--reasoning) 被整行放行，正文跟着
+   * 露出来，与 response 投影的正文同屏两份——用户报的「总结时出现两段一模一样
+   * 的结果」。回合完成后卡片迁到 response 投影、reasoning 投影重新被 member
+   * 规则压回，重复才消失。
+   *
+   * 修法与官方对齐：reasoning 投影只承载卡片（思考卡 / 问答卡），不渲染正文与
+   * 画廊；正文一律由 response 投影（或无投影时的普通行）负责。
+   *
+   * ⚠ 声明位置必须早于**所有**使用点（gallery / showBody）：曾因声明晚于
+   * gallery 的求值触发 TDZ ReferenceError，整个座位渲染崩溃——思考卡、问答卡、
+   * 正文一夜之间全部消失。smoke 的形状断言不执行组件，拦不住这类错误，
+   * smoke-client.mjs 里有一条声明顺序断言专门钉它。
+   */
+  const isReasoningProjection = groupPart === 'reasoning'
+
   // ── 本回合生图结果（generate_image）→ 画廊条 ──────────────────────────
   // 数据源是工具结果：小结果内联 JSON（b64_json → data URL），大结果被
   // DSH spill 成「preview + locator」，由 host 路由读回完整图片（见
@@ -584,7 +611,7 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
     }
     return lastStep
   })
-  const gallery = generated.urls.length > 0 && node.key === galleryStepKey
+  const gallery = !isReasoningProjection && generated.urls.length > 0 && node.key === galleryStepKey
     ? <GeneratedImageStrip images={generated.urls} model={generated.model} />
     : undefined
 
@@ -668,7 +695,13 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
    */
   const hideProcessText = KR_CHAT_ENABLED && isKrMode
   const isLastStep = steps.length > 0 && node.key === steps[steps.length - 1]?.key
-  const showBody = !hideProcessText || isLastStep || isClosingReply || interrupted
+  /*
+   * reasoning 投影一律不渲染正文（见 isReasoningProjection 的注释）：正文只属于
+   * response 投影。少了这条过滤，总结期答案 step 的 reasoning 投影会因思考卡被
+   * 放行而把正文重复露一份。
+   */
+  const showBody = !isReasoningProjection
+    && (!hideProcessText || isLastStep || isClosingReply || interrupted)
   const shown = showBody ? rendered : []
 
   /*

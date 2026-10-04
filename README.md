@@ -220,6 +220,17 @@ variant 可选 pill / expand / glow，缺省 pill（方案A）。未闭合围栏
 > 渲染，绝不用「工具数 × 800ms」那种兜底猜测冒充。同时 `aria-hidden`——整张活动卡
 > 是 `aria-live="polite"` 的 live region，读数每秒变，留在里面就是每秒播报一次时长。
 
+> **reasoning 投影不渲染正文**（2026-10-04 修「总结时出现两段一模一样的结果」）：
+> 官方对同一个 assistant-step 最多投影两份 DOM——`groupPart=reasoning`（过程组里的
+> 思考材料）与 `response`（答案正文），官方 AssistantMarkdown 在 reasoning 投影里
+> **只渲染 reasoning 块**、正文永远归 response 投影。`ThinkingStepNodeView` 接管座位
+> 后必须复现同一过滤（`gallery` / `showBody` 前置 `!isReasoningProjection`）：
+> 总结期思考卡锚点恰好落在答案 step 上，它的 reasoning 投影因
+> `:has(.kr-card--reasoning)` 被整行放行，若不过滤正文就与 response 投影同屏两份，
+> 回合完成后卡片迁走、重复才消失。`isReasoningProjection` 的**声明必须早于所有使用
+> 点**——曾因声明晚于 `gallery` 求值触发 TDZ ReferenceError，整个座位渲染崩溃
+> （思考卡 / 问答卡 / 正文全部消失）；smoke-client 有一条声明顺序断言专门钉这两点。
+
 六个开关（`src/client/kr-chat/enabled.ts`）都是**隐藏而非删除**：
 
 | 开关 | 默认 | 控制 |

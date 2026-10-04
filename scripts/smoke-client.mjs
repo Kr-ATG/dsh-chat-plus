@@ -745,6 +745,29 @@ if (krEnabled) {
     pass('思考过程卡贴在 KR 对话流（inline），右栏大盘不再重复挂载')
   }
 
+  /*
+   * reasoning 投影过滤 + TDZ 防回归（两次事故各钉一头）：
+   *  1. 官方 AssistantMarkdown 在 reasoning 投影里只渲染 reasoning 块；本组件
+   *     接管座位后必须复现同一过滤（gallery / showBody 前置 !isReasoningProjection），
+   *     否则总结期答案 step 的 reasoning 投影被思考卡放行规则带出来，正文同屏两份。
+   *  2. isReasoningProjection 的**声明必须早于所有使用点**。曾因声明晚于 gallery
+   *     求值触发 TDZ ReferenceError，assistant-step 座位整个渲染崩溃——思考卡、
+   *     问答卡、正文全部消失。本文件的形状断言不执行组件，拦不住这类运行时错误，
+   *     只能把声明顺序本身钉死。
+   */
+  {
+    const declIdx = stepCode.indexOf("const isReasoningProjection = groupPart === 'reasoning'")
+    const galleryIdx = stepCode.indexOf('const gallery = !isReasoningProjection')
+    const bodyIdx = stepCode.indexOf('const showBody = !isReasoningProjection')
+    if (declIdx < 0 || galleryIdx < 0 || bodyIdx < 0) {
+      fail('reasoning 投影过滤缺失：gallery / showBody 都必须以 !isReasoningProjection 前置（总结期正文会重复两份）')
+    } else if (!(declIdx < galleryIdx && declIdx < bodyIdx)) {
+      fail('isReasoningProjection 必须声明在 gallery / showBody 使用点之前（TDZ 会让整个 assistant-step 座位渲染崩溃，思考卡/问答卡/正文全消失）')
+    } else {
+      pass('reasoning 投影过滤在位且声明先于使用点（防重复正文 + 防 TDZ 崩座）')
+    }
+  }
+
   // 「思考一长就卡」的四处成因 + 折叠时机，逐条钉住：
   //  1. 喂进去的文本数组引用必须稳定（memo 一旦被打穿，每帧重算整轮思考）；
   //  2. 跟随探针只能是长度指纹，不能是全文 join（流式期每个 delta 拼一次全文）；
