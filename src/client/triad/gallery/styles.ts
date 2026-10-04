@@ -156,8 +156,8 @@ const SHEET = `
 .tg-day__rule{flex:1;height:1px;background:var(--dsw-alias-border-l1,rgba(255,255,255,.08));transform-origin:left;animation:tg-rule-in 420ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms + 90ms)}
 @keyframes tg-rule-in{from{transform:scaleX(0);opacity:0}to{transform:scaleX(1);opacity:1}}
 /* 手机相册式高密度方格：正方形缩略图铺满，间距 4px */
-.tg-day__tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(116px,1fr));gap:8px}
-@media (max-width:640px){.tg-day__tiles{grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:6px}.tg-day{padding-left:18px}.tg-day::before{left:4px}.tg-day__dot{left:-17px}}
+.tg-day__tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 10px}
+@media (max-width:640px){.tg-day__tiles{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px 8px}.tg-day{padding-left:18px}.tg-day::before{left:4px}.tg-day__dot{left:-17px}}
 
 /* 方格卡片：无内边距、无下缘 meta，名字沉到 hover 浮层 */
 .tg-card--tile{border-radius:10px;border-color:transparent;background:var(--dsw-alias-bg-module-platform,rgba(255,255,255,.04));animation-duration:220ms;animation-delay:calc(var(--tg-i,0) * 14ms)}
@@ -166,10 +166,12 @@ const SHEET = `
 .tg-tile__thumb .tg-card__img{border-radius:10px}
 .tg-tile__thumb .tg-card__icon svg{width:30px;height:30px}
 .tg-tile__thumb .tg-card__play svg{width:32px;height:32px}
-.tg-tile__hover{position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:1px;padding:18px 8px 7px;border-radius:0 0 10px 10px;background:linear-gradient(to top,rgba(6,7,10,.88),rgba(6,7,10,0));opacity:0;transform:translateY(6px);transition:opacity 170ms ease,transform 170ms cubic-bezier(.2,.8,.2,1);pointer-events:none;min-width:0}
-.tg-card--tile:hover .tg-tile__hover,.tg-card--tile:focus-visible .tg-tile__hover{opacity:1;transform:translateY(0)}
-.tg-tile__name{font-size:10.5px;font-weight:500;line-height:14px;color:#f3f4f6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tg-tile__sub{font-size:9.5px;line-height:12px;color:rgba(233,236,240,.72);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 方格里类别徽标常显（不 hover 也要知道是啥类型） */
+.tg-card--tile .tg-card__kind-dot{opacity:1;transform:none;top:6px;left:6px;height:16px;font-size:9.5px}
+/* 文件名常驻缩略图下方（不 hover 也看得见） */
+.tg-tile__meta{display:flex;flex-direction:column;gap:1px;padding:6px 2px 2px;min-width:0}
+.tg-tile__name{font-size:11px;font-weight:500;line-height:15px;color:var(--dsw-alias-label-primary,#eee);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tg-tile__sub{font-size:10px;line-height:13px;color:var(--dsw-alias-label-tertiary,#7c828c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ── Lightbox ──────────────────────────────────────────────────── */
 .tg-lb{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;background:rgba(8,9,13,.82);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);animation:tg-lb-in 200ms ease}

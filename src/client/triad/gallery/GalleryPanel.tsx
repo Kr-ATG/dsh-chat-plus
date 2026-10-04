@@ -318,9 +318,9 @@ const GalleryCard = ({ item, index, sessionTitle, now, onOpen, compact = false }
       : <FileThumb item={item} now={now} thumbClass={compact ? 'tg-tile__thumb' : 'tg-card__thumb'} />}
     <span className="tg-card__kind-dot">{KIND_LABEL[item.kind]}</span>
     {compact ? (
-      <span className="tg-tile__hover">
-        <span className="tg-tile__name">{item.name}</span>
-        <span className="tg-tile__sub">{KIND_LABEL[item.kind]} · {formatRelativeTime(item.time, now)}</span>
+      <span className="tg-tile__meta">
+        <span className="tg-tile__name" title={item.name}>{item.name}</span>
+        <span className="tg-tile__sub">{formatRelativeTime(item.time, now)}</span>
       </span>
     ) : (
       <span className="tg-card__meta">
@@ -360,8 +360,8 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
-  /** 视图形态（网格 ⇄ 时间轴）。 */
-  const [view, setView] = useState<ViewMode>('grid')
+  /** 视图形态（网格 ⇄ 时间轴）；默认时间轴（用户 2026-10-04 指定）。 */
+  const [view, setView] = useState<ViewMode>('timeline')
   /** 显式时间筛选（时钟钮弹层设置）；null = 不限。 */
   const [timeFilter, setTimeFilter] = useState<TimeRange | null>(null)
   const [timePopover, setTimePopover] = useState(false)
