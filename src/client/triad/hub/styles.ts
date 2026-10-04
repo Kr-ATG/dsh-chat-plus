@@ -28,7 +28,7 @@ const SHEET = `
   justify-content: space-between;
   height: 46px;
   padding: 0 18px;
-  background: var(--dsw-alias-bg-layer-1, #13151f);
+  background: transparent;
   border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.08));
   z-index: 10;
 }
@@ -47,14 +47,12 @@ const SHEET = `
   letter-spacing: -0.01em;
 }
 
-/* ── 统一纯净 Segmented 胶囊切换器 ── */
+/* ── 统一 Segmented 切换器：官方 schedule 页 filterTabs 语言——
+   无容器底色、无边框，active 只用中性灰底 + 主文字色 ── */
 .wb-tabs {
   display: flex;
   align-items: center;
-  padding: 3px;
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-module-platform, rgba(255, 255, 255, 0.05));
-  border: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.06));
+  gap: 4px;
 }
 
 .wb-tab-btn {
@@ -96,18 +94,17 @@ const SHEET = `
 
 .wb-tab-btn[data-active],
 .wb-tab-btn[data-active="true"] {
-  background: var(--dsw-alias-state-business-primary, #3b82f6) !important;
-  color: #ffffff !important;
+  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+  color: var(--dsw-alias-label-primary, #eee);
   font-weight: 600;
-  box-shadow: 0 1px 4px rgba(59, 130, 246, 0.28);
 }
 
 .wb-tab-btn[data-active] span,
 .wb-tab-btn[data-active="true"] span,
 .wb-tab-btn[data-active] svg,
 .wb-tab-btn[data-active="true"] svg {
-  color: #ffffff !important;
-  stroke: #ffffff !important;
+  color: inherit;
+  stroke: currentColor;
 }
 
 .wb-header-right {
