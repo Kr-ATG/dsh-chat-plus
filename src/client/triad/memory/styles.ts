@@ -18,6 +18,20 @@
 export const css = {
   modalBody: 'dsh-memory-modal-body',
   panel: 'dsh-memory-panel',
+  // ── 顶部两级工具筛选栏 ──
+  topBar: 'dsh-memory-top-bar',
+  viewRow: 'dsh-memory-view-row',
+  viewTabs: 'dsh-memory-view-tabs',
+  viewTab: 'dsh-memory-view-tab',
+  viewActions: 'dsh-memory-view-actions',
+  primaryAdd: 'dsh-memory-primary-add',
+  subfilterRow: 'dsh-memory-subfilter-row',
+  subfilterSearch: 'dsh-memory-subfilter-search',
+  subfilterGroup: 'dsh-memory-subfilter-group',
+  subfilterLabel: 'dsh-memory-subfilter-label',
+  subfilterSelect: 'dsh-memory-subfilter-select',
+  pills: 'dsh-memory-pills',
+  pill: 'dsh-memory-pill',
   // ── 左栏 ──
   sidebar: 'dsh-memory-sidebar',
   sidebarBrand: 'dsh-memory-sidebar-brand',
@@ -275,7 +289,7 @@ const SHEET = `
 
 /* ── 面板骨架 ─────────────────────────────────────────────────────── */
 .dsh-memory-modal-body{overflow:hidden;display:flex;flex-direction:column}
-.dsh-memory-panel{flex:1;min-height:0;display:flex;flex-direction:row;gap:0;overflow:hidden;padding:0;box-sizing:border-box}
+.dsh-memory-panel{flex:1;width:100%;height:100%;min-height:0;display:flex;flex-direction:column;gap:0;overflow:hidden;padding:0;box-sizing:border-box}
 
 /* ── 左侧栏：品牌 / 添加 / 导航 / 项目 / 分类 / 设置竖排 ───────── */
 .dsh-memory-sidebar{flex:none;width:216px;align-self:stretch;box-sizing:border-box;display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:2px;overflow-y:auto;overflow-x:hidden;padding:14px 12px;background:var(--m-side);border-right:1px solid var(--m-side-line);border-bottom:none}
@@ -358,9 +372,9 @@ const SHEET = `
 /* ── 主区：中栏列表 / 右栏详情 / 全宽视图 ─────────────────────────── */
 .dsh-memory-main-col{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
 .dsh-memory-cols{flex:1;min-height:0;display:flex;align-items:stretch;box-sizing:border-box}
-.dsh-memory-list-col{flex:none;width:420px;box-sizing:border-box;display:flex;flex-direction:column;min-height:0;overflow-y:auto;background:var(--dsw-alias-bg-layer-1,#fff);border-right:1px solid var(--m-border);padding-bottom:76px}
+.dsh-memory-list-col{flex:none;width:420px;box-sizing:border-box;display:flex;flex-direction:column;min-height:0;overflow-y:auto;background:var(--dsw-alias-bg-layer-1,#fff);border-right:1px solid var(--m-border);padding-bottom:16px}
 .dsh-memory-detail-col{flex:1;min-width:0;overflow-y:auto;background:var(--dsw-alias-bg-layer-1,#fff)}
-.dsh-memory-view-full{flex:1;min-height:0;overflow-y:auto;background:var(--dsw-alias-bg-layer-1,#fff);display:flex;flex-direction:column;box-sizing:border-box;padding-bottom:76px}
+.dsh-memory-view-full{flex:1;min-height:0;overflow-y:auto;background:var(--dsw-alias-bg-layer-1,#fff);display:flex;flex-direction:column;box-sizing:border-box;padding-bottom:16px}
 
 /* ── 中栏列表头部 ─────────────────────────────────────────────────── */
 .dsh-memory-list-head{flex:none;display:flex;align-items:center;gap:6px;padding:8px 14px 8px 16px;flex-wrap:wrap}
@@ -702,46 +716,38 @@ body[data-ds-dark-theme] .dsh-memory-inject-card{background:var(--dsw-static-neu
   .dsh-memory-importance-bar i{transition:none}
 }
 
-/* ── iPad dock 风格：细图标坞（文字进 tooltip，计数变右上小徽标） ── */
-.dsh-memory-sidebar{width:68px;padding:12px 8px;align-items:center;gap:6px;background:color-mix(in srgb,var(--m-side) 72%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.5);backdrop-filter:blur(18px) saturate(1.5);scrollbar-width:none}
-.dsh-memory-sidebar::-webkit-scrollbar{display:none}
-.dsh-memory-sidebar-brand{padding:0;margin-bottom:6px;justify-content:center}
-.dsh-memory-sidebar-title{display:none}
-.dsh-memory-sidebar-add{width:52px;height:auto;min-height:58px;padding:6px 2px;margin-bottom:0;border-radius:16px;font-size:11px;line-height:1.4;font-weight:500;gap:3px;flex-direction:column;align-items:center;justify-content:center}
-.dsh-memory-sidebar-add svg{width:18px;height:18px}
-.dsh-memory-nav-list{align-items:center;width:100%;gap:6px}
-.dsh-memory-nav-item{position:relative;width:52px;height:auto;min-height:58px;padding:6px 2px;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;line-height:1.4;font-weight:500;text-align:center;border-radius:15px;transition:background .15s cubic-bezier(.2,.8,.2,1),color .15s cubic-bezier(.2,.8,.2,1),transform .15s cubic-bezier(.2,.8,.2,1)}
-.dsh-memory-nav-item:hover{transform:scale(1.07)}
-.dsh-memory-nav-item:active{transform:scale(.95)}
-.dsh-memory-nav-item svg{width:20px;height:20px}
-.dsh-memory-sidebar .dsh-memory-nav-count{position:absolute;top:1px;right:1px;margin:0;min-width:17px;height:17px;padding:0 5px;font-size:10px;line-height:17px;box-shadow:0 2px 6px rgba(0,0,0,.28)}
-.dsh-memory-sidebar .dsh-memory-nav-count-zero{display:none}
-.dsh-memory-nav-sep{width:28px;margin:6px 0}
-.dsh-memory-section-header{display:none}
-.dsh-memory-proj-list,.dsh-memory-cat-list{align-items:center;width:100%;gap:6px}
-.dsh-memory-proj-row,.dsh-memory-cat-row{position:relative;width:52px;height:auto;min-height:58px;padding:6px 2px;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;line-height:1.4;font-weight:500;border-radius:15px;transition:background .15s cubic-bezier(.2,.8,.2,1),color .15s cubic-bezier(.2,.8,.2,1),transform .15s cubic-bezier(.2,.8,.2,1)}
-.dsh-memory-proj-row:hover,.dsh-memory-cat-row:hover{transform:scale(1.07)}
-.dsh-memory-proj-row:active,.dsh-memory-cat-row:active{transform:scale(.95)}
-.dsh-memory-proj-row>span:not([class]),.dsh-memory-cat-row>span:not([class]){display:block;max-width:50px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:1.4;font-weight:500}
-.dsh-memory-proj-row .dsh-memory-nav-icon svg{width:19px;height:19px}
-.dsh-memory-cat-dot{width:11px;height:11px}
-.dsh-memory-sidebar .dsh-memory-cat-more .dsh-memory-nav-chevron{display:none}
-.dsh-memory-sidebar-foot{justify-content:center;padding:8px 0 0;border-top:none}
-.dsh-memory-settings-nav{position:relative;width:52px;height:auto;min-height:58px;padding:6px 2px;margin:0;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;line-height:1.4;font-weight:500;border-radius:15px;transition:background .15s cubic-bezier(.2,.8,.2,1),color .15s cubic-bezier(.2,.8,.2,1),transform .15s cubic-bezier(.2,.8,.2,1)}
-.dsh-memory-settings-nav:hover{transform:scale(1.07)}
-.dsh-memory-settings-nav svg{width:20px;height:20px}
-@media (prefers-reduced-motion:reduce){.dsh-memory-sidebar .dsh-memory-nav-item,.dsh-memory-sidebar .dsh-memory-proj-row,.dsh-memory-sidebar .dsh-memory-cat-row,.dsh-memory-sidebar .dsh-memory-settings-nav{transition:none}}
-/* ── 底部 dock：iPad 式居中悬浮坞（覆盖上面的左侧竖坞） ── */
-.dsh-memory-panel{flex-direction:column;position:relative}
-.dsh-memory-sidebar{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:30;width:auto;max-width:calc(100% - 24px);flex-direction:row;align-items:center;gap:4px;overflow-x:auto;overflow-y:hidden;margin:0;padding:6px 10px;border:1px solid light-dark(rgba(15,23,42,.10),rgba(255,255,255,.13));border-radius:18px;background:var(--dsw-alias-bg-layer-1,#fff);-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:0 10px 28px rgba(15,23,42,.12),0 1px 3px rgba(15,23,42,.08)}
-.dsh-memory-sidebar-brand{display:none}
-.dsh-memory-sidebar-add{margin-bottom:0}
-.dsh-memory-nav-list{flex-direction:row;width:auto;gap:6px}
-.dsh-memory-nav-sep{width:1px;height:28px;margin:0 6px}
-.dsh-memory-proj-list,.dsh-memory-cat-list{flex-direction:row;width:auto;gap:6px}
-.dsh-memory-sidebar-foot{margin:0 0 0 2px;padding:0 0 0 8px;border-top:none;border-left:1px solid var(--m-side-line);justify-content:center}
-.dsh-memory-sidebar .dsh-memory-nav-item:hover,.dsh-memory-sidebar .dsh-memory-proj-row:hover,.dsh-memory-sidebar .dsh-memory-cat-row:hover,.dsh-memory-sidebar .dsh-memory-settings-nav:hover{background:var(--dsw-alias-interactive-bg-hover,light-dark(rgba(15,23,42,.06),rgba(255,255,255,.08)))}
-.dsh-memory-sidebar .dsh-memory-nav-count{font-weight:700}
+/* ── 顶部两级工具筛选栏 ── */
+.dsh-memory-top-bar{flex:none;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1,#fff);border-bottom:1px solid var(--m-border);z-index:5}
+
+/* 一级：视图分段器 + 统计 + 新增按钮 */
+.dsh-memory-view-row{display:flex;align-items:center;justify-content:space-between;gap:12px;height:46px;padding:0 16px;box-sizing:border-box}
+.dsh-memory-view-tabs{display:flex;align-items:center;gap:3px;padding:3px;border-radius:8px;background:var(--dsw-alias-bg-module-platform,color-mix(in srgb,var(--m-text) 5%,transparent));border:1px solid var(--m-border)}
+.dsh-memory-view-tab{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 11px;border-radius:6px;border:none;background:transparent;color:var(--m-text-2);font-size:12px;font-weight:500;font-family:inherit;cursor:pointer;transition:all 140ms ease;user-select:none;white-space:nowrap}
+.dsh-memory-view-tab:hover{color:var(--m-text);background:var(--m-hover)}
+.dsh-memory-view-tab[data-active="true"]{background:var(--m-primary,#3b82f6) !important;color:#fff !important;font-weight:600;box-shadow:0 1px 4px rgba(59,130,246,.28)}
+.dsh-memory-view-tab[data-active="true"] .dsh-memory-nav-count{background:#fff;color:var(--m-primary,#3b82f6)}
+.dsh-memory-view-actions{display:flex;align-items:center;gap:12px}
+.dsh-memory-primary-add{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 12px;border-radius:6px;border:none;background:var(--m-primary,#3b82f6);color:#fff;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer;transition:all 140ms ease}
+.dsh-memory-primary-add:hover{background:var(--m-primary-hover);box-shadow:0 2px 10px rgba(59,130,246,.35)}
+.dsh-memory-primary-add:active{transform:scale(.98)}
+
+/* 二级：搜索框 + 项目下拉 + 分类下拉与分类胶囊 Pills */
+.dsh-memory-subfilter-row{display:flex;align-items:center;gap:12px;height:44px;padding:0 16px;background:var(--dsw-alias-bg-layer-1,#fff);border-top:1px solid var(--m-border);box-sizing:border-box}
+.dsh-memory-subfilter-search{position:relative;width:220px;flex:none;display:flex;align-items:center}
+.dsh-memory-subfilter-search input{flex:1;min-width:0;height:28px;box-sizing:border-box;border:1px solid var(--m-border-2);border-radius:7px;padding:0 46px 0 28px;font-size:12px;font-family:inherit;color:var(--m-text);background:var(--dsw-alias-bg-layer-1,#fff);transition:border-color .15s ease}
+.dsh-memory-subfilter-search input:focus{outline:none;border-color:var(--m-primary)}
+.dsh-memory-subfilter-search .dsh-memory-top-search-icon{position:absolute;left:8px;top:50%;transform:translateY(-50%);display:inline-flex;color:var(--m-text-3);pointer-events:none}
+.dsh-memory-subfilter-search .dsh-memory-top-kbd{position:absolute;right:6px;top:50%;transform:translateY(-50%);pointer-events:none;padding:1px 5px;border:1px solid var(--m-border-2);border-radius:4px;background:var(--dsw-alias-bg-module-platform,color-mix(in srgb,var(--m-text) 5%,transparent));color:var(--m-text-3);font-size:10px;line-height:14px}
+.dsh-memory-subfilter-group{display:inline-flex;align-items:center;gap:6px;flex:none}
+.dsh-memory-subfilter-label{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--m-text-2);white-space:nowrap}
+.dsh-memory-subfilter-select{height:28px;box-sizing:border-box;border:1px solid var(--m-border-2);border-radius:7px;padding:0 26px 0 10px;font-size:12px;line-height:18px;font-family:inherit;color:var(--m-text);background-color:var(--dsw-alias-bg-layer-1,#fff);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%239CA3AF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;background-size:10px 10px;appearance:none;cursor:pointer;min-width:130px;max-width:240px;transition:border-color .15s ease}
+.dsh-memory-subfilter-select:hover{border-color:color-mix(in srgb,var(--m-text-3) 55%,transparent)}
+.dsh-memory-subfilter-select:focus{outline:none;border-color:var(--m-primary)}
+.dsh-memory-pills{display:flex;align-items:center;gap:5px;overflow-x:auto;scrollbar-width:none}
+.dsh-memory-pills::-webkit-scrollbar{display:none}
+.dsh-memory-pill{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:999px;border:1px solid var(--m-border);background:var(--m-soft);color:var(--m-text-2);font-size:11.5px;font-family:inherit;cursor:pointer;white-space:nowrap;transition:all 120ms ease}
+.dsh-memory-pill:hover{border-color:var(--m-border-2);color:var(--m-text);background:var(--m-hover)}
+.dsh-memory-pill[data-active="true"]{border-color:var(--m-primary);color:var(--m-primary);background:var(--m-primary-soft);font-weight:600}
 /* ── 记忆正文的轻量 Markdown（替代 webui 全量渲染器，见 markdown.tsx） ── */
 .dsh-triad-md{font-size:14px;line-height:1.7;color:var(--m-text);word-break:break-word}
 .dsh-triad-md>*:first-child{margin-top:0}

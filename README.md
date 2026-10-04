@@ -285,6 +285,31 @@ variant 可选 pill / expand / glow，缺省 pill（方案A）。未闭合围栏
 host 侧**零改动**：复用面板那套 `/delete-batch`（一次事务删完、一次编译产物、
 逐条 `appendChange` 审计），因此这次升级只需刷新页面，不必重启 DSH。
 
+### 产出物卡：run_code 与 `_tmp/` 媒体豁免（2026-10-04 修）
+
+**症状**：整轮生图会话的产出物卡显示「0 项 / 本次会话还没有产出文件」，实际两张 PNG 已落盘。
+
+**根因（两半）**：
+
+1. 整轮生图走 `run_code`（PTC 沙箱）：模型在**代码体**里调 `generate_image` 并用
+   `fs.writeFileSync` 落盘，路径只出现在 code 与打印结果里。结果路白名单
+   `RESULT_PATH_TOOLS` 只认 pwsh / bash 一类命令行工具，`run_code` 的产出整条链路不可见；
+2. 就算路径被捞到，`TRANSIENT_DIR_RE` 会把 `_tmp/` 下所有非 `present` 交付路径排除——
+   而本工作区一次性产物的约定落点恰恰是 `_tmp/`，整轮媒体产出被抹成 0 项。
+
+**改法**（`outputs.ts` 收集层，两道防误收闸门不动）：
+
+- `RESULT_PATH_TOOLS` 加入 `run_code`；证据闸门取不到 `command` 时回退取 `args.code`
+  （代码体即「文件名被显式写出」的证据来源）；
+- `WRITE_INTENT_RE` 补 Node 写入 API：`writeFile(Sync)` / `createWriteStream` /
+  `copyFileSync` / `renameSync` / `cpSync` / `mkdirSync`；
+- 新增 `TRANSIENT_MEDIA_EXEMPT = {image, video, audio}`：`_tmp/` 下媒体成品豁免整类排除，
+  文档 / 表格 / 压缩包仍按原约定排除。文件若真被清理器删掉，由卡片核对层
+  （`probeWorkspaceFile → gonePaths`）剔除，不留点不开的行。
+
+两道闸门原样保留：文件名必须出现在代码 / 命令原文里 + 必须有写入语义——纯打印、
+纯列表的代码进不了卡（smoke 源码形态断言 + 8 条 E2E 用例 + 浏览器实测「2 项 + 预览正常」）。
+
 ### 挤压自适应
 
 `use-adaptive-rows.ts` 用 ResizeObserver 监视 `.kr-panel__scroll`：
@@ -374,6 +399,25 @@ service 图上是一等公民。只调它的 API 会让两插件之间形成隐�
 3. **重名不覆盖** —— `modal-animation.ts` 两版内容不等价（triad 版多 drawer
    keyframes，且 STYLE_ID 刻意加 `dsh-triad-` 前缀防样式表互相吞并），改名
    `triad-modal-animation.ts`；`error-boundary.tsx` 经 diff 确认等价，直接共用
+
+### 4 合 1 统一工作台（2026-10-04）
+
+侧边栏四个入口（记忆 / 能力 / 用量 / 邮箱）合并为**一枚「工作台」菜单行**
+（`sidebar.panellist` id=`workbench` @ order 20），页面本体在官方 `main` 槽位渲染
+（`src/client/triad/hub/`：`seat.ts` 注册 + `WorkbenchPanel.tsx` 容器 + `styles.ts`）。
+
+容器内四 Tab（记忆 / 能力 / 用量 / 邮件），选中态存 `localStorage`
+（`dsh-workbench-active-tab`）跨会话保持。顶部统一栏刻意**不用裸 `header` 与
+`role="tablist"`**（`.wb-header` / `data-workbench-nav`），KR 对话的 Tab 注入器
+（`kr-chat-controller.tsx`）同步加防御：绝不把「对话 / 轨迹」按钮注进工作台内部 Tab 栏。
+
+**嵌入形态**：`MailPanel` 新增 `embedded` prop——在工作台内不再套 `PopoverShell`
+浮层壳，直接铺满 Tab 页；记忆面板整版重设计为暗色系大盘卡片流（`memory/Panel.tsx` +
+`memory/styles.ts`），技能 / 用量面板改为受控嵌入（去掉自带头部外壳）。
+
+**座位数 14 → 10**：三个工作台各两枚的 `main` + `sidebar.panellist` 对，换成统一工作台
+一对；记忆注入 / 内置两枚开关与 skill toolview 保留。smoke 契约同步改断言
+`main / workbench` + `sidebar.panellist / workbench` @ order 20。
 
 ## 邮箱工作台（Agent Mail，2026-10-02 新增）
 

@@ -109,6 +109,7 @@ interface RelatedState {
 export type MemoryPanelProps = {
   onClose: () => void
   initialTab?: MemoryTab
+  embedded?: boolean
   /** 轻量翻译函数（入口经 makeT 提供）。 */
   t?: MemoryT
 } & MemoryApi
@@ -483,6 +484,16 @@ function FolderIcon({ size = 11 }: { size?: number }): JSX.Element {
   )
 }
 
+/** 分类标签（吊牌）。 */
+function TagIcon({ size = 11 }: { size?: number }): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 2h5l7 7-5 5-7-7V2Z" />
+      <circle cx="5" cy="5" r="1" fill="currentColor" />
+    </svg>
+  )
+}
+
 /** 手动来源（铅笔）。 */
 function PenIcon({ size = 11 }: { size?: number }): JSX.Element {
   return (
@@ -550,7 +561,7 @@ function importancePercent(importance: number): number {
 }
 
 /** 主面板。 */
-export function MemoryPanel({ onClose, initialTab, t = makeT(), ...api }: MemoryPanelProps): JSX.Element {
+export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT(), ...api }: MemoryPanelProps): JSX.Element {
   ensureStyles()
   // slots 的 inject 函数每次渲染返回新 api 对象；用 ref 固定引用，
   // 否则 load 的 useCallback 依赖 api 每次变化 → useEffect 无限重触发请求风暴。
@@ -624,7 +635,8 @@ export function MemoryPanel({ onClose, initialTab, t = makeT(), ...api }: Memory
     const onKey = (event: KeyboardEvent): void => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
-        searchRef.current?.focus()
+        setTab(currentTab => (currentTab !== 'all' && currentTab !== 'trash' ? 'all' : currentTab))
+        setTimeout(() => { searchRef.current?.focus() }, 0)
       }
     }
     document.addEventListener('keydown', onKey)
@@ -640,19 +652,18 @@ export function MemoryPanel({ onClose, initialTab, t = makeT(), ...api }: Memory
     try {
       const scopeParam = scope === 'all' ? undefined : scope === 'global' ? 'global' : 'project'
       const projectParam = scope.startsWith('project:') ? scope.slice('project:'.length) : undefined
-      const isTrash = tabRef.current === 'trash'
-      // 当前这次请求本身就是「无筛选」时，list 即活跃条目集，不必再拉一遍。
+      // 当前这次请求本身就是「无筛选」时，list 即条目全集，不必再拉一遍。
       const unfiltered = scopeParam === undefined && projectParam === undefined
-        && tag === '' && debouncedQ === '' && !isTrash
+        && tag === '' && debouncedQ === ''
       const [list, poolRes] = await Promise.all([
         current.list({
           scope: scopeParam,
           project: projectParam,
           q: debouncedQ !== '' ? debouncedQ : undefined,
           tag: tag !== '' ? tag : undefined,
-          includeDeprecated: isTrash,
+          includeDeprecated: true,
         }),
-        unfiltered ? Promise.resolve(null) : current.list({}),
+        unfiltered ? Promise.resolve(null) : current.list({ includeDeprecated: true }),
       ])
       const pool = (unfiltered ? list.entries : poolRes?.entries ?? []).filter(entry => entry.deprecated !== true)
       setState({ status: 'ready', snapshot: list })
@@ -1065,10 +1076,10 @@ export function MemoryPanel({ onClose, initialTab, t = makeT(), ...api }: Memory
     () => (activePool === null ? snapshot?.projects ?? [] : recountProjects(snapshot?.projects ?? [], activePool)),
     [snapshot, activePool],
   )
-  /** 当前视图的条目集（回收站=只保留已废弃）。 */
+  /** 当前视图的条目集（回收站=只保留已废弃；其余视图=只保留活跃条目）。 */
   const filtered = useMemo(() => {
     const entries = snapshot?.entries ?? []
-    return tabRef.current === 'trash' ? entries.filter(entry => entry.deprecated === true) : entries
+    return tab === 'trash' ? entries.filter(entry => entry.deprecated === true) : entries.filter(entry => entry.deprecated !== true)
   }, [snapshot, tab])
 
   /** 排序后的列表：置顶在前；搜索时保持 host 相关度排序。 */
@@ -1758,14 +1769,16 @@ export function MemoryPanel({ onClose, initialTab, t = makeT(), ...api }: Memory
     ? projects.find(candidate => candidate.hash === scope.slice('project:'.length))
     : undefined
 
-  /* 左侧导航项。 */
-  const navItem = (key: MemoryTab, icon: JSX.Element, label: string, count: number, hint?: string, badge = true): JSX.Element => (
+  /* 顶部视图分段 Tab 项。 */
+  const viewTab = (key: MemoryTab, icon: JSX.Element, label: string, count: number, badge = true, hint?: string): JSX.Element => (
     <button
       key={key}
       type="button"
+      role="tab"
       title={label + (count > 0 ? ' · ' + count.toLocaleString() : '')}
-      className={tab === key ? `${css.navItem} ${css.navItemActive}` : css.navItem}
-      aria-current={tab === key ? 'page' : undefined}
+      className={css.viewTab}
+      data-active={tab === key}
+      aria-selected={tab === key}
       onClick={() => {
         setTab(key)
         closeForms()
@@ -1774,186 +1787,195 @@ export function MemoryPanel({ onClose, initialTab, t = makeT(), ...api }: Memory
       }}
     >
       <span className={css.navIcon}>{icon}</span>
-      {label}
-      {badge && (<CountBadge key={count} value={count} hint={hint} />)}
+      <span>{label}</span>
+      {badge && count > 0 && (<CountBadge key={count} value={count} hint={hint} />)}
     </button>
+  )
+
+  const shellOrWrap = (children: JSX.Element): JSX.Element => (
+    embedded
+      ? <div className={css.modalBody} style={{ flex: '1 1 auto', minHeight: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>{children}</div>
+      : (
+        <PopoverShell
+          onClose={onClose}
+          ariaLabel={t('panelTitle')}
+        >
+          <PshBody className={css.modalBody}>
+            {children}
+          </PshBody>
+        </PopoverShell>
+      )
   )
 
   return (
     <>
-    {/*
-      页面形态（PopoverShell 的 page）：铺满官方 main 槽位，与「自动化任务」
-      页同座位。原来那条只有标题的 psh-head 一并去掉——左栏 sidebarBrand 已经
-      写着同一个标题，抽屉时代需要它是因为卡片没有别的 chrome，整页形态下
-      两行同名标题叠在一起纯属噪声。
-    */}
-    <PopoverShell
-      onClose={onClose}
-      ariaLabel={t('panelTitle')}
-    >
-      <PshBody className={css.modalBody}>
-      <div className={`${css.panel} ${modalStaggerClass}`} aria-busy={state.status === 'loading'}>
-        {/* ── 底部 dock：图标坞（文字进 tooltip） ── */}
-        <aside className={css.sidebar}>
-          <div className={css.sidebarBrand}>
-            <span className={css.sidebarLogo}><BoxIcon size={14} /></span>
-            <span className={css.sidebarTitle}>{t('panelTitle')}</span>
-          </div>
-          <button
-            type="button"
-            className={css.sidebarAdd}
-            title={t('add')}
-            aria-expanded={adding}
-            onClick={() => {
-              setAdding(value => !value)
-              setEditing(null)
-              setMoving(null)
-              if (!adding) {
-                if (scope.startsWith('project:')) {
-                  setAddScope('project')
-                  setAddProject(scope.slice('project:'.length))
-                }
-              }
-            }}
-          >
-            <IconPlusOutlineRegular size={14} />
-            {t('add')}
-          </button>
-          <nav className={css.navList}>
-            {navItem('home', <HomeIcon size={15} />, '首页', 0, undefined, false)}
-            {navItem('all', <BoxIcon size={15} />, t('navAll'), summary?.entryCount ?? 0, t('hintActive'))}
-            {/* 全局层入口：只看 global 层记忆（跨项目通用），与项目区筛选同源（scope=global）。 */}
-            <button
-              type="button"
-              className={tab === 'all' && scope === 'global' ? `${css.navItem} ${css.navItemActive}` : css.navItem}
-              title={`${t('navGlobal')} · ${summary?.globalCount ?? 0}`}
-              aria-current={tab === 'all' && scope === 'global' ? 'page' : undefined}
-              onClick={() => {
-                setTab('all')
-                setScope('global')
-                setTag('')
-                closeForms()
-                exitSelecting()
-              }}
-            >
-              <span className={css.navIcon}><GlobeIcon size={15} /></span>
-              {t('navGlobal')}
-              <CountBadge key={summary?.globalCount ?? 0} value={summary?.globalCount ?? 0} hint={t('hintActive')} />
-            </button>
-            {navItem('changes', <ClockIcon size={15} />, t('tabChanges'), changeCount, t('hintAllChanges'))}
-            {navItem('revisions', <HistoryIcon size={15} />, t('tabRevisions'), revisions.length, t('hintRevisions'))}
-            {navItem('trash', <TrashIcon size={15} />, t('navTrash'), summary?.deprecatedCount ?? 0, t('hintDeprecated'))}
-          </nav>
-          <div className={css.navSep} />
-          <div className={css.sectionHeader}>
-            <span className={css.sectionTitleTxt}>{t('navProjects')}</span>
-            <button
-              type="button"
-              className={css.sectionPlus}
-              aria-label={t('add')}
-              onClick={() => {
-                setAdding(true)
-                setEditing(null)
-                setMoving(null)
-                setAddScope('project')
-                if (scope.startsWith('project:')) setAddProject(scope.slice('project:'.length))
-              }}
-            >
-              +
-            </button>
-          </div>
-          <div className={css.projList}>
-            <button
-              type="button"
-              title={`${t('navAllProjects')} · ${projectTotal}`}
-              className={scope === 'all' ? `${css.projRow} ${css.projRowActive}` : css.projRow}
-              onClick={() => { setScope('all'); setTab('all'); closeForms(); exitSelecting() }}
-            >
-              <span className={css.navIcon} style={{ color: 'var(--m-primary)' }}><BoxIcon size={14} /></span>
-              {t('navAllProjects')}
-              <CountBadge key={projectTotal} value={projectTotal} />
-            </button>
-            {projects.map(project => {
-              const name = project.alias ?? project.path.split(/[\\/]/).filter(Boolean).at(-1) ?? project.hash
-              const active = scope === `project:${project.hash}`
-              return (
-                <button
-                  key={project.hash}
-                  type="button"
-                  title={`${name} · ${project.entryCount}`}
-                  className={active ? `${css.projRow} ${css.projRowActive}` : css.projRow}
-                  onClick={() => {
-                    setScope(`project:${project.hash}`)
-                    setTab('all')
-                    closeForms()
-                    exitSelecting()
-                  }}
-                >
-                  <span className={css.navIcon} style={{ color: PROJ_COLORS[hashOf(project.hash) % PROJ_COLORS.length] }}>
-                    <FolderIcon size={12} />
-                  </span>
-                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-                  <CountBadge key={project.entryCount} value={project.entryCount} />
-                </button>
-              )
-            })}
-          </div>
-          <div className={css.navSep} />
-          <div className={css.sectionHeader}>
-            <span className={css.sectionTitleTxt}>{t('navCategories')}</span>
-            <button
-              type="button"
-              className={css.sectionPlus}
-              aria-label={t('add')}
-              onClick={() => {
-                setAdding(true)
-                setEditing(null)
-                setMoving(null)
-              }}
-            >
-              +
-            </button>
-          </div>
-          <div className={css.catList}>
-            {visibleCats.map(cat => {
-              const active = tag === cat.tag
-              return (
-                <button
-                  key={cat.tag}
-                  type="button"
-                  title={`${cat.tag} · ${cat.count}`}
-                  className={active ? `${css.catRow} ${css.catRowActive}` : css.catRow}
-                  onClick={() => { setTag(active ? '' : cat.tag); setTab('all') }}
-                >
-                  <span className={css.catDot} style={{ ['--dot' as string]: DOT_COLORS[hashOf(cat.tag) % DOT_COLORS.length] }} />
-                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cat.tag}</span>
-                  <CountBadge key={cat.count} value={cat.count} />
-                </button>
-              )
-            })}
-            {allTags.length > 5 && !catExpanded && (
-              <button type="button" title={t('navMoreCategories')} className={`${css.catRow} ${css.catMore}`} onClick={() => { setCatExpanded(true) }}>
-                <span className={css.catDot} style={{ ['--dot' as string]: '#CED2DA' }} />
-                {t('navMoreCategories')}
-                <span className={css.navChevron}>▾</span>
-              </button>
-            )}
-          </div>
-          <div className={css.sidebarFoot}>
-            <button
-              type="button"
-              title={t('tabSettings')}
-              className={tab === 'settings' ? `${css.settingsNav} ${css.settingsNavActive}` : css.settingsNav}
-              onClick={() => { setTab('settings'); closeForms(); exitSelecting() }}
-            >
-              <span className={css.navIcon}><GearIcon size={15} /></span>
-              {t('tabSettings')}
-            </button>
-          </div>
-        </aside>
+      {shellOrWrap(
+        <div className={`${css.panel} ${modalStaggerClass}`} aria-busy={state.status === 'loading'}>
+        {/* ── 顶部两级工具筛选栏 ── */}
+        <header className={css.topBar}>
+          {/* 一级行：视图分段 Tab + 统计数值 +「+ 添加」主按钮 */}
+          <div className={css.viewRow}>
+            <div className={css.viewTabs} role="tablist">
+              {viewTab('home', <HomeIcon size={14} />, '首页', 0, false)}
+              {viewTab('all', <BoxIcon size={14} />, t('navAll'), summary?.entryCount ?? 0, true, t('hintActive'))}
+              {viewTab('changes', <ClockIcon size={14} />, t('tabChanges'), changeCount, true, t('hintAllChanges'))}
+              {viewTab('revisions', <HistoryIcon size={14} />, t('tabRevisions'), revisions.length, true, t('hintRevisions'))}
+              {viewTab('trash', <TrashIcon size={14} />, t('navTrash'), summary?.deprecatedCount ?? 0, true, t('hintDeprecated'))}
+              {viewTab('settings', <GearIcon size={14} />, t('tabSettings'), 0, false)}
+            </div>
 
-        {/* ── 右区：顶栏 / 筛选行 / 主区 ── */}
+            <div className={css.viewActions}>
+              <div className={css.topStats}>
+                {summary !== null && (
+                  <>
+                    <span className={css.topStat}>
+                      <span className={css.topStatVal}>{summary.entryCount}</span>
+                      {t('statEntries')}
+                    </span>
+                    <span className={css.topStatSep}>·</span>
+                    <span className={css.topStat} title={t('statProjects')}>
+                      <span className={css.topStatVal}>{projectTotal}</span>
+                      {t('statProjects')}
+                    </span>
+                    {summary.pinnedCount !== undefined && (
+                      <>
+                        <span className={css.topStatSep}>·</span>
+                        <span className={css.topStat} title={t('tabPinned')}>
+                          <span style={{ color: '#F5C242' }}>★</span>
+                          <span className={css.topStatVal}>{summary.pinnedCount}</span>
+                          {t('statPinnedShort')}
+                        </span>
+                      </>
+                    )}
+                    {(summary.todayChanges ?? 0) > 0 && (
+                      <>
+                        <span className={css.topStatSep}>·</span>
+                        <span className={css.topStat} title={`${t('hintAllChanges')} ${changeCount.toLocaleString()}`}>
+                          <span style={{ color: '#5B8DEF', display: 'inline-flex' }}><LightbulbIcon size={13} /></span>
+                          <span className={css.topStatVal}>{summary.todayChanges}</span>
+                          {t('statChangesToday')}
+                        </span>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <button
+                type="button"
+                className={css.primaryAdd}
+                aria-expanded={adding}
+                title={t('add')}
+                onClick={() => {
+                  setTab('all')
+                  setAdding(value => !value)
+                  setEditing(null)
+                  setMoving(null)
+                  if (!adding) {
+                    if (scope.startsWith('project:')) {
+                      setAddScope('project')
+                      setAddProject(scope.slice('project:'.length))
+                    }
+                  }
+                }}
+              >
+                <IconPlusOutlineRegular size={14} />
+                <span>{t('add')}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 二级行：仅在「全部记忆」或「回收站」时展示：搜索框 + 项目选择下拉 + 分类选择下拉 + 分类胶囊 Pills */}
+          {(tab === 'all' || tab === 'trash') && (
+            <div className={css.subfilterRow}>
+              {/* 搜索框 */}
+              <label className={css.subfilterSearch} title={t('cmdK')}>
+                <span className={css.topSearchIcon}><IconSearchOutlineRegular size={14} /></span>
+                <input
+                  ref={searchRef}
+                  value={q}
+                  placeholder={t('searchPlaceholderApp')}
+                  aria-label={t('searchPlaceholderApp')}
+                  onChange={(event) => { setQ(event.currentTarget.value) }}
+                  onKeyDown={event => { if (event.key === 'Escape' && q !== '') { event.preventDefault(); setQ('') } }}
+                />
+                <span className={css.topKbd}>⌘K</span>
+              </label>
+
+              {/* 项目下拉（全部 / 全局 / 各项目） */}
+              <div className={css.subfilterGroup}>
+                <span className={css.subfilterLabel}>
+                  <FolderIcon size={12} /> {t('navProjects') || '项目'}:
+                </span>
+                <select
+                  className={css.subfilterSelect}
+                  value={scope}
+                  aria-label={t('scopeFilterLabel')}
+                  onChange={(event) => { setScope(event.currentTarget.value as ScopeFilter) }}
+                >
+                  <option value="all">{t('filterAllProjects')} ({summary?.entryCount ?? 0})</option>
+                  <option value="global">{t('scopeGlobal')} ({summary?.globalCount ?? 0})</option>
+                  {projects.map(project => (
+                    <option key={project.hash} value={`project:${project.hash}`}>
+                      {project.alias ?? project.path.split(/[\\/]/).filter(Boolean).at(-1) ?? project.hash} ({project.entryCount})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 分类下拉选择 */}
+              <div className={css.subfilterGroup}>
+                <span className={css.subfilterLabel}>
+                  <TagIcon size={12} /> {t('navCategories') || '分类'}:
+                </span>
+                <select
+                  className={css.subfilterSelect}
+                  value={tag}
+                  aria-label={t('navCategories')}
+                  onChange={(event) => { setTag(event.currentTarget.value) }}
+                >
+                  <option value="">{t('filterAllCategories')} ({summary?.entryCount ?? 0})</option>
+                  {allTags.map(item => (
+                    <option key={item.tag} value={item.tag}>
+                      {item.tag} ({item.count})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 热门分类快速胶囊 Pills */}
+              <div className={css.pills}>
+                <button
+                  type="button"
+                  className={css.pill}
+                  data-active={tag === ''}
+                  onClick={() => setTag('')}
+                >
+                  {t('tabAll')}
+                </button>
+                {visibleCats.slice(0, 8).map(cat => (
+                  <button
+                    key={cat.tag}
+                    type="button"
+                    className={css.pill}
+                    data-active={tag === cat.tag}
+                    onClick={() => setTag(tag === cat.tag ? '' : cat.tag)}
+                  >
+                    <span className={css.catDot} style={{ ['--dot' as string]: DOT_COLORS[hashOf(cat.tag) % DOT_COLORS.length] }} />
+                    <span>{cat.tag}</span>
+                    <span style={{ opacity: 0.65, fontSize: 11 }}>{cat.count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </header>
+
+        {/* ── 主区：纯双栏（左列表 + 右详情）或全宽视图 ── */}
         <div className={css.mainCol}>
+          {notice !== '' && <p className={css.notice}>{notice}</p>}
+          {error !== '' && <p className={css.error} role="alert">{error}</p>}
+
           {tab === 'home' ? (
             <MemoryHome
               api={apiRef.current}
@@ -1967,65 +1989,6 @@ export function MemoryPanel({ onClose, initialTab, t = makeT(), ...api }: Memory
             />
           ) : (
           <>
-          {/* 顶栏：搜索 + 统计 + 关闭 */}
-          <div className={css.topbar}>
-            <label className={css.topSearch} title={t('cmdK')}>
-              <span className={css.topSearchIcon}><IconSearchOutlineRegular size={14} /></span>
-              <input
-                ref={searchRef}
-                className={css.topInput}
-                value={q}
-                placeholder={t('searchPlaceholderApp')}
-                aria-label={t('searchPlaceholderApp')}
-                onChange={(event) => { setQ(event.currentTarget.value) }}
-                onKeyDown={event => { if (event.key === 'Escape' && q !== '') { event.preventDefault(); setQ('') } }}
-              />
-              <span className={css.topKbd}>⌘ K</span>
-            </label>
-            <div className={css.topStats}>
-              {summary !== null && (
-                <>
-                  <span className={css.topStat}>
-                    <span className={css.topStatVal}>{summary.entryCount}</span>
-                    {t('statEntries')}
-                  </span>
-                  <span className={css.topStatSep}>·</span>
-                  <span className={css.topStat} title={t('statProjects')}>
-                    <span className={css.topStatVal}>{projectTotal}</span>
-                    {t('statProjects')}
-                  </span>
-                  {summary.pinnedCount !== undefined && (
-                    <>
-                      <span className={css.topStatSep}>·</span>
-                      {/* 图标后补文字标签：光一个 ★5 / 💡4407 没人知道在数什么。 */}
-                      <span className={css.topStat} title={t('tabPinned')}>
-                        <span style={{ color: '#F5C242' }}>★</span>
-                        <span className={css.topStatVal}>{summary.pinnedCount}</span>
-                        {t('statPinnedShort')}
-                      </span>
-                    </>
-                  )}
-                  {(summary.todayChanges ?? 0) > 0 && (
-                    <>
-                      <span className={css.topStatSep}>·</span>
-                      {/* 灯泡位历史上被改成显示全量 changeCount（4407），与图标本意
-                          「今日变更」对不上——这里回到今日数，全量放 tooltip。 */}
-                      <span className={css.topStat} title={`${t('hintAllChanges')} ${changeCount.toLocaleString()}`}>
-                        <span style={{ color: '#5B8DEF', display: 'inline-flex' }}><LightbulbIcon size={13} /></span>
-                        <span className={css.topStatVal}>{summary.todayChanges}</span>
-                        {t('statChangesToday')}
-                      </span>
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* 筛选行已移除：作用域/分类由左栏导航控制，排序在列表头（保留整理/多选工具栏） */}
-
-          {notice !== '' && <p className={css.notice}>{notice}</p>}
-          {error !== '' && <p className={css.error} role="alert">{error}</p>}
 
           {/* 主区框架 */}
           {tab !== 'changes' && tab !== 'revisions' && tab !== 'settings' && (
@@ -2283,8 +2246,7 @@ export function MemoryPanel({ onClose, initialTab, t = makeT(), ...api }: Memory
           )}
         </div>
       </div>
-      </PshBody>
-    </PopoverShell>
+      )}
     {confirmRequest !== null && (
       <ConfirmDialog
         open

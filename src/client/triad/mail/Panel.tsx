@@ -181,10 +181,11 @@ export interface MailPanelProps {
   initialFolder?: Folder
   /** 打开时直接定位到某封邮件（从新邮件提示进来时用）。 */
   initialMessageId?: string
+  embedded?: boolean
 }
 
 /** 邮箱工作台面板。 */
-export function MailPanel({ onClose, api, initialFolder, initialMessageId }: MailPanelProps): JSX.Element {
+export function MailPanel({ onClose, api, initialFolder, initialMessageId, embedded = false }: MailPanelProps): JSX.Element {
   ensureMailStyles()
 
   const [view, setView] = useState<View>('mail')
@@ -515,11 +516,14 @@ export function MailPanel({ onClose, api, initialFolder, initialMessageId }: Mai
     </div>
   )
 
-  return (
-    <PopoverShell
-      onClose={onClose}
-      ariaLabel="邮箱工作台"
-    >
+  const shellOrWrap = (children: JSX.Element): JSX.Element => (
+    embedded
+      ? <div style={{ flex: '1 1 auto', minHeight: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>{children}</div>
+      : <PopoverShell onClose={onClose} ariaLabel="邮箱工作台">{children}</PopoverShell>
+  )
+
+  return shellOrWrap(
+    <>
       <div className={css.panel}>
         {head}
 
@@ -792,7 +796,7 @@ export function MailPanel({ onClose, api, initialFolder, initialMessageId }: Mai
           onClose={() => { setConfirmState(null) }}
         />
       )}
-    </PopoverShell>
+    </>
   )
 }
 

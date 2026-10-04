@@ -27,11 +27,9 @@
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import { applyWorkbenchSeat } from './hub/seat.js'
 import { applyMemoryClient } from './memory/index.js'
-import { apply as applyUsageEntries } from './usage/entry.js'
-import { applySkillsSeat } from './usage/skills-seat.js'
 import { apply as applySkillSource } from './skill-source/index.js'
-import { applyMailClient } from './mail/index.js'
 import { injectResponsiveStyles } from './responsive.js'
 import { buildActivityGrid, activityColor, ACTIVITY_COLUMNS } from './usage/dashboard/ActivityGrid.js'
 
@@ -44,27 +42,15 @@ function safe(label: string, run: (ctx: ClientContext) => void, ctx: ClientConte
   }
 }
 
-/** Apply the dsh-chat-plus browser half (five isolated modules). */
+/** Apply the dsh-chat-plus browser half. */
 export function applyTriadClient(ctx: ClientContext): void {
-  /*
-   * 响应式覆盖样式先于各工作台注入。
-   *
-   * 这一行是补接线：injectResponsiveStyles 从四工作台融合那次引入起就**没有任何
-   * 调用方**，整段 SHEET 被 tree-shake 掉、从未注入，于是文件头承诺的三件事
-   * 一件都没发生——窄屏下官方设置面板仍是「188px 左导航 + 内容」两栏（内容列
-   * 被压到 ~140px，供应商页不可用）、居中对话框不强制全宽、安全区变量从未定义。
-   * useIsMobile 一直是活的（用量面板在用），所以死的只是注入这一条链。
-   *
-   * 幂等且返回移除函数，交给 ctx.effect 随插件卸载回收。
-   */
   safe('responsive styles', (c) => { c.effect(injectResponsiveStyles, 'dsh-chat-plus: triad responsive styles') }, ctx)
-  safe('memory', applyMemoryClient, ctx)
-  safe('usage', applyUsageEntries, ctx)
-  safe('skills seat', applySkillsSeat, ctx)
+  // 4合1 统一工作台（记忆、能力、用量、邮件）
+  safe('workbench', applyWorkbenchSeat, ctx)
+  // 输入框左侧提示词与记忆注入开关
+  safe('memory toggles', applyMemoryClient, ctx)
+  // 斜杠命令与技能工具行源
   safe('skills source', applySkillSource, ctx)
-  // 邮箱工作台（Agent Mail）：官方 main 页 + 菜单行；host 半身未就绪时面板自己
-  // 显示「未授权/连不上」的空态，不会把侧边栏入口弄丢。
-  safe('mail', applyMailClient, ctx)
 }
 
 /** 纯逻辑导出：供 smoke 测试直接断言「Token 活动」贡献热力模型。 */

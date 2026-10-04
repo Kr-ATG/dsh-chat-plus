@@ -54,16 +54,8 @@ export function applyMemoryClient(ctx: ClientContext): void {
    */
   const panelApi: MemoryApi = createMemoryApi()
 
-  // 工作台页面：main（keyed）里的页面本体 + sidebar.panellist 的菜单行。
-  ctx.effect(() => registerPanelSeat(ctx, {
-    id: MEMORY_PANEL_ID,
-    label: () => t('entry'),
-    icon: BrainIcon,
-    order: 20,
-    render: (close) => createElement(MemoryPanel, { ...panelApi, onClose: close }),
-  }), 'dsh-memory: main page + sidebar row')
-
-  // composer 输入框工具行左端的两枚注入开关（resident chrome 之后，浏览器开关之前）。
+  // 独立主页面已并入统一工作台（见 hub/seat.ts）
+  // 此处保留 composer 输入框工具行左端的两枚注入开关（resident chrome 之后，浏览器开关之前）。
   // 记忆注入与内置提示词通道各占一枚、各弹一张卡：两种不同的东西挤一张卡里，
   // 标题总有一半对不上。order 98（提示符）在 99（大脑）左侧，记忆按钮紧邻其右，
   // 位置与原来那枚大脑按钮完全一致，不动用户已有的肌肉记忆。

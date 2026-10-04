@@ -390,6 +390,13 @@ const WRITE_INTENT_RE = new RegExp([
   // Python / 脚本
   String.raw`\bsavefig\s*\(`, String.raw`\bimwrite\s*\(`, String.raw`\bopen\s*\([^)]*['"][wa]`,
   String.raw`\bto_csv\s*\(`, String.raw`\bto_excel\s*\(`, String.raw`\bwrite_text\s*\(`,
+  // Node（run_code 代码体里的落盘 API，2026-10-04 补）：生图/脚本轮次里模型最常
+  // 写的就是 fs.writeFileSync / writeFile / createWriteStream；mkdirSync 单独不算
+  // 写文件，但它几乎总是与写盘代码同现，作为写入语义的弱证据放行（文件名仍要
+  // 在代码里被写出、路径仍要过落盘说明或证据 2 两道门，不会单靠它放行）。
+  String.raw`\bwriteFile(?:Sync)?\s*\(`, String.raw`\bcreateWriteStream\s*\(`,
+  String.raw`\bcopyFileSync\b`, String.raw`\brenameSync\b`, String.raw`\bcpSync\b`,
+  String.raw`\bmkdirSync\b`,
   // 媒体工具
   String.raw`\bffmpeg\b`, String.raw`\bblender\b`,
 ].join('|'), 'i')
@@ -442,6 +449,18 @@ function namesInCommand(command: string): ReadonlySet<string> {
  * 那是模型自己声明的最终位置，判断权不在客户端。
  */
 const TRANSIENT_DIR_RE = /(?:^|[/\\])_tmp[/\\]/i
+
+/**
+ * _tmp/ 下仍要列出的类别：媒体成品（2026-10-04）。
+ *
+ * 生图 / 生视频 / 脚本渲染（ffmpeg、matplotlib、Blender）的落点经常就是工作区
+ * _tmp/，而这类产出**没有别的出口**：generate_image 只回 b64，模型把它写进
+ * _tmp/ 再 read_image 核对就是完整闭环，不会再多一步 present 交付。整类排除
+ * _tmp/ 等于把整轮媒体产出从卡里抹掉（用户 2026-10-04 报的「产出物 0 项」）。
+ * 失效风险交给核对层兜底：文件真被清理器删掉后，probeWorkspaceFile 会把它
+ * 从渲染清单里剔除。文档/表格/压缩包等仍按原约定排除（它们的中转形态确实没人认领）。
+ */
+const TRANSIENT_MEDIA_EXEMPT: ReadonlySet<OutputKind> = new Set(['image', 'video', 'audio'])
 
 /** 这条路径是否落在一次性中转目录里。 */
 export function isTransientOutputPath(path: string): boolean {
@@ -527,6 +546,13 @@ const RESULT_PATH_TOOLS = new Set([
   'download', 'present',
   'generate_image', 'generate_video',
   'bash', 'pwsh', 'exec_command', 'shell', 'terminal', 'terminal_send',
+  // run_code（2026-10-04 补）：DSH 的 PTC 沙箱工具，模型在**代码体**里调
+  // generate_image / fs.writeFileSync 落盘是它最主要的产出形态 —— 路径只出现在
+  // 代码与打印结果里，参数里只有 code/description。不收它，整轮生图/脚本落盘的
+  // 产出在卡里就是 0 项（用户 2026-10-04 报的「产出物 png 不显示」）。
+  // 它的「命令原文」取 code 字段（见 extractFromBlock），证据 2 的两道闸门
+  // （文件名被写出 + 写入语义）原样生效，列表/打印类代码依然进不来。
+  'run_code',
 ])
 
 /** 删除类：它确实动了文件，但产出物卡讲的是「做出来了什么」，删掉的不算。 */
@@ -731,7 +757,11 @@ function extractFromBlock(block: ToolCallBlock): readonly ExtractedItem[] {
   // 路 2：结果文本里带正向证据的成品路径（脚本产出的唯一来源）。
   if (RESULT_PATH_TOOLS.has(name)) {
     // 命令原文只在命令行工具上取：它是「文件名被显式写出」这道证据的来源。
-    const command = typeof args.command === 'string' ? args.command : ''
+    // run_code 没有 command 字段，它的等价物是 **code 代码体**：文件名与写入
+    // 语义（fs.writeFileSync 等）都写在里面，证据 2 的两道闸门对它同样成立。
+    const command = typeof args.command === 'string'
+      ? args.command
+      : (typeof args.code === 'string' ? args.code : '')
     for (const item of pathsFromResult(resultText(block), command)) paths.push(item)
   }
 
@@ -742,12 +772,18 @@ function extractFromBlock(block: ToolCallBlock): readonly ExtractedItem[] {
     if (path === '') continue
     // spill 临时文件既不是产出、也没有查看价值：两条路都统一在这里挡掉。
     if (SPILL_PATH_RE.test(path)) continue
+    const kind = classifyOutput(path)
+    if (kind === 'other') continue
     // 一次性中转目录：只写到 _tmp/ 就没人认领它，而清理器会把它清掉 ——
     // 列出来等于列一条注定点不开的路径。模型显式交付的除外（它自己声明了
     // 最终位置，判断权不在客户端）。
-    if (!delivered && isTransientOutputPath(path)) continue
-    const kind = classifyOutput(path)
-    if (kind === 'other') continue
+    // **媒体类豁免**（2026-10-04）：生图 / 生视频 / 脚本渲染的成品落点常常就是
+    // 工作区 _tmp/（本工作区的一次性产物约定目录），整类排除会让整轮生图在
+    // 产出物卡上显示「0 项」—— 用户最想看见的那批文件恰恰全在 _tmp/ 里。
+    // 清理器是**定期**跑、不是即时删：会话期间文件必然在磁盘上；真被清掉之后
+    // 由卡片的核对层（probeWorkspaceFile → gonePaths）把条目剔除，不会留点不
+    // 开的行。文档/表格/压缩包等仍按原约定排除（它们的中转形态确实没人认领）。
+    if (!delivered && isTransientOutputPath(path) && !TRANSIENT_MEDIA_EXEMPT.has(kind)) continue
     const key = dedupeKey(path)
     if (seen.has(key)) continue
     seen.add(key)

@@ -596,22 +596,19 @@ if (!code.includes('data-dsh-anim-paused') || !code.includes('animation-play-sta
 // dsh-memory-builtin-toggle / dsh-memory-inject-toggle；skill toolview 一枚）。
 // 座位 id/order/locale 全部原样保留；原 automation-notifier 随自动化模块一起下线。
 const cell = (key) => registeredSlots.find((s) => s?.slot === 'conversation.chat.node' && s?.key === key)
-if (registeredSlots.length !== 14) {
-  fail(`expected 14 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
+if (registeredSlots.length !== 10) {
+  fail(`expected 10 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
 } else {
-  pass('registered 14 seats (5 chat-plus + 9 triad: 3 workbench pages/rows + 2 toggles + skill toolview)')
+  pass('registered 10 seats (5 chat-plus + 5 triad: 1 unified workbench page/row + 2 toggles + skill toolview)')
 }
 
-// 工作台页面：三个页面本体挂官方 `main`（keyed），与官方「自动化任务」页同座位。
-// 这条断言是本次改版的契约——任何一处回退成 body 浮层都会让它失败。
-for (const [id, order] of [['memory', 20], ['skills', 25], ['mail', 30]]) {
-  const page = registeredSlots.find((s) => s?.slot === 'main' && s?.key === id)
-  const row = registeredSlots.find((s) => s?.slot === 'sidebar.panellist' && s?.id === id)
-  if (page === undefined) fail(`missing workbench page seat main / ${id}`)
-  else if (row === undefined) fail(`missing sidebar row seat sidebar.panellist / ${id}`)
-  else if (row.order !== order) fail(`sidebar row ${id} order = ${row.order}, expected ${order}`)
-  else pass(`seat main / ${id} + sidebar.panellist / ${id} @ order ${order}`)
-}
+// 4合1 统一工作台页面：本体挂官方 `main`（key=workbench），侧边栏菜单行 `sidebar.panellist`（id=workbench）。
+const wbPage = registeredSlots.find((s) => s?.slot === 'main' && s?.key === 'workbench')
+const wbRow = registeredSlots.find((s) => s?.slot === 'sidebar.panellist' && s?.id === 'workbench')
+if (wbPage === undefined) fail('missing unified workbench page seat main / workbench')
+else if (wbRow === undefined) fail('missing unified sidebar row seat sidebar.panellist / workbench')
+else if (wbRow.order !== 20) fail(`sidebar row workbench order = ${wbRow.order}, expected 20`)
+else pass('seat main / workbench + sidebar.panellist / workbench @ order 20')
 
 const downloadSeat = registeredSlots.find((s) => s?.slot === 'tool.call.toolview' && s?.key === 'download')
 if (downloadSeat === undefined) fail('missing keyed toolview seat tool.call.toolview / download')
@@ -1259,8 +1256,29 @@ if (krEnabled) {
     // 时，两条路径 basename 相同、完整路径不同；只按完整路径去重会并排留一条
     // 已经失效的旧路径。present 的交付路径必须能顶掉同名中转路径。
     fail('outputs.ts 必须让 present 的交付路径顶掉同名的中转路径（否则卡里留下已失效的 _tmp 路径）')
+  } else if (!/'run_code',/.test(outputsSrc) || !/typeof args\.code === 'string'/.test(outputsSrc)) {
+    // 用户 2026-10-04 报的「产出物 png 不显示」：整轮生图走 run_code（PTC 沙箱），
+    // 模型在**代码体**里调 generate_image + fs.writeFileSync 落盘，路径只出现在
+    // code 与打印结果里。run_code 不在结果路白名单 → 收集层一条都收不到 → 卡显示
+    // 0 项。补进白名单后，它的「命令原文」取 code 字段，证据 2 的两道闸门
+    // （文件名被写出 + 写入语义）原样生效，列表/打印类代码依然进不来。
+    fail('outputs.ts 结果路必须含 run_code，且把 args.code 当作证据 2 的命令原文：'
+      + '否则 PTC 沙箱里脚本落盘的产出（生图 png 等）整批进不了卡')
+  } else if (!/TRANSIENT_MEDIA_EXEMPT/.test(outputsSrc)
+    || !/new Set\(\['image', 'video', 'audio'\]\)/.test(outputsSrc)
+    || !/isTransientOutputPath\(path\) && !TRANSIENT_MEDIA_EXEMPT\.has\(kind\)/.test(outputsSrc)) {
+    // 同一 BUG 的第二半：生图成品落点就是工作区 _tmp/（本工作区一次性产物约定
+    // 目录），_tmp/ 整类排除把整轮媒体产出抹成 0 项。媒体类（image/video/audio）
+    // 豁免 _tmp/ 排除；失效文件由卡片核对层（probeWorkspaceFile → gonePaths）剔除。
+    fail('outputs.ts 必须对 _tmp/ 下的媒体成品（image/video/audio）豁免整类排除：'
+      + '生图/渲染的落点常在 _tmp/，整类排除等于把整轮媒体产出从卡里抹掉')
+  } else if (!/writeFile\(\?:Sync\)\?\\s\*\\\(/.test(outputsSrc)) {
+    // run_code 代码体里的写入语义主要是 Node fs API；WRITE_INTENT_RE 原来只认
+    // shell/Python 形态，代码体写 fs.writeFileSync 会被证据 2 的闸门挡掉。
+    fail('WRITE_INTENT_RE 必须认 Node 落盘 API（writeFileSync/createWriteStream…）：'
+      + 'run_code 代码体的写入语义靠它们自证')
   } else {
-    pass('outputs.ts：参数/结果两路工具集分离 + spill 排除 + 落盘说明闸门 + 交付路径优先')
+    pass('outputs.ts：参数/结果两路工具集分离 + spill 排除 + 落盘说明闸门 + 交付路径优先 + run_code/媒体豁免')
   }
 }
 

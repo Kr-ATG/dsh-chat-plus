@@ -94,6 +94,10 @@ function setClassIfDiff(el: Element, className: string): void {
 
 /** 同步顶部 Tab 按钮（纯 DOM 级稳定注入，与官方原生按钮像素级对齐） */
 function syncKrTab(tablist: HTMLElement): void {
+  // 防御：绝不注入到工作台内部 Tab 栏
+  if (tablist.closest('.wb-header') || tablist.closest('.wb-root') || tablist.getAttribute('data-workbench-nav') === 'true') {
+    return
+  }
   const store = getKrChatStore()
   const isKr = store.snapshot.activeTab === 'kr'
   let btn = document.getElementById('kr-chat-tab-btn') as HTMLButtonElement | null
@@ -229,7 +233,7 @@ export function mountKrChatController(): void {
       store.setActiveTab('chat')
     }
 
-    const tablist = document.querySelector<HTMLElement>('header [role="tablist"]')
+    const tablist = document.querySelector<HTMLElement>('header:not(.wb-header) [role="tablist"]')
     if (tablist) syncKrTab(tablist)
   }, true)
 
@@ -285,7 +289,7 @@ export function mountKrChatController(): void {
   }, true)
 
   const syncDom = () => {
-    const tablist = document.querySelector<HTMLElement>('header [role="tablist"]')
+    const tablist = document.querySelector<HTMLElement>('header:not(.wb-header) [role="tablist"]')
     const turns = document.querySelectorAll('[data-chat-turn]')
     // 与 KrPanelSystem 同口径：会话 id 已登记即视为绑定了真实会话
     // （空白新会话没有 tablist、也没有轮次，但会话 id 存在）。

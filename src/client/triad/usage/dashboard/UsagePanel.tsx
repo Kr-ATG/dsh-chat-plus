@@ -112,14 +112,17 @@ function dayLabel(date: string): string {
 
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
 
+import { UsageTrendChart } from './UsageTrendChart'
+
 export interface UsagePanelProps {
   closing?: boolean
   onClose: () => void
   anchor?: PopoverAnchor | null
+  embedded?: boolean
 }
 
-export function UsagePanel({ closing = false, onClose, anchor = null }: UsagePanelProps): JSX.Element {
-  const [preset, setPreset] = useState<RangePreset>('7d')
+export function UsagePanel({ closing = false, onClose, anchor = null, embedded = false }: UsagePanelProps): JSX.Element {
+  const [preset, setPreset] = useState<RangePreset>('today')
   const [custom, setCustom] = useState<DateRange | null>(null)
   const [days, setDays] = useState<UsageDay[] | null>(null)
   const [metric, setMetric] = useState<ActivityMetric>('tokens')
@@ -209,6 +212,34 @@ export function UsagePanel({ closing = false, onClose, anchor = null }: UsagePan
       stale={stale}
     />
   })()
+
+  if (embedded) {
+    return (
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 24px', maxWidth: '1080px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+          <div>
+            <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: 'var(--dsw-alias-label-primary, #eee)' }}>Token 用量总览</h2>
+            <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary, #81858c)' }}>模型消耗追踪 · 每日走势 · 52 周全局热力</span>
+          </div>
+          <button
+            type="button"
+            className="usm-refresh"
+            data-spin={refreshing || undefined}
+            aria-label="刷新用量数据"
+            onClick={doRefresh}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '5px 12px', borderRadius: '8px', border: '1px solid var(--dsw-alias-border-l1, rgba(255,255,255,0.08))', background: 'var(--dsw-alias-bg-base, transparent)', color: 'var(--dsw-alias-label-secondary, #aaa)', cursor: 'pointer', fontSize: '12px' }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 12a9 9 0 0 1-15.9 5.7M3 12a9 9 0 0 1 15.9-5.7" />
+              <path d="M21 3v6h-6M3 21v-6h6" />
+            </svg>
+            刷新
+          </button>
+        </div>
+        {head}
+      </div>
+    )
+  }
 
   return (
     <PopoverShell
@@ -312,6 +343,14 @@ function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChang
         <Stat icon={outputIcon(13)} label="输出" value={formatUnits(sum.output)} sub={`占 ${share(sum.output)}`} tone="var(--dsw-alias-state-warn-primary, #f59e0b)" />
         <Stat icon={hitIcon(13)} label="缓存" value={formatUnits(sum.cache)} sub={`命中 ${formatHitRate(hitRate)}`} tone="var(--dsw-alias-state-success-primary, #22c55e)" />
       </div>
+      <UsageTrendChart
+        days={scopedAll}
+        range={range}
+        rangeLabel={rangeLabel}
+        preset={preset}
+        selectedDate={selectedDay}
+        onSelectDate={onSelectDay}
+      />
       <div className="usm-uc-card">
         <ActivityGrid
           days={scopedAll}

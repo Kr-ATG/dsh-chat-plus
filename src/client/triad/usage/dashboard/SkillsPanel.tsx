@@ -3025,7 +3025,7 @@ function frontmatterName(text: string): string | null {
   return null
 }
 
-export function SkillsPanel({ onClose }: { onClose: () => void }): JSX.Element {
+export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }): JSX.Element {
   ensureStyles()
   const [state, setState] = useState<PanelState>({ status: 'loading' })
   const [reload, setReload] = useState(0)
@@ -3766,16 +3766,26 @@ export function SkillsPanel({ onClose }: { onClose: () => void }): JSX.Element {
           + (confirm.kind === 'skill' && confirm.dir !== undefined && confirm.dir !== confirm.name
             ? t('deleteSkillDirNote', { dir: confirm.dir }) : '')
 
-  return (
-    <PopoverShell
-      onClose={() => {
-        // 安装/确认进行中禁止关闭；二级弹窗（新建/添加/确认/查看器/归组）打开时 Esc 归二级弹窗。
-        if (installing || confirming) return
-        if (newBundleOpen || addOpen || confirm !== null || viewer !== null || assignTarget !== null || catTarget !== null) return
-        onClose()
-      }}
-      ariaLabel={t('panelTitle')}
-    >
+  const shellOrWrap = (children: JSX.Element): JSX.Element => (
+    embedded
+      ? <div style={{ flex: '1 1 auto', minHeight: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>{children}</div>
+      : (
+        <PopoverShell
+          onClose={() => {
+            // 安装/确认进行中禁止关闭；二级弹窗（新建/添加/确认/查看器/归组）打开时 Esc 归二级弹窗。
+            if (installing || confirming) return
+            if (newBundleOpen || addOpen || confirm !== null || viewer !== null || assignTarget !== null || catTarget !== null) return
+            onClose()
+          }}
+          ariaLabel={t('panelTitle')}
+        >
+          {children}
+        </PopoverShell>
+      )
+  )
+
+  return shellOrWrap(
+    <>
       {/* 头部：标题（能力管理）+ 紧贴文字右侧的 SKILL/MCP 顶层 tab。整页形态下
           关闭钮已去掉——离开这一页是「点侧边栏会话行 / 点别的菜单行 / Esc」，
           与官方自动化任务页同一套；标题行只承担标题与顶层 tab。 */}
@@ -4574,6 +4584,6 @@ export function SkillsPanel({ onClose }: { onClose: () => void }): JSX.Element {
           )}
         </Modal>
       )}
-    </PopoverShell>
+    </>
   )
 }
