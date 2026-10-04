@@ -24,6 +24,8 @@ import { useHeightAnimation, useMotionAllowed } from '../motion-utils.ts'
 import { probeWorkspaceFile, probeWorkspaceFiles, tryOpenInSidebar } from '../open-preview.ts'
 import type { ProbeResult } from '../open-preview.ts'
 import { workspaceCwdOf } from '../client-ctx.ts'
+import { sessionRawUrl } from '../triad/gallery/api.ts'
+import { INLINE_PREVIEW_KINDS, MediaLightbox, type LightboxItem } from '../triad/gallery/media-lightbox.tsx'
 import type { OutputKind, OutputItem, OutputsView } from './outputs.ts'
 
 /**
@@ -357,6 +359,13 @@ export const KrOutputsCard = memo(function KrOutputsCard({
     // probeTargets 每帧都是新数组，用拼好的 key 做依赖。
   }, [probeKey, sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  /**
+   * 画廊式 Lightbox 的打开态（2026-10-04：产出物行点主体 = 画廊同款预览）。
+   * index 指向 visible 清单；md / 代码等不可内联预览的类别不进这里（主体点击
+   * 直接走 openSidebar 原路）。
+   */
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
+
   const openPath = useCallback(async (path: string) => {
     /*
      * 打开前再确认一次（缓存命中就不重复请求）。
@@ -383,6 +392,34 @@ export const KrOutputsCard = memo(function KrOutputsCard({
     setCheckedPaths((prev) => (prev.has(path) ? prev : new Set(prev).add(path)))
     tryOpenInSidebar(path, { sessionId, cwd: workspaceCwdOf(sessionId) })
   }, [sessionId])
+
+  /**
+   * 行主体点击：可内联预览的类别（图 / 视频 / 音频 / 网页 / PDF）开画廊同款
+   * Lightbox；md / 代码 / Office 等**除外** —— 浏览器渲染不了或右栏文本预览
+   * 更合适，这些维持原来的侧栏打开方式（用户 2026-10-04 点名 md 除外）。
+   */
+  const openInline = useCallback((item: OutputItem, index: number) => {
+    if (!INLINE_PREVIEW_KINDS.has(item.kind)) { void openPath(item.path); return }
+    setLightboxIndex(index)
+  }, [openPath])
+
+  /** Lightbox 内的「预览文档」出口：交回官方右栏。 */
+  const openSidebarFromLightbox = useCallback((item: LightboxItem) => {
+    setLightboxIndex(null)
+    void openPath(item.path)
+  }, [openPath])
+
+  const lightboxItems = useMemo<readonly LightboxItem[]>(
+    () => visible.map((item) => ({
+      path: item.path,
+      name: item.name,
+      kind: item.kind,
+      source: 'file' as const,
+      time: 0,
+      sessionId: sessionId ?? '',
+    })),
+    [visible, sessionId],
+  )
 
   /*
    * 计数读**过滤后**的清单（items / code），不是 outputs 原始值 —— 剔除的失效
@@ -448,7 +485,8 @@ export const KrOutputsCard = memo(function KrOutputsCard({
                       item={item}
                       index={index}
                       pending={isPending(item.path)}
-                      onOpen={openPath}
+                      onOpen={() => { openInline(item, index) }}
+                      onSidebar={() => { void openPath(item.path) }}
                     />
                   ))}
                 </div>
@@ -488,7 +526,8 @@ export const KrOutputsCard = memo(function KrOutputsCard({
                           item={{ path, name: path.split(/[/\\]/).filter(Boolean).at(-1) ?? path, kind: 'code' }}
                           index={index}
                           pending={isPending(path)}
-                          onOpen={openPath}
+                          onOpen={() => { void openPath(path) }}
+                          onSidebar={() => { void openPath(path) }}
                           nested
                         />
                       ))}
@@ -513,6 +552,18 @@ export const KrOutputsCard = memo(function KrOutputsCard({
           )}
         </div>
       )}
+
+      {/* 画廊同款 Lightbox（共享组件，含全屏）：行主体点开的预览层。 */}
+      {lightboxIndex !== null && lightboxIndex >= 0 && lightboxIndex < lightboxItems.length && (
+        <MediaLightbox
+          items={lightboxItems}
+          index={lightboxIndex}
+          fileUrlOf={(item) => sessionRawUrl(item.path, sessionId ?? '')}
+          onNavigate={setLightboxIndex}
+          onClose={() => { setLightboxIndex(null) }}
+          onOpenSidebar={openSidebarFromLightbox}
+        />
+      )}
     </div>
   )
 })
@@ -531,37 +582,56 @@ export const KrOutputsCard = memo(function KrOutputsCard({
  * 低对比度（`data-pending`）而不是置灰 —— 绝大多数文件是活的，一瞬间的待定态
  * 不该看起来像出了事。结论是「不存在」的行根本不会走到这里（已被剔除）。
  */
-function OutputRow({ item, index, pending = false, onOpen, nested = false }: {
+function OutputRow({ item, index, pending = false, onOpen, onSidebar, nested = false }: {
   readonly item: OutputItem
   readonly index: number
   readonly pending?: boolean
-  readonly onOpen: (path: string) => void
+  /** 行主体点击：可内联预览类别开画廊式 Lightbox，其余由调用方回退侧栏。 */
+  readonly onOpen: () => void
+  /** 行尾「侧栏预览」钮：维持原来的官方右栏打开方式（用户 2026-10-04 点名保留）。 */
+  readonly onSidebar: () => void
   readonly nested?: boolean
 }): ReactElement {
   return (
-    <button
-      type="button"
+    <div
       className="kr-out-row"
       data-kind={item.kind}
       data-pending={pending ? 'true' : undefined}
       data-nested={nested ? 'true' : undefined}
       title={item.path}
-      aria-label={`预览 ${item.name}`}
       // 错峰入场：只对靠后的若干条错开，卡片整体不拖出一段长尾。
       style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
-      onClick={() => { onOpen(item.path) }}
     >
-      <span className="kr-out-row__thumb" data-kind={item.kind} aria-hidden>
-        <Thumb kind={item.kind} />
-      </span>
-      <span className="kr-out-row__name">{item.name}</span>
-      <span className="kr-out-row__open" aria-hidden>
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <button
+        type="button"
+        className="kr-out-row__main"
+        aria-label={`预览 ${item.name}`}
+        onClick={onOpen}
+      >
+        <span className="kr-out-row__thumb" data-kind={item.kind} aria-hidden>
+          <Thumb kind={item.kind} />
+        </span>
+        <span className="kr-out-row__name">{item.name}</span>
+      </button>
+      {/*
+       * 行尾真按钮（2026-10-04）：「在侧栏打开」—— 维持原来的官方右栏预览链路。
+       * 行主体的画廊式 Lightbox 是新增的默认预览，这枚钮是用户点名的「按原来的
+       * 方式打开」的显式出口。hover / focus 才浮现（与旧箭头同一套节奏），
+       * stopPropagation 防止连带触发行主体。
+       */}
+      <button
+        type="button"
+        className="kr-out-row__open"
+        aria-label={`在侧栏打开 ${item.name}`}
+        title="在侧栏打开"
+        onClick={(event) => { event.stopPropagation(); onSidebar() }}
+      >
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M6.4 3.2H3.6A1.4 1.4 0 0 0 2.2 4.6v7.8a1.4 1.4 0 0 0 1.4 1.4h7.8a1.4 1.4 0 0 0 1.4-1.4V9.6" />
           <path d="M9.6 2.2h4.2v4.2" />
           <path d="M13.8 2.2 7.6 8.4" />
         </svg>
-      </span>
-    </button>
+      </button>
+    </div>
   )
 }

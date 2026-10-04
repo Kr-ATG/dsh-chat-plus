@@ -22,7 +22,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { createPortal } from 'react-dom'
 import {
   fetchGalleryMedia,
   formatRelativeTime,
@@ -35,14 +34,12 @@ import {
   type GallerySession,
 } from './api.js'
 import { ensureGalleryStyles } from './styles.js'
+import { generatedUrlCache, INLINE_PREVIEW_KINDS, MediaLightbox } from './media-lightbox.js'
 import { tryOpenInSidebar } from '../../open-preview.js'
 import { getClientCtx } from '../../client-ctx.js'
 
 /** 类别 chips 的展示顺序（全部之后，按产出频率排）。 */
 const KIND_ORDER: readonly GalleryKind[] = ['image', 'page', 'video', 'pdf', 'slide', 'sheet', 'doc', 'audio']
-
-/** Lightbox 里直接预览的类别。 */
-const INLINE_PREVIEW_KINDS = new Set<GalleryKind>(['image', 'video', 'audio', 'page', 'pdf'])
 
 /** 筛选状态：null = 全部。 */
 type KindFilter = GalleryKind | null
@@ -151,10 +148,9 @@ function PlayBadge(): JSX.Element {
 
 /**
  * 生图/生视频条目的缩略图：spill 文件 2~9MB，不能首屏全解析 ——
- * IntersectionObserver 进视口才请求，解析结果进模块级缓存（重开面板秒回）。
+ * IntersectionObserver 进视口才请求，解析结果进共享缓存
+ * （media-lightbox 的 generatedUrlCache，Lightbox 打开时秒回）。
  */
-const generatedUrlCache = new Map<string, readonly string[]>()
-
 function GeneratedThumb({ path, alt }: { readonly path: string; readonly alt: string }): JSX.Element {
   const [urls, setUrls] = useState<readonly string[]>(() => generatedUrlCache.get(path) ?? [])
   const [failed, setFailed] = useState(false)
@@ -278,193 +274,6 @@ const GalleryCard = ({ item, index, sessionTitle, now, onOpen }: CardProps): JSX
   </button>
 )
 
-/* ── Lightbox ────────────────────────────────────────────────────────── */
-
-interface LightboxProps {
-  readonly items: readonly GalleryItem[]
-  readonly index: number
-  readonly sessionOf: (item: GalleryItem) => GallerySession | undefined
-  readonly onNavigate: (index: number) => void
-  readonly onClose: () => void
-  readonly onOpenSession: (item: GalleryItem) => void
-}
-
-function Lightbox({ items, index, sessionOf, onNavigate, onClose, onOpenSession }: LightboxProps): JSX.Element | null {
-  const item = items[index]
-  const [closing, setClosing] = useState(false)
-  const [genUrls, setGenUrls] = useState<readonly string[] | null>(null)
-  const closeTimer = useRef<number | null>(null)
-
-  // generated 条目：打开时解析 spill（缓存命中则同步返回）。
-  useEffect(() => {
-    if (item === undefined || item.source !== 'generated') { setGenUrls(null); return }
-    const cached = generatedUrlCache.get(item.path)
-    if (cached !== undefined) { setGenUrls(cached); return }
-    let alive = true
-    void resolveGeneratedUrls(item.path).then((urls) => {
-      generatedUrlCache.set(item.path, urls)
-      if (alive) setGenUrls(urls)
-    })
-    return () => { alive = false }
-  }, [item])
-
-  const requestClose = useCallback(() => {
-    if (closing) return
-    setClosing(true)
-    closeTimer.current = window.setTimeout(onClose, 150)
-  }, [closing, onClose])
-
-  const step = useCallback((delta: number) => {
-    if (items.length <= 1) return
-    onNavigate((index + delta + items.length) % items.length)
-  }, [items.length, index, onNavigate])
-
-  // 键盘：Esc 关闭，左右翻页（只有可内联预览的条目间跳，其余直接顺移）。
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') { event.stopPropagation(); requestClose() }
-      else if (event.key === 'ArrowLeft') step(-1)
-      else if (event.key === 'ArrowRight') step(1)
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => { window.removeEventListener('keydown', onKey, true) }
-  }, [requestClose, step])
-
-  useEffect(() => () => { if (closeTimer.current !== null) window.clearTimeout(closeTimer.current) }, [])
-
-  if (item === undefined) return null
-  const session = sessionOf(item)
-  const download = (): void => {
-    const anchor = document.createElement('a')
-    anchor.href = galleryRawUrl(item.path)
-    anchor.download = item.name
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-  }
-  const openSidebar = (): void => {
-    if (tryOpenInSidebar(item.path, { sessionId: item.sessionId, cwd: session?.cwd ?? undefined })) requestClose()
-    else download()
-  }
-
-  /** 主体预览。 */
-  const body = (): JSX.Element => {
-    if (item.source === 'generated') {
-      if (genUrls === null) {
-        return (
-          <div className="tg-lb__loading">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
-              <path d="M12 3a9 9 0 1 0 9 9" />
-            </svg>
-            <span>正在解析生图结果…</span>
-          </div>
-        )
-      }
-      if (genUrls.length === 0) {
-        return <div className="tg-lb__loading"><span>生图结果已过期（spill 文件不在了）</span></div>
-      }
-      return (
-        <div className="tg-lb__genrow">
-          {genUrls.map((url) => (
-            <img key={url.slice(0, 64)} className="tg-lb__img" src={url} alt={item.name} draggable={false} />
-          ))}
-        </div>
-      )
-    }
-    const raw = galleryRawUrl(item.path)
-    switch (item.kind) {
-      case 'image':
-        return <img className="tg-lb__img" src={raw} alt={item.name} draggable={false} />
-      case 'video':
-        return <video className="tg-lb__video" src={raw} controls autoPlay preload="metadata" />
-      case 'audio':
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-            <span style={{ color: '#9ca3af' }}><KindIcon kind="audio" size={72} /></span>
-            <audio src={raw} controls autoPlay preload="metadata" />
-          </div>
-        )
-      case 'page':
-        // 沙箱 iframe：host 已注入 base 与 CSP sandbox；这里再不给
-        // allow-same-origin，成品页落在不透明源，读不到宿主任何状态。
-        return (
-          <iframe
-            className="tg-lb__frame"
-            src={raw}
-            title={item.name}
-            sandbox="allow-scripts allow-popups allow-forms allow-modals"
-          />
-        )
-      case 'pdf':
-        return <iframe className="tg-lb__frame" src={raw} title={item.name} />
-      default:
-        // slide / sheet / doc：不进 Lightbox 内联（浏览器渲染不了 Office 格式），
-        // 走到这里说明调用方没先分流 —— 给一个占位与两个出口。
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, color: '#c7ccd4' }}>
-            <KindIcon kind={item.kind} size={72} />
-            <span style={{ fontSize: 13 }}>该格式不支持页内预览</span>
-          </div>
-        )
-    }
-  }
-
-  return createPortal(
-    <div
-      className="tg-lb"
-      data-closing={closing ? 'true' : undefined}
-      role="dialog"
-      aria-modal="true"
-      aria-label={item.name}
-      onClick={requestClose}
-    >
-      <div className="tg-lb__stage" onClick={(event) => { event.stopPropagation() }}>
-        <button type="button" className="tg-lb__close" aria-label="关闭" onClick={requestClose}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-        </button>
-        {items.length > 1 && (
-          <>
-            <button type="button" className="tg-lb__nav tg-lb__nav--prev" aria-label="上一个" onClick={() => { step(-1) }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>
-            </button>
-            <button type="button" className="tg-lb__nav tg-lb__nav--next" aria-label="下一个" onClick={() => { step(1) }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
-            </button>
-          </>
-        )}
-        {body()}
-        <div className="tg-lb__meta">
-          <span className="tg-lb__name" title={item.path}>{item.name}</span>
-          <span className="tg-lb__dim">{KIND_LABEL[item.kind]} · {formatRelativeTime(item.time)}{item.source === 'file' && item.size > 0 ? ' · ' + formatSize(item.size) : ''}</span>
-          <span className="tg-lb__actions">
-            {session !== undefined && (
-              <button type="button" className="tg-lb__btn" onClick={() => { onOpenSession(item) }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-                打开会话
-              </button>
-            )}
-            <button type="button" className="tg-lb__btn" onClick={openSidebar}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
-              预览文档
-            </button>
-            {item.source === 'file' && (
-              <button type="button" className="tg-lb__btn" onClick={download}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5" /><path d="M4 19h16" /></svg>
-                下载
-              </button>
-            )}
-          </span>
-        </div>
-        <div className="tg-lb__hint">
-          {items.length > 1 ? '← / → 翻页 · ' : ''}Esc 或点击空白处关闭{index + 1} / {items.length}
-        </div>
-      </div>
-    </div>,
-    document.body,
-  )
-}
 
 /* ── 面板主体 ────────────────────────────────────────────────────────── */
 
@@ -581,7 +390,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
   }, [visible, sessionById, onClose])
 
   /** 跳到条目所属会话：官方 uiWorkspace.openSession + 关掉工作台页。 */
-  const openSessionOf = useCallback((item: GalleryItem) => {
+  const openSessionOf = useCallback((item: { readonly sessionId: string }) => {
     try {
       const ctx = getClientCtx()
       const workspace = ctx?.get?.('uiWorkspace') as { openSession?: (id: string) => void } | undefined
@@ -751,15 +560,19 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
         </div>
       )}
 
-      {/* Lightbox */}
+      {/* Lightbox（共享组件：画廊与产出物卡同一套预览与全屏） */}
       {lightboxIndex !== null && lightboxIndex >= 0 && (
-        <Lightbox
+        <MediaLightbox
           items={visible}
           index={lightboxIndex}
-          sessionOf={(item) => sessionById.get(item.sessionId)}
+          fileUrlOf={(item) => galleryRawUrl(item.path)}
           onNavigate={setLightboxIndex}
           onClose={() => { setLightboxIndex(null) }}
           onOpenSession={(item) => { openSessionOf(item); setLightboxIndex(null) }}
+          onOpenSidebar={(item) => {
+            const session = sessionById.get(item.sessionId)
+            if (tryOpenInSidebar(item.path, { sessionId: item.sessionId, cwd: session?.cwd ?? undefined })) setLightboxIndex(null)
+          }}
         />
       )}
     </div>

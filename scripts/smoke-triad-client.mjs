@@ -748,6 +748,7 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
 
   const hubSrc = strip(srcOf('src/client/triad/hub/WorkbenchPanel.tsx'))
   const panelSrc = strip(srcOf('src/client/triad/gallery/GalleryPanel.tsx'))
+  const lbSrc = strip(srcOf('src/client/triad/gallery/media-lightbox.tsx'))
   const apiSrc = strip(srcOf('src/client/triad/gallery/api.ts'))
 
   if (!/'memory' \| 'skills' \| 'usage' \| 'gallery' \| 'mail'/.test(hubSrc)) {
@@ -760,10 +761,16 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     pass('工作台第五 Tab「画廊」接入在位（类型 + 渲染 + 按钮）')
   }
 
-  if (!/sandbox="allow-scripts allow-popups allow-forms allow-modals"/.test(panelSrc)) {
-    fail('画廊 Lightbox 的 html 预览 iframe 必须带 sandbox 且**不给 allow-same-origin**（成品页不得读宿主同源状态）')
-  } else if (/allow-same-origin/.test(panelSrc)) {
-    fail('画廊 iframe 的 sandbox 绝不能含 allow-same-origin')
+  if (!/sandbox="allow-scripts allow-popups allow-forms allow-modals"/.test(lbSrc)) {
+    fail('共享 MediaLightbox 的 html 预览 iframe 必须带 sandbox 且**不给 allow-same-origin**（成品页不得读宿主同源状态）')
+  } else if (/allow-same-origin/.test(lbSrc)) {
+    fail('Lightbox iframe 的 sandbox 绝不能含 allow-same-origin')
+  } else if (!/data-full=\{full/.test(lbSrc) || !/tg-lb__fullbtn/.test(lbSrc)) {
+    fail('共享 MediaLightbox 必须有全屏切换钮（data-full 态 + tg-lb__fullbtn，用户 2026-10-04 点名）')
+  } else if (!/event\.key === 'f' \|\| event\.key === 'F'/.test(lbSrc)) {
+    fail('全屏必须有 F 键快捷键，且 Esc 分层（全屏中先退全屏再关闭）')
+  } else if (!/MediaLightbox/.test(panelSrc)) {
+    fail('GalleryPanel 必须复用共享 MediaLightbox（不得自带第二份 Lightbox）')
   } else if (!/galleryRawUrl\(item\.path\)/.test(panelSrc)) {
     fail('画廊文件预览必须走 /api/triad/gallery/raw（host 索引白名单），不得直接 file:// 或 /api/file')
   } else if (!/tryOpenInSidebar\(item\.path/.test(panelSrc)) {

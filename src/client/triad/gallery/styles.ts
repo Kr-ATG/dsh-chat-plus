@@ -102,6 +102,25 @@ const SHEET = `
 @keyframes tg-stage-out{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.96) translateY(6px)}}
 .tg-lb__close{position:absolute;top:-14px;right:-14px;z-index:3;display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.16);background:rgba(24,26,33,.9);color:#e5e7eb;cursor:pointer;transition:transform 200ms cubic-bezier(.2,.8,.2,1),background 160ms ease;box-shadow:0 4px 14px rgba(0,0,0,.4)}
 .tg-lb__close:hover{background:rgba(50,54,66,.95);transform:rotate(90deg) scale(1.06)}
+/* 全屏切换钮：贴在关闭钮左下侧成一列；进入全屏后图标换成收拢形并常驻高亮。
+   hover 轻微上浮 + 底色提亮，与关闭钮同一套手感。 */
+.tg-lb__fullbtn{position:absolute;top:24px;right:-14px;z-index:3;display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.16);background:rgba(24,26,33,.9);color:#e5e7eb;cursor:pointer;transition:transform 160ms cubic-bezier(.2,.8,.2,1),background 160ms ease,color 160ms ease;box-shadow:0 4px 14px rgba(0,0,0,.4)}
+.tg-lb__fullbtn:hover{background:rgba(50,54,66,.95);transform:translateY(-2px)}
+.tg-lb__fullbtn:active{transform:translateY(0) scale(.94)}
+.tg-lb__fullbtn[data-full="true"]{color:#fff;background:var(--dsw-alias-state-business-primary,#3b82f6);border-color:transparent}
+/* ── 全屏态：预览体铺满视口，元信息沉底成渐变浮层 ─────────────────── */
+.tg-lb[data-full="true"] .tg-lb__stage{max-width:100vw;max-height:100vh;width:100vw;height:100vh;gap:0;animation:tg-full-in 260ms cubic-bezier(.2,.8,.2,1)}
+@keyframes tg-full-in{from{opacity:.4;transform:scale(.985)}to{opacity:1;transform:scale(1)}}
+.tg-lb[data-full="true"] .tg-lb__img{max-width:100vw;max-height:100vh;width:100vw;height:100vh;object-fit:contain;border-radius:0;box-shadow:none}
+.tg-lb[data-full="true"] .tg-lb__video{max-width:100vw;max-height:100vh;width:100vw;height:100vh;border-radius:0}
+.tg-lb[data-full="true"] .tg-lb__frame{width:100vw;height:100vh;border-radius:0;border:none}
+.tg-lb[data-full="true"] .tg-lb__genrow{width:100vw;height:100vh;max-height:100vh}
+.tg-lb[data-full="true"] .tg-lb__genrow .tg-lb__img{width:auto;height:auto;max-width:100vw;max-height:100vh;object-fit:contain}
+.tg-lb[data-full="true"] .tg-lb__meta{position:absolute;left:0;right:0;bottom:0;max-width:100vw;padding:34px 20px 14px;background:linear-gradient(to top,rgba(6,7,10,.86),rgba(6,7,10,0));animation:tg-fade-in 220ms ease}
+.tg-lb[data-full="true"] .tg-lb__nav--prev{left:14px}
+.tg-lb[data-full="true"] .tg-lb__nav--next{right:14px}
+.tg-lb[data-full="true"] .tg-lb__close{top:14px;right:14px}
+.tg-lb[data-full="true"] .tg-lb__fullbtn{top:52px;right:14px}
 .tg-lb__img{max-width:min(92vw,1480px);max-height:76vh;border-radius:12px;box-shadow:0 18px 60px rgba(0,0,0,.55);background:#0b0c10;animation:tg-img-in 300ms cubic-bezier(.2,.8,.2,1)}
 @keyframes tg-img-in{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
 .tg-lb__video{max-width:min(92vw,1280px);max-height:76vh;border-radius:12px;box-shadow:0 18px 60px rgba(0,0,0,.55);background:#000}
@@ -128,7 +147,8 @@ const SHEET = `
 
 @media (prefers-reduced-motion:reduce){
   .tg-card,.tg-skel,.tg-empty,.tg-stale,.tg-lb,.tg-lb__stage,.tg-lb__img,.tg-lb__meta,.tg-lb__hint,.tg-session-bar{animation:none!important}
-  .tg-card,.tg-card:hover,.tg-icon-btn,.tg-lb__close,.tg-lb__btn,.tg-lb__nav,.tg-kind,.tg-card__img,.tg-card__icon,.tg-card__kind-dot{transition:none!important}
+  .tg-card,.tg-card:hover,.tg-icon-btn,.tg-lb__close,.tg-lb__fullbtn,.tg-lb__btn,.tg-lb__nav,.tg-kind,.tg-card__img,.tg-card__icon,.tg-card__kind-dot{transition:none!important}
+  .tg-lb[data-full="true"] .tg-lb__stage{animation:none!important}
   .tg-skel__thumb::after,.tg-skel__line::after{animation:none!important}
   .tg-empty__icon,.tg-stale__dot,.tg-icon-btn[data-spinning="true"] svg,.tg-lb__loading svg{animation:none!important}
 }

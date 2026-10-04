@@ -74,6 +74,16 @@ export function galleryRawUrl(path: string): string {
 }
 
 /**
+ * 会话作用域的 raw 地址（产出物卡用）。
+ *
+ * 产出物卡打开 Lightbox 时用户可能从没开过画廊（全局索引没建），host 按
+ * session 参数现折该会话的产出清单做准入 —— 只认这个会话自己产出过的路径。
+ */
+export function sessionRawUrl(path: string, sessionId: string): string {
+  return `/api/triad/gallery/raw?path=${encodeURIComponent(path)}&session=${encodeURIComponent(sessionId)}`
+}
+
+/**
  * 解析一条 generated 条目：spill 文件 → 可显示 URL 列表（data: 或 http(s)）。
  * 复用既有的 /api/chat-flow/generated-images 路由（只认 spill root 内的 .txt）。
  * @returns URL 列表；解析失败返回空数组。

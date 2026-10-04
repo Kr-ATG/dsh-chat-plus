@@ -1887,7 +1887,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 0;
   width: 100%;
   min-width: 0;
   min-height: 36px;
@@ -1900,7 +1900,6 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   line-height: 16px;
   text-align: left;
   color: var(--dsw-alias-label-secondary);
-  cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: background-color .12s ease, opacity .18s ease;
   /* 错峰入场：与操作面板同一套节奏（新行从下方 6px 淡入），
@@ -1917,8 +1916,33 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.07));
 }
 
-/* 键盘焦点环：整行可点，焦点必须看得见（WCAG 2.4.7）。 */
-.kr-out-row:focus-visible {
+/*
+ * 行主体（2026-10-04 拆双交互）：缩略图 + 文件名一枚真 button，点开画廊式
+ * Lightbox；行尾另一枚真 button 维持原来的侧栏打开。行本身降级为布局容器
+ * （div）—— 一行两个不同动作，键盘 Tab 两站，语义比「整行一个按钮 + 视觉
+ * 箭头」更准。UA 按钮样式全抹（灰底/内边距/居中/系统字体在这里全是错的）。
+ */
+.kr-out-row__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 键盘焦点环：主体可点，焦点必须看得见（WCAG 2.4.7）。 */
+.kr-out-row__main:focus-visible {
   outline: 2px solid var(--kr-accent);
   outline-offset: -2px;
 }
@@ -1998,28 +2022,48 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 }
 
 /*
- * 行尾的「能点」提示（一枚 ↗）。
+ * 行尾「在侧栏打开」真按钮（2026-10-04 从 aria-hidden 视觉箭头升级而来）。
  *
- * 静止时**完全隐藏**（不是半透明）：这张卡每一行都能点，六行各挂一枚常亮的
- * 箭头就是一列噪声 —— 提示该在指针落到哪一行时只出现在那一行。
- * 键盘 Tab 到它时同样浮现（:focus-visible），否则键盘用户看不到"这里能进"。
+ * 静止时**完全隐藏**（不是半透明）：六行各挂一枚常亮图标就是一列噪声 ——
+ * 提示该在指针落到哪一行时只出现在那一行。键盘 Tab 到它、或焦点落在行内任一
+ * 控件（:focus-within）时浮现；浮现带 2px 位移回位 + 180ms 淡入（旧箭头同款
+ * 节奏）。hover 加一层浅底、按下图标缩 12% —— 它现在是真按钮，得有真反馈。
  */
 .kr-out-row__open {
   flex: none;
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
   color: var(--kr-accent);
+  cursor: pointer;
   opacity: 0;
   transform: translate(-2px, 2px);
-  transition: opacity .18s ease, transform .2s cubic-bezier(.2, .8, .2, 1);
+  transition: opacity .18s ease, transform .2s cubic-bezier(.2, .8, .2, 1), background-color .14s ease;
 }
 
 .kr-out-row:hover .kr-out-row__open,
-.kr-out-row:focus-visible .kr-out-row__open {
+.kr-out-row:focus-within .kr-out-row__open {
   opacity: 1;
   transform: none;
+}
+
+.kr-out-row__open:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.12));
+}
+
+.kr-out-row__open:focus-visible {
+  outline: 2px solid var(--kr-accent);
+  outline-offset: -2px;
+}
+
+.kr-out-row__open:active svg {
+  transform: scale(.88);
 }
 
 /*
@@ -2191,6 +2235,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   .kr-out-code__chevron,
   .kr-out-more svg { transition: none; }
   .kr-out-row__open { transform: none; }
+  .kr-out-row__open:active svg { transform: none; }
   .kr-out-more:hover svg { transform: none; }
 }
 

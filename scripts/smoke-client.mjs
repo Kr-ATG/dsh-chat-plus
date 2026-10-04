@@ -1120,13 +1120,16 @@ if (krEnabled) {
     fail('client bundle is missing the outputs card title (产出物)')
   } else if (!/kr-card__title[^)]*?\\u4EA7\\u51FA\\u7269/.test(code)) {
     fail('outputs card header must render the title 产出物')
-  } else if (!/<button[\s\S]{0,400}?className="kr-out-row"/.test(outputsCode)) {
-    fail('产出物每行必须是整行 button（键盘可达 + 触屏 :active），不是 div + onClick')
-  } else if (/className="kr-out-row__open"[\s\S]{0,200}?<button/.test(outputsCode)
-    || /<button[\s\S]{0,120}?kr-out-row__open/.test(outputsCode)) {
-    fail('产出物行尾不得再有「预览」按钮：整行即入口，箭头只是 aria-hidden 的纯视觉提示')
-  } else if (!/<span className="kr-out-row__open" aria-hidden>/.test(outputsCode)) {
-    fail('行尾那枚「能点」箭头必须是 aria-hidden（它不进无障碍树，读屏听的是整行 aria-label）')
+  } else if (!/<button[\s\S]{0,400}?className="kr-out-row__main"/.test(outputsCode)) {
+    fail('产出物行主体必须是真 button（键盘可达 + 触屏 :active），点开画廊式 Lightbox')
+  } else if (!/<button[\s\S]{0,300}?className="kr-out-row__open"/.test(outputsCode)) {
+    fail('产出物行尾必须有「在侧栏打开」真 button（保留原右栏预览链路，用户 2026-10-04 点名）')
+  } else if (!/aria-label=\{`在侧栏打开 \$\{item\.name\}`\}/.test(outputsCode)) {
+    fail('行尾钮必须带 aria-label（它是真动作，不再是 aria-hidden 视觉箭头）')
+  } else if (!/INLINE_PREVIEW_KINDS\.has\(item\.kind\)/.test(outputsCode)) {
+    fail('行主体点击必须分流：可内联预览类别开 Lightbox，md/代码等回退侧栏原路')
+  } else if (!/MediaLightbox/.test(outputsCode) || !/sessionRawUrl\(item\.path/.test(outputsCode)) {
+    fail('产出物卡必须复用画廊共享 MediaLightbox，且文件地址走 session 作用域 raw')
   } else if (/<img\b/.test(outputsCode)) {
     fail('缩略图必须是按类型画的 SVG，不得用 <img> 拉真实文件（28px 见方读不出画面，且每行一次请求）')
   } else if (!/function Thumb\(\{ kind \}/.test(outputsCode) || !/case 'model3d':/.test(outputsCode)) {

@@ -563,3 +563,84 @@ export async function warmGallerySnapshot(): Promise<void> {
   const cache = await loadCache()
   if (cachedResponse === null) cachedResponse = renderCache(cache)
 }
+
+/* ── 单会话按需提取（/raw 的会话作用域准入）──────────────────────────── */
+
+/**
+ * 单个会话的产出物清单（按需折，不碰全局缓存）。
+ *
+ * 给 /raw 的「会话作用域准入」用：产出物卡（右栏）的 Lightbox 也走 /raw，但用户
+ * 可能从没开过画廊（全局索引还没建）。此时按 sessionId 现折这一个会话（live 折
+ * 内存事件、persisted 读一份日志），只认**这个会话自己产出过**的路径 —— 与全局
+ * 索引同一套提取规则，安全口径不变。
+ *
+ * 缓存键：live = 事件条数；persisted = revision。变了才重折。
+ */
+const sessionItemsCache = new Map<string, { key: string; items: readonly GalleryRawItem[] }>()
+const SESSION_ITEMS_CACHE_LIMIT = 64
+
+function rememberSessionItems(sessionId: string, key: string, items: readonly GalleryRawItem[]): void {
+  if (sessionItemsCache.size >= SESSION_ITEMS_CACHE_LIMIT) {
+    const oldest = sessionItemsCache.keys().next()
+    if (oldest.done !== true) sessionItemsCache.delete(oldest.value)
+  }
+  sessionItemsCache.set(sessionId, { key, items })
+}
+
+export async function sessionItemsFor(
+  deps: CollectDeps,
+  sessionId: string,
+): Promise<readonly GalleryRawItem[]> {
+  if (sessionId === '') return []
+  const cached = sessionItemsCache.get(sessionId)
+
+  // live：内存事件，零 I/O。
+  if (deps.sessions !== undefined && typeof deps.sessions.list === 'function') {
+    for (const session of deps.sessions.list()) {
+      if (session?.id !== sessionId) continue
+      const events = (session.events !== undefined
+        ? session.events
+        : typeof session.snapshotEvents === 'function' ? session.snapshotEvents() : []) as PersistedEvent[]
+      const key = `live:${events.length}`
+      if (cached !== undefined && cached.key === key) return cached.items
+      const state = createState()
+      const cwd = session.header?.cwd
+      if (typeof cwd === 'string' && cwd !== '') state.cwd = cwd
+      foldEvents(state, events)
+      rememberSessionItems(sessionId, key, state.items)
+      return state.items
+    }
+  }
+
+  // persisted：只读这一份日志（revision 未变走缓存）。
+  if (deps.persistence !== undefined) {
+    let revision: unknown
+    let cwd: string | null = null
+    let found = false
+    try {
+      const listed = (await deps.persistence.list()) ?? []
+      for (const entry of listed) {
+        if (entry === null || typeof entry !== 'object') continue
+        const header = (entry.header !== undefined ? entry.header : entry) as Record<string, unknown>
+        if (header?.id !== sessionId) continue
+        found = true
+        revision = (entry as Record<string, unknown>).revision
+        cwd = typeof header.cwd === 'string' ? (header.cwd as string) : null
+        break
+      }
+    } catch {
+      return []
+    }
+    if (!found) return []
+    const key = `persisted:${String(revision ?? '')}`
+    if (cached !== undefined && cached.key === key) return cached.items
+    try {
+      const state = await foldPersistedSession(deps.persistence, sessionId, revision, undefined, cwd)
+      rememberSessionItems(sessionId, key, state.items)
+      return state.items
+    } catch {
+      return []
+    }
+  }
+  return []
+}

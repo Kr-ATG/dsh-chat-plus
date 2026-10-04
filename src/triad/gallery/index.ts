@@ -28,7 +28,7 @@ import { createReadStream } from 'node:fs'
 import { extname, join, resolve, sep } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
-import { collectGallery, warmGallerySnapshot, type GalleryItemView, type GalleryResponse } from './store.ts'
+import { collectGallery, sessionItemsFor, warmGallerySnapshot, type GalleryItemView, type GalleryResponse } from './store.ts'
 import { galleryDedupeKey } from './extract.ts'
 
 const ROUTE = '/api/triad/gallery'
@@ -172,15 +172,18 @@ function isIndexed(path: string): boolean {
 }
 
 /** 某个 html 成品的父目录集合（/raw-asset 的目录准入名单）。 */
-function indexedHtmlDirs(): Set<string> {
+function htmlDirsOf(items: Iterable<{ readonly kind: string; readonly path: string }>): Set<string> {
   const dirs = new Set<string>()
-  if (lastIndex === null) return dirs
-  for (const item of lastIndex.values()) {
+  for (const item of items) {
     if (item.kind !== 'page') continue
     const idx = Math.max(item.path.lastIndexOf('/'), item.path.lastIndexOf('\\'))
     if (idx > 0) dirs.add(galleryDedupeKey(item.path.slice(0, idx)))
   }
   return dirs
+}
+
+function indexedHtmlDirs(): Set<string> {
+  return lastIndex === null ? new Set<string>() : htmlDirsOf(lastIndex.values())
 }
 
 function sendFile(req: IncomingMessage, res: ServerResponse, target: string, contentType: string, csp?: string): void {
@@ -208,16 +211,40 @@ function sendFile(req: IncomingMessage, res: ServerResponse, target: string, con
   stream.pipe(res)
 }
 
-/** html 成品：注入 <base> 让相对资源落到 /raw-asset/<token>/，再套 CSP sandbox。 */
-function htmlDirsToken(dir: string): string {
-  return Buffer.from(dir, 'utf8').toString('base64url')
+/**
+ * html 成品：注入 <base> 让相对资源落到 /raw-asset/<token>/，再套 CSP sandbox。
+ *
+ * token = base64url(JSON [目录, 会话 id])：会话作用域写在 token 里而不是 query
+ * 里 —— base href 后面一旦带 query，浏览器拼相对资源时会把 rel 塞进查询串
+ * （?session=x&style.css），raw-asset 从 path 段取 rel 就全 404。
+ */
+function htmlDirsToken(dir: string, session: string): string {
+  return Buffer.from(JSON.stringify([dir, session]), 'utf8').toString('base64url')
 }
 
-function tokenDir(token: string): string | null {
+function tokenMeta(token: string): { dir: string; session: string } | null {
   try {
-    const dir = Buffer.from(token, 'base64url').toString('utf8')
-    return dir !== '' ? dir : null
+    const parsed = JSON.parse(Buffer.from(token, 'base64url').toString('utf8')) as unknown
+    if (!Array.isArray(parsed)) return null
+    const [dir, session] = parsed as unknown[]
+    if (typeof dir !== 'string' || dir === '') return null
+    return { dir, session: typeof session === 'string' ? session : '' }
   } catch { return null }
+}
+
+/**
+ * 会话作用域准入：路径是否被**指定会话**产出过。
+ *
+ * 产出物卡（右栏）的 Lightbox 也走 /raw，但用户可能从没开过画廊（全局索引
+ * 还没建）。带 session 参数时按该会话现折一份清单（store.sessionItemsFor，
+ * 带缓存）比对 —— 与全局索引同一套提取规则，安全口径不变：仍然只认「被某个
+ * 对话产出过」的路径，自由路径一律 403。
+ */
+async function isSessionOutput(ctx: Context, target: string, sessionId: string): Promise<boolean> {
+  if (sessionId === '') return false
+  const items = await sessionItemsFor(readDeps(ctx), sessionId)
+  const key = galleryDedupeKey(target)
+  return items.some((item) => galleryDedupeKey(item.path) === key)
 }
 
 async function handleRaw(ctx: Context, req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -227,8 +254,11 @@ async function handleRaw(ctx: Context, req: IncomingMessage, res: ServerResponse
     const raw = url.searchParams.get('path') ?? ''
     if (raw === '') { json(res, 400, { ok: false, error: 'missing path' }); return }
     const target = resolve(raw)
-    // 准入：只服务画廊索引里登记过的路径（索引来自会话事件提取，非用户可控）。
-    if (!isIndexed(target)) { json(res, 403, { ok: false, error: 'forbidden' }); return }
+    // 准入：全局画廊索引，或 session 参数指定的会话自己的产出。
+    if (!isIndexed(target) && !await isSessionOutput(ctx, target, url.searchParams.get('session') ?? '')) {
+      json(res, 403, { ok: false, error: 'forbidden' })
+      return
+    }
     const ext = extname(target).toLowerCase()
     if (ext === '.html' || ext === '.htm' || ext === '.xhtml') {
       // html 成品：读出来注入 <base>（相对资源走 raw-asset），CSP sandbox 隔离。
@@ -237,7 +267,7 @@ async function handleRaw(ctx: Context, req: IncomingMessage, res: ServerResponse
       const { readFile } = await import('node:fs/promises')
       let html = await readFile(target, 'utf8')
       const dir = target.slice(0, Math.max(target.lastIndexOf('/'), target.lastIndexOf('\\')))
-      const base = `${ROUTE}/raw-asset/${htmlDirsToken(dir)}/`
+      const base = `${ROUTE}/raw-asset/${htmlDirsToken(dir, url.searchParams.get('session') ?? '')}/`
       const baseTag = '<base href="' + base + '">'
       const headIdx = html.search(/<head[^>]*>/i)
       if (headIdx >= 0) {
@@ -264,7 +294,7 @@ async function handleRaw(ctx: Context, req: IncomingMessage, res: ServerResponse
   }
 }
 
-async function handleRawAsset(req: IncomingMessage, res: ServerResponse, tail: string): Promise<void> {
+async function handleRawAsset(ctx: Context, req: IncomingMessage, res: ServerResponse, tail: string): Promise<void> {
   if (rejectForeign(req, res)) return
   try {
     // tail = /raw-asset/<token>/<rel...>
@@ -273,10 +303,16 @@ async function handleRawAsset(req: IncomingMessage, res: ServerResponse, tail: s
     if (slash <= 0) { json(res, 400, { ok: false, error: 'bad token' }); return }
     const token = body.slice(0, slash)
     const rel = decodeURIComponent(body.slice(slash + 1))
-    const dir = tokenDir(token)
-    if (dir === null) { json(res, 403, { ok: false, error: 'forbidden' }); return }
-    // 目录准入：必须是某个 html 成品的父目录。
-    if (!indexedHtmlDirs().has(galleryDedupeKey(dir))) { json(res, 403, { ok: false, error: 'forbidden' }); return }
+    const meta = tokenMeta(token)
+    if (meta === null) { json(res, 403, { ok: false, error: 'forbidden' }); return }
+    const { dir, session } = meta
+    // 目录准入：必须是某个 html 成品的父目录（全局索引或 token 里的会话作用域）。
+    let allowed = indexedHtmlDirs().has(galleryDedupeKey(dir))
+    if (!allowed && session !== '') {
+      const items = await sessionItemsFor(readDeps(ctx), session)
+      allowed = htmlDirsOf(items).has(galleryDedupeKey(dir))
+    }
+    if (!allowed) { json(res, 403, { ok: false, error: 'forbidden' }); return }
     // rel 逐段校验：拒绝 ..、绝对段、控制字符与盘符。
     const segments = rel.split('/')
     for (const segment of segments) {
@@ -328,7 +364,7 @@ export function applyGallery(ctx: Context): void {
       const tail = url.pathname.slice(ROUTE.length)
       if (tail === '/media' || tail === '/media/') { void handleMediaAndIndex(ctx, req, res); return }
       if (tail === '/raw' || tail === '/raw/') { void handleRaw(ctx, req, res); return }
-      if (tail.startsWith('/raw-asset/')) { void handleRawAsset(req, res, tail); return }
+      if (tail.startsWith('/raw-asset/')) { void handleRawAsset(ctx, req, res, tail); return }
       json(res, 404, { ok: false, error: 'unknown gallery endpoint' })
     },
   }), 'dsh-chat-plus: gallery routes')
@@ -363,4 +399,4 @@ async function handleMediaAndIndex(ctx: Context, req: IncomingMessage, res: Serv
 }
 
 /** 导出给冒烟：raw 准入索引的可测面。 */
-export const __test = { rememberIndex, isIndexed, htmlDirsToken, tokenDir }
+export const __test = { rememberIndex, isIndexed, htmlDirsToken, tokenMeta }
