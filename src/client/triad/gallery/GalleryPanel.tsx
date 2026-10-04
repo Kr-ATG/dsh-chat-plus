@@ -309,7 +309,7 @@ const GalleryCard = ({ item, index, sessionTitle, now, onOpen, compact = false }
   <button
     type="button"
     className={compact ? 'tg-card tg-card--tile' : 'tg-card'}
-    style={{ '--tg-i': Math.min(index, 30) } as CSSProperties}
+    style={{ '--tg-i': Math.min(index, compact ? 12 : 30) } as CSSProperties}
     onClick={() => { onOpen(item) }}
     title={item.path}
   >
