@@ -394,9 +394,9 @@ export const KrOutputsCard = memo(function KrOutputsCard({
   }, [sessionId])
 
   /**
-   * 行主体点击：可内联预览的类别（图 / 视频 / 音频 / 网页 / PDF）开画廊同款
-   * Lightbox；md / 代码 / Office 等**除外** —— 浏览器渲染不了或右栏文本预览
-   * 更合适，这些维持原来的侧栏打开方式（用户 2026-10-04 点名 md 除外）。
+   * 行主体点击（2026-10-04）：可内联预览类别开画廊式 Lightbox；md / 代码 /
+   * Office 等**除外** —— 回退原侧栏路。对话滚动守卫已改为 KR 视图常驻
+   * （scroll-guard.ts，在 KrAgentPanel 挂载），这里不再 per-click 装钩。
    */
   const openInline = useCallback((item: OutputItem, index: number) => {
     if (!INLINE_PREVIEW_KINDS.has(item.kind)) { void openPath(item.path); return }

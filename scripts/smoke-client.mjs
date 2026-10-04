@@ -1146,6 +1146,26 @@ if (krEnabled) {
     pass('产出物卡：整行可点 + SVG 类型缩略图 + 代码折行 + 常驻空态，挂在操作面板之下')
   }
 
+  // 对话滚动守卫（2026-10-04 修「点一下就跑到下面」）：常驻状态机在
+  // KrAgentPanel 挂载，只对抗「无用户意图 + 短窗口落底」这一种官方跟随指纹。
+  {
+    const guardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/scroll-guard.ts'), 'utf8')
+    const guardCode = guardSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+    if (!/data-conversation-scroll/.test(guardCode)) {
+      fail('滚动守卫必须挂在官方滚动容器 [data-conversation-scroll] 上')
+    } else if (!/restores >= MAX_RESTORES/.test(guardCode) || !/MAX_RESTORES = 12/.test(guardCode)) {
+      fail('滚动守卫必须限次回滚（持续对抗说明跟随是用户此刻的真实意图，必须让位）')
+    } else if (!/SCROLL_KEYS/.test(guardCode) || !/wheel/.test(guardCode) || !/pointerdown/.test(guardCode)) {
+      fail('滚动守卫必须识别用户意图（wheel / 滚动键 / 滚动区 pointerdown），意图窗口内只重定基线')
+    } else if (!/JUMP_WINDOW_MS = 900/.test(guardCode)) {
+      fail('守卫的跳变判定窗口必须是 900ms（官方跟随拽人的指纹是短窗口落底）')
+    } else if (!/installConversationScrollGuard/.test(readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8'))) {
+      fail('KrAgentPanel 必须挂载滚动守卫（KR 视图常驻）')
+    } else {
+      pass('对话滚动守卫：常驻状态机 + 意图窗口 + 限次回滚 + 官方容器钩子')
+    }
+  }
+
   // 收集层（纯函数）：只列成品、只认本地文件、按节点缓存。
   if (!/export function collectOutputs/.test(outputsSrc) || !/export function classifyOutput/.test(outputsSrc)) {
     fail('outputs.ts 必须导出 collectOutputs / classifyOutput（纯函数，可在 smoke 里直接断言）')

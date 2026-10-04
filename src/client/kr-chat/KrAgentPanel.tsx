@@ -21,6 +21,7 @@ import { KrPlainTimelineCard } from './KrPlainTimelineCard.tsx'
 import { KrOutputsCard } from './KrOutputsCard.tsx'
 import { collectOutputs, collectSessionToolNodes, outputsFingerprint, type OutputsView } from './outputs.ts'
 import { KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE } from './enabled.ts'
+import { installConversationScrollGuard } from './scroll-guard.ts'
 
 /**
  * 左侧对话流必须保留的最小宽度（px）。
@@ -93,6 +94,11 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   useEffect(() => {
     return subscribeLatestChatSnapshot(() => setSnapTick((t) => t + 1))
   }, [])
+
+  // 对话滚动守卫（2026-10-04 修「滚到上面读旧内容，点一下右栏就被拽回底部」）：
+  // 官方跟随控制器在内容提交/布局变化时会把不贴底的读者拉回 floor，插件层常驻
+  // 状态机只对抗「无用户意图 + 短窗口落底」这一种指纹，其余一律放行。
+  useEffect(() => installConversationScrollGuard(), [])
 
   // 动态计算当前会话真实的最新轮次（以会话快照与 DOM 节点为准，绝不被历史缓存干扰）
   const snapshot = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)
