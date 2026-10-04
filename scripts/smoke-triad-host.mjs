@@ -184,6 +184,8 @@ need(!paths.some(p => p.startsWith('/api/triad-automation')), 'automation routes
 need(paths.some(p => p.startsWith('/api/skill-health')), 'skill-health route registered (/api/skill-health)')
 need(paths.some(p => p.startsWith('/api/mcp-recommended')), 'mcp recommended route registered (/api/mcp-recommended)')
 need(paths.some(p => p.startsWith('/api/triad/mcp-status')), 'mcp status route registered (/api/triad/mcp-status)')
+// 多媒体画廊（跨会话产出物索引）：prefix /api/triad/gallery（media / raw / raw-asset）。
+need(paths.some(p => p.startsWith('/api/triad/gallery')), 'media gallery route registered (/api/triad/gallery/*)')
 // 本插件自己的两条 host 路由（截图 / download 进度）不能因融合丢掉。
 need(paths.some(p => p.startsWith('/api/chat-flow/screenshot')), 'chat-plus screenshot routes still registered')
 need(paths.some(p => p.startsWith('/api/chat-flow/download')), 'chat-plus download progress route still registered')

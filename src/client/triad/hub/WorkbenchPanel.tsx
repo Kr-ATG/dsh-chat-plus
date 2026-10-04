@@ -1,11 +1,12 @@
 /**
- * WorkbenchPanel — 4 合 1 统一工作台主容器。
+ * WorkbenchPanel — 5 合 1 统一工作台主容器。
  *
  * 聚合模块：
- *  1. 记忆 (Memory) — 全新重设计的 DSH 暗色系大盘与卡片流
- *  2. 能力 (Skills) — 技能与 MCP 工具包管理
- *  3. 用量 (Usage)  — Token 消耗总览、24小时/月度平滑曲线与 52 周全局热力大盘
- *  4. 邮件 (Mail)   — Agent Mail 代理三栏工作台
+ *  1. 记忆 (Memory)  — 全新重设计的 DSH 暗色系大盘与卡片流
+ *  2. 能力 (Skills)  — 技能与 MCP 工具包管理
+ *  3. 用量 (Usage)   — Token 消耗总览、24小时/月度平滑曲线与 52 周全局热力大盘
+ *  4. 画廊 (Gallery) — 多媒体画廊：所有对话生成的图片 / 网页 / 演示 / 文档一站查看
+ *  5. 邮件 (Mail)    — Agent Mail 代理三栏工作台
  */
 
 import { useMemo, useState } from 'react'
@@ -13,12 +14,13 @@ import { ensureWorkbenchStyles } from './styles.js'
 import { MemoryPanel } from '../memory/Panel.js'
 import { SkillsPanel } from '../usage/dashboard/SkillsPanel.js'
 import { UsagePanel } from '../usage/dashboard/UsagePanel.js'
+import { GalleryPanel, GalleryTabIcon } from '../gallery/GalleryPanel.js'
 import { MailPanel } from '../mail/Panel.js'
 import { createMemoryApi } from '../memory/api.js'
 import { createMailApi } from '../mail/api.js'
 import { PopoverShell } from '../popover-shell.js'
 
-export type WorkbenchTab = 'memory' | 'skills' | 'usage' | 'mail'
+export type WorkbenchTab = 'memory' | 'skills' | 'usage' | 'gallery' | 'mail'
 
 export interface WorkbenchPanelProps {
   onClose: () => void
@@ -43,7 +45,7 @@ export function WorkbenchPanel({ onClose, initialTab = 'memory' }: WorkbenchPane
   const [activeTab, setActiveTab] = useState<WorkbenchTab>(() => {
     try {
       const saved = localStorage.getItem('dsh-workbench-active-tab') as WorkbenchTab | null
-      if (saved && ['memory', 'skills', 'usage', 'mail'].includes(saved)) return saved
+      if (saved && ['memory', 'skills', 'usage', 'gallery', 'mail'].includes(saved)) return saved
     } catch { /* 忽略读取错误 */ }
     return initialTab
   })
@@ -115,6 +117,16 @@ export function WorkbenchPanel({ onClose, initialTab = 'memory' }: WorkbenchPane
               <button
                 type="button"
                 className="wb-tab-btn"
+                data-active={activeTab === 'gallery' ? 'true' : undefined}
+                onClick={() => { handleSelectTab('gallery') }}
+              >
+                <GalleryTabIcon size={13} />
+                <span>画廊</span>
+              </button>
+
+              <button
+                type="button"
+                className="wb-tab-btn"
                 data-active={activeTab === 'mail' ? 'true' : undefined}
                 onClick={() => { handleSelectTab('mail') }}
               >
@@ -154,6 +166,10 @@ export function WorkbenchPanel({ onClose, initialTab = 'memory' }: WorkbenchPane
 
           {activeTab === 'usage' && (
             <UsagePanel onClose={onClose} embedded />
+          )}
+
+          {activeTab === 'gallery' && (
+            <GalleryPanel onClose={onClose} />
           )}
 
           {activeTab === 'mail' && (

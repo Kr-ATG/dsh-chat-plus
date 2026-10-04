@@ -37,6 +37,7 @@ import { apply as applySkillToggles } from './skill-toggles.js'
 import { applySkillHealth } from './skill-health.js'
 import { applyMcpRecommended } from './mcp-recommended.js'
 import { applyMcpStatus } from './mcp-status.js'
+import { applyGallery } from './gallery/index.ts'
 import { installBundledSkills } from './bundled-skills.js'
 import type { MemoryConfig } from './memory/types.js'
 
@@ -154,6 +155,19 @@ export async function applyTriadHost(ctx: Context, config: TriadConfig = {}): Pr
   } catch (error) {
     ctx.logger?.warn?.(
       `[dsh-chat-plus] triad mcp status failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+    )
+  }
+
+  // ── 多媒体画廊（跨会话产出物索引，/api/triad/gallery/*）──────────────
+  // 折叠 live + 持久化会话的 tool/call↔tool/result 事件对，提取图片 / html /
+  // PPT / Word / PDF / 表格 / 音视频成品；增量折叠 + 磁盘缓存（与 usage-skill
+  // 同骨架）。失败只 warn，不影响其他工作台。
+  try {
+    applyGallery(ctx)
+    ctx.logger?.info?.('[dsh-chat-plus] triad media gallery mounted')
+  } catch (error) {
+    ctx.logger?.warn?.(
+      `[dsh-chat-plus] triad media gallery failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
     )
   }
 }

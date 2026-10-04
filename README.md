@@ -33,6 +33,9 @@
 - **三工作台（原 dsh-triad，已融合）**：自动沉淀的长期记忆 · 用量（52 周热力 +
   token 消耗查询）· 技能与 MCP Server 管理。`dsh-triad` 自此退役，其座位（locale
   namespace）、7 组 HTTP 路由前缀、数据与配置目录全部原样保留，用户零迁移。
+- **多媒体画廊（2026-10-04 新增）**：工作台第五个 Tab —— 所有对话生成的图片 /
+  网页 / 演示 / 文档 / 表格 / 音视频一页看全（跨会话增量折叠索引 + 类别筛选 +
+  搜索 + Lightbox 预览 + 沙箱 iframe 打开 html 成品 + 跳回来源会话），见「多媒体画廊」一节
   定时自动化于 2026-09-28 交给官方 schedule bundle，本插件不再提供。
   **2026-10-04 座位改版**：记忆 / 能力 / 邮箱三个工作台页从「自绘侧边栏导航行 +
   `createPortal` 到 `document.body` 的 fixed 浮层」改为**官方座位**——页面本体注册进
@@ -411,13 +414,13 @@ service 图上是一等公民。只调它的 API 会让两插件之间形成隐�
    keyframes，且 STYLE_ID 刻意加 `dsh-triad-` 前缀防样式表互相吞并），改名
    `triad-modal-animation.ts`；`error-boundary.tsx` 经 diff 确认等价，直接共用
 
-### 4 合 1 统一工作台（2026-10-04）
+### 5 合 1 统一工作台（2026-10-04）
 
-侧边栏四个入口（记忆 / 能力 / 用量 / 邮箱）合并为**一枚「工作台」菜单行**
+侧边栏多个入口（记忆 / 能力 / 用量 / 邮箱）合并为**一枚「工作台」菜单行**
 （`sidebar.panellist` id=`workbench` @ order 20），页面本体在官方 `main` 槽位渲染
 （`src/client/triad/hub/`：`seat.ts` 注册 + `WorkbenchPanel.tsx` 容器 + `styles.ts`）。
 
-容器内四 Tab（记忆 / 能力 / 用量 / 邮件），选中态存 `localStorage`
+容器内五 Tab（记忆 / 能力 / 用量 / **画廊** / 邮件），选中态存 `localStorage`
 （`dsh-workbench-active-tab`）跨会话保持。顶部统一栏刻意**不用裸 `header` 与
 `role="tablist"`**（`.wb-header` / `data-workbench-nav`），KR 对话的 Tab 注入器
 （`kr-chat-controller.tsx`）同步加防御：绝不把「对话 / 轨迹」按钮注进工作台内部 Tab 栏。
@@ -429,6 +432,59 @@ service 图上是一等公民。只调它的 API 会让两插件之间形成隐�
 **座位数 14 → 10**：三个工作台各两枚的 `main` + `sidebar.panellist` 对，换成统一工作台
 一对；记忆注入 / 内置两枚开关与 skill toolview 保留。smoke 契约同步改断言
 `main / workbench` + `sidebar.panellist / workbench` @ order 20。
+
+### 多媒体画廊（2026-10-04 新增）
+
+工作台第五个 Tab「画廊」：**所有对话生成的图片 / 网页 / 演示 / 文档 / 表格 /
+音视频，一页看全**。与右栏「产出物」卡的分工是「全部会话 vs 本次会话」——
+产出物卡回答"这次对话做出来了什么"，画廊回答"历史上所有对话做出来的东西现在都在哪"。
+
+**数据链路（host 半身，`src/triad/gallery/`）**：
+
+1. `extract.ts` —— 事件对（`tool/call` ↔ `tool/result`，按 callId 配对）→ 产出物条目。
+   提取规则**不写第二遍**：白名单（ARG_PATH_TOOLS / RESULT_PATH_TOOLS）、落盘说明闸门、
+   写入语义闸门、spill 排除、`_tmp/` 媒体豁免、present 交付优先，全部直接 import
+   client 侧 `kr-chat/outputs.ts` 的纯函数与常量（本轮给它们补了 `export`，零逻辑改动，
+   冒烟断言原样通过）。那边修一个误报，画廊同步生效。
+   画廊口径的两处收窄：只收可视类别（code / archive / model3d 不进画廊）；
+   doc 只收 Word 家族（doc/docx/odt/rtf，md/txt 是噪声）。
+   生图 / 生视频结果没有磁盘路径（b64 被 spill-policy 落成 30 天保留的 .txt），
+   记为 `source:'generated'` + locator，由客户端经既有 `/api/chat-flow/generated-images`
+   二次解析成可显示 URL。
+2. `store.ts` —— 跨会话**增量折叠**，与 vendor 化 usage-skill 同骨架：每会话一份
+   折叠态（consumed 水位 + revision + pending 调用 + items），持久化会话 revision
+   未变则零 I/O 跳过；变化按并发 8 折增量；live 会话折内存事件尾部；缓存原子写
+   `<DSH_HOME>/storages/triad-gallery-cache.json`。实测 252 个真实会话冷扫 6.4s，
+   之后每个请求都是毫秒级。请求永不排队等冷扫：先回缓存快照（`stale:true`，
+   面板顶部亮呼吸点提示"正在后台扫描"），后台折完客户端 2.5s 后自动重拉。
+3. `index.ts` —— prefix 路由 `/api/triad/gallery/*`，在 `applyTriadHost` 里独立
+   try/catch 挂载（失败不拖垮其他工作台）。三条子路由：
+   · `GET /media` —— 清单（下发前逐条 statSync 核对，**不存在的不列**，与产出物卡同口径）；
+   · `GET /raw?path=` —— 文件字节服务，**画廊索引即白名单**：只服务清单里登记过的路径，
+     没被任何对话产出过的文件一个字节都读不到（实测 AGENTS.md 403、路径穿越 403）；
+     html 成品读出后注入 `<base href=.../raw-asset/<token>/>`（相对资源可解析）并带
+     CSP `sandbox allow-scripts...`（成品页落不透明源，读不到宿主 cookie）；
+   · `GET /raw-asset/<token>/<rel>` —— html 同目录渲染资源，token = base64url(目录)，
+     目录必须是某个 html 成品的父目录，扩展名走渲染白名单（css/js/图/字体/wasm，
+     **刻意不含 txt/json/csv/map**），rel 逐段拒绝 `..`、绝对段与控制字符。
+   loopback fence 与 usage-skill 同款（peer socket 为主判据 + Host 头复核）。
+
+**面板（client 半身，`src/client/triad/gallery/`）**：工具条（类别 chips 带计数 +
+搜索文件名/路径/会话标题 + 刷新）→ 网格卡片（真实缩略图走 `/raw`；生图缩略图
+IntersectionObserver 进视口才解析 spill，结果进模块级缓存）→ Lightbox。
+按类别分流打开方式：图片/视频/音频 Lightbox 直接预览；网页走沙箱 iframe
+（`sandbox="allow-scripts allow-popups allow-forms allow-modals"`，**不给**
+allow-same-origin，与 host 的 CSP 双保险）；PDF 内嵌 iframe（浏览器自带查看器）；
+PPT/Word/Excel 走官方右栏文档预览（`tryOpenInSidebar`，与对话流点文件链接同链路），
+拿不到服务降级下载。Lightbox 支持 ←/→ 翻页、Esc/点空白关闭、下载、
+「打开会话」（官方 `uiWorkspace.openSession` + `layout.selectPanel(null)` 跳转并关工作台）。
+会话筛选条支持「打开该会话 →」。动效全套：卡片入场级联上浮（22ms 错峰）、hover 浮起 +
+缩略图缓推、类别徽标下滑浮现、骨架屏微光扫动、Lightbox 缩放入场、关闭钮 hover 旋转、
+刷新图标旋转，均尊重 prefers-reduced-motion。
+
+**重启要求**：host 路由在服务启动时注册 —— 升级插件后需重启 DSH 服务；client 侧
+对 404 给了明确人话提示（"画廊服务未挂载：请重启 DSH 服务后再试"），不再糊一句
+JSON 解析错误。
 
 ## 邮箱工作台（Agent Mail，2026-10-02 新增）
 
@@ -956,6 +1012,10 @@ src/
         │   ├── api.ts               — /api/dsh-mail/* 最小 fetch 客户端
         │   ├── sanitize.ts          — 邮件 HTML 净化 + 沙箱 iframe 文档包装
         │   └── styles.ts            — 面板皮肤与动效（stagger / rise / 呼吸 / 脉冲）
+        ├── gallery/                 — 多媒体画廊（工作台第五 Tab）
+        │   ├── GalleryPanel.tsx     — 面板：类别 chips + 搜索 + 网格 + Lightbox + 会话筛选
+        │   ├── api.ts               — /api/triad/gallery/* fetch 封装 + generated 二次解析
+        │   └── styles.ts            — 画廊皮肤与动效（tg- 命名空间，入场级联/微光/缩放）
         ├── sidebar-nav.tsx          — 侧边栏导航行（只服务「用量」；三个工作台已改官方菜单行）
         ├── popover-shell.tsx        — 面板外壳（page 铺满 main / compact 贴入口小卡片）
         ├── responsive.ts            — 响应式
@@ -963,6 +1023,10 @@ src/
 src/triad/                           — 原 dsh-triad 工作台 host 半身
 ├── host.ts                          — applyTriadHost（各模块各 try/catch）
 ├── memory/                          — 记忆引擎：store / tools / api / engine/（extract|compile|inject|retrieval|scoring|embedding|consolidate|ticker）
+├── gallery/                         — 多媒体画廊 host 半身
+│   ├── extract.ts                   — 事件对 → 产出物条目（复用 outputs.ts 纯函数）
+│   ├── store.ts                     — 跨会话增量折叠 + 磁盘缓存（usage-skill 同骨架）
+│   └── index.ts                     — /api/triad/gallery/*（media / raw / raw-asset，索引即白名单）
 ├── skill-toggles.ts                 — /api/skill-toggles/*
 ├── skill-health.ts                  — /api/skill-health
 ├── mcp-recommended.ts               — /api/mcp-recommended

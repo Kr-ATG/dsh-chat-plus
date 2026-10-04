@@ -235,7 +235,7 @@ const SLASH_PATH_RE = new RegExp(
  */
 
 /** 捕获到的路径是否真的像路径（至少含一个分隔符，排除正文里的纯文件名）。 */
-function hasSeparator(path: string): boolean {
+export function hasSeparator(path: string): boolean {
   return path.includes('/') || path.includes('\\')
 }
 
@@ -249,7 +249,7 @@ function hasSeparator(path: string): boolean {
  * 目录形态是 DSH 的固定契约（见 @deepseek-ai/dsh-spill-local 的
  * DEFAULT_ROOT_PREFIX 与 SESSION_DIR_RE），所以按前缀认是可靠的。
  */
-const SPILL_PATH_RE = /[/\\]dsh-spill-[^/\\]*[/\\]/i
+export const SPILL_PATH_RE = /[/\\]dsh-spill-[^/\\]*[/\\]/i
 
 /**
  * 「落盘动词」：结果文本里出现它，才说明**紧跟的路径是被写出来的**。
@@ -460,7 +460,7 @@ const TRANSIENT_DIR_RE = /(?:^|[/\\])_tmp[/\\]/i
  * 失效风险交给核对层兜底：文件真被清理器删掉后，probeWorkspaceFile 会把它
  * 从渲染清单里剔除。文档/表格/压缩包等仍按原约定排除（它们的中转形态确实没人认领）。
  */
-const TRANSIENT_MEDIA_EXEMPT: ReadonlySet<OutputKind> = new Set(['image', 'video', 'audio'])
+export const TRANSIENT_MEDIA_EXEMPT: ReadonlySet<OutputKind> = new Set(['image', 'video', 'audio'])
 
 /** 这条路径是否落在一次性中转目录里。 */
 export function isTransientOutputPath(path: string): boolean {
@@ -526,7 +526,7 @@ function dedupeKey(path: string): string {
  *    的路径多半是**输入**（`python script.py`、`ffmpeg -i in.mp4`），认了就会
  *    把源文件当产出。命令行真正的产出走结果路的「落盘说明」。
  */
-const ARG_PATH_TOOLS = new Set([
+export const ARG_PATH_TOOLS = new Set([
   'write', 'edit', 'apply_patch', 'str_replace_editor',
   'download', 'present',
 ])
@@ -541,7 +541,7 @@ const ARG_PATH_TOOLS = new Set([
  * read / grep / glob / web_* / browser_* 刻意不在内：它们的结果里出现的路径是
  * 「看到的东西」，不是「做出来的东西」。
  */
-const RESULT_PATH_TOOLS = new Set([
+export const RESULT_PATH_TOOLS = new Set([
   'write', 'edit', 'apply_patch', 'str_replace_editor',
   'download', 'present',
   'generate_image', 'generate_video',
@@ -556,13 +556,13 @@ const RESULT_PATH_TOOLS = new Set([
 ])
 
 /** 删除类：它确实动了文件，但产出物卡讲的是「做出来了什么」，删掉的不算。 */
-const DELETING_TOOLS = new Set(['delete_file', 'rm', 'unlink', 'remove'])
+export const DELETING_TOOLS = new Set(['delete_file', 'rm', 'unlink', 'remove'])
 
 /** 单条调用最多收多少条路径：防住 `dir D:\images` 这种把整个目录刷上屏。 */
-const MAX_PER_CALL = 8
+export const MAX_PER_CALL = 8
 
 /** 工具名归一：剥掉命名空间前缀与大小写差异。 */
-function normalizeToolName(name: string): string {
+export function normalizeToolName(name: string): string {
   const lower = name.trim().toLowerCase()
   const tail = lower.split(/[.:/]/).filter(Boolean).at(-1)
   return tail ?? lower
@@ -610,7 +610,7 @@ function argString(args: Record<string, unknown>, ...keys: string[]): string | u
  *    present 工具的唯一入参形态，不认对象就等于**交付物永远进不了这张卡**：
  *    卡里只剩下 download 的中转路径（`_tmp/…`），用户点开的是已经被搬走的旧位置。
  */
-function argPaths(args: Record<string, unknown>, ...keys: string[]): string[] {
+export function argPaths(args: Record<string, unknown>, ...keys: string[]): string[] {
   const out: string[] = []
   const take = (value: unknown): void => {
     if (typeof value === 'string') {
@@ -656,7 +656,7 @@ function recordOf(value: unknown): Record<string, unknown> | null {
  * @param command - 该调用的命令原文（命令行工具才有；用于第二道证据）。
  * @returns 成品路径（已归一化、已去重）。
  */
-function pathsFromResult(text: string, command = ''): string[] {
+export function pathsFromResult(text: string, command = ''): string[] {
   if (text === '') return []
   // URL 先抹成等长空白：正则里的分隔符前缀会把 https://cdn/a.png 从 //cdn 起
   // 匹配出一个看着像相对路径、点开必然 404 的片段。

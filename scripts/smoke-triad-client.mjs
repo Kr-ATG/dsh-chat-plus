@@ -739,6 +739,58 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   else pass('buildPlainTimeline is deterministic')
 }
 
+// ── 多媒体画廊（工作台第五 Tab）：源码形状契约 ─────────────────────────
+{
+  const { readFileSync: readSrc } = await import('node:fs')
+  const { resolve: resolveSrc } = await import('node:path')
+  const srcOf = (rel) => readSrc(resolveSrc(ROOT, rel), 'utf8')
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+
+  const hubSrc = strip(srcOf('src/client/triad/hub/WorkbenchPanel.tsx'))
+  const panelSrc = strip(srcOf('src/client/triad/gallery/GalleryPanel.tsx'))
+  const apiSrc = strip(srcOf('src/client/triad/gallery/api.ts'))
+
+  if (!/'memory' \| 'skills' \| 'usage' \| 'gallery' \| 'mail'/.test(hubSrc)) {
+    fail('WorkbenchTab 联合类型必须含 gallery（工作台第五 Tab）')
+  } else if (!/<GalleryPanel onClose=\{onClose\} \/>/.test(hubSrc)) {
+    fail('WorkbenchPanel 必须渲染 GalleryPanel（画廊 Tab 页本体）')
+  } else if (!/>\s*画廊\s*</.test(hubSrc) && !/画廊</.test(hubSrc)) {
+    fail('工作台 Tab 栏必须有「画廊」按钮')
+  } else {
+    pass('工作台第五 Tab「画廊」接入在位（类型 + 渲染 + 按钮）')
+  }
+
+  if (!/sandbox="allow-scripts allow-popups allow-forms allow-modals"/.test(panelSrc)) {
+    fail('画廊 Lightbox 的 html 预览 iframe 必须带 sandbox 且**不给 allow-same-origin**（成品页不得读宿主同源状态）')
+  } else if (/allow-same-origin/.test(panelSrc)) {
+    fail('画廊 iframe 的 sandbox 绝不能含 allow-same-origin')
+  } else if (!/galleryRawUrl\(item\.path\)/.test(panelSrc)) {
+    fail('画廊文件预览必须走 /api/triad/gallery/raw（host 索引白名单），不得直接 file:// 或 /api/file')
+  } else if (!/tryOpenInSidebar\(item\.path/.test(panelSrc)) {
+    fail('PPT/Word/Excel 必须走官方右栏文档预览（tryOpenInSidebar），拿不到服务才降级下载')
+  } else if (!/INLINE_PREVIEW_KINDS/.test(panelSrc)) {
+    fail('画廊必须按类别分流打开方式（内联预览白名单）')
+  } else if (!/IntersectionObserver/.test(panelSrc) || !/generatedUrlCache/.test(panelSrc)) {
+    fail('generated（生图）缩略图必须进视口才解析 spill（IntersectionObserver）且结果进缓存')
+  } else if (!/prefers-reduced-motion/.test(srcOf('src/client/triad/gallery/styles.ts'))) {
+    fail('画廊样式必须尊重 prefers-reduced-motion')
+  } else if (!/tg-card-in/.test(srcOf('src/client/triad/gallery/styles.ts'))) {
+    fail('画廊卡片必须有入场动效（tg-card-in 级联上浮）')
+  } else {
+    pass('画廊面板：沙箱 iframe + raw 白名单 + 右栏 Office 预览 + spill 懒解析 + 动效在位')
+  }
+
+  if (!/res\.status === 404/.test(apiSrc) || !/重启 DSH 服务/.test(apiSrc)) {
+    fail('gallery api 必须把 404（host 未挂载）翻成人话「请重启 DSH 服务」，不得把 JSON 解析错误糊给用户')
+  } else if (!/\/api\/triad\/gallery\/media/.test(apiSrc) || !/\/api\/triad\/gallery\/raw/.test(apiSrc)) {
+    fail('gallery api 必须打 /api/triad/gallery/media 与 /raw 两条路由')
+  } else if (!/\/api\/chat-flow\/generated-images/.test(apiSrc)) {
+    fail('generated 条目必须经既有 /api/chat-flow/generated-images 解析 spill（不重造第二条 spill 通道）')
+  } else {
+    pass('gallery api：404 人话化 + 路由前缀 + generated 二次解析在位')
+  }
+}
+
 console.log(`\n${process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED'} — ${CLIENT}`)
 // Explicit exit: stubbed modules may hold listeners/timers that keep node alive.
 process.exit(process.exitCode ?? 0)
