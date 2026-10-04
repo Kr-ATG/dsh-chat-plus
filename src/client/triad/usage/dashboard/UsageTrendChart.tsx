@@ -14,6 +14,19 @@ import type { UsageDay } from './aggregate.js'
 import { formatUnits } from './format.js'
 import type { DateRange, RangePreset } from './range.js'
 
+const AXIS_STYLE_ID = 'dsh-usage-trend-axis-styles'
+/** Y 轴刻度入场动效样式（幂等注入）。 */
+function ensureAxisStyles(): void {
+  if (typeof document === 'undefined' || document.getElementById(AXIS_STYLE_ID)) return
+  const tag = document.createElement('style')
+  tag.id = AXIS_STYLE_ID
+  tag.textContent = [
+    '@keyframes dsh-usage-ytick-in { from { opacity: 0; transform: translateX(-5px); } to { opacity: 1; transform: translateX(0); } }',
+    '.dsh-usage-ytick { animation: dsh-usage-ytick-in .5s cubic-bezier(.22,.61,.36,1) both; }',
+  ].join('\n')
+  document.head.appendChild(tag)
+}
+
 export interface UsageTrendChartProps {
   days: UsageDay[]
   range: DateRange
@@ -70,6 +83,7 @@ function buildSplinePaths(points: Array<{ x: number; y: number }>, bottomY: numb
 }
 
 export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate, onSelectDate }: UsageTrendChartProps): JSX.Element {
+  ensureAxisStyles()
   // 计算起止日期的天数跨度
   const daySpan = useMemo(() => {
     const start = new Date(range.start + 'T00:00:00').getTime()
@@ -236,13 +250,22 @@ export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate,
 
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
 
-  // 计算最大值，保证留出顶部呼吸空间
-  const maxTokens = useMemo(() => {
+  // Y 轴整刻度：步长取 1/2/2.5/5 ×10^n（约 4 档），轴顶为步长整数倍并留少量呼吸空间
+  const { yTicks, maxTokens } = useMemo(() => {
     let max = 0
     for (const d of series) {
       if (d.total > max) max = d.total
     }
-    return max > 0 ? Math.ceil(max * 1.18) : 1000
+    if (max <= 0) return { yTicks: [0, 250, 500, 750, 1000], maxTokens: 1000 }
+    const rawStep = max / 5
+    const mag = 10 ** Math.floor(Math.log10(rawStep))
+    const norm = rawStep / mag
+    const stepNorm = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10
+    const step = stepNorm * mag
+    const top = Math.ceil((max * 1.04) / step) * step
+    const ticks: number[] = []
+    for (let v = 0; v <= top + step / 2; v += step) ticks.push(v)
+    return { yTicks: ticks, maxTokens: top }
   }, [series])
 
   const chartHeight = 110
@@ -356,21 +379,38 @@ export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate,
             </filter>
           </defs>
 
-          {/* 背景水平网格线 */}
-          <line x1={axisLeft} y1={topPadding} x2={svgWidth - axisRight} y2={topPadding} stroke="var(--dsw-alias-border-l1, rgba(255,255,255,0.04))" strokeDasharray="3 4" />
-          <line x1={axisLeft} y1={topPadding + chartHeight / 2} x2={svgWidth - axisRight} y2={topPadding + chartHeight / 2} stroke="var(--dsw-alias-border-l1, rgba(255,255,255,0.04))" strokeDasharray="3 4" />
-
           {/* X / Y 坐标轴 */}
-          <line x1={axisLeft} y1={topPadding - 4} x2={axisLeft} y2={bottomY} stroke="var(--dsw-alias-border-l2, rgba(255,255,255,0.16))" strokeWidth="1" />
-          <line x1={axisLeft} y1={bottomY} x2={svgWidth - axisRight} y2={bottomY} stroke="var(--dsw-alias-border-l2, rgba(255,255,255,0.16))" strokeWidth="1" />
+          <line x1={axisLeft} y1={topPadding - 6} x2={axisLeft} y2={bottomY} stroke="var(--dsw-alias-border-l2, rgba(255,255,255,0.2))" strokeWidth="1" />
+          <line x1={axisLeft} y1={bottomY} x2={svgWidth - axisRight} y2={bottomY} stroke="var(--dsw-alias-border-l2, rgba(255,255,255,0.2))" strokeWidth="1" />
 
-          {/* Y 轴刻度线与刻度值 */}
-          {[0, 0.5, 1].map(t => {
-            const y = bottomY - t * chartHeight
-            const val = maxTokens * t
+          {/* Y 轴单位标记 */}
+          <text
+            x={axisLeft - 7}
+            y={topPadding - 10}
+            textAnchor="end"
+            fontSize="9"
+            fill="var(--dsw-alias-label-tertiary, #81858c)"
+            opacity="0.75"
+          >
+            Tokens
+          </text>
+
+          {/* Y 轴整刻度：水平网格线 + 刻度短线 + 刻度值（逐档错峰入场） */}
+          {yTicks.map((v, i) => {
+            const y = bottomY - (v / maxTokens) * chartHeight
             return (
-              <g key={t}>
-                <line x1={axisLeft - 4} y1={y} x2={axisLeft} y2={y} stroke="var(--dsw-alias-border-l2, rgba(255,255,255,0.16))" strokeWidth="1" />
+              <g key={v} className="dsh-usage-ytick" style={{ animationDelay: `${i * 45}ms` }}>
+                {v > 0 && (
+                  <line
+                    x1={axisLeft}
+                    y1={y}
+                    x2={svgWidth - axisRight}
+                    y2={y}
+                    stroke="var(--dsw-alias-border-l1, rgba(255,255,255,0.05))"
+                    strokeDasharray="3 4"
+                  />
+                )}
+                <line x1={axisLeft - 4} y1={y} x2={axisLeft} y2={y} stroke="var(--dsw-alias-border-l2, rgba(255,255,255,0.22))" strokeWidth="1" />
                 <text
                   x={axisLeft - 7}
                   y={y + 3}
@@ -379,7 +419,7 @@ export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate,
                   fill="var(--dsw-alias-label-tertiary, #81858c)"
                   fontVariantNumeric="tabular-nums"
                 >
-                  {t === 0 ? '0' : formatUnits(val)}
+                  {v === 0 ? '0' : formatUnits(v)}
                 </text>
               </g>
             )
