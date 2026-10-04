@@ -209,7 +209,7 @@ function PlayBadge(): JSX.Element {
  * IntersectionObserver 进视口才请求，解析结果进共享缓存
  * （media-lightbox 的 generatedUrlCache，Lightbox 打开时秒回）。
  */
-function GeneratedThumb({ path, alt }: { readonly path: string; readonly alt: string }): JSX.Element {
+function GeneratedThumb({ path, alt, thumbClass = 'tg-card__thumb' }: { readonly path: string; readonly alt: string; readonly thumbClass?: string }): JSX.Element {
   const [urls, setUrls] = useState<readonly string[]>(() => generatedUrlCache.get(path) ?? [])
   const [failed, setFailed] = useState(false)
   const holderRef = useRef<HTMLDivElement | null>(null)
@@ -239,7 +239,7 @@ function GeneratedThumb({ path, alt }: { readonly path: string; readonly alt: st
 
   if (failed) {
     return (
-      <div ref={holderRef} className="tg-card__thumb">
+      <div ref={holderRef} className={thumbClass}>
         <span className="tg-card__icon"><KindIcon kind="image" size={40} /></span>
       </div>
     )
@@ -248,13 +248,13 @@ function GeneratedThumb({ path, alt }: { readonly path: string; readonly alt: st
   if (first === undefined) {
     // 解析中：占位图标 + 微光（骨架屏同款动画由 thumb 底色承担）。
     return (
-      <div ref={holderRef} className="tg-card__thumb">
+      <div ref={holderRef} className={thumbClass}>
         <span className="tg-card__icon" style={{ opacity: 0.45 }}><KindIcon kind="image" size={40} /></span>
       </div>
     )
   }
   return (
-    <div ref={holderRef} className="tg-card__thumb">
+    <div ref={holderRef} className={thumbClass}>
       <img className="tg-card__img" src={first} alt={alt} loading="lazy" decoding="async" data-loaded="true" draggable={false} />
       {urls.length > 1 && <span className="tg-card__kind-dot">{urls.length} 张</span>}
     </div>
@@ -264,14 +264,14 @@ function GeneratedThumb({ path, alt }: { readonly path: string; readonly alt: st
 /* ── 卡片 ────────────────────────────────────────────────────────────── */
 
 /** 磁盘图片的加载态管理：解码完成前不闪白（opacity 0 → 1 过渡）。 */
-function FileThumb({ item, now }: { readonly item: GalleryItem; readonly now: number }): JSX.Element {
+function FileThumb({ item, now, thumbClass = 'tg-card__thumb' }: { readonly item: GalleryItem; readonly now: number; readonly thumbClass?: string }): JSX.Element {
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
   void now
 
   if (item.kind === 'image' && !failed) {
     return (
-      <div className="tg-card__thumb">
+      <div className={thumbClass}>
         <img
           className="tg-card__img"
           src={galleryRawUrl(item.path)}
@@ -288,7 +288,7 @@ function FileThumb({ item, now }: { readonly item: GalleryItem; readonly now: nu
     )
   }
   return (
-    <div className="tg-card__thumb">
+    <div className={thumbClass}>
       <span className="tg-card__icon"><KindIcon kind={item.kind} size={44} /></span>
       {(item.kind === 'video' || item.kind === 'audio') && <PlayBadge />}
     </div>
@@ -301,34 +301,43 @@ interface CardProps {
   readonly sessionTitle: string | null
   readonly now: number
   readonly onOpen: (item: GalleryItem) => void
+  /** 手机相册式方格：只留正方形缩略图，名字/类别沉到 hover 浮层。 */
+  readonly compact?: boolean
 }
 
-const GalleryCard = ({ item, index, sessionTitle, now, onOpen }: CardProps): JSX.Element => (
+const GalleryCard = ({ item, index, sessionTitle, now, onOpen, compact = false }: CardProps): JSX.Element => (
   <button
     type="button"
-    className="tg-card"
+    className={compact ? 'tg-card tg-card--tile' : 'tg-card'}
     style={{ '--tg-i': Math.min(index, 30) } as CSSProperties}
     onClick={() => { onOpen(item) }}
     title={item.path}
   >
     {item.source === 'generated'
-      ? <GeneratedThumb path={item.path} alt={item.name} />
-      : <FileThumb item={item} now={now} />}
+      ? <GeneratedThumb path={item.path} alt={item.name} thumbClass={compact ? 'tg-tile__thumb' : 'tg-card__thumb'} />
+      : <FileThumb item={item} now={now} thumbClass={compact ? 'tg-tile__thumb' : 'tg-card__thumb'} />}
     <span className="tg-card__kind-dot">{KIND_LABEL[item.kind]}</span>
-    <span className="tg-card__meta">
-      <span className="tg-card__name">{item.name}</span>
-      <span className="tg-card__sub">
-        <span>{sessionTitle ?? '会话'}</span>
-        <span>·</span>
-        <span>{formatRelativeTime(item.time, now)}</span>
-        {item.source === 'file' && item.size > 0 && (
-          <>
-            <span>·</span>
-            <span>{formatSize(item.size)}</span>
-          </>
-        )}
+    {compact ? (
+      <span className="tg-tile__hover">
+        <span className="tg-tile__name">{item.name}</span>
+        <span className="tg-tile__sub">{KIND_LABEL[item.kind]} · {formatRelativeTime(item.time, now)}</span>
       </span>
-    </span>
+    ) : (
+      <span className="tg-card__meta">
+        <span className="tg-card__name">{item.name}</span>
+        <span className="tg-card__sub">
+          <span>{sessionTitle ?? '会话'}</span>
+          <span>·</span>
+          <span>{formatRelativeTime(item.time, now)}</span>
+          {item.source === 'file' && item.size > 0 && (
+            <>
+              <span>·</span>
+              <span>{formatSize(item.size)}</span>
+            </>
+          )}
+        </span>
+      </span>
+    )}
   </button>
 )
 
@@ -796,10 +805,10 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
                 <span className="tg-day__dot" aria-hidden="true" />
                 <span className="tg-day__label">{group.label}</span>
                 <span className="tg-day__weekday">{group.weekday}</span>
-                <span className="tg-day__count">{group.items.length} 项</span>
+                <span className="tg-day__count">{group.items.length}</span>
                 <span className="tg-day__rule" aria-hidden="true" />
               </header>
-              <div className="tg-day__grid">
+              <div className="tg-day__tiles">
                 {group.items.map((item, index) => (
                   <GalleryCard
                     key={item.path + '|' + item.sessionId}
@@ -808,6 +817,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
                     sessionTitle={sessionById.get(item.sessionId)?.title ?? null}
                     now={now}
                     onOpen={openItem}
+                    compact
                   />
                 ))}
               </div>

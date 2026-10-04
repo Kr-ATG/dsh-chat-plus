@@ -133,24 +133,37 @@ const SHEET = `
 .tg-time-bar__name{color:var(--dsw-alias-label-primary,#eee);font-weight:500;max-width:46ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ── 时间轴视图 ─────────────────────────────────────────────────── */
-.tg-day{position:relative;padding-left:26px;margin-bottom:20px;animation:tg-day-in 340ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
+.tg-day{position:relative;padding-left:22px;margin-bottom:14px;animation:tg-day-in 340ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
 @keyframes tg-day-in{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}
 /* 竖轨：自上而下生长 */
-.tg-day::before{content:"";position:absolute;left:6px;top:4px;bottom:-20px;width:2px;border-radius:1px;background:linear-gradient(to bottom,rgba(59,130,246,.55),var(--dsw-alias-border-l2,rgba(255,255,255,.14)));transform-origin:top;animation:tg-rail-grow 520ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
-.tg-day:last-child::before{bottom:auto;height:26px}
+.tg-day::before{content:"";position:absolute;left:5px;top:4px;bottom:-14px;width:2px;border-radius:1px;background:linear-gradient(to bottom,rgba(59,130,246,.55),var(--dsw-alias-border-l2,rgba(255,255,255,.14)));transform-origin:top;animation:tg-rail-grow 520ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
+.tg-day:last-child::before{bottom:auto;height:22px}
 @keyframes tg-rail-grow{from{transform:scaleY(0);opacity:0}to{transform:scaleY(1);opacity:1}}
 /* 日期头：钉住 + 节点 */
-.tg-day__head{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:8px;padding:6px 10px 6px 0;margin-bottom:10px;background:var(--dsw-alias-bg-module-container,#13151b);animation:tg-fade-in 260ms ease backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
+.tg-day__head{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:7px;padding:5px 10px 5px 0;margin-bottom:7px;background:var(--dsw-alias-bg-module-container,#13151b);animation:tg-fade-in 260ms ease backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
 .tg-day__head::after{content:"";position:absolute;left:-26px;right:-18px;top:0;bottom:0;z-index:-1;background:linear-gradient(to bottom,var(--dsw-alias-bg-module-container,#13151b) 72%,rgba(19,21,27,0));pointer-events:none}
-.tg-day__dot{position:absolute;left:-24px;top:50%;width:12px;height:12px;margin-top:-6px;border-radius:50%;background:var(--dsw-alias-state-business-primary,#3b82f6);box-shadow:0 0 0 3px rgba(59,130,246,.18),0 0 12px rgba(59,130,246,.5);animation:tg-dot-pop 380ms cubic-bezier(.2,1.5,.4,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms + 60ms)}
+.tg-day__dot{position:absolute;left:-20px;top:50%;width:10px;height:10px;margin-top:-5px;border-radius:50%;background:var(--dsw-alias-state-business-primary,#3b82f6);box-shadow:0 0 0 3px rgba(59,130,246,.18),0 0 12px rgba(59,130,246,.5);animation:tg-dot-pop 380ms cubic-bezier(.2,1.5,.4,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms + 60ms)}
 @keyframes tg-dot-pop{from{opacity:0;transform:scale(0)}60%{opacity:1;transform:scale(1.35)}to{opacity:1;transform:scale(1)}}
-.tg-day__label{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#eee);letter-spacing:.01em}
-.tg-day__weekday{font-size:11px;color:var(--dsw-alias-label-tertiary,#7c828c);padding:1px 6px;border-radius:7px;background:var(--dsw-alias-bg-layer-2,rgba(255,255,255,.06))}
-.tg-day__count{font-size:11px;color:var(--dsw-alias-label-tertiary,#7c828c);font-variant-numeric:tabular-nums}
+.tg-day__label{font-size:12.5px;font-weight:600;color:var(--dsw-alias-label-primary,#eee);letter-spacing:.01em}
+.tg-day__weekday{font-size:10.5px;color:var(--dsw-alias-label-tertiary,#7c828c);padding:1px 5px;border-radius:6px;background:var(--dsw-alias-bg-layer-2,rgba(255,255,255,.06))}
+.tg-day__count{font-size:10.5px;color:var(--dsw-alias-label-tertiary,#7c828c);font-variant-numeric:tabular-nums}
 .tg-day__rule{flex:1;height:1px;background:var(--dsw-alias-border-l1,rgba(255,255,255,.08));transform-origin:left;animation:tg-rule-in 420ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms + 90ms)}
 @keyframes tg-rule-in{from{transform:scaleX(0);opacity:0}to{transform:scaleX(1);opacity:1}}
-.tg-day__grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:12px}
-@media (max-width:640px){.tg-day__grid{grid-template-columns:repeat(auto-fill,minmax(124px,1fr));gap:10px}.tg-day{padding-left:20px}.tg-day::before{left:4px}.tg-day__dot{left:-19px}}
+/* 手机相册式高密度方格：正方形缩略图铺满，间距 4px */
+.tg-day__tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:4px}
+@media (max-width:640px){.tg-day__tiles{grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:3px}.tg-day{padding-left:18px}.tg-day::before{left:4px}.tg-day__dot{left:-17px}}
+
+/* 方格卡片：无内边距、无下缘 meta，名字沉到 hover 浮层 */
+.tg-card--tile{border-radius:8px;border-color:transparent;background:var(--dsw-alias-bg-module-platform,rgba(255,255,255,.04))}
+.tg-card--tile:hover{transform:translateY(-2px) scale(1.02);border-color:var(--dsw-alias-border-l2,rgba(255,255,255,.2));box-shadow:0 6px 18px rgba(0,0,0,.34);z-index:2}
+.tg-tile__thumb{position:relative;width:100%;aspect-ratio:1/1;overflow:hidden;border-radius:8px;background:var(--dsw-alias-bg-module-platform,rgba(255,255,255,.05));display:flex;align-items:center;justify-content:center}
+.tg-tile__thumb .tg-card__img{border-radius:8px}
+.tg-tile__thumb .tg-card__icon svg{width:30px;height:30px}
+.tg-tile__thumb .tg-card__play svg{width:32px;height:32px}
+.tg-tile__hover{position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:1px;padding:16px 7px 6px;border-radius:0 0 8px 8px;background:linear-gradient(to top,rgba(6,7,10,.88),rgba(6,7,10,0));opacity:0;transform:translateY(6px);transition:opacity 170ms ease,transform 170ms cubic-bezier(.2,.8,.2,1);pointer-events:none;min-width:0}
+.tg-card--tile:hover .tg-tile__hover,.tg-card--tile:focus-visible .tg-tile__hover{opacity:1;transform:translateY(0)}
+.tg-tile__name{font-size:10.5px;font-weight:500;line-height:14px;color:#f3f4f6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tg-tile__sub{font-size:9.5px;line-height:12px;color:rgba(233,236,240,.72);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ── Lightbox ──────────────────────────────────────────────────── */
 .tg-lb{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;background:rgba(8,9,13,.82);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);animation:tg-lb-in 200ms ease}
