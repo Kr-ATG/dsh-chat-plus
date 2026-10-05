@@ -21,12 +21,9 @@ export function injectStyles(): () => void {
    与容器实宽不是一回事）。 */
 .phub-host{display:flex;flex-direction:column;gap:18px}
 .phub-host[data-wide] > div:first-child{display:flex;align-items:flex-start;gap:16px;min-width:0;width:100%}
-/* 宽屏时底部三块作为 hub 的第三列：宽度随容器走（clamp 440–640），自身可滚。
-   原先写死 380，详情列在 2000+ 宽屏下被拉到 1200 多，模型目录那些行长得离谱。 */
-.phub-host[data-wide] > div:first-child > .phub-blocks{flex:0 0 clamp(440px,34%,640px);width:clamp(440px,34%,640px);max-height:calc(100vh - 150px);overflow-y:auto;overflow-x:hidden;padding-right:2px;animation:phub-block-in 280ms cubic-bezier(.2,.8,.2,1) backwards}
-/* 右列窄：三块里的「供应商 / 模型」两级下拉改成上下堆叠，别把模型名挤成竖排。 */
-.phub-host[data-wide] .phub-blocks .phub-fill{flex-direction:column;align-items:stretch}
-.phub-host[data-wide] .phub-blocks .phub-fill > *{width:100%}
+/* 宽屏时三个模型设置卡作为 hub 的第三列：宽度随容器走（clamp 560–900），自身可滚。
+   写死 380 太窄（下拉被挤成一小截），按容器比例给足宽度。 */
+.phub-host[data-wide] > div:first-child > .phub-blocks{flex:0 0 clamp(560px,44%,900px);width:clamp(560px,44%,900px);max-height:calc(100vh - 150px);overflow-y:auto;overflow-x:hidden;padding-right:2px;animation:phub-block-in 280ms cubic-bezier(.2,.8,.2,1) backwards}
 .phub-host[data-wide] > div:first-child > .phub-blocks::-webkit-scrollbar{width:8px}
 .phub-host[data-wide] > div:first-child > .phub-blocks::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l3,#c9cdd4);border-radius:4px}
 .phub-host[data-wide] > div:first-child > .phub-blocks::-webkit-scrollbar-track{background:transparent}
@@ -71,6 +68,12 @@ export function injectStyles(): () => void {
 /* 展开的「说明」段落：高度不变，只淡入，避免整块跳动。 */
 .phub-desc-in{animation:phub-desc-in 200ms ease backwards}
 @keyframes phub-desc-in{from{opacity:0}to{opacity:1}}
+
+/* ── 网络代理：整页底部区块（不占右列，用户 2026-10-05 点名） ──
+   横跨整页宽度，两张卡在宽屏时并排、窄屏堆叠。 */
+.phub-proxy{width:100%;min-width:0}
+.phub-proxy > .pp-panel{display:grid;grid-template-columns:repeat(auto-fit,minmax(560px,1fr));gap:14px;align-items:start}
+@media (max-width: 1200px){.phub-proxy > .pp-panel{grid-template-columns:1fr}}
 
 /* 空态占位：细虚线 + 居中说明，随页面淡入（无内容时不撑一条边框出来）。 */
 .phub-placeholder{border-style:dashed;border-color:var(--dsw-alias-border-l3,#c9cdd4);color:var(--dsw-alias-label-tertiary,#8f959e);text-align:center;align-items:center;justify-content:center;min-height:220px;padding:24px;animation:phub-block-in 260ms cubic-bezier(.2,.8,.2,1) backwards}

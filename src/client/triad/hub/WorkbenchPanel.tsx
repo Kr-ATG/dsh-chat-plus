@@ -1,5 +1,5 @@
 /**
- * WorkbenchPanel — 7 合 1 统一工作台主容器。
+ * WorkbenchPanel — 6 合 1 统一工作台主容器。
  *
  * 聚合模块：
  *  1. 记忆 (Memory)    — DSH 暗色系大盘与卡片流
@@ -10,9 +10,8 @@
  *  6. 供应商 (Provider)— 原 dsh-provider-hub 的独立设置页（2026-10-05 融合）：
  *                        左供应商列表 / 右详情（API Key、Base URL、协议、模型列表、
  *                        推理等级检测）+ 辅助视觉 / 生图 / 生视频三块
- *  7. 代理 (Proxy)     — 原 dsh-provider-hub 的通用设置卡升级为整页（2026-10-05）：
- *                        总开关 + 代理地址 + 连通性自检 + 生效范围（全局 / 仅选中，
- *                        逐供应商开关）
+ *  （网络代理不是独立 Tab：用户 2026-10-05 明确「不需要一个单独分类」，
+ *    已并入「供应商」页底部的区块列表，与辅助视觉 / 生图 / 生视频同列）
  */
 
 import { useMemo, useState } from 'react'
@@ -26,12 +25,11 @@ import { createMemoryApi } from '../memory/api.js'
 import { createMailApi } from '../mail/api.js'
 import { PopoverShell } from '../popover-shell.js'
 import { SupplierSection } from '../../provider/webui/section.js'
-import { ProxyPanel } from '../../provider/panel/proxy-panel.js'
 
-export type WorkbenchTab = 'memory' | 'skills' | 'usage' | 'gallery' | 'mail' | 'provider' | 'proxy'
+export type WorkbenchTab = 'memory' | 'skills' | 'usage' | 'gallery' | 'mail' | 'provider'
 
 /** 合法 Tab（localStorage 回填白名单）。 */
-const TABS: readonly WorkbenchTab[] = ['memory', 'skills', 'usage', 'gallery', 'mail', 'provider', 'proxy']
+const TABS: readonly WorkbenchTab[] = ['memory', 'skills', 'usage', 'gallery', 'mail', 'provider']
 
 export interface WorkbenchPanelProps {
   onClose: () => void
@@ -58,17 +56,6 @@ function ProviderTabIcon(): JSX.Element {
       <path d="M9 8V2" />
       <path d="M15 8V2" />
       <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />
-    </svg>
-  )
-}
-
-/** 代理图标（地球 + 经线）。 */
-function ProxyTabIcon(): JSX.Element {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" />
-      <path d="M2 12h20" />
-      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z" />
     </svg>
   )
 }
@@ -107,7 +94,7 @@ export function WorkbenchPanel({ onClose, initialTab = 'memory' }: WorkbenchPane
               <span>工作台</span>
             </div>
 
-            {/* Segmented Tabs: 记忆 · 能力 · 用量 · 画廊 · 邮件 · 供应商 · 代理 */}
+            {/* Segmented Tabs: 记忆 · 能力 · 用量 · 画廊 · 邮件 · 供应商 */}
             <div className="wb-tabs" data-workbench-nav="true">
               <button
                 type="button"
@@ -181,15 +168,6 @@ export function WorkbenchPanel({ onClose, initialTab = 'memory' }: WorkbenchPane
                 <span>供应商</span>
               </button>
 
-              <button
-                type="button"
-                className="wb-tab-btn"
-                data-active={activeTab === 'proxy' ? 'true' : undefined}
-                onClick={() => { handleSelectTab('proxy') }}
-              >
-                <ProxyTabIcon />
-                <span>代理</span>
-              </button>
             </div>
           </div>
 
@@ -236,9 +214,6 @@ export function WorkbenchPanel({ onClose, initialTab = 'memory' }: WorkbenchPane
             </div>
           )}
 
-          {activeTab === 'proxy' && (
-            <ProxyPanel key="proxy" />
-          )}
         </div>
       </div>
     </PopoverShell>

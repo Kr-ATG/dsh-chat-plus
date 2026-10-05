@@ -162,25 +162,19 @@ const SHEET = `
 }
 .wb-supplier-scroll > * { animation: wb-page-in 190ms cubic-bezier(.2,.8,.2,1); }
 
-/* ── 工作台「代理」页：卡片纵向排布 ── */
-.pp-root {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 18px 22px 28px;
-  box-sizing: border-box;
+/* ── 供应商页底部的「网络代理」区块：普通列容器（滚动交给 .phub-blocks） ── */
+.pp-panel {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
 }
-.pp-root > * { animation: wb-page-in 190ms cubic-bezier(.2,.8,.2,1); }
-.pp-card { animation-delay: 40ms; }
+/* 逐供应商开关行：hover 提亮 + 按下位移，与供应商列表行同一套反馈。 */
 .pp-row { transition: border-color .16s, background .16s, opacity .16s; }
 .pp-row:hover { border-color: var(--dsw-alias-border-l3, rgba(255,255,255,.22)); background: var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,.04)); }
 
 @media (prefers-reduced-motion: reduce) {
-  .wb-body > *, .wb-supplier-scroll > *, .pp-root > * { animation: none !important; }
+  .wb-body > *, .wb-supplier-scroll > * { animation: none !important; }
   .pp-row { transition: none; }
 }
 `

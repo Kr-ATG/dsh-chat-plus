@@ -1,10 +1,9 @@
 /**
- * dsh-chat-plus — 「网络代理」工作台页面（原 dsh-provider-hub 的通用设置卡片，
- * 2026-10-05 融合进 dsh-chat-plus 并迁进工作台 Tab）。
+ * dsh-chat-plus — 「网络代理」区块（原 dsh-provider-hub 的通用设置卡片，
+ * 2026-10-05 融合进 dsh-chat-plus，先做成独立工作台 Tab，同日改为**供应商页
+ * 底部的两个区块**——用户反馈代理不是一个独立分类，跟供应商放一起更顺）。
  *
- * 为什么从设置卡片升级成整页：设置弹窗宽度装不下「逐供应商选择」，原来只能
- * 把选择权塞进供应商页每家卡片右侧的开关（列表行用 P 标记）。搬进工作台后
- * 有整页宽度，于是把三件事收在一处：
+ * 三件事：
  *   1. 总开关（开启后 DSH 的 API 请求走本地代理）；
  *   2. 代理地址 + 连通性自检（真经代理发一次请求，区分「已挂载」与「真的通」）；
  *   3. 生效范围：全局 / 仅选中，选中态是逐供应商开关（写 host 侧
@@ -13,6 +12,9 @@
  * 数据通道沿用旧插件：GET /api/dsh-proxy/state | providers | test、
  * POST /api/dsh-proxy/set | member，settings 命名空间 network-proxy 不变，
  * 升级零迁移。保存即运行时生效，无需重启。
+ *
+ * 版式：两张卡走 .phub-block（与辅助视觉 / 生图 / 生视频同一套卡片 token），
+ * 根节点 .pp-panel 是普通列容器——滚动交给外层的 .phub-blocks。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
@@ -24,10 +26,8 @@ import type { ProxySnapshot } from '../webui/chat/proxy.ts'
 
 // ── 样式（沿用官方控件规格：行卡片 12px 圆角、输入框 32px、胶囊按钮 28px）──
 
+/* 卡片外观由 .phub-block 承担（同 token / 同圆角 / 同内距），这里只给列布局。 */
 const sectionCard: CSSProperties = {
-  border: '1px solid var(--dsw-alias-border-l2)',
-  borderRadius: 12,
-  padding: '14px 16px',
   display: 'flex',
   flexDirection: 'column',
   gap: 14,
@@ -231,8 +231,8 @@ export function ProxyPanel(): JSX.Element {
   const statusTag = !enabled ? '已关闭' : mode === 'all' ? '全局' : (snapshot?.providers.length ?? 0) + ' 家走代理'
 
   return (
-    <div className="pp-root">
-      <section style={sectionCard} className="pp-card">
+    <div className="pp-panel">
+      <section style={sectionCard} className="phub-block phub-block-in">
         <div style={headRow}>
           <div style={copyCol}>
             <span style={titleStyle}>网络代理</span>
@@ -297,7 +297,7 @@ export function ProxyPanel(): JSX.Element {
             : null}
       </section>
 
-      <section style={sectionCard} className="pp-card">
+      <section style={sectionCard} className="phub-block phub-block-in">
         <div style={headRow}>
           <div style={copyCol}>
             <span style={titleStyle}>生效范围</span>

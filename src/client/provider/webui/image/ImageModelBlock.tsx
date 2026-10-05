@@ -99,7 +99,6 @@ export function ImageModelBlock(): ReactNode {
             <SelectField
               label="模型"
               value={modelValue}
-              width={240}
               disabled={saving || currentModels.length === 0}
               onChange={(v) => { if (v !== '') pick(`${currentProvider}/${v}`) }}
             >

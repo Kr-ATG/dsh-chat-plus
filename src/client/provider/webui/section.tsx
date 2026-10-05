@@ -28,6 +28,7 @@ import { VisionModelBlock } from './vision/VisionModelBlock.tsx'
 import { ImageModelBlock } from './image/ImageModelBlock.tsx'
 import { VideoModelBlock } from './video/VideoModelBlock.tsx'
 import { createLegacyApi } from './api-adapter.ts'
+import { ProxyPanel } from '../panel/proxy-panel.tsx'
 import { getClientCtx, getService } from '../../client-ctx.js'
 
 /** 供应商页需要的依赖（工作台面板构造后经 props 传入）。 */
@@ -263,6 +264,11 @@ function Loaded({ injected }: { injected: SupplierInjected }): unknown {
     h(ImageModelBlock, { key: 'image' }),
     h(VideoModelBlock, { key: 'video' }),
   ])
+  // 代理：用户 2026-10-05 明确「不需要一个单独分类，放这两个卡片的下方」——
+  // 整页宽度的独立区块，与「列表 + 详情」和模型设置卡都不并列。
+  const proxyBlock = h('div', { key: 'proxy', className: 'phub-proxy phub-block-in' }, [
+    h(ProxyPanel),
+  ])
   return h('div', { className: 'phub-host', ref: hostRef, 'data-wide': wide ? 'true' : undefined }, [
     h('div', { key: 'hub', style: hubLayoutStyle }, [
       h('div', { key: 'navWrap', className: 'phub-navwrap', style: navStyle }, [
@@ -281,5 +287,6 @@ function Loaded({ injected }: { injected: SupplierInjected }): unknown {
     ]),
     // 窄屏：维持上下堆叠（原样）。
     wide ? null : blocks,
+    proxyBlock,
   ])
 }

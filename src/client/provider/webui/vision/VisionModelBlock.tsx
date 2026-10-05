@@ -256,7 +256,6 @@ export function VisionModelBlock(): ReactNode {
               <SelectField
                 label="模型"
                 value={addModel}
-                width={220}
                 disabled={addProvider === '' || addModels.length === 0}
                 onChange={setAddModel}
               >

@@ -755,16 +755,31 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   const chatList = stripSrc(readSrcOf('src/client/provider/webui/chat/ChatProviderList.tsx'))
 
   // 1) 两个新 Tab 在册（类型 + 渲染 + 按钮）
-  if (!/'provider' \| 'proxy'/.test(wb)) {
-    fail('WorkbenchTab 联合类型必须含 provider / proxy（工作台第六、第七 Tab）')
+  if (!/'provider'/.test(wb)) {
+    fail('WorkbenchTab 联合类型必须含 provider（工作台第六 Tab）')
   } else if (!/<SupplierSection \/>/.test(wb)) {
     fail('WorkbenchPanel 必须渲染 SupplierSection（供应商 Tab 页本体）')
-  } else if (!/<ProxyPanel key="proxy" \/>/.test(wb)) {
-    fail('WorkbenchPanel 必须渲染 ProxyPanel（代理 Tab 页本体）')
-  } else if (!/>\s*供应商\s*</.test(wb) || !/>\s*代理\s*</.test(wb)) {
-    fail('工作台 Tab 栏必须有「供应商」「代理」按钮')
+  } else if (!/>\s*供应商\s*</.test(wb)) {
+    fail('工作台 Tab 栏必须有「供应商」按钮')
+  } else if (/ProxyPanel|'proxy'/.test(wb)) {
+    fail('代理不该是独立 Tab（用户 2026-10-05 点名：不需要一个单独分类，应并入供应商页底部）')
+  } else if (!/h\(ProxyPanel/.test(supplierSrc)) {
+    fail('供应商页必须渲染 ProxyPanel（代理不是独立 Tab，也不是右列卡片）')
+  } else if (!/phub-proxy/.test(supplierSrc) || !/className: 'phub-proxy phub-block-in'/.test(supplierSrc)) {
+    fail('代理必须挂在 .phub-proxy 全宽区块里（用户 2026-10-05 点名：放这两个卡片的下方）')
+  } else if (/h\(ProxyPanel/.test(supplierSrc.split("className: 'phub-blocks'")[1]?.split('])\n')[0] ?? '')) {
+    fail('代理不能塞进右列 .phub-blocks（那里只放辅助视觉 / 生图 / 生视频三张卡）')
   } else {
-    pass('工作台第六 / 第七 Tab「供应商」「代理」接入在位（类型 + 渲染 + 按钮）')
+    pass('工作台第六 Tab「供应商」在位；代理是全宽底部区块（无独立 Tab、不占右列）')
+  }
+  // 右列三个模型卡必须够宽：写死 380 会把下拉挤成一小截（用户点名「右侧的拉宽」）。
+  const stylesSrc = stripSrc(readSrcOf('src/client/provider/webui/styles.ts'))
+  if (!/phub-blocks\{flex:0 0 clamp\(560px/.test(stylesSrc)) {
+    fail('右列模型卡宽度必须 ≥560px 起（写死 380 时下拉只剩一小截）')
+  } else if (!/\.phub-proxy > \.pp-panel\{display:grid/.test(stylesSrc)) {
+    fail('代理两张卡必须走全宽栅格（宽屏并排 / 窄屏堆叠）')
+  } else {
+    pass('右列模型卡宽度 clamp(560px,44%,900px)；代理走全宽栅格')
   }
 
   // 2) 供应商页 / 代理页不能再注册设置座位（搬进工作台后设置页不该有它们）

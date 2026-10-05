@@ -125,21 +125,26 @@ export function IconButton({ label, glyph, disabled, danger, onClick }: {
   )
 }
 
-/** 带小标签的下拉字段（标签在上，12px 次级色）。 */
+/**
+ * 带小标签的下拉字段（标签在上，12px 次级色）。
+ *
+ * 宽度默认 `flex:1` **撑满可用空间**（原来是写死 176，窄栏里右边空一大片、
+ * 宽栏里又挤在左边）。调用方给 `width` 时才退回定宽。
+ */
 export function SelectField({ label, value, disabled, width, onChange, children }: {
   label: string
   value: string
   disabled?: boolean
-  /** 下拉宽度 px（默认 176）。 */
+  /** 下拉定宽 px；省略则撑满父容器。 */
   width?: number
   onChange: (value: string) => void
   children: ReactNode
 }): ReactNode {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, flex: '1 1 0%' }}>
       <span style={{ fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' }}>{label}</span>
       <select
-        style={{ ...SELECT_STYLE, width: width ?? 176 }}
+        style={{ ...SELECT_STYLE, ...(width === undefined ? { flex: '1 1 0%', width: '100%' } : { width }) }}
         value={value}
         disabled={disabled}
         aria-label={label}
