@@ -384,6 +384,25 @@ host 半身（六个模块）整体搬进本插件：
 逐供应商开关）。写入仍走 host 的 `/api/dsh-proxy/member`（读-改-写，避免多个开关各自
 拿过期快照互相覆盖）。供应商卡片上的行内开关与 P 标记**保留**，与代理区块共享同一份名单。
 
+**控件规格对齐官方**（2026-10-05 用户点名「都没用官方的那种样式，特别是下拉框」）：
+插件自绘的下拉 / 输入框 / 开关 / 按钮 / 分段控件全部改成**逐字复刻官方 CSS Modules 的规格**：
+
+| 控件 | 官方出处 | 关键规格（改前 → 改后） |
+|---|---|---|
+| 下拉 | `ModelsSection.module.css` `.input` + `.selectInput` | 1px border-l2 → **0.5px border-l4**；8px → **`--dsw-radius-md`(12px)**；13px → **14/22**；chevron right 10 → **right 12**；补 focus/disabled 态 |
+| 输入框 | 同上 | 同上（原 1px border-l2 + 8px 圆角） |
+| 开关 | `Switch.module.css` | 34×18 → **36×20 轨道 + 16px 圆钮**；开态 business-primary → **`--dsw-alias-brand-primary`**；left 位移 → **translateX(16px)** |
+| 小按钮 | `Button.module.css` `.sm` | 14px 胶囊 → **8px(`radius-sm`) 方角 + 0.5px border-l3**；补 hover/active/disabled 态 |
+| 分段控件 | `SegmentedControl.module.css` | 自绘「选中加灰底」→ **轨道(interactive-bg-hover) + 白色滑块(bg-layer-1) + elevation-soft 阴影** |
+
+**为什么复刻 CSS 而不是直接 require 官方组件**：`@deepseek-ai/dsh-client-ui-primitives` 的
+CSS Modules 由各 bundle 自己内联注入（`style[data-plugin-css]`），插件渲染它的组件时样式表
+未必已注入——实测页面上查不到 `Switch.module.css` / `SegmentedControl.module.css` 的规则，
+会出现「结构对、外观裸」。复刻规格则与官方同 token、同尺寸，且不依赖注入时机。
+
+**踩到的坑**：`SelectField` 的 label 是列向 flex 容器，给 select 写 `flex: '1 1 0%'` 会让
+`flex-basis: 0` 顶掉 `height: 32px`——实测下拉被压成 **24px 高**。改成 `width: 100%` 后恢复 32px。
+
 **左栏标题改成「模型供应商」**（2026-10-05 用户点名）：原 webui 叫「对话供应商」，
 但这一页管的是模型目录、密钥与协议，不只是对话入口。文案在
 `ModelListEditor.tsx` 的 `chatCopy.chatTitle`（唯一定义处，列表与详情共用）。

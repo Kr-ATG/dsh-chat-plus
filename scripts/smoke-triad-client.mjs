@@ -834,6 +834,36 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     pass('供应商列表 P 标记 + 详情行内代理开关保留（与代理页同一份名单）')
   }
 
+  // 6) 控件规格必须对齐官方（用户 2026-10-05 点名「都没用官方的那种样式，特别是下拉框」）
+  const sharedSrc = stripSrc(readSrcOf('src/client/provider/webui/blocks/shared.tsx'))
+  const proxyPanelStyles = stripSrc(readSrcOf('src/client/provider/panel/proxy-panel.tsx'))
+  const detailStyles = stripSrc(readSrcOf('src/client/provider/webui/chat/ChatProviderDetail.tsx'))
+  // 官方 .input / .selectInput：0.5px border-l4 + --dsw-radius-md(12px) + 32px + 14-22
+  for (const [name, src] of [['SelectField', sharedSrc], ['供应商详情输入框', detailStyles], ['代理输入框', proxyPanelStyles]]) {
+    if (!/0\.5px solid var\(--dsw-alias-border-l4/.test(src)) {
+      fail(`${name} 的描边必须是官方 .input 规格（0.5px border-l4），不能是自绘的 1px border-l2`)
+    } else if (!/--dsw-radius-md, 12px/.test(src)) {
+      fail(`${name} 的圆角必须是官方 --dsw-radius-md(12px)`)
+    }
+  }
+  // 官方 Switch：36×20 轨道 + 16px 圆钮 + brand-primary
+  if (!/width: 36/.test(sharedSrc) || !/height: 20/.test(sharedSrc) || !/--dsw-alias-brand-primary/.test(sharedSrc)) {
+    fail('开关必须是官方 Switch 规格（36×20 轨道 + brand-primary）')
+  }
+  // 官方 Button .sm：28px / radius-sm(8px) / 0.5px border-l3
+  if (!/--dsw-radius-sm, 8px/.test(sharedSrc) || !/0\.5px solid var\(--dsw-alias-border-l3/.test(sharedSrc)) {
+    fail('小按钮必须是官方 Button .sm 规格（28px / radius-sm / 0.5px border-l3）')
+  }
+  // 官方 SegmentedControl：轨道 interactive-bg-hover + 选中滑块 bg-layer-1 + elevation-soft
+  if (!/--dsw-alias-interactive-bg-hover/.test(proxyPanelStyles) || !/--dsw-elevation-soft/.test(proxyPanelStyles)) {
+    fail('范围分段控件必须是官方 SegmentedControl 规格（轨道 + 滑块 + elevation-soft）')
+  }
+  // 下拉不能在列向 label 里写 flex（会把 32px 压成 24px，实测踩到）
+  if (/SELECT_STYLE, \.\.\.\(width === undefined \? \{ flex:/.test(sharedSrc)) {
+    fail('SelectField 不能在列向 label 里给 select 写 flex-basis:0（实测把 32px 压成 24px）')
+  }
+  pass('控件规格对齐官方：下拉/输入框 0.5px border-l4 + radius-md，开关 36×20，按钮 radius-sm，分段控件轨道+滑块')
+
   // 6) 布局：左栏不再有收窄态；宽屏三栏由 ResizeObserver 量容器实宽决定
   const listSrc = stripSrc(readSrcOf('src/client/provider/webui/chat/ChatProviderList.tsx'))
   // 界面文案：左栏标题必须是「模型供应商」（用户 2026-10-05 点名改的，

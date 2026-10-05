@@ -1195,6 +1195,8 @@ const nameTextStyle: CSSProperties = {
 }
 
 /* 官方 .input 规格：32px 高、14px 字、8px 圆角、0 10px 内边距。 */
+/* 官方 .input 规格：0.5px border-l4 / radius-md(12px) / 32px / 14-22 / bg-layer-1。
+   原自绘版是 1px border-l2 + 8px 圆角，与官方设置页的输入框并排能看出差别。 */
 const inputStyle: CSSProperties = {
   boxSizing: 'border-box',
   width: '100%',
@@ -1202,8 +1204,9 @@ const inputStyle: CSSProperties = {
   padding: '0 10px',
   fontSize: 14,
   lineHeight: '22px',
-  borderRadius: 8,
-  border: '1px solid var(--dsw-alias-border-l2, #dcdfe6)',
+  font: 'inherit',
+  borderRadius: 'var(--dsw-radius-md, 12px)',
+  border: '0.5px solid var(--dsw-alias-border-l4, rgba(255,255,255,.2))',
   background: 'var(--dsw-alias-bg-layer-1, #fff)',
   color: 'var(--dsw-alias-label-primary, #1f2329)',
   outline: 'none',

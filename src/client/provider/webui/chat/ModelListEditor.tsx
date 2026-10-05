@@ -1450,6 +1450,7 @@ const modelEntryStyle: CSSProperties = {
 }
 
 /* 官方 .input 规格：32px 高、14px 字、8px 圆角、0 10px 内边距。 */
+/* 官方 .input 规格：0.5px border-l4 / radius-md(12px) / 32px / 14-22 / bg-layer-1。 */
 const inputStyle: CSSProperties = {
   flex: 1,
   minWidth: 0,
@@ -1458,8 +1459,9 @@ const inputStyle: CSSProperties = {
   padding: '0 10px',
   fontSize: 14,
   lineHeight: '22px',
-  borderRadius: 8,
-  border: '1px solid var(--dsw-alias-border-l2, #dcdfe6)',
+  font: 'inherit',
+  borderRadius: 'var(--dsw-radius-md, 12px)',
+  border: '0.5px solid var(--dsw-alias-border-l4, rgba(255,255,255,.2))',
   background: 'var(--dsw-alias-bg-layer-1, #fff)',
   color: 'var(--dsw-alias-label-primary, #1f2329)',
   outline: 'none',
@@ -1709,40 +1711,40 @@ const capSwitchRowStyle: CSSProperties = {
   userSelect: 'none',
 }
 
+/* 官方 Switch 规格（Switch.module.css）：36×20 轨道 + 16px 圆钮，
+   外观由 aria-checked 驱动，开启态 --dsw-alias-brand-primary。 */
 const capSwitchStyle: CSSProperties = {
+  boxSizing: 'border-box',
   position: 'relative',
-  width: 34,
-  height: 18,
-  borderRadius: 9,
+  width: 36,
+  height: 20,
+  padding: 2,
   border: 'none',
+  borderRadius: 999,
   cursor: 'pointer',
   flex: 'none',
-  padding: 0,
-  background: 'var(--dsw-alias-border-l2, #dcdfe6)',
-  transition: 'background .15s',
+  background: 'var(--dsw-alias-border-l3, rgba(255,255,255,.14))',
+  transition: 'background 120ms ease',
 }
 
 const capSwitchOnStyle: CSSProperties = {
   ...capSwitchStyle,
-  background: 'var(--dsw-alias-state-business-primary, #4176e6)',
+  background: 'var(--dsw-alias-brand-primary, #4176e6)',
 }
 
 const capKnobStyle: CSSProperties = {
-  position: 'absolute',
-  top: 2,
-  left: 2,
-  width: 14,
-  height: 14,
+  display: 'block',
+  width: 16,
+  height: 16,
   borderRadius: '50%',
-  background: 'var(--dsw-alias-label-tertiary, #8f959e)',
-  transition: 'left .15s, background .15s',
-  boxShadow: '0 1px 2px rgba(0,0,0,.2)',
+  background: 'var(--dsw-alias-switch-thumb, var(--dsw-alias-label-primary))',
+  transition: 'transform 120ms ease',
 }
 
 const capKnobOnStyle: CSSProperties = {
   ...capKnobStyle,
-  left: 18,
-  background: '#fff',
+  background: 'var(--dsw-alias-label-primary-foreground, #fff)',
+  transform: 'translateX(16px)',
 }
 
 const capSwitchLabelStyle: CSSProperties = {

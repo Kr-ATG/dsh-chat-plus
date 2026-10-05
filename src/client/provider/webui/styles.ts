@@ -16,6 +16,37 @@ export function injectStyles(): () => void {
     tag.id = STYLE_ID
     tag.dataset.plugin = 'dsh-chat-plus'
     tag.textContent = `
+/* ── 官方控件规格的交互态（等价官方 CSS Modules，插件自绘控件共用） ──
+   官方 input:focus 换 business-primary 描边并去 outline；outline:hover 出中性底；
+   ghost:hover 同底、ghost:active 用 active 底。这些态官方组件自带，插件复刻的
+   控件必须自己补，否则「长得像、点起来不像」。 */
+
+.phub-host select:focus,
+.phub-host input:focus,
+.pp-panel select:focus,
+.pp-panel input:focus {
+  border-color: var(--dsw-alias-state-business-primary);
+  outline: none;
+}
+.phub-host select:disabled,
+.phub-host input:disabled,
+.pp-panel select:disabled,
+.pp-panel input:disabled {
+  opacity: .6;
+  cursor: default;
+}
+/* 官方 outline 小按钮的 hover / active（Button.module.css 同款 token）。 */
+.phub-host button.dsh-webui-capsule-btn:hover:not(:disabled),
+.pp-panel button:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.phub-host button.dsh-webui-capsule-btn:active:not(:disabled),
+.pp-panel button:active:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover));
+}
+.phub-host button:disabled,
+.pp-panel button:disabled { opacity: .4; cursor: not-allowed; }
+
 /* ── 页面骨架：窄屏纵向堆叠 / 宽屏三栏（列表 · 详情 · 模型设置） ──
    宽窄由组件用 ResizeObserver 量自身宽度后打 data-wide（媒体查询量视口，
    与容器实宽不是一回事）。 */

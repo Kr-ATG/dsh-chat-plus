@@ -41,41 +41,49 @@ const tagStyle: CSSProperties = {
   fontSize: 11, color: 'var(--dsw-alias-label-secondary)', whiteSpace: 'nowrap', flex: 'none',
 }
 
+/* 官方 Switch 规格（Switch.module.css）：36×20 轨道 + 16px 圆钮，
+   外观由 aria-checked 驱动，开启态用 --dsw-alias-brand-primary。 */
 const switchStyle: CSSProperties = {
-  position: 'relative', width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
-  flex: 'none', background: 'var(--dsw-alias-border-l2)', transition: 'background .18s', padding: 0,
+  boxSizing: 'border-box', position: 'relative', flex: '0 0 auto',
+  width: 36, height: 20, padding: 2, border: 'none', borderRadius: 999,
+  background: 'var(--dsw-alias-border-l3, rgba(255,255,255,.14))',
+  cursor: 'pointer', transition: 'background 120ms ease',
 }
-// 开启态用品牌蓝（浅色 deepseek-500 / 深色 deepseek-400），knob 白底可见；
-// 不能用 --dsw-alias-brand-primary——它在浅色下是黑、深色下是白（反色设计）。
-const switchOnStyle: CSSProperties = { ...switchStyle, background: 'var(--dsw-alias-state-business-primary)' }
+const switchOnStyle: CSSProperties = { ...switchStyle, background: 'var(--dsw-alias-brand-primary, #4176e6)' }
 const knobStyle: CSSProperties = {
-  position: 'absolute', top: 2, left: 2, width: 18, height: 18, borderRadius: '50%',
-  background: 'var(--dsw-alias-label-tertiary)',
-  transition: 'left .18s cubic-bezier(.2,.8,.2,1), background .18s', boxShadow: '0 1px 2px rgba(0,0,0,.2)',
+  display: 'block', width: 16, height: 16, borderRadius: '50%',
+  background: 'var(--dsw-alias-switch-thumb, var(--dsw-alias-label-primary))',
+  transition: 'transform 120ms ease',
 }
-const knobOnStyle: CSSProperties = { ...knobStyle, left: 20, background: '#fff' }
+const knobOnStyle: CSSProperties = { ...knobStyle, background: 'var(--dsw-alias-label-primary-foreground, #fff)', transform: 'translateX(16px)' }
 
 const fieldStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }
 const fieldLabel: CSSProperties = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }
 const fieldRow: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }
 
+/* 官方 .input 规格：0.5px border-l4 / radius-md / 32px / 14-22 / bg-layer-1。 */
 const inputStyle: CSSProperties = {
-  height: 32, padding: '0 10px', fontSize: 14, lineHeight: '22px', minWidth: 0, flex: 1,
-  borderRadius: 8, border: '1px solid var(--dsw-alias-border-l2)',
+  boxSizing: 'border-box', height: 32, padding: '0 10px', minWidth: 0, flex: 1,
+  borderRadius: 'var(--dsw-radius-md, 12px)',
+  border: '0.5px solid var(--dsw-alias-border-l4, rgba(255,255,255,.2))',
   background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)',
+  fontFamily: 'inherit', fontSize: 14, lineHeight: '22px', outline: 'none',
 }
+/* 官方 Button .sm：28px / 12px 字 / radius-sm(8px) / 0.5px border-l3。 */
 const smallBtn: CSSProperties = {
-  borderRadius: 14, height: 28, padding: '0 12px', fontSize: 12, cursor: 'pointer', flex: 'none',
-  border: '1px solid var(--dsw-alias-border-l2)', background: 'transparent',
-  color: 'var(--dsw-alias-label-primary)',
+  boxSizing: 'border-box', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  borderRadius: 'var(--dsw-radius-sm, 8px)', height: 28, padding: '0 10px',
+  fontSize: 12, lineHeight: '18px', font: 'inherit', cursor: 'pointer', flex: 'none',
+  border: '0.5px solid var(--dsw-alias-border-l3, rgba(255,255,255,.14))', background: 'transparent',
+  color: 'var(--dsw-alias-label-primary)', transition: 'background 120ms ease',
 }
 const smallBtnPrimary: CSSProperties = {
   ...smallBtn,
-  border: '1px solid transparent',
+  border: 'none',
   background: 'var(--dsw-alias-button-primary-fill)',
   color: 'var(--dsw-alias-label-primary-foreground)',
 }
-const btnDisabled: CSSProperties = { opacity: 0.45, cursor: 'default' }
+const btnDisabled: CSSProperties = { opacity: 0.4, cursor: 'not-allowed' }
 
 const noteStyle: CSSProperties = { margin: 0, fontSize: 12, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' }
 const okNoteStyle: CSSProperties = { ...noteStyle, color: 'var(--dsw-alias-state-success-primary)' }
@@ -95,16 +103,36 @@ const segHintStyle: CSSProperties = {
   minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 }
 
-/** 范围分段控件（官方 filterTabs 语言：无容器底色，选中只加中性灰底）。 */
-const segStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 }
+/**
+ * 范围分段控件（逐字对齐官方 SegmentedControl.module.css）。
+ *
+ * 官方是「轨道 + 滑块」两层：轨道用 `interactive-bg-hover` 的透明填充（读起来像
+ * 「一块地方」而不是第二个按钮），选中项是一枚 `bg-layer-1` 白色胶囊滑块，
+ * 边缘靠 `elevation-soft` 阴影而不是描边。这里复刻同一套 token 与尺寸
+ * （轨道 padding 4 / gap 2 / radius-md，段高 28 / radius-sm / 13px 字）。
+ */
+const segStyle: CSSProperties = {
+  position: 'relative',
+  display: 'inline-grid',
+  gridAutoFlow: 'column',
+  gridAutoColumns: '1fr',
+  gap: 2,
+  padding: 4,
+  borderRadius: 'var(--dsw-radius-md, 12px)',
+  background: 'var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,.08))',
+  flex: 'none',
+}
 function segBtn(active: boolean): CSSProperties {
   return {
-    display: 'inline-flex', alignItems: 'center', gap: 6,
-    height: 28, padding: '0 14px', borderRadius: 8, border: 'none',
-    background: active ? 'var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,.08))' : 'transparent',
+    boxSizing: 'border-box', position: 'relative', zIndex: 1,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    height: 28, padding: '0 16px', border: 'none',
+    borderRadius: 'var(--dsw-radius-sm, 8px)',
+    background: active ? 'var(--dsw-alias-bg-layer-1)' : 'transparent',
+    boxShadow: active ? 'var(--dsw-elevation-soft)' : 'none',
     color: active ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-secondary)',
-    fontSize: 12.5, fontWeight: active ? 600 : 500, fontFamily: 'inherit',
-    cursor: 'pointer', transition: 'background .16s, color .16s',
+    fontSize: 13, lineHeight: '20px', fontWeight: 500, fontFamily: 'inherit',
+    cursor: 'pointer', transition: 'background 160ms ease, color 120ms ease',
   }
 }
 

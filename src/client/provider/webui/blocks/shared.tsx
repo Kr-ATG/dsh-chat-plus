@@ -5,58 +5,166 @@
  *  - {@link BlockShell}：标题行（标题 + 当前生效 pill + 「说明」折叠开关）
  *    + 折叠的说明段 + 内容区；说明默认收起，页面从三大段文字变成三行标题。
  *  - {@link Pill}：当前生效值的胶囊徽章（等宽字体，成功色点）。
- *  - {@link SelectField}：带浮起标签的下拉，规格对齐官方 .selectInput。
+ *  - {@link SelectField}：带浮起标签的下拉。
  *  - {@link IconButton}：24px 方形图标钮（上移/下移/删除），替代挤在一起的方块按钮。
  *
- * 规格对齐官方 ModelsSection.module.css：下拉 32px/8px 圆角/14px 字，
- * 行卡片 12px 圆角描边无底色，胶囊按钮 28px/14px 圆角/12px 字。
+ * **控件规格逐字对齐官方**（2026-10-05 用户点名「都没用官方的那种样式，特别是下拉框」）：
+ *  - 下拉 / 输入框：官方 `ModelsSection.module.css` 的 `.input` + `.selectInput`
+ *    —— 0.5px `--dsw-alias-border-l4` 描边、`--dsw-radius-md`(12px) 圆角、32px 高、
+ *    14px/22px 字、`--dsw-alias-bg-layer-1` 底、focus 换 `state-business-primary`、
+ *    chevron 12×12 贴 right 12px center；
+ *  - 开关：官方 `Switch.module.css` —— 36×20 轨道 + 16px 圆钮、`aria-checked` 驱动外观、
+ *    开启态 `--dsw-alias-brand-primary`、120ms transform；
+ *  - 按钮：官方 `Button.module.css` 的 `.sm` + `.outline`/`.ghost`/`.primary`
+ *    —— 28px 高、12px 字、`--dsw-radius-sm`(8px) 圆角、0.5px `--dsw-alias-border-l3`。
+ *
+ * 为什么复刻 CSS 而不是直接 require 官方组件：`@deepseek-ai/dsh-client-ui-primitives`
+ * 的 CSS Modules 由各 bundle 自己内联注入，插件渲染它的组件时样式表未必已注入
+ * （实测页面上查不到 `Switch.module.css` 的规则），会出现「结构对、外观裸」。
+ * 复刻规格则与官方逐字同 token、同尺寸，且不依赖注入时机。
  */
 import type { CSSProperties, ReactNode } from 'react'
 import { useState } from 'react'
 
-/** 官方 .selectInput 规格（自定义 chevron，不用原生箭头）。 */
+/**
+ * 官方下拉规格（逐字对齐 `ModelsSection.module.css` 的 `.input` + `.selectInput`）。
+ *
+ * 与原自绘版的差别（也是「不像官方」的根因）：
+ *   描边 1px border-l2 → **0.5px border-l4**；圆角 8 → **`--dsw-radius-md`(12px)**；
+ *   字号 13 → **14/22**；chevron 贴 right 10px → **right 12px**；padding-right 30 → **32**；
+ *   补上 focus 态（换 `state-business-primary` 描边、去 outline）与 disabled 态。
+ */
 export const SELECT_STYLE: CSSProperties = {
   boxSizing: 'border-box',
   height: 32,
-  padding: '0 30px 0 10px',
-  borderRadius: 8,
-  border: '1px solid var(--dsw-alias-border-l2)',
+  padding: '0 32px 0 10px',
+  borderRadius: 'var(--dsw-radius-md, 12px)',
+  border: '0.5px solid var(--dsw-alias-border-l4, rgba(255,255,255,.2))',
   background: 'var(--dsw-alias-bg-layer-1, transparent)',
   backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 12 12\' fill=\'none\'%3E%3Cpath d=\'M3 4.5L6 7.5L9 4.5\' stroke=\'%2381858C\' stroke-width=\'1.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/%3E%3C/svg%3E")',
   backgroundRepeat: 'no-repeat',
-  backgroundPosition: 'right 10px center',
+  backgroundPosition: 'right 12px center',
   backgroundSize: '12px 12px',
   appearance: 'none',
   color: 'var(--dsw-alias-label-primary)',
-  fontSize: 13, lineHeight: '22px', cursor: 'pointer',
+  font: 'inherit',
+  fontSize: 14, lineHeight: '22px', cursor: 'pointer',
   minWidth: 0,
 }
 
-/** 官方行内小胶囊（Button .sm）。 */
-export const CAPSULE_BTN: CSSProperties = {
+/**
+ * 官方文本输入规格（与 {@link SELECT_STYLE} 同族，只是不带 chevron）。
+ * 逐字对齐官方 `.input`：0.5px border-l4 / radius-md / 32px / 14-22 / bg-layer-1。
+ */
+export const INPUT_STYLE: CSSProperties = {
   boxSizing: 'border-box',
-  height: 28, padding: '0 12px', flexShrink: 0,
-  border: '1px solid var(--dsw-alias-border-l2)',
-  borderRadius: 14,
+  height: 32,
+  padding: '0 10px',
+  borderRadius: 'var(--dsw-radius-md, 12px)',
+  border: '0.5px solid var(--dsw-alias-border-l4, rgba(255,255,255,.2))',
+  background: 'var(--dsw-alias-bg-layer-1, transparent)',
+  color: 'var(--dsw-alias-label-primary)',
+  font: 'inherit',
+  fontSize: 14, lineHeight: '22px',
+  minWidth: 0, width: '100%',
+  outline: 'none',
+}
+
+/**
+ * 官方开关规格（`Switch.module.css`）：36×20 轨道 + 16px 圆钮。
+ *
+ * 外观由 `aria-checked` 驱动（官方注释原话：视觉态不能与无障碍态打架），
+ * 所以这里的样式是**静态**的，开/关只切 aria-checked 与 thumb 的 transform。
+ */
+export const OFFICIAL_SWITCH: CSSProperties = {
+  boxSizing: 'border-box',
+  position: 'relative',
+  flex: '0 0 auto',
+  width: 36,
+  height: 20,
+  padding: 2,
+  border: 'none',
+  borderRadius: 999,
+  background: 'var(--dsw-alias-border-l3, rgba(255,255,255,.14))',
+  cursor: 'pointer',
+  transition: 'background 120ms ease',
+}
+
+export const OFFICIAL_SWITCH_ON: CSSProperties = {
+  ...OFFICIAL_SWITCH,
+  background: 'var(--dsw-alias-brand-primary, #4176e6)',
+}
+
+export const OFFICIAL_SWITCH_THUMB: CSSProperties = {
+  display: 'block',
+  width: 16,
+  height: 16,
+  borderRadius: '50%',
+  background: 'var(--dsw-alias-switch-thumb, var(--dsw-alias-label-primary))',
+  transition: 'transform 120ms ease',
+}
+
+export const OFFICIAL_SWITCH_THUMB_ON: CSSProperties = {
+  ...OFFICIAL_SWITCH_THUMB,
+  background: 'var(--dsw-alias-label-primary-foreground, #fff)',
+  transform: 'translateX(16px)',
+}
+
+/** 官方小按钮（`Button.module.css` 的 `.sm` + `.outline`）。 */
+export const OFFICIAL_BTN_SM: CSSProperties = {
+  boxSizing: 'border-box',
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+  height: 28, padding: '0 10px', flexShrink: 0,
+  border: '0.5px solid var(--dsw-alias-border-l3, rgba(255,255,255,.14))',
+  borderRadius: 'var(--dsw-radius-sm, 8px)',
   background: 'transparent',
   color: 'var(--dsw-alias-label-primary)',
-  fontSize: 12, lineHeight: '18px', cursor: 'pointer',
+  font: 'inherit', fontSize: 12, lineHeight: '18px', cursor: 'pointer',
+  transition: 'background 120ms ease',
+}
+
+/** 官方小按钮（`.sm` + `.ghost`）：无描边，hover 出中性底。 */
+export const OFFICIAL_BTN_GHOST: CSSProperties = {
+  ...OFFICIAL_BTN_SM,
+  border: 'none',
+  color: 'var(--dsw-alias-label-tertiary)',
+}
+
+/** 官方小按钮（`.sm` + `.primary`）：实心主色。 */
+export const OFFICIAL_BTN_PRIMARY: CSSProperties = {
+  ...OFFICIAL_BTN_SM,
+  border: 'none',
+  background: 'var(--dsw-alias-button-primary-fill)',
+  color: 'var(--dsw-alias-label-primary-foreground)',
+}
+
+/** 官方行内小按钮（Button .sm + .outline）：28px / radius-sm(8px) / 0.5px border-l3。 */
+export const CAPSULE_BTN: CSSProperties = {
+  boxSizing: 'border-box',
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+  height: 28, padding: '0 10px', flexShrink: 0,
+  border: '0.5px solid var(--dsw-alias-border-l3, rgba(255,255,255,.14))',
+  borderRadius: 'var(--dsw-radius-sm, 8px)',
+  background: 'transparent',
+  color: 'var(--dsw-alias-label-primary)',
+  font: 'inherit', fontSize: 12, lineHeight: '18px', cursor: 'pointer',
+  transition: 'background 120ms ease',
 }
 
 export const CAPSULE_BTN_DISABLED: CSSProperties = { ...CAPSULE_BTN, opacity: 0.45, cursor: 'default' }
 
-/** 行卡片：细描边、10px 圆角、无底色（与供应商详情里的行卡片同规格）。 */
+/** 行卡片：细描边、radius-md 圆角、无底色（与供应商详情里的行卡片同规格）。 */
 export const ROW_CARD: CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10,
-  padding: '9px 12px', borderRadius: 10, minWidth: 0,
-  border: '1px solid var(--dsw-alias-border-l2)',
-  transition: 'border-color .16s, background .16s',
+  padding: '9px 12px', borderRadius: 'var(--dsw-radius-md, 12px)', minWidth: 0,
+  border: '0.5px solid var(--dsw-alias-border-l3, rgba(255,255,255,.14))',
+  transition: 'border-color 120ms ease, background 120ms ease',
 }
 
-/** 编辑面（填充面）：添加控件所在的一行（宽屏右列窄时由 .phub-fill 改成列向）。 */
+/** 编辑面（填充面）：添加控件所在的一行。 */
 export const FILL_PANEL: CSSProperties = {
   display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap',
-  padding: '10px 12px', borderRadius: 10,
+  padding: '10px 12px', borderRadius: 'var(--dsw-radius-md, 12px)',
   background: 'var(--dsw-alias-bg-module-platform, #f2f3f5)',
 }
 
@@ -78,14 +186,16 @@ export function Pill({ text, tone = 'active' }: { text: string; tone?: 'active' 
   const color = tone === 'active'
     ? 'var(--dsw-alias-state-success-primary, #00b42a)'
     : 'var(--dsw-alias-label-tertiary, #8f959e)'
+  // 官方 Tag（tone=outline）规格：发丝描边 + 次级文字 + radius-sm。
   return (
     <span
       title={`当前生效：${text}`}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
-        height: 24, padding: '0 10px', borderRadius: 12, maxWidth: 320,
-        border: '1px solid var(--dsw-alias-border-l3, #c9cdd4)',
+        height: 24, padding: '0 8px', borderRadius: 'var(--dsw-radius-sm, 8px)', maxWidth: 320,
+        border: '0.5px solid var(--dsw-alias-border-l3, rgba(255,255,255,.14))',
         color: 'var(--dsw-alias-label-secondary)',
+        fontSize: 12, lineHeight: '18px',
       }}
     >
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
@@ -113,11 +223,12 @@ export function IconButton({ label, glyph, disabled, danger, onClick }: {
       style={{
         width: 24, height: 24, flexShrink: 0,
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        border: 'none', borderRadius: 6, background: 'transparent',
+        border: 'none', borderRadius: 'var(--dsw-radius-sm, 8px)', background: 'transparent',
         color: 'var(--dsw-alias-label-tertiary)',
         fontSize: 13, lineHeight: 1,
         cursor: disabled === true ? 'default' : 'pointer',
-        opacity: disabled === true ? 0.35 : 1,
+        opacity: disabled === true ? 0.4 : 1,
+        transition: 'background 120ms ease, color 120ms ease',
       }}
     >
       {glyph}
@@ -141,10 +252,12 @@ export function SelectField({ label, value, disabled, width, onChange, children 
   children: ReactNode
 }): ReactNode {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, flex: '1 1 0%' }}>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, flex: '1 1 160px' }}>
       <span style={{ fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' }}>{label}</span>
       <select
-        style={{ ...SELECT_STYLE, ...(width === undefined ? { flex: '1 1 0%', width: '100%' } : { width }) }}
+        /* 宽度撑满由 width:100% 给；**不要**在这里写 flex —— label 是列向容器，
+           flex-basis:0 会顶掉 height:32px，实测下拉被压成 24px 高。 */
+        style={{ ...SELECT_STYLE, ...(width === undefined ? { width: '100%' } : { width, flex: 'none' }) }}
         value={value}
         disabled={disabled}
         aria-label={label}

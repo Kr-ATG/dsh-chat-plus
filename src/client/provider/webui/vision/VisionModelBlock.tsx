@@ -11,7 +11,8 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import {
   BlockShell, CAPSULE_BTN, CAPSULE_BTN_DISABLED, FILL_PANEL, IconButton,
-  MONO, ROW_CARD, SelectField, StateHint,
+  MONO, OFFICIAL_SWITCH, OFFICIAL_SWITCH_ON, OFFICIAL_SWITCH_THUMB, OFFICIAL_SWITCH_THUMB_ON,
+  ROW_CARD, SelectField, StateHint,
 } from '../blocks/shared.tsx'
 
 interface ModelInfo { id: string; name: string; input: string[] | null }
@@ -27,43 +28,6 @@ function isVisionModel(m: ModelInfo): boolean {
 }
 
 function keyOf(item: VisionItem): string { return `${item.provider}/${item.model}` }
-
-/* 自动降级开关（原通用设置卡同款圆钮 switch 紧凑版）。 */
-const fallbackSwitchStyle: CSSProperties = {
-  position: 'relative',
-  width: 34,
-  height: 18,
-  borderRadius: 9,
-  border: 'none',
-  cursor: 'pointer',
-  flex: 'none',
-  padding: 0,
-  background: 'var(--dsw-alias-border-l2, #dcdfe6)',
-  transition: 'background .15s',
-}
-
-const fallbackSwitchOnStyle: CSSProperties = {
-  ...fallbackSwitchStyle,
-  background: 'var(--dsw-alias-state-business-primary, #4176e6)',
-}
-
-const fallbackKnobStyle: CSSProperties = {
-  position: 'absolute',
-  top: 2,
-  left: 2,
-  width: 14,
-  height: 14,
-  borderRadius: '50%',
-  background: 'var(--dsw-alias-label-tertiary, #8f959e)',
-  transition: 'left .15s, background .15s',
-  boxShadow: '0 1px 2px rgba(0,0,0,.2)',
-}
-
-const fallbackKnobOnStyle: CSSProperties = {
-  ...fallbackKnobStyle,
-  left: 18,
-  background: '#fff',
-}
 
 export function VisionModelBlock(): ReactNode {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -173,10 +137,10 @@ export function VisionModelBlock(): ReactNode {
           aria-checked={fallback}
           aria-label="自动降级开关"
           disabled={fallbackBusy}
-          style={fallback ? fallbackSwitchOnStyle : fallbackSwitchStyle}
+          style={fallback ? OFFICIAL_SWITCH_ON : OFFICIAL_SWITCH}
           onClick={() => { toggleFallback(!fallback) }}
         >
-          <span style={fallback ? fallbackKnobOnStyle : fallbackKnobStyle} />
+          <span style={fallback ? OFFICIAL_SWITCH_THUMB_ON : OFFICIAL_SWITCH_THUMB} />
         </button>
         <span style={{ fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-secondary, #4e5969)' }}>
           自动降级{fallback ? '已开启' : '已关闭'}
