@@ -65,7 +65,7 @@
   徽章等）保留常量。亮 / 暗双主题实测零残留，详见下文「主题色统一」一节
 
 产物约 **5.4 MB**（host 3.9 MB + 浏览器半身 448 KB + mermaid 资源 968 KB），浏览器侧只加载
-448 KB。随包另分发**内置技能 2.79 MB**（`assets/skills/`，只落在磁盘、由 host 读文件，
+448 KB。随包另分发**内置技能 2.82 MB**（`assets/skills/`，只落在磁盘、由 host 读文件，
 不进 bundle、不进浏览器）——npm 包总大小约 8.2 MB。
 
 
@@ -105,10 +105,10 @@ shape 三选一 oval / rect / diamond，pts 为完整折线点（含起终点，
 
 > 卡片只在 **「KR对话」视图**渲染，普通「对话」视图里同一个围栏会原样显示成代码块（`pluginRenders = !KR_CHAT_ENABLED || isKrMode`）。
 
-## 内置技能：diagram-design（不可删除）
+## 内置技能：diagram-design + motion-primitives（不可删除）
 
-`assets/skills/diagram-design/`（212 文件 / 2.79 MB）随包分发，启动时由
-`src/triad/bundled-skills.ts` **物化**到 `~/.dsh/skills/diagram-design/`。这条 root 在
+`assets/skills/`（215 文件 / 2.82 MB）随包分发，启动时由
+`src/triad/bundled-skills.ts` **物化**到 `~/.dsh/skills/<name>/`。这条 root 在
 `dsh-skill-filesystem` 里的 source 是 `user-dsh`，是用户级技能的正统位置——不落盘 DSH 就
 看不见它（官方的 `bundledSkillDir` 需要在 profile 里填插件绝对路径，机器绑定、装一次废一次）。
 
@@ -121,10 +121,10 @@ shape 三选一 oval / rect / diamond，pts 为完整折线点（含起终点，
 |---|---|---|
 | 目录被删 | 下次启动原样装回 | 目录不存在 |
 | 内容被改（含删单个文件） | 下次启动覆盖回随包版本 | **重算目标目录实际内容**的 hash ≠ stamp 记录 |
-| 内容未动 | 跳过，不重写 2.79 MB | 目标实况 hash == 随包 hash |
+| 内容未动 | 跳过，不重写 2.82 MB | 目标实况 hash == 随包 hash |
 
 第二条不能省：只读 stamp 等于用户改坏了也永远发现不了（stamp 不会自己变）。代价是每次启动要
-hash 212 个文件（几十毫秒）。
+hash 215 个文件（几十毫秒）。
 
 **安全阀**：目标目录存在但没有本插件写的 stamp（`.dsh-chat-plus-bundled.json`）→ 那是用户自己
 放的同名技能，**绝不覆盖**，只告警。误毁用户资产比「内置这次没装上」严重得多。
@@ -134,8 +134,15 @@ hash 212 个文件（几十毫秒）。
 （Linux/macOS 无此问题）。改成「原目录保留 + 清空内容 + 整体铺入」，零 rename。半成品窗口由
 stamp 收口：stamp 在复制全部完成后才出现在目标目录，中途崩溃留下的残缺目录下次必然重装。
 
-**面板表现**：`能力` 工作台里该技能带「内置」徽章，删除按钮置灰禁用（hover 文案改为「内置技能，
+**面板表现**：`能力` 工作台里这些技能带「内置」徽章，删除按钮置灰禁用（hover 文案改为「内置技能，
 随 dsh-chat-plus 分发，不可删除」），host 侧 `deleteSkill` 也会对带 stamp 的技能直接拒绝。
+
+**当前内置清单**（`assets/skills/` 下凡含 `SKILL.md` 的目录都会被物化，加技能=加目录，无需改代码）：
+
+| 技能 | 体积 | 用途 |
+|---|---|---|
+| `diagram-design` | 212 文件 / 2.79 MB | 架构图、流程图、时序图、ER 图等专业图表产出 |
+| `motion-primitives` | 3 文件 / 0.03 MB | **动效组件实操手册**。33 个 MIT 免费 React 动效组件的选型决策表、安装、props 速查、后台系统与 Electron/Tauri 桌面壳适配要点，以及该库未内置 `prefers-reduced-motion` 的全局兜底写法（`<MotionConfig reducedMotion="user">`） |
 
 > 与围栏仍是两套输出格式：`diagram-design` 产独立 HTML（走对话截图内嵌），`diagram` 围栏产对话内
 > SVG 卡片。两者都在包里，但没打通。
