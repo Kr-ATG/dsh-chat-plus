@@ -19,9 +19,9 @@ import type { CSSProperties, ReactNode } from 'react'
 import type { DiscoveredModelView, IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
 import { messageOf } from './store.ts'
 
-/** 「对话供应商」区块的本地文案（中文）。 */
+/** 「模型供应商」区块的本地文案（中文）。 */
 export const chatCopy = {
-  chatTitle: '对话供应商',
+  chatTitle: '模型供应商',
   configuredGroup: '已配置',
   presetGroup: '目录预设',
   addCustom: '添加自定义提供方',

@@ -836,6 +836,16 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
 
   // 6) 布局：左栏不再有收窄态；宽屏三栏由 ResizeObserver 量容器实宽决定
   const listSrc = stripSrc(readSrcOf('src/client/provider/webui/chat/ChatProviderList.tsx'))
+  // 界面文案：左栏标题必须是「模型供应商」（用户 2026-10-05 点名改的，
+  // 原 webui 叫「对话供应商」，但这一页管的是模型与密钥，不只是对话）
+  const editorSrc = stripSrc(readSrcOf('src/client/provider/webui/chat/ModelListEditor.tsx'))
+  if (!/chatTitle: '模型供应商'/.test(editorSrc)) {
+    fail('供应商页左栏标题必须是「模型供应商」')
+  } else if (/对话供应商/.test(editorSrc) || /对话供应商/.test(listSrc)) {
+    fail('「对话供应商」旧文案不该残留')
+  } else {
+    pass('供应商页左栏标题为「模型供应商」（旧文案无残留）')
+  }
   if (/iconOnly|onToggleCollapse|navColCollapsedStyle/.test(listSrc)) {
     fail('供应商左栏不该再有收窄态（用户 2026-10-05 点名去掉：收窄后只剩图标列，没有使用场景）')
   } else {

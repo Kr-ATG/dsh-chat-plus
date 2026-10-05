@@ -1,5 +1,5 @@
 /**
- * 「对话供应商」快照 store：将可配置提供方目录（`llm.providers`）、设置
+ * 「模型供应商」快照 store：将可配置提供方目录（`llm.providers`）、设置
  * 命名空间（`settings.describe`）与引用的凭据（`credentials.describe`）
  * join 成一份快照。Host 始终是唯一事实源——每次变更都走 wire 写入，页面
  * 从下一次 describe（推送失效或手动重拉）重渲染。
@@ -130,7 +130,7 @@ function apiKeyEnvOf(namespace: SettingsNamespaceView | undefined, path: readonl
   return typeof ref === 'string' && ref.length > 0 ? ref : undefined
 }
 
-/** 「对话供应商」页面控制器（每个 settings 面板一个）。 */
+/** 「模型供应商」页面控制器（每个 settings 面板一个）。 */
 export class ModelsSettingsStore {
   /** 区块渲染所用的快照（uSES-safe store）。 */
   readonly store: SnapshotStore<ModelsSettingsState> = createSnapshotStore<ModelsSettingsState>({
