@@ -776,14 +776,22 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   const stylesSrc = stripSrc(readSrcOf('src/client/provider/webui/styles.ts'))
   if (!/phub-blocks\{flex:0 0 clamp\(560px/.test(stylesSrc)) {
     fail('右列模型卡宽度必须 ≥560px 起（写死 380 时下拉只剩一小截）')
-  } else if (!/\.phub-proxy > \.pp-panel\{display:grid/.test(stylesSrc)) {
-    fail('代理两张卡必须走全宽栅格（宽屏并排 / 窄屏堆叠）')
+  } else if (!/\.phub-proxy\{width:100%/.test(stylesSrc)) {
+    fail('代理必须是全宽区块（不占右列）')
   } else {
-    pass('右列模型卡宽度 clamp(560px,44%,900px)；代理走全宽栅格')
+    pass('右列模型卡宽度 clamp(560px,44%,900px)；代理是全宽区块')
   }
   // 「N 家走代理」必须排除失效条目：host 名单里会残留已删除 / 改名的 route key，
   // 直接数 providers.length 会出现「只勾两家却写 5 家」（用户 2026-10-05 问过）。
   const proxyPanelSrc = stripSrc(readSrcOf('src/client/provider/panel/proxy-panel.tsx'))
+  // 逐供应商网格已删（用户 2026-10-05：供应商卡片上本来就有开关，别画三遍）。
+  if (/gridTemplateColumns|toggleMember|setProviderProxied/.test(proxyPanelSrc)) {
+    fail('代理区块不该再有逐供应商开关网格（供应商卡片上已有「走代理 是/否」）')
+  } else if (!/role="tab"/.test(proxyPanelSrc) || !/全局/.test(proxyPanelSrc) || !/仅选中/.test(proxyPanelSrc)) {
+    fail('「全局 / 仅选中」范围切换必须保留（那是全局语义，供应商卡片装不下）')
+  } else {
+    pass('代理区块只有总开关 + 地址 + 范围（逐供应商网格已删）')
+  }
   if (!/liveCount/.test(proxyPanelSrc) || !/stale/.test(proxyPanelSrc)) {
     fail('「N 家走代理」必须排除 host 报告的失效条目（否则数字与勾选数对不上）')
   } else if (/providers\.length \?\? 0\) \+ ' 家走代理'/.test(proxyPanelSrc)) {
@@ -808,13 +816,15 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
 
   // 4) 代理开关与选择都在代理页：总开关 + 模式分段 + 逐供应商开关
   if (!/role="switch"/.test(proxySrc) || !/aria-label="网络代理开关"/.test(proxySrc)) {
-    fail('代理页缺少总开关（role=switch + aria-label）')
+    fail('代理区块缺少总开关（role=switch + aria-label）')
   } else if (!/saveProxy\(\{ mode: 'all' \}|'全局'/.test(proxySrc) || !/仅选中/.test(proxySrc)) {
-    fail('代理页缺少「全局 / 仅选中」范围选择')
-  } else if (!/setProviderProxied/.test(proxySrc)) {
-    fail('代理页缺少逐供应商开关（setProviderProxied → host 读-改-写）')
+    fail('代理区块缺少「全局 / 仅选中」范围选择')
+  } else if (/setProviderProxied/.test(proxySrc)) {
+    fail('代理区块不该再有逐供应商开关（已挪回供应商卡片：ChatProviderDetail 的行内「走代理 是/否」）')
+  } else if (!/setProviderProxied/.test(chatDetail)) {
+    fail('供应商卡片必须保留行内代理开关（setProviderProxied → host 读-改-写）')
   } else {
-    pass('代理页：总开关 + 全局/仅选中范围 + 逐供应商开关全部在位')
+    pass('代理区块：总开关 + 全局/仅选中范围；逐供应商开关在供应商卡片上')
   }
 
   // 5) 供应商卡片仍带 P 标记与行内代理开关（与代理页共享同一份名单语义）

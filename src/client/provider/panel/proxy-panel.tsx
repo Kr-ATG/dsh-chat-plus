@@ -16,12 +16,9 @@
  * 版式：两张卡走 .phub-block（与辅助视觉 / 生图 / 生视频同一套卡片 token），
  * 根节点 .pp-panel 是普通列容器——滚动交给外层的 .phub-blocks。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { ProviderIcon } from '../webui/provider-icons.tsx'
-import {
-  PROXY_CHANGED, loadProxyProviderKeys, loadProxySnapshot, saveProxy, setProviderProxied,
-} from '../webui/chat/proxy.ts'
+import { PROXY_CHANGED, loadProxySnapshot, saveProxy } from '../webui/chat/proxy.ts'
 import type { ProxySnapshot } from '../webui/chat/proxy.ts'
 
 // ── 样式（沿用官方控件规格：行卡片 12px 圆角、输入框 32px、胶囊按钮 28px）──
@@ -91,6 +88,13 @@ const cleanBtnStyle: CSSProperties = {
   cursor: 'pointer', flex: 'none',
 }
 
+/** 分段控件右侧的小字说明（比字段标签更轻，跟在控件后面同一行）。 */
+const segHintStyle: CSSProperties = {
+  fontSize: 12, lineHeight: '18px',
+  color: 'var(--dsw-alias-label-tertiary)',
+  minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+}
+
 /** 范围分段控件（官方 filterTabs 语言：无容器底色，选中只加中性灰底）。 */
 const segStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 }
 function segBtn(active: boolean): CSSProperties {
@@ -104,27 +108,6 @@ function segBtn(active: boolean): CSSProperties {
   }
 }
 
-/** 逐供应商行：勾选后进入代理名单。 */
-const rowStyle: CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 10,
-  padding: '9px 12px', borderRadius: 10, minWidth: 0,
-  border: '1px solid var(--dsw-alias-border-l2)',
-  background: 'transparent',
-  transition: 'border-color .16s, background .16s',
-}
-const rowName: CSSProperties = {
-  fontSize: 13, color: 'var(--dsw-alias-label-primary)',
-  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1,
-}
-const rowHost: CSSProperties = {
-  fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
-  fontSize: 11, color: 'var(--dsw-alias-label-tertiary)',
-  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320,
-}
-const gridStyle: CSSProperties = {
-  display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 8,
-}
-
 type NoteKind = 'info' | 'ok' | 'error'
 interface Note { kind: NoteKind; text: string }
 
@@ -134,12 +117,9 @@ function noteStyleOf(kind: NoteKind): CSSProperties {
   return noteStyle
 }
 
-interface ProviderRow { key: string; name: string; baseURL: string; host: string | null }
-
 /** 「网络代理」工作台页面。 */
 export function ProxyPanel(): JSX.Element {
   const [snapshot, setSnapshot] = useState<ProxySnapshot | null>(null)
-  const [providers, setProviders] = useState<ProviderRow[]>([])
   const [urlInput, setUrlInput] = useState('')
   const [busy, setBusy] = useState('')
   const [note, setNote] = useState<Note | null>(null)
@@ -160,25 +140,8 @@ export function ProxyPanel(): JSX.Element {
     return () => { window.removeEventListener(PROXY_CHANGED, refresh) }
   }, [refresh])
 
-  // 供应商明细（含 baseURL / host）用于行副标题；取不到就只显示 route key。
-  useEffect(() => {
-    let alive = true
-    fetch('/api/dsh-proxy/providers', { cache: 'no-store' })
-      .then(r => r.json())
-      .then((payload: any) => {
-        if (!alive || payload?.ok !== true || !Array.isArray(payload.providers)) return
-        setProviders(payload.providers.filter((p: any) => typeof p?.key === 'string'))
-      })
-      .catch(() => { void loadProxyProviderKeys().then((keys) => {
-        if (!alive || keys === null) return
-        setProviders(keys.map(key => ({ key, name: key, baseURL: '', host: null })))
-      }) })
-    return () => { alive = false }
-  }, [])
-
   const enabled = snapshot?.enabled === true
   const mode = snapshot?.mode ?? 'all'
-  const members = useMemo(() => new Set(snapshot?.providers ?? []), [snapshot])
   const busyAny = busy !== ''
   const dirty = urlInput.trim() !== (snapshot?.url ?? '')
 
@@ -203,16 +166,6 @@ export function ProxyPanel(): JSX.Element {
     } finally {
       setBusy('')
     }
-  }, [])
-
-  /** 逐供应商开关：host 侧读-改-写，成功后广播刷新。 */
-  const toggleMember = useCallback(async (key: string, on: boolean): Promise<void> => {
-    setBusy('member:' + key)
-    setNote(null)
-    const r = await setProviderProxied(key, on)
-    if (!r.ok) setNote({ kind: 'error', text: r.message })
-    else void loadProxySnapshot().then((next) => { if (next !== null) setSnapshot(next) })
-    setBusy('')
   }, [])
 
   /** 清理名单里已失效的 key（供应商被删 / 改名后留下的死条目）。 */
@@ -286,6 +239,39 @@ export function ProxyPanel(): JSX.Element {
         </div>
 
         <div style={fieldStyle}>
+          <span style={fieldLabel}>生效范围</span>
+          <div style={fieldRow}>
+            <div style={segStyle} role="tablist" aria-label="代理生效范围">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'all'}
+                style={segBtn(mode === 'all')}
+                disabled={busyAny}
+                onClick={() => { void submit({ mode: 'all' }, 'mode') }}
+              >
+                全局
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'selected'}
+                style={segBtn(mode === 'selected')}
+                disabled={busyAny}
+                onClick={() => { void submit({ mode: 'selected' }, 'mode') }}
+              >
+                仅选中
+              </button>
+            </div>
+            <span style={segHintStyle}>
+              {mode === 'all'
+                ? '所有请求都走代理'
+                : '只有供应商卡片上开了「走代理」的那几家走，其余直连'}
+            </span>
+          </div>
+        </div>
+
+        <div style={fieldStyle}>
           <span style={fieldLabel}>代理地址</span>
           <div style={fieldRow}>
             <input
@@ -314,6 +300,18 @@ export function ProxyPanel(): JSX.Element {
           </div>
         </div>
 
+        {stale.length > 0
+          ? (
+              <p style={warnNoteStyle} role="status">
+                名单里有 {stale.length} 个已失效的条目（{stale.join('、')}）——对应的供应商已被删除或改名，
+                解析不出域名、不会走代理，也不计入「N 家走代理」。
+                <button type="button" style={cleanBtnStyle} disabled={busyAny} onClick={() => { void cleanStale() }}>
+                  {busy === 'clean' ? '清理中…' : '清理失效条目'}
+                </button>
+              </p>
+            )
+          : null}
+
         {note !== null
           ? <p style={noteStyleOf(note.kind)} role="status">{note.text}</p>
           : enabled && snapshot?.active === true
@@ -326,87 +324,6 @@ export function ProxyPanel(): JSX.Element {
                 </p>
               )
             : null}
-      </section>
-
-      <section style={sectionCard} className="phub-block phub-block-in">
-        <div style={headRow}>
-          <div style={copyCol}>
-            <span style={titleStyle}>生效范围</span>
-            <span style={descStyle}>全局 = 所有请求都走代理；仅选中 = 只有下面勾选的供应商（按其 Base URL 域名）走代理，其余直连</span>
-          </div>
-          <div style={segStyle} role="tablist" aria-label="代理生效范围">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'all'}
-              style={segBtn(mode === 'all')}
-              disabled={busyAny}
-              onClick={() => { void submit({ mode: 'all' }, 'mode') }}
-            >
-              全局
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'selected'}
-              style={segBtn(mode === 'selected')}
-              disabled={busyAny}
-              onClick={() => { void submit({ mode: 'selected' }, 'mode') }}
-            >
-              仅选中
-            </button>
-          </div>
-        </div>
-
-        <div style={gridStyle}>
-          {providers.map((p) => {
-            // all 模式下「实际是否走代理」恒为真；勾选态表达的是「selected 名单里有没有它」。
-            const on = mode === 'all' || members.has(p.key)
-            const pending = busy === 'member:' + p.key
-            return (
-              <div
-                key={p.key}
-                className="pp-row"
-                style={{ ...rowStyle, opacity: pending ? 0.6 : 1 }}
-              >
-                <ProviderIcon provider={p.key} size={18} />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0, flex: 1 }}>
-                  <span style={rowName}>{p.name || p.key}</span>
-                  {p.host !== null && p.host !== '' ? <span style={rowHost}>{p.host}</span> : null}
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={on}
-                  aria-label={(p.name || p.key) + ' 走代理'}
-                  title={on ? '走代理' : '直连'}
-                  style={on ? switchOnStyle : switchStyle}
-                  disabled={busyAny}
-                  onClick={() => { void toggleMember(p.key, !on) }}
-                >
-                  <span style={on ? knobOnStyle : knobStyle} />
-                </button>
-              </div>
-            )
-          })}
-        </div>
-        {providers.length === 0
-          ? <p style={noteStyle}>还没有可选的供应商——先在「供应商」页添加提供方（这里按 llm-pi-ai 的 providers 表枚举）。</p>
-          : null}
-        {mode === 'all'
-          ? <p style={noteStyle}>当前是全局模式：所有供应商都走代理。单点关掉某一家会自动切到「仅选中」，名单取全集减该家。</p>
-          : null}
-        {stale.length > 0
-          ? (
-              <p style={warnNoteStyle} role="status">
-                名单里有 {stale.length} 个已失效的条目（{stale.join('、')}）——对应的供应商已被删除或改名，
-                解析不出域名、不会走代理，也不计入上面的「N 家走代理」。点下面的按钮清理。
-                <button type="button" style={cleanBtnStyle} disabled={busyAny} onClick={() => { void cleanStale() }}>
-                  {busy === 'clean' ? '清理中…' : '清理失效条目'}
-                </button>
-              </p>
-            )
-          : null}
       </section>
     </div>
   )

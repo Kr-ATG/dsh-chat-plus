@@ -169,13 +169,8 @@ const SHEET = `
   gap: 14px;
   min-width: 0;
 }
-/* 逐供应商开关行：hover 提亮 + 按下位移，与供应商列表行同一套反馈。 */
-.pp-row { transition: border-color .16s, background .16s, opacity .16s; }
-.pp-row:hover { border-color: var(--dsw-alias-border-l3, rgba(255,255,255,.22)); background: var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,.04)); }
-
 @media (prefers-reduced-motion: reduce) {
   .wb-body > *, .wb-supplier-scroll > * { animation: none !important; }
-  .pp-row { transition: none; }
 }
 `
 
