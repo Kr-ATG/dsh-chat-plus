@@ -153,18 +153,24 @@ export const CAPSULE_BTN: CSSProperties = {
 
 export const CAPSULE_BTN_DISABLED: CSSProperties = { ...CAPSULE_BTN, opacity: 0.45, cursor: 'default' }
 
-/** 行卡片：细描边、radius-md 圆角、无底色（与供应商详情里的行卡片同规格）。 */
+/**
+ * 行卡片：官方 `.modelEntry` 规格 —— 0.5px `border-l4` + `--dsw-radius-lg`(16px) + padding 6。
+ *
+ * 原自绘版是 1px border-l2 + 10px 圆角 + padding 9/12，与官方模型行并排能看出两套。
+ */
 export const ROW_CARD: CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10,
-  padding: '9px 12px', borderRadius: 'var(--dsw-radius-md, 12px)', minWidth: 0,
-  border: '0.5px solid var(--dsw-alias-border-l3, rgba(255,255,255,.14))',
+  padding: 6, borderRadius: 'var(--dsw-radius-lg, 16px)', minWidth: 0,
+  border: '0.5px solid var(--dsw-alias-border-l4, rgba(255,255,255,.2))',
   transition: 'border-color 120ms ease, background 120ms ease',
 }
 
-/** 编辑面（填充面）：添加控件所在的一行。 */
+/**
+ * 编辑面（填充面）：官方 `.editor` 规格 —— `--dsw-radius-lg`(16px) +
+ * `bg-module-platform` + gap 14 + padding 14/16。 */
 export const FILL_PANEL: CSSProperties = {
-  display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap',
-  padding: '10px 12px', borderRadius: 'var(--dsw-radius-md, 12px)',
+  display: 'flex', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap',
+  padding: '14px 16px', borderRadius: 'var(--dsw-radius-lg, 16px)',
   background: 'var(--dsw-alias-bg-module-platform, #f2f3f5)',
 }
 
@@ -173,8 +179,9 @@ export const MONO: CSSProperties = {
   fontSize: 12, lineHeight: '18px',
 }
 
+/* 官方 .modelCatalogMeta / .advancedHint 规格：12px / 18px / label-tertiary。 */
 const HINT_TEXT: CSSProperties = {
-  margin: 0, fontSize: 12, lineHeight: '19px',
+  margin: 0, fontSize: 12, lineHeight: '18px',
   color: 'var(--dsw-alias-label-tertiary)',
 }
 
@@ -186,16 +193,17 @@ export function Pill({ text, tone = 'active' }: { text: string; tone?: 'active' 
   const color = tone === 'active'
     ? 'var(--dsw-alias-state-success-primary, #00b42a)'
     : 'var(--dsw-alias-label-tertiary, #8f959e)'
-  // 官方 Tag（tone=outline）规格：发丝描边 + 次级文字 + radius-sm。
+  // 官方 `.rowTag` 规格：0.5px border-l3 + --dsw-radius-xs(4px) + padding 1/6 + 11/16；
+  // 状态点用官方 `.credentialDot` 的 8×8。
   return (
     <span
       title={`当前生效：${text}`}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
-        height: 24, padding: '0 8px', borderRadius: 'var(--dsw-radius-sm, 8px)', maxWidth: 320,
+        padding: '1px 6px', borderRadius: 'var(--dsw-radius-xs, 4px)', maxWidth: 320,
         border: '0.5px solid var(--dsw-alias-border-l3, rgba(255,255,255,.14))',
         color: 'var(--dsw-alias-label-secondary)',
-        fontSize: 12, lineHeight: '18px',
+        fontSize: 11, lineHeight: '16px',
       }}
     >
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
@@ -220,8 +228,9 @@ export function IconButton({ label, glyph, disabled, danger, onClick }: {
       title={label}
       disabled={disabled}
       onClick={onClick}
+      /* 官方 .iconButton 规格：28×28 / radius-sm / hover 出中性底并提亮文字。 */
       style={{
-        width: 24, height: 24, flexShrink: 0,
+        width: 28, height: 28, flexShrink: 0,
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         border: 'none', borderRadius: 'var(--dsw-radius-sm, 8px)', background: 'transparent',
         color: 'var(--dsw-alias-label-tertiary)',
@@ -253,7 +262,8 @@ export function SelectField({ label, value, disabled, width, onChange, children 
 }): ReactNode {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, flex: '1 1 160px' }}>
-      <span style={{ fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' }}>{label}</span>
+      {/* 官方 .fieldLabel：12px / 500 / label-secondary。 */}
+      <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '18px', color: 'var(--dsw-alias-label-secondary)' }}>{label}</span>
       <select
         /* 宽度撑满由 width:100% 给；**不要**在这里写 flex —— label 是列向容器，
            flex-basis:0 会顶掉 height:32px，实测下拉被压成 24px 高。 */
@@ -284,13 +294,15 @@ export function BlockShell({ title, activeText, description, children }: {
   const [open, setOpen] = useState(false)
   return (
     <section className="phub-block phub-block-in" style={{ minWidth: 0 }}>
+      {/* 官方 .rowHead（gap 10）+ .rowName（14px / 500 / 22px）。 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--dsw-alias-label-primary)', flexShrink: 0 }}>
+        <span style={{ fontSize: 14, fontWeight: 500, lineHeight: '22px', color: 'var(--dsw-alias-label-primary)', flexShrink: 0 }}>
           {title}
         </span>
         {activeText !== undefined && activeText !== ''
           ? <Pill text={activeText} />
           : <Pill text="未配置" tone="muted" />}
+        {/* 官方 .linkButton：28px / radius-sm / label-tertiary / hover 出中性底。 */}
         <button
           type="button"
           className="dsh-webui-link-btn"
@@ -298,10 +310,11 @@ export function BlockShell({ title, activeText, description, children }: {
           onClick={() => { setOpen(v => !v) }}
           style={{
             marginLeft: 'auto', flexShrink: 0,
-            height: 24, padding: '0 8px', borderRadius: 12,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            height: 28, padding: '0 10px', borderRadius: 'var(--dsw-radius-sm, 8px)',
             border: 'none', background: 'transparent',
             color: 'var(--dsw-alias-label-tertiary)',
-            fontSize: 12, lineHeight: '18px', cursor: 'pointer',
+            font: 'inherit', fontSize: 12, lineHeight: '18px', cursor: 'pointer',
           }}
         >
           {open ? '收起说明' : '说明'}

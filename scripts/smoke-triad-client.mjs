@@ -863,6 +863,21 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     fail('SelectField 不能在列向 label 里给 select 写 flex-basis:0（实测把 32px 压成 24px）')
   }
   pass('控件规格对齐官方：下拉/输入框 0.5px border-l4 + radius-md，开关 36×20，按钮 radius-sm，分段控件轨道+滑块')
+  // 卡片与行：官方 .rowCard / .modelEntry / .editor / .iconButton / .rowTag / .linkButton
+  const stylesFull = stripSrc(readSrcOf('src/client/provider/webui/styles.ts'))
+  if (!/--dsw-radius-xl,20px/.test(stylesFull) || !/--dsw-alias-settings-card-stroke/.test(stylesFull)) {
+    fail('能力卡必须是官方 .rowCard 规格（0.5px settings-card-stroke + radius-xl 20px）')
+  } else if (!/--dsw-radius-lg, 16px/.test(sharedSrc) || !/padding: 6, borderRadius/.test(sharedSrc.replace(/\s+/g, ' '))) {
+    fail('行卡片必须是官方 .modelEntry 规格（0.5px border-l4 + radius-lg 16px + padding 6）')
+  } else if (!/--dsw-radius-xs, 4px/.test(sharedSrc)) {
+    fail('生效值标签必须是官方 .rowTag 规格（0.5px border-l3 + radius-xs 4px + padding 1/6）')
+  } else if (!/width: 28, height: 28, flexShrink: 0/.test(sharedSrc)) {
+    fail('图标钮必须是官方 .iconButton 规格（28×28）')
+  } else if (!/height: 28, padding: '0 10px', borderRadius: 'var\(--dsw-radius-sm, 8px\)'/.test(sharedSrc)) {
+    fail('「说明」链接钮必须是官方 .linkButton 规格（28px / radius-sm / 0 10px）')
+  } else {
+    pass('卡片与行对齐官方：能力卡 radius-xl+card-stroke，行 radius-lg，标签 radius-xs，图标钮 28，说明钮 28')
+  }
 
   // 6) 布局：左栏不再有收窄态；宽屏三栏由 ResizeObserver 量容器实宽决定
   const listSrc = stripSrc(readSrcOf('src/client/provider/webui/chat/ChatProviderList.tsx'))

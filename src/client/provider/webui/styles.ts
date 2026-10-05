@@ -85,10 +85,21 @@ export function injectStyles(): () => void {
 /* 可折叠分组标题（「目录预设」）：hover 提亮，chevron 旋转由内联样式给。 */
 .phub-group-toggle:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.08));color:var(--dsw-alias-label-secondary,#4e5969)}
 
+/* 「说明」链接钮：官方 .linkButton 规格（28px / radius-sm / label-tertiary / hover 出底）。 */
+.phub-host button[aria-expanded]{border-radius:var(--dsw-radius-sm,8px);transition:background 120ms ease,color 120ms ease}
+.phub-host button[aria-expanded]:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}
+
+/* 官方 .addModelButton / .addButton 的虚线添加面（生图/生视频的「+ 添加」）。 */
+.phub-host button.dsh-webui-capsule-btn:not(:disabled){border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-sm,8px);height:28px;padding:0 10px;font-size:12px;line-height:18px}
+.phub-host button.dsh-webui-capsule-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+
 /* ── 详情面板与底部三块：同一张卡片的两种用法（同 token / 同圆角 / 同内距） ── */
-.phub-panel{border:1px solid var(--dsw-alias-border-l2,#dcdfe6);border-radius:12px;padding:14px 18px;display:flex;flex-direction:column;gap:10px;min-width:0;box-sizing:border-box}
-.phub-block{border:1px solid var(--dsw-alias-border-l2,#dcdfe6);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;min-width:0;box-sizing:border-box;transition:border-color .18s ease}
-.phub-block:hover{border-color:var(--dsw-alias-border-l3,#c9cdd4)}
+.phub-panel{border:.5px solid var(--dsw-alias-settings-card-stroke, rgba(255,255,255,.2));border-radius:var(--dsw-radius-xl,20px);padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-width:0;box-sizing:border-box;background:var(--dsw-alias-settings-card-fill, transparent)}
+/* 能力卡 = 官方 .rowCard 规格：0.5px settings-card-stroke + settings-card-fill +
+   --dsw-radius-xl(20px) + gap 12 + padding 12/14。原自绘版是 1px border-l2 + 12px 圆角，
+   与官方设置页的卡片并排一眼能看出两套。 */
+.phub-block{border:.5px solid var(--dsw-alias-settings-card-stroke, rgba(255,255,255,.2));border-radius:var(--dsw-radius-xl,20px);padding:12px 14px;display:flex;flex-direction:column;gap:12px;min-width:0;box-sizing:border-box;background:var(--dsw-alias-settings-card-fill, transparent);transition:border-color 120ms ease}
+.phub-block:hover{border-color:var(--dsw-alias-border-l3,rgba(255,255,255,.24))}
 .phub-block-in{animation:phub-block-in 280ms cubic-bezier(.2,.8,.2,1) backwards}
 /* 底部三块错峰入场：60ms 一档，整页像一次性铺开而不是同时闪出来。 */
 .phub-blocks{display:flex;flex-direction:column;gap:14px;min-width:0}

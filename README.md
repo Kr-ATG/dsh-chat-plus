@@ -400,6 +400,14 @@ CSS Modules 由各 bundle 自己内联注入（`style[data-plugin-css]`），插
 未必已注入——实测页面上查不到 `Switch.module.css` / `SegmentedControl.module.css` 的规则，
 会出现「结构对、外观裸」。复刻规格则与官方同 token、同尺寸，且不依赖注入时机。
 
+**卡片与行也按官方规格**（同一轮补充）：能力卡 = 官方 `.rowCard`
+（**0.5px `--dsw-alias-settings-card-stroke` + `--dsw-alias-settings-card-fill` +
+`--dsw-radius-xl`(20px) + padding 12/14**，原来是 1px border-l2 + 12px 圆角）；
+行卡片 = 官方 `.modelEntry`（0.5px border-l4 + `radius-lg`(16px) + padding 6）；
+填充面 = 官方 `.editor`（`radius-lg` + bg-module-platform + padding 14/16）；
+生效值标签 = 官方 `.rowTag`（0.5px border-l3 + `radius-xs`(4px) + 11/16）；
+图标钮 = 官方 `.iconButton`（28×28 + hover 换色）；「说明」= 官方 `.linkButton`（28px + radius-sm）。
+
 **踩到的坑**：`SelectField` 的 label 是列向 flex 容器，给 select 写 `flex: '1 1 0%'` 会让
 `flex-basis: 0` 顶掉 `height: 32px`——实测下拉被压成 **24px 高**。改成 `width: 100%` 后恢复 32px。
 
