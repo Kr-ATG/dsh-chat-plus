@@ -362,6 +362,10 @@ const expectedStyles = [
   'dsh-chat-flow-proto-styles', 'dsh-chat-flow-diagram-styles',
   'dsh-chat-flow-download-styles',
   'dsh-triad-skill-source-styles',
+  // 供应商页样式（原 dsh-provider-hub/webui/styles）：.phub-* 卡片与控件规格、
+  // 交互态、入场动效。2026-10-05 随供应商中心融合进来，由 applyProviderClient
+  // 的 effect 注入 —— 之前这条链路漏了调用，所以这张表一直没出现在页面里。
+  'dsh-provider-hub-styles',
   // 面板外壳（page / compact 两种形态）。2026-10-04 起由 registerPanelSeat 在
   // apply() 时同步注入（三个工作台页共用一个座位注册器），不再等 React 首帧。
   'dsh-popover-shell-styles',

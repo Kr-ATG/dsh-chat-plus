@@ -267,6 +267,17 @@ export function apply(ctx: ClientContext): void {
   guarded(ctx, 'triad (memory/usage/skills)', () => {
     applyTriadClient(ctx)
   })
+
+  // ── 融合的原 dsh-provider-hub（供应商中心）────────────────────────────
+  // 对话输入区的三个座位（供应商标签 / 模型选择 / 推理强度滑杆）+ 提示词优化图标；
+  // 供应商页与代理区块由工作台容器渲染（见 triad/hub/WorkbenchPanel.tsx）。
+  //
+  // 这条调用 2026-10-05 融合时**漏了**：import 加进去了但 apply 里没调，
+  // 表现为「对话框的供应商/模型/推理强度整排不见」，而工作台里的供应商页照常
+  // ——因为页面是 WorkbenchPanel 直接渲染的，不依赖这里。
+  guarded(ctx, 'provider hub (seats/prompt-optimize)', () => {
+    applyProviderClient(ctx)
+  })
 }
 
 /** 纯逻辑再导出：供 smoke 断言「Token 活动」贡献热力模型 + 人话行动流翻译。 */

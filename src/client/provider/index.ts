@@ -20,13 +20,16 @@ import { applyPromptOptimize } from './prompt-optimize/index'
 import { injectStyles as injectSupplierStyles } from './webui/styles.ts'
 
 /**
- * 对话输入区两个座位需要的服务（延迟注入；缺哪个只有那两块不挂）。
+ * 对话输入区三个座位需要的服务（延迟注入；缺哪个只有那几块不挂）。
  *
- * 刻意不含 remote / configForms：那是「供应商」工作台页渲染时经
- * client-ctx 的 `getService` 防御式读取的（页面可能在任何时候挂载），
+ * `remote.session` 必须在内：`modelDirectories.directoryFor(sessionId)` 内部会读它，
+ * 少一个就在渲染时抛 `cannot get property "remote.session" without inject`
+ * （2026-10-05 实测：座位注册成功、渲染即崩，整排控件空白）。
+ * `remote.settings` / `remote.credentials` / `remote.llm` / `configForms` 不在列——
+ * 那是工作台供应商页渲染时经 client-ctx 的 `getService` 防御式读取的，
  * 写进这里等于给整块模块加硬依赖。
  */
-export const providerClientServices = ['slots', 'modelDirectories', 'sessions'] as const
+export const providerClientServices = ['slots', 'modelDirectories', 'sessions', 'remote.session'] as const
 
 /** 共享清洗器随 client 半身一并导出（冒烟与面板兜底都从这里取）。 */
 export { cleanOptimized, collapseToLine, previewOptimized } from './prompt-optimize/index'

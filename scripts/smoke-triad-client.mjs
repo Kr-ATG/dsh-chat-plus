@@ -834,6 +834,20 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     pass('供应商列表 P 标记 + 详情行内代理开关保留（与代理页同一份名单）')
   }
 
+  // 6) 供应商座位必须真的被装配（2026-10-05 踩过：import 加了但 apply 里没调，
+  //    表现为「对话框整排供应商/模型/推理强度不见」，而工作台供应商页照常显示）
+  const clientEntry = stripSrc(readSrcOf('src/client/index.ts'))
+  const providerEntrySrc = stripSrc(readSrcOf('src/client/provider/index.ts'))
+  if (!/applyProviderClient\(ctx\)/.test(clientEntry)) {
+    fail('client 入口必须调用 applyProviderClient(ctx)（只 import 不调用 = 对话框三个座位全丢）')
+  } else if (!/'remote\.session'/.test(providerEntrySrc)) {
+    fail('providerClientServices 必须含 remote.session（modelDirectories.directoryFor 内部要读它，少了渲染即抛 inject 错误）')
+  } else if (!/applyModelSeats/.test(providerEntrySrc) || !/applyPromptOptimize/.test(providerEntrySrc)) {
+    fail('provider 入口必须同时装配 model seats 与 prompt optimize')
+  } else {
+    pass('供应商座位装配在位：applyProviderClient 被调用 + remote.session 在依赖里 + 两个模块都装')
+  }
+
   // 6) 控件规格必须对齐官方（用户 2026-10-05 点名「都没用官方的那种样式，特别是下拉框」）
   const sharedSrc = stripSrc(readSrcOf('src/client/provider/webui/blocks/shared.tsx'))
   const proxyPanelStyles = stripSrc(readSrcOf('src/client/provider/panel/proxy-panel.tsx'))

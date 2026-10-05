@@ -489,6 +489,13 @@ host 半身（六个模块）整体搬进本插件：
 逐供应商开关）。写入仍走 host 的 `/api/dsh-proxy/member`（读-改-写，避免多个开关各自
 拿过期快照互相覆盖）。供应商卡片上的行内开关与 P 标记**保留**，与代理区块共享同一份名单。
 
+**对话输入区座位**（2026-10-05 修）：供应商标签 / 模型选择 / 推理强度滑杆三件套
+随融合一并搬入，但当时**只加了 import、apply 里漏了调用**，表现为「对话框右下角整排控件不见」
+而工作台供应商页照常（页面由 WorkbenchPanel 直接渲染，不经过这条路径）。补上调用后又踩到
+第二个坑：`providerClientServices` 少了 `remote.session`——`modelDirectories.directoryFor(sessionId)`
+内部会读它，座位注册成功但一渲染就抛 `cannot get property "remote.session" without inject`，
+整排空白。两处都写进了冒烟断言。
+
 **控件规格对齐官方**（2026-10-05 用户点名「都没用官方的那种样式，特别是下拉框」）：
 插件自绘的下拉 / 输入框 / 开关 / 按钮 / 分段控件全部改成**逐字复刻官方 CSS Modules 的规格**：
 
