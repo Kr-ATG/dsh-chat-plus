@@ -83,6 +83,13 @@ const btnDisabled: CSSProperties = { opacity: 0.45, cursor: 'default' }
 const noteStyle: CSSProperties = { margin: 0, fontSize: 12, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' }
 const okNoteStyle: CSSProperties = { ...noteStyle, color: 'var(--dsw-alias-state-success-primary)' }
 const errNoteStyle: CSSProperties = { ...noteStyle, color: 'var(--dsw-alias-state-error-primary)' }
+const warnNoteStyle: CSSProperties = { ...noteStyle, color: 'var(--dsw-alias-state-warn-color, var(--dsw-alias-state-warn-label, #d4800a))' }
+const cleanBtnStyle: CSSProperties = {
+  marginLeft: 8, height: 24, padding: '0 10px', borderRadius: 12,
+  border: '1px solid var(--dsw-alias-border-l2)', background: 'transparent',
+  color: 'var(--dsw-alias-label-primary)', fontSize: 12, lineHeight: '18px',
+  cursor: 'pointer', flex: 'none',
+}
 
 /** 范围分段控件（官方 filterTabs 语言：无容器底色，选中只加中性灰底）。 */
 const segStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 }
@@ -208,6 +215,22 @@ export function ProxyPanel(): JSX.Element {
     setBusy('')
   }, [])
 
+  /** 清理名单里已失效的 key（供应商被删 / 改名后留下的死条目）。 */
+  const cleanStale = useCallback(async (): Promise<void> => {
+    const dead = new Set(snapshot?.stale ?? [])
+    if (dead.size === 0) return
+    setBusy('clean')
+    setNote(null)
+    const kept = (snapshot?.providers ?? []).filter(k => !dead.has(k))
+    const r = await saveProxy({ providers: kept })
+    if (!r.ok) setNote({ kind: 'error', text: r.message })
+    else {
+      setSnapshot(r.snapshot)
+      setNote({ kind: 'ok', text: '已清理 ' + dead.size + ' 个失效条目' })
+    }
+    setBusy('')
+  }, [snapshot])
+
   /** 连通性自检：真实经代理请求一次，区分「已挂载」与「真的通」。 */
   const probe = useCallback(async (): Promise<void> => {
     setBusy('test')
@@ -228,7 +251,15 @@ export function ProxyPanel(): JSX.Element {
     }
   }, [])
 
-  const statusTag = !enabled ? '已关闭' : mode === 'all' ? '全局' : (snapshot?.providers.length ?? 0) + ' 家走代理'
+  /*
+   * 「N 家走代理」按**真实生效**算：host 的 providers 名单里会残留已删除 /
+   * 改名的 route key（host 侧叫 stale，解析不出域名、静默不代理）。
+   * 直接数 providers.length 就会出现「只勾了两家却写 5 家」——用户 2026-10-05
+   * 正是被这个数字问住的。这里排除 stale，并把死条目单独提示出来。
+   */
+  const stale = snapshot?.stale ?? []
+  const liveCount = Math.max(0, (snapshot?.providers.length ?? 0) - stale.length)
+  const statusTag = !enabled ? '已关闭' : mode === 'all' ? '全局' : liveCount + ' 家走代理'
 
   return (
     <div className="pp-panel">
@@ -290,7 +321,7 @@ export function ProxyPanel(): JSX.Element {
                 <p style={noteStyle}>
                   {mode === 'all'
                     ? '全部请求走 ' + (snapshot?.url ?? '')
-                    : (snapshot?.providers.length ?? 0) + ' 家供应商走代理，其余直连'}
+                    : liveCount + ' 家供应商走代理（' + (snapshot?.hosts ?? []).join('、') + '），其余直连'}
                   ；「已挂载」不等于「代理可用」，可点连通性测试确认
                 </p>
               )
@@ -364,6 +395,17 @@ export function ProxyPanel(): JSX.Element {
           : null}
         {mode === 'all'
           ? <p style={noteStyle}>当前是全局模式：所有供应商都走代理。单点关掉某一家会自动切到「仅选中」，名单取全集减该家。</p>
+          : null}
+        {stale.length > 0
+          ? (
+              <p style={warnNoteStyle} role="status">
+                名单里有 {stale.length} 个已失效的条目（{stale.join('、')}）——对应的供应商已被删除或改名，
+                解析不出域名、不会走代理，也不计入上面的「N 家走代理」。点下面的按钮清理。
+                <button type="button" style={cleanBtnStyle} disabled={busyAny} onClick={() => { void cleanStale() }}>
+                  {busy === 'clean' ? '清理中…' : '清理失效条目'}
+                </button>
+              </p>
+            )
           : null}
       </section>
     </div>

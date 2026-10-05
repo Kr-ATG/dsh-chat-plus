@@ -20,7 +20,16 @@ export interface ProxySnapshot {
   url: string
   active: boolean
   mode: 'all' | 'selected'
+  /** 名单里的 route key（可能含已失效的，见 stale）。 */
   providers: string[]
+  /**
+   * 名单里**解析不出域名**的 key（供应商被删 / 改名后留下的死条目）。
+   * 这些 key 静默不代理——界面必须把它们排除出「N 家走代理」的计数，
+   * 否则会出现「明明只勾了两家、标签却写 5 家」这种对不上的数字。
+   */
+  stale: string[]
+  /** 名单里真实解析出的 hostname（实际生效的域名）。 */
+  hosts: string[]
 }
 
 const BASE = '/api/dsh-proxy'
@@ -34,6 +43,12 @@ function toSnapshot(payload: any): ProxySnapshot | null {
     mode: payload.mode === 'selected' ? 'selected' : 'all',
     providers: Array.isArray(payload.providers)
       ? payload.providers.filter((p: unknown): p is string => typeof p === 'string')
+      : [],
+    stale: Array.isArray(payload.stale)
+      ? payload.stale.filter((p: unknown): p is string => typeof p === 'string')
+      : [],
+    hosts: Array.isArray(payload.hosts)
+      ? payload.hosts.filter((p: unknown): p is string => typeof p === 'string')
       : [],
   }
 }

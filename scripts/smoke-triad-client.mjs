@@ -781,6 +781,16 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   } else {
     pass('右列模型卡宽度 clamp(560px,44%,900px)；代理走全宽栅格')
   }
+  // 「N 家走代理」必须排除失效条目：host 名单里会残留已删除 / 改名的 route key，
+  // 直接数 providers.length 会出现「只勾两家却写 5 家」（用户 2026-10-05 问过）。
+  const proxyPanelSrc = stripSrc(readSrcOf('src/client/provider/panel/proxy-panel.tsx'))
+  if (!/liveCount/.test(proxyPanelSrc) || !/stale/.test(proxyPanelSrc)) {
+    fail('「N 家走代理」必须排除 host 报告的失效条目（否则数字与勾选数对不上）')
+  } else if (/providers\.length \?\? 0\) \+ ' 家走代理'/.test(proxyPanelSrc)) {
+    fail('状态标签不能直接数 providers.length（那是含死条目的原始名单）')
+  } else {
+    pass('「N 家走代理」按真实生效数（排除失效条目）+ 失效条目可一键清理')
+  }
 
   // 2) 供应商页 / 代理页不能再注册设置座位（搬进工作台后设置页不该有它们）
   if (/settings\.section|settings\.general\.item/.test(providerEntry + supplierSrc + proxySrc)) {

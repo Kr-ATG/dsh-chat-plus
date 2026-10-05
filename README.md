@@ -384,6 +384,12 @@ host 半身（六个模块）整体搬进本插件：
 逐供应商开关）。写入仍走 host 的 `/api/dsh-proxy/member`（读-改-写，避免多个开关各自
 拿过期快照互相覆盖）。供应商卡片上的行内开关与 P 标记**保留**，与代理区块共享同一份名单。
 
+**「N 家走代理」的口径**（2026-10-05 用户问「怎么有五家」）：host 的 `providers` 名单里
+会残留**已删除 / 改名**的 route key（host 侧叫 `stale`，解析不出域名、静默不代理）。
+直接数 `providers.length` 就会出现「只勾两家却写 5 家」。现在状态标签与说明行都按
+`providers.length - stale.length` 计，并在名单下方列出失效条目 + 一键清理
+（`POST /api/dsh-proxy/set` 把名单收敛成当前存在的 key）。
+
 **零迁移保证**：HTTP 路由前缀（`/api/dsh-proxy`、`/api/model-capabilities`、
 `/api/vision-helper`、`/api/dsh-prompt-optimize`、`/api/provider-hub-keys`）、
 settings 命名空间（`network-proxy` / `model-capabilities` / `web-search-anysearch`）、
