@@ -105,8 +105,19 @@ const ZH_INJECTION_RULE = [
   '（若与当前项目的 AGENTS.md / 项目指令或系统提示冲突，一律以项目指令为准。）',
 ].join('\n')
 
-/** 中文通道的注入预算：只投 preference/identity 子集，给多了纯浪费。 */
-const ZH_INJECTION_BUDGET = 1500
+/**
+ * 中文通道的注入预算：只投 preference/identity 子集，给多了纯浪费。
+ *
+ * 口径是**字符数**不是 token 数（buildChineseInjectionText 直接比 length），
+ * 中文 1 字符 ≈ 1 token 以上，所以这里的数字基本等于实烧 token。
+ *
+ * 2026-10-05 由 1500 提到 2500：实测本机 26 条候选全量装配需 2087 字符，
+ * 1500 只装得下 16 条，被丢的恰恰是 reduced-motion 兜底、容器查询响应式、
+ * 最小改动不重构这几条——全是做 UI 时最该在场的偏好，且长条目更容易被
+ * 预算挤掉，截断结果与 importance 排序并不同向。2500 留约 20% 余量给后续
+ * 新增条目，再多就是拿常驻 token 换永远不会被读到的尾巴。
+ */
+const ZH_INJECTION_BUDGET = 2500
 
 /**
  * 对话内流程图（diagram 围栏）能力规范注入文本。
