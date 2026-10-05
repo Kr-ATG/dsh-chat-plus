@@ -1,12 +1,18 @@
 /**
- * WorkbenchPanel — 5 合 1 统一工作台主容器。
+ * WorkbenchPanel — 7 合 1 统一工作台主容器。
  *
  * 聚合模块：
- *  1. 记忆 (Memory)  — 全新重设计的 DSH 暗色系大盘与卡片流
- *  2. 能力 (Skills)  — 技能与 MCP 工具包管理
- *  3. 用量 (Usage)   — Token 消耗总览、24小时/月度平滑曲线与 52 周全局热力大盘
- *  4. 画廊 (Gallery) — 多媒体画廊：所有对话生成的图片 / 网页 / 演示 / 文档一站查看
- *  5. 邮件 (Mail)    — Agent Mail 代理三栏工作台
+ *  1. 记忆 (Memory)    — DSH 暗色系大盘与卡片流
+ *  2. 能力 (Skills)    — 技能与 MCP 工具包管理
+ *  3. 用量 (Usage)     — Token 消耗总览、24小时/月度平滑曲线与 52 周全局热力大盘
+ *  4. 画廊 (Gallery)   — 多媒体画廊：所有对话生成的图片 / 网页 / 演示 / 文档一站查看
+ *  5. 邮件 (Mail)      — Agent Mail 代理三栏工作台
+ *  6. 供应商 (Provider)— 原 dsh-provider-hub 的独立设置页（2026-10-05 融合）：
+ *                        左供应商列表 / 右详情（API Key、Base URL、协议、模型列表、
+ *                        推理等级检测）+ 辅助视觉 / 生图 / 生视频三块
+ *  7. 代理 (Proxy)     — 原 dsh-provider-hub 的通用设置卡升级为整页（2026-10-05）：
+ *                        总开关 + 代理地址 + 连通性自检 + 生效范围（全局 / 仅选中，
+ *                        逐供应商开关）
  */
 
 import { useMemo, useState } from 'react'
@@ -19,8 +25,13 @@ import { MailPanel } from '../mail/Panel.js'
 import { createMemoryApi } from '../memory/api.js'
 import { createMailApi } from '../mail/api.js'
 import { PopoverShell } from '../popover-shell.js'
+import { SupplierSection } from '../../provider/webui/section.js'
+import { ProxyPanel } from '../../provider/panel/proxy-panel.js'
 
-export type WorkbenchTab = 'memory' | 'skills' | 'usage' | 'gallery' | 'mail'
+export type WorkbenchTab = 'memory' | 'skills' | 'usage' | 'gallery' | 'mail' | 'provider' | 'proxy'
+
+/** 合法 Tab（localStorage 回填白名单）。 */
+const TABS: readonly WorkbenchTab[] = ['memory', 'skills', 'usage', 'gallery', 'mail', 'provider', 'proxy']
 
 export interface WorkbenchPanelProps {
   onClose: () => void
@@ -39,13 +50,36 @@ export function WorkbenchGridIcon({ size = 15 }: { size?: number }): JSX.Element
   )
 }
 
+/** 供应商图标（插头 + 座，与原设置页语义一致）。 */
+function ProviderTabIcon(): JSX.Element {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 22v-5" />
+      <path d="M9 8V2" />
+      <path d="M15 8V2" />
+      <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />
+    </svg>
+  )
+}
+
+/** 代理图标（地球 + 经线）。 */
+function ProxyTabIcon(): JSX.Element {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M2 12h20" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z" />
+    </svg>
+  )
+}
+
 export function WorkbenchPanel({ onClose, initialTab = 'memory' }: WorkbenchPanelProps): JSX.Element {
   ensureWorkbenchStyles()
 
   const [activeTab, setActiveTab] = useState<WorkbenchTab>(() => {
     try {
       const saved = localStorage.getItem('dsh-workbench-active-tab') as WorkbenchTab | null
-      if (saved && ['memory', 'skills', 'usage', 'gallery', 'mail'].includes(saved)) return saved
+      if (saved && TABS.includes(saved)) return saved
     } catch { /* 忽略读取错误 */ }
     return initialTab
   })
@@ -73,7 +107,7 @@ export function WorkbenchPanel({ onClose, initialTab = 'memory' }: WorkbenchPane
               <span>工作台</span>
             </div>
 
-            {/* Segmented Tabs: 记忆 · 能力 · 用量 · 邮件 */}
+            {/* Segmented Tabs: 记忆 · 能力 · 用量 · 画廊 · 邮件 · 供应商 · 代理 */}
             <div className="wb-tabs" data-workbench-nav="true">
               <button
                 type="button"
@@ -136,6 +170,26 @@ export function WorkbenchPanel({ onClose, initialTab = 'memory' }: WorkbenchPane
                 </svg>
                 <span>邮件</span>
               </button>
+
+              <button
+                type="button"
+                className="wb-tab-btn"
+                data-active={activeTab === 'provider' ? 'true' : undefined}
+                onClick={() => { handleSelectTab('provider') }}
+              >
+                <ProviderTabIcon />
+                <span>供应商</span>
+              </button>
+
+              <button
+                type="button"
+                className="wb-tab-btn"
+                data-active={activeTab === 'proxy' ? 'true' : undefined}
+                onClick={() => { handleSelectTab('proxy') }}
+              >
+                <ProxyTabIcon />
+                <span>代理</span>
+              </button>
             </div>
           </div>
 
@@ -154,26 +208,36 @@ export function WorkbenchPanel({ onClose, initialTab = 'memory' }: WorkbenchPane
           </div>
         </div>
 
-        {/* 主体内容视图（按 Tab 切换） */}
+        {/* 主体内容视图（按 Tab 切换；key 随 Tab 变化，重播 .wb-body > * 的入场动效） */}
         <div className="wb-body">
           {activeTab === 'memory' && (
-            <MemoryPanel {...memoryApi} onClose={onClose} embedded />
+            <MemoryPanel key="memory" {...memoryApi} onClose={onClose} embedded />
           )}
 
           {activeTab === 'skills' && (
-            <SkillsPanel onClose={onClose} embedded />
+            <SkillsPanel key="skills" onClose={onClose} embedded />
           )}
 
           {activeTab === 'usage' && (
-            <UsagePanel onClose={onClose} embedded />
+            <UsagePanel key="usage" onClose={onClose} embedded />
           )}
 
           {activeTab === 'gallery' && (
-            <GalleryPanel onClose={onClose} />
+            <GalleryPanel key="gallery" onClose={onClose} />
           )}
 
           {activeTab === 'mail' && (
-            <MailPanel api={mailApi} onClose={onClose} embedded />
+            <MailPanel key="mail" api={mailApi} onClose={onClose} embedded />
+          )}
+
+          {activeTab === 'provider' && (
+            <div key="provider" className="wb-supplier-scroll">
+              <SupplierSection />
+            </div>
+          )}
+
+          {activeTab === 'proxy' && (
+            <ProxyPanel key="proxy" />
           )}
         </div>
       </div>

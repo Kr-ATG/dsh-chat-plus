@@ -6,6 +6,11 @@
   name: '@deepseek-ai/dsh-client-ui-skill'
   disabled: true
 
+# 2026-10-05 起本插件同时承载原 dsh-provider-hub 的供应商中心（供应商设置 + 网络代理
+# 两个工作台 Tab、模型座位、提示词优化图标、生图/识图/生视频工具、AnySearch provider、
+# 凭据密钥环）。dsh-provider-hub 已从 profile bundles 摘除，路由前缀与 settings
+# 命名空间原样保留（用户零迁移）；官方「模型」设置页不再被本插件隐藏。
+
 - insert:
     - id: dsh-chat-plus
       name: dsh-chat-plus

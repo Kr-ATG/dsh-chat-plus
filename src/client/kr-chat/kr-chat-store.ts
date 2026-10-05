@@ -93,11 +93,7 @@ class KrChatStore {
 
   private syncBodyAttribute(tab: KrTabType): void {
     if (typeof document !== 'undefined') {
-      const hasActiveChat = Boolean(
-        document.querySelector('header [role="tablist"]') ||
-        document.querySelectorAll('[data-chat-turn]').length > 0
-      )
-      if (tab === 'kr' && hasActiveChat) {
+      if (tab === 'kr') {
         if (document.body.getAttribute('data-dsh-kr-chat') !== 'true') {
           document.body.setAttribute('data-dsh-kr-chat', 'true')
         }

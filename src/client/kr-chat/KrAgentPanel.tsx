@@ -4,7 +4,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ChatNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { activityStore } from '../tool-summary/activity-drawer.tsx'
-import { latestChatSnapshot, latestChatSessionId, collectTurnNodes, subscribeLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
+import { latestChatSnapshot, latestChatSessionId, collectTurnNodes, collectLatestSessionTasks, subscribeLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
 import { callDurationMs, formatDuration, isRunning } from '../tool-summary/tool-stats.ts'
 import { toolArgsRaw } from '../tool-summary/activity-view-model.ts'
 import { useNow } from '../tool-summary/use-now.ts'
@@ -251,7 +251,8 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   }
   const durationText = formatDuration(elapsedMs)
 
-  // 任务数据源提取：优先使用本轮已记录的 todo_write / submitted-plan，当前未结轮次可回退到 live todos
+  // 任务数据源提取：优先使用本轮已记录的 todo_write / submitted-plan，当前未结轮次可回退到 live todos；
+  // 均为空时跨轮次回溯获取会话最近有效的任务清单，绝不误显“本轮还没有任务”
   const tasks = useMemo<readonly DshTaskItem[]>(() => {
     if (turnData?.tasks && turnData.tasks.length > 0) {
       return turnData.tasks
@@ -266,8 +267,15 @@ export const KrAgentPanel = memo(function KrAgentPanel({
         }))
       }
     }
+    const snap = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)
+    if (snap) {
+      const fallbackTasks = collectLatestSessionTasks(snap, displayTurn)
+      if (fallbackTasks && fallbackTasks.length > 0) {
+        return fallbackTasks
+      }
+    }
     return []
-  }, [turnData, isViewingHistory, todoTick, snapTick])
+  }, [turnData, isViewingHistory, todoTick, snapTick, displayTurn])
 
   // 人话行动时间线：把本轮工具调用翻成中文人话（「打开携程 · 机票」）。
   // 纯推导，无副作用。tools 已由 collectTurnNodes 按 anchorSeq 升序给出，无需再排。

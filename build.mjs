@@ -74,7 +74,13 @@ const clientBundle = {
   sourcemap: true,
   logLevel: 'info',
   external: CLIENT_EXTERNAL,
-  // Everything under @deepseek-ai/ stays a runtime require (module table).
+  // @deepseek-ai/* 默认走运行时 require（模块表）；唯二例外随包内联：
+  // schemastery + cosmokit —— 工作台「供应商」页要反序列化 settings schema
+  // （webui/schema-path.ts），而这两个包不在浏览器模块表里，运行时 require 会炸。
+  alias: {
+    '@deepseek-ai/schemastery': resolve(HERE, 'src/vendor/schemastery/index.mjs'),
+    '@deepseek-ai/cosmokit': resolve(HERE, 'src/vendor/cosmokit/index.js'),
+  },
   plugins: [{
     name: 'chat-flow-external-platform',
     setup(build) {
@@ -126,6 +132,11 @@ const clientBundle = {
  * 详见 src/vendor/README.md。
  */
 const HOST_RUNTIME_EXTERNAL_ALLOWLIST = new Set([
+  // 融合 dsh-provider-hub 后新增的三个：schemastery / cosmokit 由本插件的
+  // alias 映射到 src/vendor 内联副本（构建期就地打进产物，不算运行时外部）；
+  // undici 必须留给运行时——它的加载器按 process.versions.undici 挑同大版本
+  // 实例，内联会锁死版本并与 Node 内置 fetch 的 dispatcher 协议对不上。
+  'undici',
 ])
 
 /** Host half: ESM, self-contained except node builtins and the allowlist. */
@@ -142,6 +153,13 @@ const hostBundle = {
   sourcemap: false,
   logLevel: 'info',
   external: [],
+  // schemastery / cosmokit 随包内联（两个包都是零 cordis 依赖的纯工具库，
+  // 不会与宿主产生第二份实例问题）；其余 @deepseek-ai/* 保持 external，
+  // 由 assertHostExternals 兜住解析面。
+  alias: {
+    '@deepseek-ai/schemastery': resolve(HERE, 'src/vendor/schemastery/index.mjs'),
+    '@deepseek-ai/cosmokit': resolve(HERE, 'src/vendor/cosmokit/index.js'),
+  },
   // Any runtime CJS dep (none today) would need a real require: keep the guard.
   banner: {
     js: [
@@ -152,7 +170,13 @@ const hostBundle = {
   plugins: [{
     name: 'chat-flow-external-platform',
     setup(build) {
-      build.onResolve({ filter: /^(@deepseek-ai\/|node:)/ }, args => ({ path: args.path, external: true }))
+      build.onResolve({ filter: /^(@deepseek-ai\/|node:)/ }, (args) => {
+        if (args.path === '@deepseek-ai/schemastery' || args.path === '@deepseek-ai/cosmokit') return null
+        return { path: args.path, external: true }
+      })
+      // undici 绝不可内联：代理加载器按 process.versions.undici 挑同大版本实例，
+      // 内联会锁死版本并与 Node 内置 fetch 的 dispatcher 协议对不上。
+      build.onResolve({ filter: /^undici$/ }, args => ({ path: args.path, external: true }))
     },
   }],
 }

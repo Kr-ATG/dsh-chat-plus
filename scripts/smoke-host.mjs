@@ -64,10 +64,42 @@ let effectRan = false
 let effectDisposer = null
 const injectNamesSeen = []
 const registeredTools = []
+const providerRoutes = []
+const providerTools = []
+const providerNamespaces = []
+const providerCtx = {
+  logger: { warn: () => {}, error: () => {}, info: () => {}, debug: () => {} },
+  effect(fn) { const d = fn(); return typeof d === 'function' ? d : () => {} },
+  get: (name) => (name === 'credentials' ? { describe: () => [], set: () => {}, unset: () => {}, resolve: () => undefined } : undefined),
+  inject(_names, cb) { cb(providerCtx) },
+  provide: () => {},
+  // vision-helper 用 ctx.on('llm/stream') 挂图片自动降级的 waterfall。
+  on: () => () => {},
+  settings: {
+    register: (ns) => { providerNamespaces.push(ns); return { get: () => ({}), update: async () => {} } },
+    get: () => ({ providers: {} }),
+    describe: () => [],
+    mutate: async () => {},
+  },
+  webServer: { register(spec) { providerRoutes.push(spec); return () => {} } },
+  tools: { register(def) { providerTools.push(def); return () => {} } },
+  llm: { listProviders: () => [], listConfigurableProviders: () => [], listModels: async () => [], resolveModelInfo: async () => undefined },
+  fs: { resolve: async (p) => p, readText: async () => '{}', writeText: async () => {} },
+  shell: { resolve: () => ({}), execute: async () => ({ stdout: '', stderr: '', exitCode: 0 }) },
+  sandboxPolicy: { resolve: () => ({ mode: 'danger-full-access' }) },
+  web: { registerSearchProvider: () => {} },
+}
 const stubCtx = {
   // 老写法（apply 里直接 ctx.webServer.xxx）在这里拿不到该属性 → TypeError。
   inject(names, callback) {
     injectNamesSeen.push([...names])
+    // 供应商中心的延迟注入：8 个服务（settings/webServer/llm/tools/fs/
+    // sandboxPolicy/shell/web）齐全时才回调。
+    // 供应商中心的延迟注入：服务名里带 fs（只有 providerHubServices 会这么写）。
+    if (names.includes('fs')) {
+      callback(providerCtx)
+      return
+    }
     if (names.includes('tools')) {
       // tools 桩：download 工具注册捕获。
       callback({
@@ -115,19 +147,28 @@ if (!injectNamesSeen.some(names => JSON.stringify(names) === JSON.stringify(['to
 } else {
   pass('apply defers tools access via ctx.inject(["tools"], cb)')
 }
-if (registeredTools.length !== 1 || registeredTools[0]?.name !== 'download') {
-  fail(`expected exactly 1 registered tool named 'download', got ${JSON.stringify(registeredTools.map(t => t?.name))}`)
-} else {
-  const tool = registeredTools[0]
-  if (typeof tool.execute !== 'function') fail('download tool has no execute()')
-  else if (typeof tool.output?.render !== 'function') fail('download tool has no output.render()')
-  else pass('registered wire tool: download (execute + output.render present)')
+// download（本插件）+ generate_image / generate_video（融合的 dsh-provider-hub
+// 的 capabilities-host；后者由 providerHubServices 的延迟注入回调注册）。
+const allTools = [...registeredTools, ...providerTools]
+const toolNames = allTools.map(t => t?.name)
+for (const expected of ['download', 'generate_image', 'generate_video']) {
+  const tool = allTools.find(t => t?.name === expected)
+  if (tool === undefined) {
+    fail(`missing registered wire tool '${expected}', got ${JSON.stringify(toolNames)}`)
+    continue
+  }
+  if (typeof tool.execute !== 'function') fail(`${expected} tool has no execute()`)
+  else if (typeof tool.output?.render !== 'function') fail(`${expected} tool has no output.render()`)
+  else pass(`registered wire tool: ${expected} (execute + output.render present)`)
 }
 
 if (!effectRan) fail('deferred webServer callback never ran')
 else pass('deferred webServer callback executed')
 
-// 4 条：generated-images(exact) + screenshot/download(prefix) + open-path(exact)。
+// 9 条：本插件 4 条（generated-images / open-path 两条 exact + screenshot /
+// download 两条 prefix）+ 融合的 dsh-provider-hub 5 条（/api/dsh-proxy、
+// /api/model-capabilities、/api/provider-hub-keys 三条 prefix +
+// /api/dsh-prompt-optimize 与 /stop 两条 exact）。
 // open-path 是「用文件资源管理器打开」改道用的（windowsHide 会吞掉 Explorer）。
 if (registered.length !== 4) {
   fail(`expected exactly 4 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
@@ -239,6 +280,44 @@ if (existsSync(resolve(ROOT, 'src/triad/automation')) || existsSync(resolve(ROOT
   fail('automation 模块已删除：src/triad/automation 与 src/client/triad/automation 不该复活')
 } else {
   pass('automation 模块已删除（官方 schedule bundle 接管）')
+}
+
+// ── 融合的 dsh-provider-hub：路由 / 工具 / settings 命名空间 ─────────────
+const providerPaths = providerRoutes.map(spec => spec?.path)
+for (const expected of ['/api/dsh-proxy', '/api/model-capabilities', '/api/vision-helper/providers', '/api/provider-hub-keys', '/api/dsh-prompt-optimize']) {
+  if (!providerPaths.includes(expected)) fail(`provider hub route missing: ${expected} (got ${JSON.stringify(providerPaths)})`)
+}
+if (providerPaths.includes('/api/dsh-proxy') && providerPaths.includes('/api/provider-hub-keys')) {
+  pass(`provider hub routes registered (prefix/exact 共 ${providerRoutes.length} 条，前缀与旧插件逐字一致)`)
+}
+const providerToolNames = providerTools.map(t => t?.name)
+if (!providerToolNames.includes('generate_image') || !providerToolNames.includes('generate_video')) {
+  fail(`provider hub tools missing: generate_image/generate_video (got ${JSON.stringify(providerToolNames)})`)
+} else {
+  pass('provider hub tools registered: generate_image + generate_video')
+}
+for (const ns of ['network-proxy', 'model-capabilities', 'web-search-anysearch']) {
+  if (!providerNamespaces.includes(ns)) fail(`provider hub settings namespace missing: ${ns}`)
+}
+if (providerNamespaces.length >= 3) {
+  pass(`provider hub settings namespaces preserved: ${providerNamespaces.join(', ')}`)
+}
+
+// 源码契约：官方「模型」设置页不再被隐藏（hideOfficialModelsNav 已删除）。
+const providerStylesSrc = stripComments(srcOf('src/client/provider/webui/styles.ts'))
+if (/hideOfficialModelsNav/.test(providerStylesSrc)) {
+  fail('官方「模型」设置页仍被隐藏：styles.ts 里不该再有 hideOfficialModelsNav')
+} else if (/display\s*=\s*'none'/.test(providerStylesSrc)) {
+  fail('styles.ts 里仍有把官方导航项 display:none 的写法')
+} else {
+  pass('官方「模型」设置页不再被隐藏（hideOfficialModelsNav 已删除）')
+}
+// 供应商页与代理页必须是工作台 Tab 的页面，不能再注册 settings 座位。
+const providerClientSrc = stripComments(srcOf('src/client/provider/index.ts'))
+if (/settings\.(section|general\.item)/.test(providerClientSrc)) {
+  fail('供应商中心仍在注册设置座位：应当只由工作台 Tab 承载')
+} else {
+  pass('供应商中心不再注册 settings.section / settings.general.item 座位')
 }
 
 console.log(`\n${process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED'} — ${HOST}`)

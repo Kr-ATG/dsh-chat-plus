@@ -2,12 +2,12 @@
  * dsh-chat-plus — KR 对话系统控制器（kr-chat-controller）。
  *
  * 核心职能：
- * 1. 顶栏标签：在 header [role="tablist"] 注入 [ KR对话 ]，与官方 [ 对话 ] [ 轨迹 ] 齐平；
+ * 1. 顶栏标签：在 header [role="tablist"] 注入 [ Seeker ]，与官方 [ 对话 ] [ 轨迹 ] 齐平；
  * 2. 默认进入 KR 分类：开箱即为 KR 对话，保持官方底层 chat 视图，确保多轮历史与输入框完整；
  * 3. 双栏大盘：在 [data-conversation-content] 渲染右侧大盘 KrAgentPanel，
  *    **在 KR 对话里常态常驻**（原先靠标签行最右端一枚「Agent 轨迹大盘」开关
  *    收起/展开，该开关与 panelOpen 状态已按用户要求整块删除）；
- * 4. 视图联动：点击 [ 对话 ] 切回标准单栏；点击 [ 轨迹 ] 切到原生轨迹；点击 [ KR对话 ] 恢复双栏大盘。
+ * 4. 视图联动：点击 [ 对话 ] 切回标准单栏；点击 [ 轨迹 ] 切到原生轨迹；点击 [ Seeker ] 恢复双栏大盘。
  * 5. 空白新会话不占位：新对话刚打开、首条消息还没发出去时右栏整体不渲染
  *    （判据 hasConversationContent()，不看会话 id —— 空白 Hero 态也会登记 id）。
  */
@@ -76,8 +76,14 @@ function isCurrentTurnRunning(turn: number): boolean {
  */
 function hasConversationContent(): boolean {
   if (typeof document === 'undefined') return false
-  if (document.querySelector('[data-conversation-tabs]')) return true
-  return document.querySelectorAll('[data-conversation-scroll] [data-chat-turn]').length > 0
+  const snap = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)
+  if (snap?.navigation?.current && snap.navigation.current.length > 0) return true
+  if (snap?.order && snap.order.length > 0) return true
+  if (document.querySelector('header:not(.wb-header) [role="tablist"]')) return true
+  if (document.querySelector('header:not(.wb-header) nav')) return true
+  if (document.querySelectorAll('[data-conversation-scroll] [data-chat-turn]').length > 0) return true
+  if (document.querySelectorAll('[data-chat-turn]').length > 0) return true
+  return false
 }
 
 function setAttrIfDiff(el: Element, name: string, value: string): void {
@@ -116,7 +122,7 @@ function syncKrTab(tablist: HTMLElement): void {
     btn.type = 'button'
     btn.role = 'tab'
     btn.id = 'kr-chat-tab-btn'
-    btn.textContent = 'KR对话'
+    btn.textContent = 'Seeker'
     btn.onclick = (e) => {
       e.stopPropagation()
       isSwitchingToKr = true
@@ -136,8 +142,13 @@ function syncKrTab(tablist: HTMLElement): void {
         setTimeout(() => { isSwitchingToKr = false }, 150)
       }
       syncKrTab(tablist)
+      syncDom()
     }
     tablist.insertBefore(btn, tablist.firstChild)
+  }
+
+  if (btn.textContent !== 'Seeker') {
+    btn.textContent = 'Seeker'
   }
 
   const expectedBtnClass = isKr ? `${baseClass} ${activeClass} kr-tab-btn kr-tab-btn--active` : `${baseClass} kr-tab-btn`
@@ -300,7 +311,7 @@ export function mountKrChatController(): void {
       syncKrTab(tablist)
     }
 
-    const isKr = store.snapshot.activeTab === 'kr' && hasActiveChat
+    const isKr = store.snapshot.activeTab === 'kr'
 
     if (isKr) {
       if (document.body.getAttribute('data-dsh-kr-chat') !== 'true') {
@@ -338,7 +349,7 @@ export function mountKrChatController(): void {
     if (!content) return
 
     let container = document.getElementById('dsh-kr-panel-container')
-    if (!hasActiveChat) {
+    if (!hasActiveChat || store.snapshot.activeTab !== 'kr') {
       if (container && container.style.display !== 'none') {
         container.style.display = 'none'
       }
@@ -346,9 +357,12 @@ export function mountKrChatController(): void {
     }
 
     // 会话身份变化时，令常驻的 React 根重新读取会话状态。
-    // 否则空白新会话期间大盘由上一会话的渲染结果继续挂在屏幕上。
+    // 切换到有效会话时，默认恢复进入 Seeker (KR) 模式
     if (lastRenderedSessionId !== latestChatSessionId) {
       lastRenderedSessionId = latestChatSessionId
+      if (latestChatSessionId !== null && store.snapshot.activeTab !== 'kr') {
+        store.setActiveTab('kr')
+      }
       if (panelRoot) {
         panelRoot.render(<KrPanelSystem />)
       }

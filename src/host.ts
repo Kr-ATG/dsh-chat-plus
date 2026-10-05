@@ -32,6 +32,7 @@ import { applyScreenshot } from './shot/index.ts'
 import { applyDownloadRoutes, applyDownloadTool } from './download/index.ts'
 import { applyOpenPathRoutes } from './open-path/index.ts'
 import { applyTriadHost } from './triad/host.ts'
+import { applyProviderHub, providerHubServices } from './provider/index.ts'
 import { applyMailHost } from './mail/index.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
 export { applyMailHost } from './mail/index.ts'
@@ -182,6 +183,23 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
     ['webServer', 'tools', 'credentials', 'sessions', 'sessionPersistence', 'settings', 'llm'],
     (triadCtx: any) => {
       applyTriadHost(triadCtx)
+    },
+  )
+
+  // ── 融合的原 dsh-provider-hub（供应商中心）────────────────────────────
+  // 六个模块：网络代理 / 模型能力改写（含 generate_image + generate_video 工具）
+  // / 辅助视觉（vision_describe）/ 提示词优化 / AnySearch 网页搜索 / 凭据密钥环。
+  // 路由前缀（/api/dsh-proxy、/api/model-capabilities、/api/vision-helper、
+  // /api/dsh-prompt-optimize、/api/provider-hub-keys）与 settings 命名空间
+  // 一律不变，用户零迁移。
+  //
+  // 八个 service 由 providerHubServices 给出；任一缺失则回调不执行（供应商
+  // 相关能力整体不挂，但本插件的截图/下载/工作台照常）——与旧插件 inject
+  // 的硬依赖语义相同，不额外放宽。
+  ctx.inject(
+    [...providerHubServices],
+    (providerCtx: any) => {
+      applyProviderHub(providerCtx)
     },
   )
 

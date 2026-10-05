@@ -66,6 +66,23 @@ schemastery、dsh-scope、ptc.ts、ts-types.ts……一旦内联就必然重复 
   `lib/index.js` 里所有留给运行时的裸导入，命中白名单之外的名字就**直接让构建失败**。
 - 升级 DSH 后，用 `diff` 对比 vendor 文件与源码，确认上游没有行为变更。
 
+
+## 2026-10-05 新增：schemastery / cosmokit
+
+融合 dsh-provider-hub 后新增两个内联包（都在 `src/vendor/` 下、都以**原包产物**形式随包内联）：
+
+| 目录 | 来源 | 为什么必须内联 |
+| --- | --- | --- |
+| `schemastery/index.mjs` | `@deepseek-ai/schemastery` 的 `lib/index.mjs`（3.18.4） | 工作台「供应商」页要 `rehydrateSchema` 反序列化 settings schema（`webui/schema-path.ts`）。它**不在浏览器模块表**里，运行时 `require` 会抛；host 侧同理（装进 profile 后裸 node 解析不到）。 |
+| `cosmokit/index.js` | `@deepseek-ai/cosmokit` 的 `lib/index.js`（1.8.5） | schemastery 的唯一运行时依赖；schemastery 里的 `from "@deepseek-ai/cosmokit"` 已改指向 `../cosmokit/index.js`。 |
+
+两者都是**零 cordis 依赖的纯工具库**（符合上面的「叶子模块」三条），不会与宿主产生
+第二份实例问题——schemastery 的 `Schema` 只做结构校验与序列化，不与宿主共享状态。
+
+构建脚本用 `alias` 把这两个包名映射到本地副本（client 与 host 两半身各一份配置），
+host 侧的白名单因此只需放行 `undici`（代理加载器按 `process.versions.undici` 挑同大版本
+实例，内联会锁死版本并与 Node 内置 fetch 的 dispatcher 协议对不上）。
+
 ## 客户端半身不适用
 
 `lib/client.js` 走的是浏览器模块表，包名由 `package.json` 的

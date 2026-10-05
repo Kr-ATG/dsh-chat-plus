@@ -739,6 +739,92 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   else pass('buildPlainTimeline is deterministic')
 }
 
+// ── 工作台第六 / 第七 Tab（供应商 / 代理）：源码形状契约 ──────────────────
+{
+  const { readFileSync: readSrc2 } = await import('node:fs')
+  const { resolve: resolveSrc2 } = await import('node:path')
+  const readSrcOf = (rel) => readSrc2(resolveSrc2(ROOT, rel), 'utf8')
+  const stripSrc = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+
+  const wb = stripSrc(readSrcOf('src/client/triad/hub/WorkbenchPanel.tsx'))
+  const supplierSrc = stripSrc(readSrcOf('src/client/provider/webui/section.tsx'))
+  const proxySrc = stripSrc(readSrcOf('src/client/provider/panel/proxy-panel.tsx'))
+  const providerEntry = stripSrc(readSrcOf('src/client/provider/index.ts'))
+  const providerStyles = stripSrc(readSrcOf('src/client/provider/webui/styles.ts'))
+  const chatDetail = stripSrc(readSrcOf('src/client/provider/webui/chat/ChatProviderDetail.tsx'))
+  const chatList = stripSrc(readSrcOf('src/client/provider/webui/chat/ChatProviderList.tsx'))
+
+  // 1) 两个新 Tab 在册（类型 + 渲染 + 按钮）
+  if (!/'provider' \| 'proxy'/.test(wb)) {
+    fail('WorkbenchTab 联合类型必须含 provider / proxy（工作台第六、第七 Tab）')
+  } else if (!/<SupplierSection \/>/.test(wb)) {
+    fail('WorkbenchPanel 必须渲染 SupplierSection（供应商 Tab 页本体）')
+  } else if (!/<ProxyPanel key="proxy" \/>/.test(wb)) {
+    fail('WorkbenchPanel 必须渲染 ProxyPanel（代理 Tab 页本体）')
+  } else if (!/>\s*供应商\s*</.test(wb) || !/>\s*代理\s*</.test(wb)) {
+    fail('工作台 Tab 栏必须有「供应商」「代理」按钮')
+  } else {
+    pass('工作台第六 / 第七 Tab「供应商」「代理」接入在位（类型 + 渲染 + 按钮）')
+  }
+
+  // 2) 供应商页 / 代理页不能再注册设置座位（搬进工作台后设置页不该有它们）
+  if (/settings\.section|settings\.general\.item/.test(providerEntry + supplierSrc + proxySrc)) {
+    fail('供应商中心仍在注册 settings.section / settings.general.item 座位：应当只由工作台承载')
+  } else {
+    pass('供应商页 / 代理页不再占用设置座位（只挂工作台 Tab）')
+  }
+
+  // 3) 官方「模型」设置页不再被隐藏
+  if (/hideOfficialModelsNav/.test(providerStyles) || /display\s*=\s*'none'/.test(providerStyles)) {
+    fail('官方「模型」设置页仍被隐藏：styles.ts 里不该再有 hideOfficialModelsNav / display:none')
+  } else {
+    pass('官方「模型」设置页恢复显示（hideOfficialModelsNav 已删除）')
+  }
+
+  // 4) 代理开关与选择都在代理页：总开关 + 模式分段 + 逐供应商开关
+  if (!/role="switch"/.test(proxySrc) || !/aria-label="网络代理开关"/.test(proxySrc)) {
+    fail('代理页缺少总开关（role=switch + aria-label）')
+  } else if (!/saveProxy\(\{ mode: 'all' \}|'全局'/.test(proxySrc) || !/仅选中/.test(proxySrc)) {
+    fail('代理页缺少「全局 / 仅选中」范围选择')
+  } else if (!/setProviderProxied/.test(proxySrc)) {
+    fail('代理页缺少逐供应商开关（setProviderProxied → host 读-改-写）')
+  } else {
+    pass('代理页：总开关 + 全局/仅选中范围 + 逐供应商开关全部在位')
+  }
+
+  // 5) 供应商卡片仍带 P 标记与行内代理开关（与代理页共享同一份名单语义）
+  if (!/setProviderProxied/.test(chatDetail) || !/proxyTagStyle/.test(chatList)) {
+    fail('供应商列表/详情的代理 P 标记与行内开关不该被删（与代理页共享名单）')
+  } else {
+    pass('供应商列表 P 标记 + 详情行内代理开关保留（与代理页同一份名单）')
+  }
+
+  // 6) 快照 store 必须换引用（useSyncExternalStore 只在引用变化时重渲染）
+  const storeSrc = stripSrc(readSrcOf('src/client/provider/webui/chat/store.ts'))
+  if (!/snapshot = draft/.test(storeSrc) || !/const draft = \{ \.\.\.snapshot \}/.test(storeSrc)) {
+    fail('供应商页快照 store 的 update() 必须换引用（就地改同一对象会让 React 跳过渲染，页面永远停在「加载中…」）')
+  } else {
+    pass('供应商页快照 store 的 update() 换引用（uSES 能收到变化）')
+  }
+
+  // 7) wire 面必须按**子服务名**逐个读（先取 remote 再点 .llm 会抛 inject 错误）
+  if (!/getService\('remote\.llm'\)/.test(supplierSrc) || /getService\('remote'\)\.llm|getService\('remote'\)\?\.llm/.test(supplierSrc)) {
+    fail('供应商页必须用 getService("remote.llm") 这类子服务名读取（先取 remote 再点 .llm 会抛 cannot get property without inject）')
+  } else {
+    pass('供应商页按子服务名读取 wire 面（remote.llm / remote.settings / remote.credentials）')
+  }
+
+  // 6) 动效：工作台换 Tab 与两个新页面都有入场动画，且尊重 reduced-motion
+  const hubStyles = stripSrc(readSrcOf('src/client/triad/hub/styles.ts'))
+  if (!/@keyframes wb-page-in/.test(hubStyles) || !/\.wb-body > \*/.test(hubStyles)) {
+    fail('工作台换 Tab 缺少入场动效（wb-page-in）')
+  } else if (!/prefers-reduced-motion/.test(hubStyles)) {
+    fail('工作台动效必须尊重 prefers-reduced-motion')
+  } else {
+    pass('工作台换 Tab / 新页面入场动效在位（含 reduced-motion 兜底）')
+  }
+}
+
 // ── 多媒体画廊（工作台第五 Tab）：源码形状契约 ─────────────────────────
 {
   const { readFileSync: readSrc } = await import('node:fs')
@@ -753,7 +839,7 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
 
   if (!/'memory' \| 'skills' \| 'usage' \| 'gallery' \| 'mail'/.test(hubSrc)) {
     fail('WorkbenchTab 联合类型必须含 gallery（工作台第五 Tab）')
-  } else if (!/<GalleryPanel onClose=\{onClose\} \/>/.test(hubSrc)) {
+  } else if (!/<GalleryPanel key="gallery" onClose=\{onClose\} \/>/.test(hubSrc)) {
     fail('WorkbenchPanel 必须渲染 GalleryPanel（画廊 Tab 页本体）')
   } else if (!/>\s*画廊\s*</.test(hubSrc) && !/画廊</.test(hubSrc)) {
     fail('工作台 Tab 栏必须有「画廊」按钮')

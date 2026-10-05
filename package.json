@@ -1,7 +1,7 @@
 {
   "name": "dsh-chat-plus",
-  "version": "1.0.0",
-  "description": "DSH 对话体验增强套件 + 工作台（记忆/用量/技能/画廊/邮箱）（零 DSH 源码改动，纯插件注入）。多媒体画廊（2026-10-04）：工作台第五 Tab，跨会话增量折叠全部对话的图片/网页/PPT/Word/PDF/表格/音视频产出（复用产出物卡同一套提取纯函数），类别筛选 + 搜索 + Lightbox 预览 + 沙箱 iframe 打开 html 成品 + 跳回来源会话；/api/triad/gallery/* 三路由（media 清单 stat 核对 / raw 文件服务索引即白名单 / raw-asset html 同目录资源 token+扩展名双闸门）。回合呈现：思考 / 工具调用聚合 chip（实时走秒 + 分步跟随滚动）+ 步骤卡 / 总结卡（回合收口才出现）+ 共享活动抽屉（思考语义分组 + 工具调用树）。正文增强：proto-tabs 可交互卡片 + diagram 流程图围栏（JSON 转 SVG）+ 生图画廊 + 重试行影子。界面与工具：会话头部视图标签上移右上角 + 桌面壳窗口控制留位与主题同步 + 对话截图（常驻无头浏览器渲染 markdown/shiki/mermaid，可内嵌本地 HTML）+ download 下载工具（wire 工具 + 实时进度条/速度/ETA）+ KR 对话双栏大盘（右栏保留任务 / 思考 / 工具调用 / 记忆四张卡，顶栏由 KR_PANEL_HEADER_VISIBLE 门控）。融合的原 dsh-triad 四工作台（座位与路由前缀原样保留，dsh-triad 自此退役）：自动沉淀的长期记忆、定时自动化、用量与账号趋势、技能与 MCP Server 管理。 邮箱工作台（Agent Mail，2026-10-02）：侧边栏独立入口 + 三栏邮件面板 + 11 个 mail_* 模型工具（收发/搜索/附件/验证码等待），对话与浏览器自动化需要邮箱时一律用它。",
+  "version": "1.1.0",
+  "description": "DSH 对话体验增强套件 + 工作台（记忆/能力/用量/画廊/邮件/供应商/代理）（零 DSH 源码改动，纯插件注入）。2026-10-05 融合 dsh-provider-hub：供应商设置与网络代理搬进工作台两个 Tab（官方「模型」设置页恢复显示），模型座位 / 提示词优化图标 / 生图识图生视频工具 / AnySearch 搜索 provider / 凭据密钥环全部原样保留，路由前缀与 settings 命名空间零迁移。多媒体画廊（2026-10-04）：工作台第五 Tab，跨会话增量折叠全部对话的图片/网页/PPT/Word/PDF/表格/音视频产出（复用产出物卡同一套提取纯函数），类别筛选 + 搜索 + Lightbox 预览 + 沙箱 iframe 打开 html 成品 + 跳回来源会话；/api/triad/gallery/* 三路由（media 清单 stat 核对 / raw 文件服务索引即白名单 / raw-asset html 同目录资源 token+扩展名双闸门）。回合呈现：思考 / 工具调用聚合 chip（实时走秒 + 分步跟随滚动）+ 步骤卡 / 总结卡（回合收口才出现）+ 共享活动抽屉（思考语义分组 + 工具调用树）。正文增强：proto-tabs 可交互卡片 + diagram 流程图围栏（JSON 转 SVG）+ 生图画廊 + 重试行影子。界面与工具：会话头部视图标签上移右上角 + 桌面壳窗口控制留位与主题同步 + 对话截图（常驻无头浏览器渲染 markdown/shiki/mermaid，可内嵌本地 HTML）+ download 下载工具（wire 工具 + 实时进度条/速度/ETA）+ KR 对话双栏大盘（右栏保留任务 / 思考 / 工具调用 / 记忆四张卡，顶栏由 KR_PANEL_HEADER_VISIBLE 门控）。融合的原 dsh-triad 四工作台（座位与路由前缀原样保留，dsh-triad 自此退役）：自动沉淀的长期记忆、定时自动化、用量与账号趋势、技能与 MCP Server 管理。 邮箱工作台（Agent Mail，2026-10-02）：侧边栏独立入口 + 三栏邮件面板 + 11 个 mail_* 模型工具（收发/搜索/附件/验证码等待），对话与浏览器自动化需要邮箱时一律用它。",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -26,7 +26,14 @@
     "mail",
     "email",
     "agent-mail",
-    "agently"
+    "agently",
+    "provider",
+    "provider-hub",
+    "network-proxy",
+    "proxy",
+    "model-capabilities",
+    "prompt-optimize",
+    "anysearch"
   ],
   "repository": {
     "type": "git",
@@ -62,7 +69,9 @@
         "@deepseek-ai/dsh-client-ui-tool",
         "@deepseek-ai/dsh-client-ui-locale",
         "@deepseek-ai/dsh-client-ui-input-trigger",
-        "@deepseek-ai/dsh-client-ui-layout"
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-model-selection",
+        "@deepseek-ai/dsh-client-ui-settings"
       ]
     }
   },

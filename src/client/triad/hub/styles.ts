@@ -140,6 +140,49 @@ const SHEET = `
   overflow: hidden;
   position: relative;
 }
+/* ── 工作台页面切换动效（Tab 内容滑入 + 顶部 Tab 滑块） ──
+   .wb-body 的每个直接子级在 key 变化时重播 wb-page-in：淡入 + 轻微右移，
+   与官方 schedule 页换 tab 的观感一致；150ms 足够快，不拖手感。 */
+.wb-body > * {
+  animation: wb-page-in 190ms cubic-bezier(.2,.8,.2,1);
+}
+@keyframes wb-page-in {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── 工作台「供应商」页：整页留白 + 纵向滚动（页面比设置弹窗宽得多） ── */
+.wb-supplier-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 18px 22px 28px;
+  box-sizing: border-box;
+}
+.wb-supplier-scroll > * { animation: wb-page-in 190ms cubic-bezier(.2,.8,.2,1); }
+
+/* ── 工作台「代理」页：卡片纵向排布 ── */
+.pp-root {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 18px 22px 28px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pp-root > * { animation: wb-page-in 190ms cubic-bezier(.2,.8,.2,1); }
+.pp-card { animation-delay: 40ms; }
+.pp-row { transition: border-color .16s, background .16s, opacity .16s; }
+.pp-row:hover { border-color: var(--dsw-alias-border-l3, rgba(255,255,255,.22)); background: var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,.04)); }
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-body > *, .wb-supplier-scroll > *, .pp-root > * { animation: none !important; }
+  .pp-row { transition: none; }
+}
 `
 
 export function ensureWorkbenchStyles(): void {

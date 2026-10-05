@@ -1,13 +1,13 @@
 /**
  * dsh-chat-plus — KR 对话功能总开关。
  *
- * 控制「KR对话」这个视图分类 + 右侧 Agent 实时轨迹大盘（KrAgentPanel）。
+ * 控制「Seeker」（内部代号 KR 对话）这个视图分类 + 右侧 Agent 实时轨迹大盘（KrAgentPanel）。
  *
  * ⚠ 这是**隐藏开关，不是删除**：kr-chat/ 下的全部代码、样式、座位装配都原样
  * 保留，把这里改回 false 重新 build 即可完整回到 KR 之前的单栏形态。
  *
  * false 时的行为 = 回到 KR 之前的形态：
- *  1. 不注入「KR对话」标签、不挂右侧大盘、不注入 KR 专属样式（见 index.ts）；
+ *  1. 不注入「Seeker」标签、不挂右侧大盘、不注入 KR 专属样式（见 index.ts）；
  *  2. store 初始 activeTab 直接是 'chat'，于是 isKrMode 全链路为 false：
  *     - 不再往 body 写 data-dsh-kr-chat → 「KR 模式下隐藏左侧工具树 / 折叠条」
  *       那套 CSS 不生效。这点很关键：那套规则是「详情收敛到右侧大盘」的前提，

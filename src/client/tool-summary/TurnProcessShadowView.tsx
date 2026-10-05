@@ -361,6 +361,116 @@ export function collectTurnNodes(snapshot: any, turn: number): {
   return { tools, reasoning: reasoningList, tasks: turnTasks, turnStart, turnEnd, durationMs }
 }
 
+/**
+ * 跨轮次收集会话中最新有效的任务清单：
+ * 当当前轮次未调用 todo_write / submitted-plan 时，回溯获取截止到 upToTurn
+ * （或整场会话）最近一次写入的任务清单，避免切回历史或多轮对话时任务面板误显空态。
+ */
+export function collectLatestSessionTasks(snapshot: any, upToTurn?: number): readonly TurnTaskItem[] {
+  if (snapshot === null || snapshot === undefined) {
+    return []
+  }
+
+  interface TaskCandidate {
+    readonly turn: number
+    readonly seq: number
+    readonly tasks: readonly TurnTaskItem[]
+  }
+
+  const candidates: TaskCandidate[] = []
+  const visited = new Set<string>()
+
+  const inspectNode = (candidate: any): void => {
+    if (!candidate) return
+    const key = candidate.key ?? candidate.id
+    if (key) {
+      if (visited.has(key)) return
+      visited.add(key)
+    }
+
+    const loc = candidate.location
+    const candTurn = candidate.data?.turn
+      ?? (typeof loc?.turn === 'number' ? loc.turn : loc?.turn?.turn)
+      ?? 0
+
+    if (upToTurn !== undefined && candTurn > upToTurn) return
+
+    const seq = candidate.anchorSeq ?? candidate.data?.step ?? 0
+
+    if (candidate.kind === 'tool-call') {
+      try {
+        const root = candidate.data?.root
+        const tName = root?.call?.name || root?.toolName || root?.name || candidate.data?.call?.name
+        if (tName === 'todo_write') {
+          const raw = root?.call?.argsRaw || root?.arguments || candidate.data?.call?.argsRaw
+          const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+          if (parsed && Array.isArray(parsed.todos) && parsed.todos.length > 0) {
+            const tasks: TurnTaskItem[] = parsed.todos.map((item: any, idx: number) => ({
+              id: `todo-${candTurn}-${idx}`,
+              content: String(item.content ?? ''),
+              status: (item.status === 'completed' || item.status === 'in_progress' || item.status === 'pending') ? item.status : 'pending',
+            }))
+            candidates.push({ turn: candTurn, seq, tasks })
+          }
+        }
+      } catch {}
+    } else if (candidate.kind === 'submitted-plan') {
+      try {
+        const planData = candidate.data
+        if (planData && typeof planData.title === 'string') {
+          const markdown = planData.markdown || ''
+          const mdLines = markdown.split('\n')
+          const mdTasks: TurnTaskItem[] = []
+          for (const line of mdLines) {
+            const checkMatch = line.match(/^[\s\*\-]*\[([ xX])\]\s*(.+)/)
+            if (checkMatch) {
+              mdTasks.push({
+                id: `plan-task-${candTurn}-${mdTasks.length}`,
+                content: checkMatch[2].trim(),
+                status: checkMatch[1].toLowerCase() === 'x' ? 'completed' : 'pending',
+              })
+            }
+          }
+          const tasks: TurnTaskItem[] = mdTasks.length > 0
+            ? mdTasks
+            : [{
+                id: `plan-${candTurn}-0`,
+                content: planData.title,
+                status: 'completed',
+              }]
+          candidates.push({ turn: candTurn, seq, tasks })
+        }
+      } catch {}
+    }
+  }
+
+  try {
+    if (typeof snapshot.nodes?.values === 'function') {
+      for (const node of snapshot.nodes.values()) {
+        inspectNode(node)
+      }
+    }
+  } catch {}
+
+  try {
+    if (Array.isArray(snapshot.order)) {
+      for (const key of snapshot.order) {
+        inspectNode(snapshot.nodes?.get?.(key))
+      }
+    }
+  } catch {}
+
+  if (candidates.length === 0) return []
+
+  candidates.sort((a, b) => {
+    if (a.turn !== b.turn) return b.turn - a.turn
+    return b.seq - a.seq
+  })
+
+  return candidates[0].tasks
+}
+
+
 interface KrActivityStepState {
   readonly step: number
   readonly status: 'running' | 'settled' | 'interrupted'

@@ -641,7 +641,7 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
   // 那时靠 data.status 判——非 running / 非 interrupted 即已定型。
   const turnClosed = (locationTurn?.status ?? (data.status !== 'running' ? 'closed' : 'open')) === 'closed'
   const showCard = turnClosed === true || interrupted
-  const isClosingReply = owner !== undefined
+  const isClosingReply = owner !== undefined || (turnClosed && (node.key === lastStepKey || data.finalNode !== undefined))
   const isSummary = isClosingReply || interrupted
   const variant: 'reply' | 'step' | undefined = !showCard
     ? undefined

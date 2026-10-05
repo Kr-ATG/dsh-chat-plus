@@ -33,6 +33,19 @@
 - **三工作台（原 dsh-triad，已融合）**：自动沉淀的长期记忆 · 用量（52 周热力 +
   token 消耗查询）· 技能与 MCP Server 管理。`dsh-triad` 自此退役，其座位（locale
   namespace）、7 组 HTTP 路由前缀、数据与配置目录全部原样保留，用户零迁移。
+- **供应商中心（原 dsh-provider-hub，2026-10-05 融合）**：工作台第六 / 第七个 Tab ——
+  **供应商**（左供应商列表 / 右详情：API Key、Base URL、协议、模型列表、获取可用模型、
+  检测推理等级；底部辅助视觉 / 生图 / 生视频三块）与**代理**（总开关 + 代理地址 +
+  连通性自检 + 生效范围「全局 / 仅选中」，选中态是逐供应商开关）。
+  `dsh-provider-hub` 自此退役，其 HTTP 路由前缀（`/api/dsh-proxy`、
+  `/api/model-capabilities`、`/api/vision-helper`、`/api/dsh-prompt-optimize`、
+  `/api/provider-hub-keys`）、settings 命名空间（`network-proxy` /
+  `model-capabilities` / `web-search-anysearch`）、工具名（`generate_image` /
+  `generate_video` / `vision_describe`）与对话输入区座位（供应商标签 / 模型选择 /
+  推理等级 / 优化提示词）全部原样保留，用户零迁移。
+  **官方「模型」设置页不再被隐藏**——原插件用 MutationObserver 把官方导航项
+  `display:none` 的做法已删除，两处入口并存（官方模型页管内核目录，工作台供应商页管
+  多供应商配置）。
 - **多媒体画廊（2026-10-04 新增）**：工作台第五个 Tab —— 所有对话生成的图片 /
   网页 / 演示 / 文档 / 表格 / 音视频一页看全（跨会话增量折叠索引 + 类别筛选 +
   搜索 + Lightbox 预览 + 沙箱 iframe 打开 html 成品 + 跳回来源会话），见「多媒体画廊」一节
@@ -103,7 +116,7 @@ shape 三选一 oval / rect / diamond，pts 为完整折线点（含起终点，
 
 配置面：`state.diagramInjectEnabled`（面板落盘）/ `config.diagramInjectDefaultEnabled`（`cordis.patch.yml` 覆盖）。路由 `GET|POST /api/dsh-memory/diagram-inject-state`，状态随 `/inject-state` 回包顺带返回（不新开 GET 端点，避免放大 composer 的既有轮询量）。
 
-> 卡片只在 **「KR对话」视图**渲染，普通「对话」视图里同一个围栏会原样显示成代码块（`pluginRenders = !KR_CHAT_ENABLED || isKrMode`）。
+> 卡片只在 **「Seeker」视图**渲染，普通「对话」视图里同一个围栏会原样显示成代码块（`pluginRenders = !KR_CHAT_ENABLED || isKrMode`）。
 
 ## 内置技能：diagram-design + motion-primitives（不可删除）
 
@@ -183,7 +196,7 @@ variant 可选 pill / expand / glow，缺省 pill（方案A）。未闭合围栏
 
 ## KR 对话双栏大盘
 
-在 header 的 tablist 里注入第三个视图分类「KR对话」，与官方「对话 / 轨迹」并列。
+在 header 的 tablist 里注入第三个视图分类「Seeker」（内部代号 KR 对话），与官方「对话 / 轨迹」并列。
 底层仍是官方 ChatView（多轮历史、虚拟滚动、Markdown 渲染、底部输入框全部保留），
 右侧多一栏全高执行大盘：
 
@@ -245,7 +258,7 @@ variant 可选 pill / expand / glow，缺省 pill（方案A）。未闭合围栏
 
 | 开关 | 默认 | 控制 |
 |---|---|---|
-| `KR_CHAT_ENABLED` | true | 整套 KR 视图（「KR对话」标签 + 右栏 + KR 专属 CSS） |
+| `KR_CHAT_ENABLED` | true | 整套 Seeker 视图（「Seeker」标签 + 右栏 + KR 专属 CSS） |
 | `KR_PANEL_HEADER_VISIBLE` | false | 右栏顶栏：机器人头像 + 标题 + 统计副标题 + 截图 / 收起按钮 |
 | `KR_PLAIN_TIMELINE_CARD_VISIBLE` | true | 「操作面板」卡（人话行动流） |
 | `KR_ASK_CARD_VISIBLE` | true | 「提问与回答」卡（贴在对话流里、思考卡下方） |
@@ -342,11 +355,56 @@ host 侧**零改动**：复用面板那套 `/delete-batch`（一次事务删完�
    这条链最容易写成死循环，结果比较是唯一的刹车
 4. 260ms 静默窗口：短时间内第二次翻转直接忽略（内容还在变，窗口结束后自然会重测收敛）
 
-## 工作台（原 dsh-triad 融合）
+## 工作台（原 dsh-triad + dsh-provider-hub 融合）
 
 2026-09-24 把 `dsh-triad` 整体并入本插件，`dsh-triad` 从 profile bundles 摘除；
 2026-09-28 再把其中的定时自动化整块删除（官方 `@deepseek-ai/dsh-experimental-schedule-bundle`
-已提供同样的能力），侧边栏现存记忆 / 能力 / 邮箱 / 用量四个入口与各自的面板。
+已提供同样的能力）；2026-10-05 把 `dsh-provider-hub` 整体并入本插件，
+`dsh-provider-hub` 从 profile bundles 摘除，它的**供应商设置**与**网络代理**搬进工作台。
+
+工作台现为 **7 个 Tab**：记忆 · 能力 · 用量 · 画廊 · 邮件 · 供应商 · 代理。
+
+### 供应商中心融合（2026-10-05）
+
+**搬了什么**：`dsh-provider-hub` 的 client 半身（供应商页、模型座位、提示词优化）与
+host 半身（六个模块）整体搬进本插件：
+
+| 原位置 | 现位置 | 说明 |
+|---|---|---|
+| `settings.section`（设置 →「供应商」整页） | 工作台 Tab「供应商」 | `SupplierSection`，embedded 形态 |
+| `settings.general.item`（通用设置 →「网络代理」卡） | 工作台 Tab「代理」 | 由卡片升级为整页：总开关 + 地址 + 自检 + 生效范围 |
+| `settings.general.item`（通用设置 →「辅助视觉」卡） | 已删除 | 与供应商页底部的辅助视觉块重复 |
+| 官方「模型」页隐藏（MutationObserver 置 `display:none`） | **已删除，官方页恢复显示** | 两处入口并存 |
+| 对话输入区四个座位 | 原样保留 | `peff-provider` / `peff-model` / `peff-effort` / `dsh-prompt-optimize` |
+
+**代理页为什么升级成整页**：设置弹窗宽度装不下「逐供应商选择」，原来只能把选择权塞进
+供应商页每家卡片右侧的开关（列表行用 P 标记）。整页宽度下把三件事收在一处——总开关、
+代理地址 + 连通性自检、生效范围（全局 / 仅选中 + 逐供应商开关）。写入仍走 host 的
+`/api/dsh-proxy/member`（读-改-写，避免多个开关各自拿过期快照互相覆盖）。
+供应商卡片上的行内开关与 P 标记**保留**，与代理页共享同一份名单。
+
+**零迁移保证**：HTTP 路由前缀（`/api/dsh-proxy`、`/api/model-capabilities`、
+`/api/vision-helper`、`/api/dsh-prompt-optimize`、`/api/provider-hub-keys`）、
+settings 命名空间（`network-proxy` / `model-capabilities` / `web-search-anysearch`）、
+工具名（`generate_image` / `generate_video` / `vision_describe`）全部逐字保留；
+密钥环文件仍是 `~/.dsh/provider-hub-keyring.json`。
+唯一的实质变化：提示词优化的消息归属 `source.plugin` 由 `dsh-provider-hub` 改为
+`dsh-chat-plus`（按 bundle 聚合的用量统计才会继续算账，写未装载的 id 等于丢归属）。
+
+**构建面新增的两个内联**：`src/vendor/schemastery`（settings schema 反序列化，
+供应商页要 `rehydrateSchema`）与 `src/vendor/cosmokit`（schemastery 的唯一依赖）。
+两个包都不在浏览器模块表里，运行时 require 会炸，所以 client 与 host 两半身都随包内联；
+host 侧 `undici` 仍是唯一留给运行时解析的名字（代理加载器按 `process.versions.undici`
+挑同大版本实例，内联会锁死版本）。
+
+**实测踩到的两个坑**（都写进了冒烟）：
+
+1. `ctx.get('remote.llm')` 这类**子服务名**必须逐个读：先 `ctx.get('remote')` 再点
+   `.llm` 会抛 `cannot get property "remote.llm" without inject`——cordis 对子服务
+   同样做 inject 检查。
+2. 自研快照 store 的 `update()` **必须换引用**：`useSyncExternalStore` 只在
+   `getSnapshot()` 返回值与上次 `Object.is` 不同时才重渲染。就地改同一个对象 + 通知
+   订阅者，React 认为「快照没变」而跳过渲染，页面永远停在「加载中…」。
 
 ### 工作台页改走官方座位（2026-10-04）
 
@@ -1036,7 +1094,7 @@ src/
         ├── icons.tsx                — kind 徽标 SVG 字形
         ├── use-now.ts               — 走秒时钟
         └── styles.ts                — 工具聚合样式（dts__ 命名空间）
-    └── kr-chat/                     — KR 对话双栏大盘（右栏四张卡 + 底部记忆卡）
+    └── kr-chat/                     — Seeker（KR 对话）双栏大盘（右栏四张卡 + 底部记忆卡）
         ├── enabled.ts               — 五个「隐藏不删除」开关（KR / PANEL_HEADER / PLAIN_TIMELINE_CARD / OUTPUTS_CARD / MEMORY_CARD）
         ├── KrAgentPanel.tsx         — 右栏容器：卡片编排 + 用时计算（副标题统计用）+ 自适应行数下发
         ├── KrTaskOverviewCard.tsx   — 任务卡（todo_write / 官方 todos 投影）
@@ -1055,7 +1113,7 @@ src/
         ├── memory-api.ts            — /api/dsh-memory/* 最小 fetch 客户端（零依赖）
         ├── use-adaptive-rows.ts     — 挤压自适应 hook（ResizeObserver + 翻转刹车）
         ├── kr-chat-store.ts         — selectedTurn / 宽度 / fullscreen 状态（含 localStorage；panelOpen 已随大盘常驻化删除）
-        ├── kr-chat-controller.tsx   — 「KR对话」标签注入 + 右侧大盘常驻挂载
+        ├── kr-chat-controller.tsx   — 「Seeker」标签注入 + 右侧大盘常驻挂载
         ├── kr-todo-bridge.ts        — 官方 todos 实时投影（同时是会话身份登记点）
         ├── KrLiveActivityCard.tsx   — 左栏对话流那张瞬态状态卡
         └── styles.ts                — KR 专属 CSS（含统一简约滚动条）

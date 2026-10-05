@@ -41,6 +41,7 @@ import { mountKrChatController } from './kr-chat/kr-chat-controller.tsx'
 import { KrTodoBridge } from './kr-chat/kr-todo-bridge.ts'
 import { KR_CHAT_ENABLED } from './kr-chat/enabled.ts'
 import { applyTriadClient } from './triad/index.ts'
+import { applyProviderClient } from './provider/index.ts'
 import { buildActivityGrid, activityColor, ACTIVITY_COLUMNS } from './triad/usage/dashboard/ActivityGrid.js'
 import { setClientCtx } from './client-ctx.ts'
 
@@ -49,6 +50,10 @@ import { setClientCtx } from './client-ctx.ts'
 // （四工作台融合后由本插件统一提供，少了哪个哪个工作台就不挂载）
 // + layout：2026-10-04 起记忆/能力/邮箱三个工作台改挂官方 `main` 页座位，
 //   开合走 `ctx.layout.selectPanel`（与官方 ui-sidebar / ui-schedule 同一依赖）。
+// 原 dsh-provider-hub 的服务（modelDirectories / remote / configForms）**不写进
+// 这里**：顶层 inject 是硬依赖，少一个整插件都不 apply，融合后会把对话增强一起
+// 拖下水。供应商模块各自用 ctx.inject([...], cb) 延迟注入（见 provider/index.ts
+// 与 provider/model-seats/apply.ts），缺服务时只有那一块不挂。
 export const inject = ['slots', 'locale', 'inputTriggers', 'sessions', 'layout']
 
 /** 单个模块失败不拖垮插件整体。 */
