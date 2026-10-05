@@ -17,6 +17,15 @@
  *  2. **doc 只收 Word 家族**（doc/docx/odt/rtf）：md/txt 是笔记与说明文本，
  *     一次编码会话能写几十个，进画廊等于噪声；用户点名的「word」是 Office 文档。
  *
+ * 输入通道有**两条**，缺一不可（2026-10-05 补第二条）：
+ *  1. `tool/call` + `tool/result`（按 callId 配对）—— 直接工具调用；
+ *  2. `tool/ptc-dispatch` —— **PTC 沙箱里的子调用**（run_code 的代码体内部调
+ *     todo_write / present / generate_image / pwsh…）。这类调用**没有**独立的
+ *     tool/call 与 tool/result 事件：参数与结果都挂在这一条事件上，callId 是
+ *     `<rootCallId>:ptc:<n>`。只认第一条通道时，模型在 run_code 里交付的
+ *     present 路径永远进不了索引 —— 产出物卡里那行看得见、点开却 403（用户
+ *     2026-10-05 报的「点图片加载不出来，点侧栏按钮却能加载」）。
+ *
  * 另有一类**磁盘上没有路径的产出**：generate_image / generate_video 的结果是
  * b64 JSON，超阈值后被 DSH spill-policy 落成临时 .txt（30 天保留），事件文本里
  * 只剩 locator。这类条目记为 source='generated'，携带 spill 文件路径，由客户端
@@ -230,4 +239,69 @@ export function extractFromEventPair(
 
   for (const item of paths) push(item, 'file')
   return out
+}
+
+/** `tool/ptc-dispatch` 事件的最小形状（PTC 沙箱子调用）。 */
+export interface PtcDispatchEvent {
+  readonly type: 'tool/ptc-dispatch'
+  readonly time: number
+  readonly data: {
+    readonly rootCallId?: string
+    readonly subCallId?: string
+    readonly name?: string
+    /** 子调用参数：**已经是对象**（与 tool/call 的 JSON 字符串不同）。 */
+    readonly arguments?: unknown
+    readonly isError?: boolean
+    readonly content?: ReadonlyArray<{ type?: string; text?: string }>
+  }
+}
+
+/**
+ * 一条 `tool/ptc-dispatch` 事件 → 画廊条目（可能 0 条）。
+ *
+ * 为什么要单独一条通道：run_code（PTC 沙箱）里 `await tools.present({...})` /
+ * `tools.generate_image(...)` 这类子调用**不产生** tool/call 与 tool/result
+ * 事件，只有这一条 dispatch 事件同时带着参数与结果。不认它，模型在代码体里
+ * 显式交付的文件（present 的 path）就永远不在 `/raw` 的准入名单里 —— 产出物卡
+ * 照常列出那一行（client 侧的产出物卡读的是同一批事件，能看见），点开却 403。
+ *
+ * 提取规则**不分叉**：把事件掰成 `tool/call` + `tool/result` 的形状，喂给
+ * extractFromEventPair —— 白名单、落盘证据、_tmp 排除、交付优先全部同一份源码。
+ *
+ * `tool/ptc-dispatch-start`（子调用开始、还没有结果）刻意不认：那时结果为空，
+ * 任何提取都是无源之水，只有最终态的 dispatch 是权威。
+ *
+ * @param event - tool/ptc-dispatch 事件。
+ * @param context - 会话上下文（cwd）。
+ * @returns 画廊条目（未去重、未核对存在性）。
+ */
+export function extractFromPtcDispatch(
+  event: PtcDispatchEvent,
+  context: ExtractContext,
+): readonly GalleryRawItem[] {
+  const data = event.data ?? {}
+  const name = typeof data.name === 'string' ? data.name : ''
+  if (name === '') return []
+  const subCallId = typeof data.subCallId === 'string' && data.subCallId !== '' ? data.subCallId : ''
+  const rootCallId = typeof data.rootCallId === 'string' ? data.rootCallId : ''
+  const callId = subCallId !== '' ? subCallId : rootCallId
+  // arguments 在事件里是对象：序列化回字符串走同一条通道（argFields 只吃 JSON 文本）。
+  let rawArgs = ''
+  try { rawArgs = JSON.stringify(data.arguments ?? {}) } catch { rawArgs = '' }
+  return extractFromEventPair(
+    { type: 'tool/call', time: event.time, data: { callId, name, arguments: rawArgs } },
+    {
+      type: 'tool/result',
+      time: event.time,
+      data: {
+        message: {
+          toolCallId: callId,
+          content: data.content,
+          // 失败的子调用不产出成品（与 tool/result 的 isError 同口径）。
+          isError: data.isError === true,
+        },
+      },
+    },
+    context,
+  )
 }

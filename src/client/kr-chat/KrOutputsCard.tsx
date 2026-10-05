@@ -21,7 +21,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { useHeightAnimation, useMotionAllowed } from '../motion-utils.ts'
-import { probeWorkspaceFile, probeWorkspaceFiles, tryOpenInSidebar } from '../open-preview.ts'
+import {
+  localFileMediaUrl, probeWorkspaceFile, probeWorkspaceFiles, resolveWorkspacePath, tryOpenInSidebar,
+} from '../open-preview.ts'
 import type { ProbeResult } from '../open-preview.ts'
 import { workspaceCwdOf } from '../client-ctx.ts'
 import { sessionRawUrl } from '../triad/gallery/api.ts'
@@ -409,17 +411,48 @@ export const KrOutputsCard = memo(function KrOutputsCard({
     void openPath(item.path)
   }, [openPath])
 
+  /*
+   * 交给 Lightbox 的条目：路径先**折成会话工作区下的绝对路径**。
+   *
+   * 为什么必须折（2026-10-05 修「点图片加载不出来」）：present / write 的参数
+   * 常是相对路径（`深圳一日游_20261006/slide_01.png`），而 host 的 /raw 准入名单
+   * 里存的是**绝对路径**（提取时按会话 cwd 解析过）。host 侧已按会话 cwd 兜住
+   * 相对路径，这里再折一次是第二道保险：地址形态与索引形态完全一致，不再依赖
+   * 服务端的路径基准推断；相对路径在 cwd 未知时原样传给 host（由它按会话 cwd 解）。
+   *
+   * 侧栏那条路（openPath → 官方 workspaceFiles）不受影响：它本来就把相对路径
+   * 相对会话工作区解析，折成绝对只是同一结果的另一种写法。
+   */
+  const cwd = workspaceCwdOf(sessionId)
   const lightboxItems = useMemo<readonly LightboxItem[]>(
     () => visible.map((item) => ({
-      path: item.path,
+      path: resolveWorkspacePath(cwd, item.path),
       name: item.name,
       kind: item.kind,
       source: 'file' as const,
       time: 0,
       sessionId: sessionId ?? '',
     })),
-    [visible, sessionId],
+    [visible, sessionId, cwd],
   )
+
+  /*
+   * Lightbox 的取图地址：**优先官方 /api/file**（与右栏文档预览同一条链路）。
+   *
+   * 为什么不再一律走画廊的 /raw（2026-10-05）：/raw 是插件自己的路由，它的准入
+   * 名单由 host 半身在内存里折出来 —— 名单与浏览器里的这份清单是**两套独立状态**，
+   * 任一侧没跟上（host 还挂着旧模块、会话索引尚未折到这条路径），用户看到的就是
+   * 「产出物卡里明明有这张图，点开却是裂图」。而侧栏那条路一直是好的，因为它走
+   * 官方 workspaceFiles / /api/file，与插件的索引无关。
+   *
+   * 于是这里与侧栏**对齐到同一条链路**：折成绝对路径后交给 /api/file；只有折不出
+   * 绝对路径（会话 cwd 未知）时才退回 /raw（host 侧能按会话 cwd 解析）。
+   * 画廊面板仍走 /raw —— 那是跨会话清单，白名单语义在那里才成立。
+   */
+  const mediaUrlOf = useCallback((item: LightboxItem): string => {
+    const official = localFileMediaUrl(item.path)
+    return official ?? sessionRawUrl(item.path, item.sessionId)
+  }, [])
 
   /*
    * 计数读**过滤后**的清单（items / code），不是 outputs 原始值 —— 剔除的失效
@@ -558,7 +591,7 @@ export const KrOutputsCard = memo(function KrOutputsCard({
         <MediaLightbox
           items={lightboxItems}
           index={lightboxIndex}
-          fileUrlOf={(item) => sessionRawUrl(item.path, sessionId ?? '')}
+          fileUrlOf={mediaUrlOf}
           onNavigate={setLightboxIndex}
           onClose={() => { setLightboxIndex(null) }}
           onOpenSidebar={openSidebarFromLightbox}

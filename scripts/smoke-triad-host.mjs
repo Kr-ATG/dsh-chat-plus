@@ -186,6 +186,63 @@ need(paths.some(p => p.startsWith('/api/mcp-recommended')), 'mcp recommended rou
 need(paths.some(p => p.startsWith('/api/triad/mcp-status')), 'mcp status route registered (/api/triad/mcp-status)')
 // 多媒体画廊（跨会话产出物索引）：prefix /api/triad/gallery（media / raw / raw-asset）。
 need(paths.some(p => p.startsWith('/api/triad/gallery')), 'media gallery route registered (/api/triad/gallery/*)')
+/*
+ * PTC 沙箱子调用必须进画廊折叠（2026-10-05 回归）。
+ *
+ * 背景：模型在 run_code 代码体里 await tools.present({...}) 交付的文件**没有**
+ * tool/call 与 tool/result 事件，只有一条 tool/ptc-dispatch。旧折叠只认前者，
+ * 于是这些路径从未进过 /raw 的准入索引 —— 产出物卡能列出那一行，点开却 403
+ * （用户报的「点图片加载不出来，点侧栏按钮却能加载」，侧栏走官方 workspaceFiles，
+ * 与这条名单无关）。这里直接把两条通道喂同一份提取纯函数对拍：不修好，present
+ * 交付的 png 提不出来。
+ */
+{
+  const { extractFromPtcDispatch } = await import(pathToFileURL(resolve(ROOT, 'src/triad/gallery/extract.ts')).href)
+  const dispatch = {
+    type: 'tool/ptc-dispatch',
+    time: 1_791_202_375_294,
+    data: {
+      rootCallId: 'call_root',
+      subCallId: 'call_root:ptc:2',
+      name: 'present',
+      arguments: { files: [{ path: '深圳一日游_20261006/slide_01.png', description: '封面页预览' }] },
+      isError: false,
+      content: [{ type: 'text', text: 'Presented 深圳一日游_20261006/slide_01.png' }],
+    },
+  }
+  const items = extractFromPtcDispatch(dispatch, { cwd: 'D:\\AI\\Dsh' })
+  const hit = items.find((item) => item.kind === 'image')
+  need(hit?.path === 'D:\\AI\\Dsh\\深圳一日游_20261006\\slide_01.png',
+    'PTC sub-call (tool/ptc-dispatch) feeds the gallery index — present 交付的图片进得了 /raw 准入名单')
+  need(extractFromPtcDispatch({ ...dispatch, data: { ...dispatch.data, isError: true } }, { cwd: 'D:\\AI\\Dsh' }).length === 0,
+    'failed PTC sub-call yields no gallery item（失败调用不产出成品）')
+}
+/*
+ * /raw 的路径准入必须按**会话 cwd** 解析相对路径（2026-10-05 回归）。
+ *
+ * 产出物卡把行里的路径原样交给 /raw，而 present 交付的常是相对路径
+ * （`深圳一日游_20261006/slide_01.png`）。旧实现直接 resolve(raw)，相对路径落到
+ * host 进程的 cwd（DSH 安装目录），永远不在索引里 → 403；侧栏那条路走官方
+ * workspaceFiles（相对会话工作区解析）所以正常 —— 用户看到的就是「点图片裂了、
+ * 点侧栏却能看」。
+ */
+{
+  const { resolveAdmittedPath } = mod.galleryTest
+  const cwd = 'D:\\AI\\Dsh'
+  const context = {
+    cwd,
+    items: [{ path: cwd + '\\深圳一日游_20261006\\slide_01.png', name: 'slide_01.png', kind: 'image', source: 'file', time: 1 }],
+  }
+  need(typeof resolveAdmittedPath === 'function', 'gallery __test exposes resolveAdmittedPath')
+  need(resolveAdmittedPath('深圳一日游_20261006/slide_01.png', null, context) === cwd + '\\深圳一日游_20261006\\slide_01.png',
+    '/raw 准入：相对路径按**会话 cwd** 折绝对（点图片不再 403）')
+  need(resolveAdmittedPath('D:\\AI\\Dsh\\深圳一日游_20261006\\slide_01.png', 'D:\\AI\\Dsh\\深圳一日游_20261006\\slide_01.png', context) !== null,
+    '/raw 准入：绝对路径原样命中会话产出')
+  need(resolveAdmittedPath('..\\..\\Windows\\win.ini', null, context) === null,
+    '/raw 准入：会话没产出过的相对路径一律拒绝（自由路径仍然 403）')
+  need(resolveAdmittedPath('深圳一日游_20261006/slide_01.png', null, { cwd: null, items: context.items }) === null,
+    '/raw 准入：会话 cwd 未知时拒绝相对路径（绝不拿 host 进程 cwd 当基准）')
+}
 // 本插件自己的两条 host 路由（截图 / download 进度）不能因融合丢掉。
 need(paths.some(p => p.startsWith('/api/chat-flow/screenshot')), 'chat-plus screenshot routes still registered')
 need(paths.some(p => p.startsWith('/api/chat-flow/download')), 'chat-plus download progress route still registered')
@@ -203,6 +260,21 @@ need(tools.includes('soul_show') && tools.includes('soul_set'), 'soul tools regi
 // 可用——没有断言就只能等用户自己发现。
 need(tools.includes('soul_cards') && tools.includes('soul_card_set') && tools.includes('soul_card_remove'),
   'soul card tools registered (soul_cards / soul_card_set / soul_card_remove)')
+// 内置灵魂预设（2026-10-06 新增「可爱风」）：预设是**代码常量**，某套被改坏、或某张卡
+// 被 normalizeCard 过滤掉（标题正文同时为空）都不会抛错——只会在面板上静默少一行 / 少一张卡。
+// 这里直接钉住 router 返给面板的同一份常量：id 集合 + 可爱风那套的卡数与 style 卡。
+{
+  const presets = mod.BUILTIN_SOUL_PRESETS
+  const expectedIds = ['builtin:engineer', 'builtin:analyst', 'builtin:writer', 'builtin:concise', 'builtin:cute']
+  const ids = Array.isArray(presets) ? presets.map(preset => preset.id) : []
+  need(ids.join(',') === expectedIds.join(','),
+    `builtin soul presets = ${expectedIds.length} 套（含 builtin:cute 可爱风），实际 [${ids.join(', ')}]`)
+  const cute = typeof mod.builtinPreset === 'function' ? mod.builtinPreset('builtin:cute') : null
+  need(cute !== null && cute.name === '可爱风' && cute.cards.length === 5,
+    'builtin:cute 是可整体套用的完整人格：5 张卡（identity/tone/principles/boundaries/style）')
+  need(cute !== null && cute.cards.some(card => card.kind === 'style' && card.body !== ''),
+    'builtin:cute 带 style（风格）卡：可爱风靠它落地，缺了就只剩一张语气卡')
+}
 need(listeners.has('agent/pre-step'), 'agent/pre-step injection hooked')
 need(listeners.has('session/event'), 'session/event capture hooked')
 // 邮箱工具：11 个 mail_* 全注册（含验证码等待与附件下载）。

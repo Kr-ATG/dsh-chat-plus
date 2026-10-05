@@ -32,7 +32,7 @@
   右栏被挤压时操作面板与记忆卡各缩一档
 - **三工作台（原 dsh-triad，已融合）**：自动沉淀的长期记忆 + 2026-10-05 新增的
   第四层「**灵魂**」——工作台第一个 Tab（与「记忆」平级、各自独立成页）：会动的鲸鱼 +
-  **可逐张编辑的灵魂卡片** + 4 套内置预设/自定义预设 ·
+  **可逐张编辑的灵魂卡片** + 5 套内置预设/自定义预设 ·
   用量（52 周热力 +
   token 消耗查询）· 技能与 MCP Server 管理。`dsh-triad` 自此退役，其座位（locale
   namespace）、7 组 HTTP 路由前缀、数据与配置目录全部原样保留，用户零迁移。
@@ -347,6 +347,162 @@ host 侧**零改动**：复用面板那套 `/delete-batch`（一次事务删完�
 两道闸门原样保留：文件名必须出现在代码 / 命令原文里 + 必须有写入语义——纯打印、
 纯列表的代码进不了卡（smoke 源码形态断言 + 8 条 E2E 用例 + 浏览器实测「2 项 + 预览正常」）。
 
+### 大盘点击入口只归用户消息（2026-10-05）
+
+**症状**：用户「只有我发送的对话内容才可以点击出来 agent 大盘，其他不要受到影响，
+现在总结老是出来一个手掌看着烦人」。
+
+**根因（两处同源）**：原来这一切都按 `[data-chat-turn]` 命中 —— 那是**整条轮次**的容器，
+包含助手正文、思考卡、过程行、总结卡：
+
+1. `kr-chat-controller.tsx` 的 click 监听向上找 `[data-chat-turn]` 就切轮次 → 整片区域都在响应点击；
+2. `kr-chat/styles.ts` 把 `cursor: pointer` 也写在 `[data-chat-turn]` 上 → **整片变手掌**。
+
+**改法（判据换成官方自己注入的 `data-chat-flow-kind`）**：
+
+- 点击：只认 `[data-chat-flow-kind="user"]`（官方 ChatView 注入 `routedNode.kind`，用户消息即 `user`），
+  用 `closest` 命中其内部任意子元素（时间戳、头像等）；没命中就**什么都不做**，交回官方行为；
+- 光标：`cursor: pointer` 同样收窄到这一条，并在其余区域显式写
+  `[data-chat-turn]:not([data-chat-flow-kind="user"]) { cursor: auto }` 兜底 ——
+  不依赖「没被规则命中」的隐式结果，将来有人加宽规则也不会又铺满手掌。
+
+**实测对照**（真实 DOM 量测）：
+
+| 位置 | 改前 | 改后 |
+| --- | --- | --- |
+| 用户提问 | pointer | **pointer** |
+| 助手总结卡 / 正文 | pointer | `auto` |
+| 过程行「已完成，用时…」 | pointer | `default`（官方 disabled 按钮自带） |
+| turn-tail / step-process / 空白区 | pointer | `auto` |
+
+点击行为：点第 2 轮提问 → 选中 `[2]`；随后依次点总结卡正文、过程行、思考卡标题，
+选中始终停在 `[2]` 不动（思考卡标题仍只做它自己的折叠展开）。
+思考卡标题行上那枚 pointer 是**它自己的折叠按钮**（`role=button`），不属于这次要收的
+「整片手掌」，保留。
+
+冒烟新增 1 组断言：控制器不得再按整轮命中 + 必须只认 `flow-kind="user"` +
+光标规则收窄到同一条 + 其余区域必须有显式 `cursor:auto` 兜底。
+
+
+**需求**：用户「思考过程右上角的箭头去掉，但是别影响，跟随中的背景色也去掉」。
+
+- **去箭头**：删掉 `.kr-reasoning-chevron`（组件里那枚 12px 下箭头 + 三条样式规则）。
+  「别影响」落在两处：整行仍是 `role="button"` + `tabIndex=0` + `aria-expanded`，
+  点击 / Enter / 空格照旧折叠展开（实测点标题 `data-open` 由 false → true、
+  `.kr-reasoning-list` 正常展开到 307px）；去掉的只是那枚 `aria-hidden` 的纯装饰图标。
+- **去跟随底色**：`.kr-card__follow` 的 `padding` / `border-radius` / `background` 全部删掉，
+  只留那行 11px 小字。两态改由**字色**区分：跟随中 `label-secondary`、已暂停
+  `label-tertiary` —— 信息一个不少，标题行右端那枚孤立色块清零。
+
+**验证**：实机量测 `getComputedStyle(.kr-card__follow).backgroundColor === rgba(0, 0, 0, 0)`、
+`padding: 0px`、`border-radius: 0px`；标题行里 `.kr-reasoning-chevron` 计数 0，
+`svg` 只剩电灯泡那一个；折叠能力与折叠动效（`useHeightAnimation`）未受影响。
+冒烟新增 3 条断言：chevron 不得复活 / 折叠语义必须还在（role=button + aria-expanded）/
+「跟随中·已暂停」文字必须保留。
+
+
+**三轮口径的最终结论**：用户说「给总结卡片头上加个用时」→ 看到第一版自造胶囊后
+「用官方的」→ 最后明确「**不要放总结里，就用官方的那种**」。
+
+官方那条读数本来就是**回合过程行**（`TurnProcessNodeView`），它的官方位置正好在
+总结卡正上方：
+
+```
+已完成，用时 13分13秒   ← 官方 .l_V-RG_root（turn-process 的 per-turn 座位）
+└ message.turnProcess.took  └ formatRunDuration(ms, t) → duration.hourUnit/minuteUnit/secondUnit
+```
+
+所以正解不是仿造一句话，而是**别把这条行占掉**。改动只有两处：
+
+1. `TurnProcessShadowView` 的 KR 分支：活动卡之外**并列渲染官方组件**
+   （官方在 `turn.status !== 'closed'` 时自己返回 null，进行中不会多出一行）；
+2. `kr-chat/styles.ts`：`[data-turn-process]` 从 KR 隐藏名单里移除。
+   `[data-step-process]`（整轮过程内容 = 工具树 + 过程正文）**仍在名单里**，左侧对话流
+   依旧只留卡片，一个字节都没多回来。
+
+**踩到的坑（已修）**：直接把 `props` 原样交给官方时，那枚 chevron 是活的 —— 点一下
+`turnProcess.setOpen(true)`，整轮过程投影（思考 + 全部过程正文，实测 1597px）**当场
+摊进左侧对话流**，而用户以为自己在「展开这一行」。修法：折成
+`{`...turnProcess, foldable: false, hasContent: false`}` 再传 —— 官方读到
+`canCollapse=false`，按钮 `disabled`、chevron 不渲染、不再有 `aria-expanded`，
+只剩那句读数。过程内容仍在右栏大盘（操作面板 / 思考卡）。
+
+**删掉的自造件**（这一轮全部清空，冒烟禁止复活）：`dock__card-elapsed` 一族样式、
+`data-has-elapsed` 让位规则、`thinking/use-turn-elapsed.ts`（整个文件）、
+`FlowCard` 的 `turn` 参数与 `ThinkingStepNodeView` 的透传。
+
+**验证**：冒烟断言改为钉「仿造件已删 + KR 渲染官方行 + turnProcess 已折 +
+`[data-turn-process]` 放行 / `[data-step-process]` 仍隐藏」；浏览器实测该会话两轮显示
+`已完成，用时 13分13秒` / `已完成，用时 4分27秒`，按钮 `disabled`、chevron 0 枚，
+点它也不会摊开任何内容（`[data-step-process]` 仍为 none），总结卡里没有仿造读数。
+
+
+**需求**：用户点名「给总结卡片头上加个用时」。此前卡片头部那整行统计 chip（完成徽章 +
+用时 / 步骤 / Git）已被移除过，所以这次是**只把用时**这一项加回来，而不是恢复整行。
+
+**形态**：右上角一枚克制的小胶囊（小圆点 + 等宽数字），绝对定位、不与正文争首行；
+有读数时由根上的 `data-has-elapsed` 把正文上内边距提到 32px 让位，**没有读数时保持
+原样**，不做无谓留白。
+
+**取数（`thinking/use-turn-elapsed.ts`）**：从官方 `snapshot.timeline.turns` 读本回合真实
+生命周期（`start.time` → `end.time`），三层兜底与右栏 `collectTurnNodes` 同口径：
+`timeline.turns` → `turn-tail` 节点的 `location.turn` → `legacy.turnTimings`。回合仍在推进时
+`useNow` 每秒推进、收口后定格。**拿不到真实起点就整枚不渲染** —— 右栏那套「工具数 ×
+800ms + 1500ms」的兜底只适合统计说明，摆在卡片头上会被读成「这轮真的只花了这么久」。
+
+**动效**（纯 CSS）：读数淡入上浮 320ms（延迟 180ms，等卡片壳子先稳）；进行中时小圆点
+1.6s 呼吸脉动、读数提色到品牌蓝；中断轮与顶边细线共用警示色。`prefers-reduced-motion`
+下两个动画全关、圆点回到静态。数字用 `tabular-nums`，跳秒时宽度不抖。
+
+**验证**：冒烟新增 6 条断言（读数挂在 reply 变体、取数走真实来源、缺失即 undefined、
+让位规则、样式与脉动在位、reduced-motion 兜底）；浏览器实测该会话两张总结卡分别显示
+`13m 14s` 与 `4m 27s`，与官方轮次生命周期一致。
+
+### 产出物卡：点图片裂图 / 侧栏却正常（2026-10-05 修）
+
+**症状**：右栏「产出物」卡里点 **图片行主体**（走画廊同款 Lightbox）显示裂图，同一行点
+**行尾「在侧栏打开」**却能正常预览。
+
+**根因（两半，都在 host 与 client 的路径口径上）**：
+
+1. **PTC 子调用不在画廊折叠的输入通道里**。模型在 `run_code` 代码体里
+   `await tools.present({files:[…]})` 交付的文件**没有** `tool/call` 与
+   `tool/result` 事件 —— 只有一条 `tool/ptc-dispatch`（参数与结果都挂在这条上，
+   callId 形如 `<rootCallId>:ptc:<n>`）。`foldEvents` 只认前者，于是这些路径从未进过
+   `/raw` 的准入索引；而产出物卡读的是同一批事件、经 client 侧提取照样列出那一行 ——
+   「看得见、点开 403」。
+2. **`/raw` 把相对路径按 host 进程的 cwd 解析**。`present` 的参数常是相对路径
+   （`深圳一日游_20261006/slide_01.png`），而索引里存的是绝对路径（提取时按会话 cwd
+   解析过）；`resolve(raw)` 用的是 DSH 安装目录，两边永远比不中。侧栏那条路走官方
+   `workspaceFiles` / `/api/file`（相对会话工作区解析），所以它一直是好的。
+   画廊面板不受影响：它是跨会话清单，条目本来就是绝对路径。
+
+**改法**：
+
+- `extract.ts` 新增 `extractFromPtcDispatch`：把 dispatch 事件掰成
+  `tool/call` + `tool/result` 的形状喂给 `extractFromEventPair` —— 白名单、落盘证据、
+  `_tmp/` 排除、交付优先**全部复用同一份源码**，不开第二条提取口径；
+  `ptc-dispatch-start`（无结果）与 `isError` 的调用都不收。
+- `store.ts`：`foldEvents` 增加 `tool/ptc-dispatch` 分支，去重/截断抽成 `mergeItems`；
+  `CACHE_VERSION` **升到 2**（旧缓存里这些条目一条都没有，而 revision 未变的会话会被
+  整段跳过 —— 不升版本号，升级后旧会话依然 403）。
+- `index.ts`：准入与解析合并成 `admitRawPath`（纯函数核心 `resolveAdmittedPath` 导出给
+  冒烟对拍）—— 相对路径只在**会话作用域**下按该会话 cwd 折绝对，取不到 cwd 一律拒绝；
+  绝对路径仍走索引。自由路径、`..` 穿越、未产出过的相对路径全部 403（冒烟钉死）。
+- `KrOutputsCard.tsx`（client，**刷新页面即生效、不必重启 DSH**）：交给 Lightbox 的条目
+  先按会话 cwd 折成绝对路径，取图地址**优先官方 `/api/file`**（与侧栏同一条链路），
+  折不出绝对路径才退回 `/raw`。这样「产出物卡点图」与「侧栏预览」共用同一条取文件
+  链路，插件自己的索引不再是单点。
+
+**取舍**：画廊面板仍走 `/raw` —— 它是跨会话清单，白名单语义在那里才成立；把 Lightbox
+对齐到官方链路只针对**当前会话的产出物卡**（那里的路径一定有会话作用域）。
+
+**验证**：host 四套冒烟全绿（新增 6 条断言：PTC 通道提取、失败调用不收、相对路径按会话
+cwd、绝对路径命中、未产出路径拒绝、cwd 未知拒绝）；`lib` 产物 + 真实会话日志起本地
+HTTP 实测 `/media` 索引含该图片、`/raw` 相对与绝对路径均返回 200 `image/png`；
+浏览器实机点击产出物卡图片行 → 预览正常显示（`/api/file` 200、naturalWidth 1279），
+「预览文档」仍交回右栏、画廊面板 85 张卡片照常渲染。
+
 ### 挤压自适应
 
 `use-adaptive-rows.ts` 用 ResizeObserver 监视 `.kr-panel__scroll`：
@@ -382,7 +538,7 @@ host 侧**零改动**：复用面板那套 `/delete-batch`（一次事务删完�
 
     ┌────────────────────────────┬──────────────────┐
     │  灵魂卡片（左，1.4fr）       │  灵魂预设（右，1fr）│
-    │  逐张开关 / 编辑 / 拖拽排序   │  4 套内置 + 自定义  │
+    │  逐张开关 / 编辑 / 拖拽排序   │  5 套内置 + 自定义  │
     ├────────────────────────────┴──────────────────┤
     │  ▸ 整段正文 / 身份字段 / 档案 / 蒸馏（默认收起，跨栏）│
     └───────────────────────────────────────────────┘
@@ -419,8 +575,10 @@ host 侧**零改动**：复用面板那套 `/delete-batch`（一次事务删完�
 面板每张卡一行：kind 图标 + 标题 + 开关 + 展开编辑 + 删除；失焦即存、删除先播 180ms
 退场再提交、拖拽带插入位指示线。
 
-**预设**：内置 4 套中文预设（**代码常量、只读、随包升级**）——工程搭档 / 严谨分析师 /
-写作助手 / 极简执行者，各 4 张卡。每套两个动作：**整体替换**（清空现有卡片整套采用）/
+**预设**：内置 5 套中文预设（**代码常量、只读、随包升级**）——工程搭档 / 严谨分析师 /
+写作助手 / 极简执行者（各 4 张卡），以及 2026-10-06 新增的 **可爱风**（5 张卡，多一张
+`style` 风格卡）。前四套是四套**工作形态**，可爱风是唯一的**语气档**——换的是说话方式
+（轻快、带小语气、少量 emoji），工作方式与工程搭档同源，故单独排在列表末尾。每套两个动作：**整体替换**（清空现有卡片整套采用）/
 **合并应用**（同 kind 覆盖、custom 追加、其余保留）；另有「存为预设」把当前卡片存成
 自定义预设（`presets.json`，可删；内置预设删除一律 400）。
 
@@ -1313,7 +1471,7 @@ src/
 src/triad/                           — 原 dsh-triad 工作台 host 半身
 ├── host.ts                          — applyTriadHost（各模块各 try/catch）
 ├── memory/                          — 记忆引擎：store / tools / api / engine/（extract|compile|inject|retrieval|scoring|embedding|consolidate|ticker）
-├── soul/                            — 记忆第四层「灵魂」：types / cards（卡片装配与预算）/ presets（4 套内置）/ store / prompt / distill / router（/api/dsh-memory/soul 全部端点）/ tools（soul_show|soul_set|soul_cards|soul_card_set|soul_card_remove）
+├── soul/                            — 记忆第四层「灵魂」：types / cards（卡片装配与预算）/ presets（5 套内置）/ store / prompt / distill / router（/api/dsh-memory/soul 全部端点）/ tools（soul_show|soul_set|soul_cards|soul_card_set|soul_card_remove）
 ├── gallery/                         — 多媒体画廊 host 半身
 │   ├── extract.ts                   — 事件对 → 产出物条目（复用 outputs.ts 纯函数）
 │   ├── store.ts                     — 跨会话增量折叠 + 磁盘缓存（usage-skill 同骨架）

@@ -25,10 +25,19 @@
 
 import { statSync } from 'node:fs'
 import { createReadStream } from 'node:fs'
-import { extname, join, resolve, sep } from 'node:path'
+import { extname, isAbsolute, join, resolve, sep } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
-import { collectGallery, sessionItemsFor, warmGallerySnapshot, type GalleryItemView, type GalleryResponse } from './store.ts'
+import {
+  collectGallery,
+  sessionContextFor,
+  sessionItemsFor,
+  setPersistenceRoot,
+  warmGallerySnapshot,
+  type GalleryItemView,
+  type GalleryResponse,
+  type SessionContext,
+} from './store.ts'
 import { galleryDedupeKey } from './extract.ts'
 
 const ROUTE = '/api/triad/gallery'
@@ -153,6 +162,11 @@ function readDeps(ctx: Context): GalleryDeps {
   const sessions = get('sessions') as GalleryDeps['sessions'] | undefined
   const persistence = get('sessionPersistence') as GalleryDeps['persistence'] | undefined
   const logger = (ctx as unknown as { logger?: { warn?: (msg: string) => void } }).logger
+  // 会话日志根目录是「便宜扫描」快速路径的入口：一次登记，之后每次聚合都省掉
+  // persistence.list() 那 40 秒（见 store.ts 的 scanSessionDirs）。老宿主不暴露
+  // root 时保持 null，store 侧自动回落 list()，功能不降级。
+  const root = (persistence as { root?: unknown } | undefined)?.root
+  setPersistenceRoot(typeof root === 'string' && root !== '' ? root : null)
   return { sessions, persistence, logger }
 }
 
@@ -233,18 +247,59 @@ function tokenMeta(token: string): { dir: string; session: string } | null {
 }
 
 /**
- * 会话作用域准入：路径是否被**指定会话**产出过。
+ * 会话作用域准入 + 目标解析：把 client 传来的路径解析成一个**准入过的绝对路径**。
  *
- * 产出物卡（右栏）的 Lightbox 也走 /raw，但用户可能从没开过画廊（全局索引
- * 还没建）。带 session 参数时按该会话现折一份清单（store.sessionItemsFor，
- * 带缓存）比对 —— 与全局索引同一套提取规则，安全口径不变：仍然只认「被某个
- * 对话产出过」的路径，自由路径一律 403。
+ * 为什么准入与解析必须一起做（2026-10-05 修「点图片加载不出来」）：
+ *  · client 传的是**产出物卡里那一行原样的字符串**，而 `present` / `write` 的参数
+ *    常是相对路径（`深圳一日游_20261006/slide_01.png`）；
+ *  · 索引里存的是**绝对路径**（提取时已按会话 cwd 解析）。
+ * 旧实现直接 `resolve(raw)`：相对路径按 **host 进程的 cwd**（DSH 安装目录）解析，
+ * 既不在索引里（403），就算放行也会 stat 到不存在的文件（404）。侧栏那条路走的是
+ * 官方 workspaceFiles（相对路径相对**会话工作区**解析）所以正常 —— 两边基准不
+ * 一致，用户看到的就是「点图片裂了，点侧栏按钮却能看」。
+ *
+ * 安全口径不变：仍然只认「被某个对话产出过」的路径，自由路径一律 null（403）。
+ *
+ * @param ctx - 插件上下文。
+ * @param raw - query 里的 path（绝对或相对）。
+ * @param sessionId - query 里的 session（产出物卡会带；画廊不带）。
+ * @returns 准入过的绝对路径；不通过返回 null。
  */
-async function isSessionOutput(ctx: Context, target: string, sessionId: string): Promise<boolean> {
-  if (sessionId === '') return false
-  const items = await sessionItemsFor(readDeps(ctx), sessionId)
-  const key = galleryDedupeKey(target)
-  return items.some((item) => galleryDedupeKey(item.path) === key)
+async function admitRawPath(ctx: Context, raw: string, sessionId: string): Promise<string | null> {
+  const absolute = isAbsolute(raw)
+  const target = absolute ? resolve(raw) : null
+  // 快路：绝对路径命中全局索引（画廊与产出物卡的主路），不必折任何会话。
+  if (target !== null && isIndexed(target)) return target
+  // 其余（绝对未命中 / 相对）都要看**这个会话自己产出过什么**。
+  if (sessionId === '') return null
+  const context = await sessionContextFor(readDeps(ctx), sessionId)
+  return resolveAdmittedPath(raw, target, context)
+}
+
+/**
+ * 准入判定的纯函数核心（导出给冒烟对拍，无 I/O、无 ctx）。
+ *
+ * @param raw - query 里的 path 原文。
+ * @param absoluteTarget - raw 是绝对路径时的 resolve 结果；相对路径传 null。
+ * @param context - 该会话的产出清单与工作区。
+ * @returns 准入过的绝对路径；不属于该会话产出返回 null。
+ */
+export function resolveAdmittedPath(
+  raw: string,
+  absoluteTarget: string | null,
+  context: SessionContext,
+): string | null {
+  const same = (a: string, b: string): boolean => galleryDedupeKey(a) === galleryDedupeKey(b)
+  if (absoluteTarget !== null) {
+    return context.items.some((item) => same(item.path, absoluteTarget)) ? absoluteTarget : null
+  }
+  /*
+   * 相对路径：基准取**该会话自己的 cwd**，取不到就拒绝 —— 拿 host 进程 cwd 当
+   * 基准会把路径指到 DSH 安装目录去，正是这次要修的错。
+   */
+  if (context.cwd === null || context.cwd === '') return null
+  const target = resolve(context.cwd, raw)
+  return context.items.some((item) => same(item.path, target)) ? target : null
 }
 
 async function handleRaw(ctx: Context, req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -253,9 +308,9 @@ async function handleRaw(ctx: Context, req: IncomingMessage, res: ServerResponse
     const url = new URL(req.url ?? '/', 'http://localhost')
     const raw = url.searchParams.get('path') ?? ''
     if (raw === '') { json(res, 400, { ok: false, error: 'missing path' }); return }
-    const target = resolve(raw)
-    // 准入：全局画廊索引，或 session 参数指定的会话自己的产出。
-    if (!isIndexed(target) && !await isSessionOutput(ctx, target, url.searchParams.get('session') ?? '')) {
+    // 准入 + 解析一步做完：相对路径按**会话 cwd** 折绝对（见 admitRawPath）。
+    const target = await admitRawPath(ctx, raw, url.searchParams.get('session') ?? '')
+    if (target === null) {
       json(res, 403, { ok: false, error: 'forbidden' })
       return
     }
@@ -355,6 +410,15 @@ interface WebServerService {
  * @param ctx - webServer / sessions / sessionPersistence 可用的插件上下文。
  */
 export function applyGallery(ctx: Context): void {
+  /*
+   * 先登记会话日志根目录，再预热。
+   *
+   * 顺序是关键（2026-10-05 踩到）：root 原先只在 `readDeps`（每次请求）里登记，
+   * 而 `warmGallerySnapshot()` 在挂载时立刻跑 —— 那一刻 root 还是 null，老单文件
+   * 缓存迁移时扫不到会话目录，于是「按 mtime 逐会话继承」的裁定全部落空，
+   * 1464 个本该直接继承的旧会话被原样重折一遍（分钟级）。
+   */
+  readDeps(ctx)
   const webServer = (ctx as unknown as { webServer: WebServerService }).webServer
   ctx.effect(() => webServer.register({
     kind: 'prefix',
@@ -399,4 +463,4 @@ async function handleMediaAndIndex(ctx: Context, req: IncomingMessage, res: Serv
 }
 
 /** 导出给冒烟：raw 准入索引的可测面。 */
-export const __test = { rememberIndex, isIndexed, htmlDirsToken, tokenMeta }
+export const __test = { rememberIndex, isIndexed, htmlDirsToken, tokenMeta, resolveAdmittedPath }

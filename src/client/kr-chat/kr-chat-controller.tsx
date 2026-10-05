@@ -266,8 +266,25 @@ export function mountKrChatController(): void {
     setTimeout(syncDom, 50)
   })
 
-  // 监听对话流区域内的点击：点击任意对话内容（用户提问、AI回复、思考卡等），
-  // 右侧大盘立即联动切换展示该对话轮次的执行大盘与指标
+  /*
+   * 对话流点击 → 切换右栏大盘轮次。
+   *
+   * **只有用户自己发的那条消息可以点**（2026-10-05 用户要求）。
+   *
+   * 原实现是「整个轮次区域都可点」：向上找 [data-chat-turn] 就切轮次，于是
+   * 手感上整条对话流都是活的 —— 最直接的代价是**鼠标指针整片变成手掌**
+   * （styles.ts 里那条 [data-chat-turn]{cursor:pointer}），用户原话「现在总结
+   * 老是出来一个手掌看着烦人」。
+   *
+   * 现在的判据是**点击目标本身落在用户消息节点里**：官方 flowItem 上带
+   * data-chat-flow-kind，用户消息那条的值就是 'user'（见 ui-chat 的
+   * ChatView 注入：data-chat-flow-kind = routedNode.kind）。命中就取它的
+   * data-chat-turn 切轮次；没命中就**什么都不做**，交回给官方原本的行为
+   * （选中文本、点链接、点卡片折叠……一个都不受影响）。
+   *
+   * 用 closest 而不是判断 e.target 自己：用户消息气泡里还有时间戳、头像等
+   * 子元素，点在它们身上同样算「点在提问上」。
+   */
   document.addEventListener('click', (e: MouseEvent) => {
     const state = store.snapshot
     if (state.activeTab !== 'kr') return
@@ -286,11 +303,11 @@ export function mountKrChatController(): void {
       return
     }
 
-    // 向上查找所属的对话轮次
-    const turnEl = target.closest<HTMLElement>('[data-conversation-scroll] [data-chat-turn], [data-conversation-scroll] [data-turn-tail]')
-    if (!turnEl) return
+    // 只认用户提问那一条：assistant 正文、思考卡、工具行、过程行一律不响应。
+    const userEl = target.closest<HTMLElement>('[data-conversation-scroll] [data-chat-flow-kind="user"]')
+    if (!userEl) return
 
-    const rawTurn = turnEl.getAttribute('data-chat-turn') || turnEl.getAttribute('data-turn-tail')
+    const rawTurn = userEl.getAttribute('data-chat-turn')
     if (!rawTurn) return
 
     const turn = parseInt(rawTurn, 10)

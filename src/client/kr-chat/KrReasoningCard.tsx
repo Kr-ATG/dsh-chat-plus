@@ -197,16 +197,15 @@ export const KrReasoningCard = memo(function KrReasoningCard({
           思考过程 {hasContent ? `(${times} 次)` : running ? '(思考中…)' : ''}
         </span>
         {/*
-         * 折叠时的一枚小 chevron：内联模式下这张卡收口后只剩标题一行，
-         * 没有它用户不知道点标题还能展开（.kr-card__chevron 旧样式已随右栏
-         * 那套删除，这里内联卡自己带一枚，跟着 data-open 转 90°）。
+         * 这里原本有一枚折叠 chevron（收口后提示「点标题还能展开」）。2026-10-05
+         * 按用户要求去掉：标题行右侧只留跟随状态，多一枚箭头就是噪声。
+         *
+         * 「别影响」的两条都还在：整行仍是 role=button + tabIndex=0 + aria-expanded
+         * （点击 / Enter / 空格照旧折叠展开），键盘与读屏的可达性一个字节没动 ——
+         * 去掉的只是那枚 aria-hidden 的纯装饰图标。
          */}
-        <span className="kr-reasoning-chevron" aria-hidden>
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 6.2 8 10.2l4-4" />
-          </svg>
-        </span>
-        {/* 跟随状态提示：截停时给出明确反馈（否则用户不知道为何不再滚动） */}
+        {/* 跟随状态提示：截停时给出明确反馈（否则用户不知道为何不再滚动）。
+            胶囊底色已按要求去掉，只留这行小字。 */}
         {followActive && overflow && (
           <span className="kr-card__follow" data-following={following ? 'true' : 'false'}>
             {following ? '跟随中' : '已暂停'}

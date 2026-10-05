@@ -9,7 +9,7 @@ import { callDurationMs, formatDuration, isRunning } from '../tool-summary/tool-
 import { toolArgsRaw } from '../tool-summary/activity-view-model.ts'
 import { useNow } from '../tool-summary/use-now.ts'
 import { getKrChatStore, PANEL_WIDTH_MAX, PANEL_WIDTH_MIN } from './kr-chat-store.ts'
-import { KrTaskOverviewCard, type DshTaskItem } from './KrTaskOverviewCard.tsx'
+import { KrTaskOverviewCard, type DshTaskItem, type TaskSource } from './KrTaskOverviewCard.tsx'
 import { KrMemoryCard } from './KrMemoryCard.tsx'
 import { usePanelSqueezed } from './use-adaptive-rows.ts'
 import { ShotPanel } from '../shot/Panel.tsx'
@@ -272,19 +272,25 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   const durationText = formatDuration(elapsedMs)
 
   // 任务数据源提取：优先使用本轮已记录的 todo_write / submitted-plan，当前未结轮次可回退到 live todos；
-  // 均为空时跨轮次回溯获取会话最近有效的任务清单，绝不误显“本轮还没有任务”
-  const tasks = useMemo<readonly DshTaskItem[]>(() => {
+  // 均为空时跨轮次回溯获取会话最近有效的任务清单，绝不误显“本轮还没有任务”。
+  // source 记录走了哪条路：'turn'（本轮快照）/ 'live'（官方 todos 投影）/
+  // 'session'（会话回溯）/ 'none'（空）。卡片用它做口径标注——回溯到别的轮次
+  // 的清单时给一枚「会话清单」小标，避免用户误以为看到的是本轮任务。
+  const tasksView = useMemo<{ tasks: readonly DshTaskItem[]; source: TaskSource }>(() => {
     if (turnData?.tasks && turnData.tasks.length > 0) {
-      return turnData.tasks
+      return { tasks: turnData.tasks, source: 'turn' }
     }
     if (!isViewingHistory) {
       const live = getLiveDshTodos()
       if (live && live.length > 0) {
-        return live.map((item, idx) => ({
-          id: `live-${idx}`,
-          content: item.content,
-          status: item.status,
-        }))
+        return {
+          tasks: live.map((item, idx) => ({
+            id: `live-${idx}`,
+            content: item.content,
+            status: item.status,
+          })),
+          source: 'live',
+        }
       }
     }
     /*
@@ -301,11 +307,12 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     if (snap) {
       const fallbackTasks = collectLatestSessionTasks(snap)
       if (fallbackTasks && fallbackTasks.length > 0) {
-        return fallbackTasks
+        return { tasks: fallbackTasks, source: 'session' }
       }
     }
-    return []
+    return { tasks: [], source: 'none' }
   }, [turnData, isViewingHistory, todoTick, snapTick, displayTurn])
+  const tasks = tasksView.tasks
 
 
   // 人话行动时间线：把本轮工具调用翻成中文人话（「打开携程 · 机票」）。
@@ -726,8 +733,10 @@ export const KrAgentPanel = memo(function KrAgentPanel({
          * 仍保留 store.setSelectedTurn 的能力，只是入口不再常驻占位。
          */}
 
-        {/* 任务概览卡片：常驻，无任务时给一行低对比度空态 */}
-        <KrTaskOverviewCard tasks={tasks} isRunning={currentRunning} />
+        {/* 任务概览卡片：常驻，无任务时给一行低对比度空态。
+            source 传三级回退的口径（turn/live/session），卡片据此决定是否
+            标注「会话清单」——回溯数据不该被误读成本轮任务。 */}
+        <KrTaskOverviewCard tasks={tasks} isRunning={currentRunning} source={tasksView.source} />
 
         {/* 思考过程卡已从右栏移出，改为贴在 KR 对话流里（见 ThinkingStepNodeView
             挂的 KrReasoningCard inline 模式）：思考与它对应的回答是同一件事的

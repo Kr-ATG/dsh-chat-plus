@@ -22,14 +22,17 @@ body[data-dsh-kr-chat="true"] [data-conversation-scroll] {
   flex-direction: column !important;
 }
 
-/* 隐藏旧的折叠行与折叠 chip，以及在 KR 模式下左侧隐藏原生工具树与紧凑控制行（详情收敛至右侧大盘） */
+/* 隐藏旧的折叠行与折叠 chip，以及在 KR 模式下左侧隐藏原生工具树与紧凑控制行（详情收敛至右侧大盘）。
+   ⚠ [data-turn-process] **不在这张表里**（2026-10-05）：它就是官方那条
+   「已完成，用时 13分14秒」的回合过程行 —— 用户点名要的正是官方这个读数，
+   而它的官方位置本来就在总结卡正上方。它只渲染那一行按钮，整轮过程内容在
+   [data-step-process] 里（仍在隐藏名单中），放行它不会把工具树带回左侧。 */
 body[data-dsh-kr-chat="true"] .dts__process,
 body[data-dsh-kr-chat="true"] .dts__entry,
 body[data-dsh-kr-chat="true"] .dtt__chip,
 body[data-dsh-kr-chat="true"] [data-chat-call-id],
 body[data-dsh-kr-chat="true"] [data-chat-anchor-key^="call:"],
 body[data-dsh-kr-chat="true"] [data-step-process],
-body[data-dsh-kr-chat="true"] [data-turn-process],
 /*
  * 官方把「同一个 assistant-step 节点」投影成两份 DOM：
  *   [data-turn-process-member] 过程投影（groupPart=reasoning）
@@ -193,16 +196,30 @@ body[data-dsh-kr-chat="true"] [data-turn-process-member][data-chat-group-part="r
   display: block !important;
 }
 
-/* ══ KR 模式下左侧对话流交互（无染色视觉，点击即可直接选中联动大盘） ═════════ */
-body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-turn] {
+/* ══ KR 模式下左侧对话流交互（无染色视觉）═════════════════════════════════
+   只有**用户自己发的那条消息**是可点入口（点它把右栏大盘切到该轮），所以手掌
+   光标也只给它 —— 2026-10-05 用户明确「只有我发送的对话内容才可以点击出来 agent
+   大盘，其他不要受到影响，现在总结老是出来一个手掌看着烦人」。
+   原来的规则写在 [data-chat-turn] 上（= 整条轮次都可点），于是助手正文、思考卡、
+   过程行、总结卡整片都是手掌。现在收窄到 flowKind=user 那一条，并在它内部把文字
+   恢复成常规光标（提问里的字仍然可以正常选中复制）。
+   [data-chat-flow-kind] 是官方 ChatView 自己注入的（routedNode.kind），不是插件
+   造的类名，没有 hash 漂移问题。 */
+body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-flow-kind="user"] {
   cursor: pointer;
 }
 
-body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-turn] p,
-body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-turn] pre,
-body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-turn] code,
-body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-turn] a {
+body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-flow-kind="user"] p,
+body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-flow-kind="user"] pre,
+body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-flow-kind="user"] code,
+body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-flow-kind="user"] a {
   cursor: text;
+}
+
+/* 其余区域一律显式回到默认光标：不依赖「没被规则命中」的隐式结果，
+   免得将来有人再加一条宽规则时手掌又铺满整条对话流。 */
+body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-turn]:not([data-chat-flow-kind="user"]) {
+  cursor: auto;
 }
 
 /* ══ 头部 KR 对话分类标签（与官方原生标签保持完全一致的块级排版与基线） ════════ */
@@ -812,8 +829,42 @@ body[data-kr-resizing="true"] * {
   padding: 10px 12px;
 }
 
-/* 极简细平滑进度条（2.5px，轻量雅致，不割裂界面） */
+/*
+ * 折叠热区的键盘焦点环。头部本就是 cursor:pointer 的整行热区（role=button），
+ * 补上 :focus-visible 才满足键盘可达——与大盘拖拽手柄的 WCAG 口径一致。
+ * outline 画在头部行内（负偏移），不随 .kr-card:hover 的 transform 漂移。
+ */
+.kr-card--task .kr-card__header:focus-visible {
+  outline: 2px solid var(--kr-accent);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+/*
+ * 口径小标「会话清单」：只在回溯到会话最近清单时出现。
+ * 刻意比 .kr-card__meta 更弱——它是解释性信息，不是数据本身；描边式胶囊
+ * 无底色，避免标题行右侧又长出一列色块（徽标教训见 .kr-card__meta 注释）。
+ */
+.kr-task-scope {
+  flex: none;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 14px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid var(--kr-card-border);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 极简细平滑进度条（2.5px，轻量雅致，不割裂界面）。
+   三态配色（data-running / data-done 挂在轨道上）：
+   · 静止推进中 → 灰（旧默认，中性）；
+   · 轮次运行中 → 品牌蓝 + 循环流光 sheen，一眼区分「还在跑」；
+   · 全部完成   → 品牌蓝静止，与完成态的对勾同色系呼应。
+   颜色过渡走 background-color .3s，运行/停止切换不硬闪。 */
 .kr-task-progress-line {
+  position: relative;
   height: 2.5px;
   background: var(--kr-fill-bg);
   border-radius: 999px;
@@ -822,10 +873,64 @@ body[data-kr-resizing="true"] * {
 }
 
 .kr-task-progress-line__fill {
+  position: relative;
   height: 100%;
   background: var(--dsw-alias-label-secondary, #61666b);
   border-radius: 999px;
-  transition: width 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  transition: width 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 0.3s ease;
+}
+
+.kr-task-progress-line[data-running="true"] .kr-task-progress-line__fill,
+.kr-task-progress-line[data-done="true"] .kr-task-progress-line__fill {
+  background: var(--dsw-alias-state-business-primary, #4176e6);
+}
+
+/*
+ * 流光 sheen：一段高光从左到右循环扫过填充条，仅运行中显示。
+ * 2.5px 高的轨道上流光是「一丝光在走」，不是探照灯——透明度压低、周期 1.6s。
+ * 常驻子元素 + 轨道上的 data-running 控制显隐：避免 React 挂/摘节点时
+ * 动画从第一帧重启造成的节奏跳变。
+ */
+.kr-task-progress-line__sheen {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 80%
+  );
+  transform: translateX(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.kr-task-progress-line[data-running="true"] .kr-task-progress-line__sheen {
+  opacity: 1;
+  animation: kr-task-sheen 1.6s linear infinite;
+}
+
+@keyframes kr-task-sheen {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+
+/*
+ * 全部完成的一次性光脉冲：allDone 跳变时组件挂 data-flash 900ms。
+ * 用 box-shadow 扩散而不是 scale——2.5px 的轨道 scaleY 会失真，
+ * 阴影脉冲在细条上是「亮了一下」的自然读感。
+ */
+.kr-task-progress-line[data-flash="true"] {
+  animation: kr-task-done-pulse 0.9s cubic-bezier(0.16, 1, 0.3, 1) 1;
+}
+
+@keyframes kr-task-done-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 45%, transparent); }
+  60% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 22%, transparent); }
+  100% { box-shadow: 0 0 0 5px transparent; }
 }
 
 /* 任务列表 */
@@ -843,8 +948,13 @@ body[data-kr-resizing="true"] * {
  */
 /* 空态：进度说明（纯文字）弱一档，不必再单独压暗。 */
 
-/* 任务行落位：首条 34ms、逐条错峰，读作「步骤在铺开」而不是整张卡突然出现。 */
+/* 任务行落位：首条 34ms、逐条错峰，读作「步骤在铺开」而不是整张卡突然出现。
+   position:relative + isolation 是给两个覆盖层准备的：完成淡闪（__flash）与
+   进行中呼吸（::before/::after）都画在行内、不占布局，也不动行自身的
+   animation 声明——class 切换会重置行的动画列表，把入场动画重播一遍。 */
 .kr-task-item {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: flex-start;
   gap: 9px;
@@ -863,6 +973,71 @@ body[data-kr-resizing="true"] * {
   background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.07));
 }
 
+/*
+ * 进行中行的呼吸强调：左侧 2px 品牌色竖条 + 底色缓慢脉动。
+ * 两层都是伪元素覆盖层（z-index:-1 垫在内容之下、行内 isolation 兜底），
+ * hover 的 background 仍然正常叠显，互不打架。
+ * 竖条用 transform:scaleY 从中心展开，行高变化时不拉伸变形。
+ */
+.kr-task-item--in_progress::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--dsw-alias-state-business-primary, #4176e6);
+  transform: scaleY(1);
+  animation: kr-task-bar-in .28s cubic-bezier(.16, 1, .3, 1) both;
+  z-index: -1;
+}
+
+@keyframes kr-task-bar-in {
+  from { transform: scaleY(0); opacity: 0; }
+  to { transform: scaleY(1); opacity: 1; }
+}
+
+.kr-task-item--in_progress::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 7%, transparent);
+  animation: kr-task-breathe 2.2s ease-in-out infinite;
+  z-index: -1;
+  pointer-events: none;
+}
+
+@keyframes kr-task-breathe {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+/* 停滞行（轮次已停仍挂「进行中」）：整体退一档，无呼吸无竖条——
+   它是待收口的残留事实，不是活体。灰化但不划掉：任务本身还没做完。 */
+.kr-task-item--stalled .kr-task-item__content {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 完成瞬间的一次性底色淡闪：品牌色底 0→亮→0，播完由组件摘除节点。
+   与对勾 pop 同一时刻发生，读作「这条刚打勾」。 */
+.kr-task-item__flash {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 14%, transparent);
+  animation: kr-task-flash .45s ease-out 1 both;
+  pointer-events: none;
+  z-index: -1;
+}
+
+@keyframes kr-task-flash {
+  0% { opacity: 0; }
+  30% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 .kr-task-item__icon {
   width: 14px;
   height: 14px;
@@ -872,6 +1047,18 @@ body[data-kr-resizing="true"] * {
   justify-content: center;
   margin-top: 2px;
   color: var(--dsw-alias-label-tertiary);
+}
+
+/* 对勾 pop：完成那一帧图标从小到大弹出（overshoot 回弹），与底色淡闪同拍。
+   动画挂在图标容器而不是 svg，StatusIcon 内部实现变更不受影响。 */
+.kr-task-item__icon--pop {
+  animation: kr-task-check-pop .4s cubic-bezier(.34, 1.56, .64, 1) 1 both;
+}
+
+@keyframes kr-task-check-pop {
+  0% { transform: scale(0.4); }
+  60% { transform: scale(1.18); }
+  100% { transform: scale(1); }
 }
 
 .kr-task-item--completed .kr-task-item__icon {
@@ -889,6 +1076,7 @@ body[data-kr-resizing="true"] * {
   line-height: 1.45;
   color: var(--dsw-alias-label-primary);
   word-break: break-word;
+  transition: color .2s ease;
 }
 
 .kr-task-item--completed .kr-task-item__content {
@@ -908,6 +1096,87 @@ body[data-kr-resizing="true"] * {
 .kr-task-item__tag--running {
   color: var(--dsw-alias-state-business-primary, #4176e6);
   background: color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);
+}
+
+/* 停滞标签：中性灰描边，与「进行中」同形不同色——状态退化一眼可读。 */
+.kr-task-item__tag--stalled {
+  color: var(--dsw-alias-label-tertiary);
+  background: transparent;
+  border: 1px solid var(--kr-card-border);
+  padding: 0 5px;
+}
+
+/*
+ * 进度数字翻滚（RollNum 组件）：inline-grid 双层叠放，旧值滚出新值滚入。
+ * 容器宽随较宽者 + tabular-nums（继承 .kr-card__meta），翻滚过程不抖行。
+ * up = 数字变大（旧值上滚出、新值从下进），down 反之。
+ */
+.kr-num-roll {
+  display: inline-grid;
+  vertical-align: bottom;
+  overflow: hidden;
+}
+
+.kr-num-roll > * {
+  grid-area: 1 / 1;
+}
+
+.kr-num-roll--up .kr-num-roll__old {
+  animation: kr-num-out-up .32s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.kr-num-roll--up .kr-num-roll__new {
+  animation: kr-num-in-up .32s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.kr-num-roll--down .kr-num-roll__old {
+  animation: kr-num-out-down .32s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.kr-num-roll--down .kr-num-roll__new {
+  animation: kr-num-in-down .32s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+@keyframes kr-num-out-up {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(-90%); opacity: 0; }
+}
+
+@keyframes kr-num-in-up {
+  from { transform: translateY(90%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes kr-num-out-down {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(90%); opacity: 0; }
+}
+
+@keyframes kr-num-in-down {
+  from { transform: translateY(-90%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* 无障碍兜底：本卡全部装饰性动效一键关。呼吸、流光、翻滚、pop、错峰入场
+   都是增强项，信息本身（状态、进度、文案）不依赖动画传达。 */
+@media (prefers-reduced-motion: reduce) {
+  .kr-task-item,
+  .kr-task-item--in_progress::before,
+  .kr-task-item--in_progress::after,
+  .kr-task-item__flash,
+  .kr-task-item__icon--pop,
+  .kr-task-progress-line[data-running="true"] .kr-task-progress-line__sheen,
+  .kr-task-progress-line[data-flash="true"],
+  .kr-num-roll > * {
+    animation: none !important;
+    transition: none !important;
+  }
+  .kr-task-progress-line__fill {
+    transition: none;
+  }
+  .kr-task-progress-line[data-running="true"] .kr-task-progress-line__sheen {
+    opacity: 0.5;
+  }
 }
 
 /* ══ 思考过程卡片 ══════════════════════════════════════════════════════════ */
@@ -1129,22 +1398,8 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   .kr-card--reasoning[data-inline] { transition: none; }
 }
 
-.kr-reasoning-chevron {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--dsw-alias-label-tertiary);
-  transition: transform .22s cubic-bezier(.16, 1, .3, 1), color .18s ease;
-}
-
-.kr-card--reasoning[data-open] .kr-reasoning-chevron {
-  transform: rotate(180deg);
-}
-
-.kr-card__header:hover .kr-reasoning-chevron {
-  color: var(--dsw-alias-label-secondary);
-}
+/* 折叠 chevron 已删（2026-10-05 用户要求）：标题行右侧不再有箭头。
+   折叠功能本身不受影响 —— 整行仍是 role=button + aria-expanded，点了照旧收放。 */
 
 /*
  * 折叠体的高度补间由 useHeightAnimation 用 WAAPI 直接改 inline height，
@@ -1166,15 +1421,19 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   .kr-card--reasoning[data-inline] .kr-reasoning-list { transition: none; }
 }
 
-/* 跟随状态提示（只在截停时出现，给用户明确反馈） */
+/* 跟随状态提示（只在截停时出现，给用户明确反馈）。
+   2026-10-05 按用户要求**去掉胶囊底色**：这块底色在标题行右端是一枚孤立色块，
+   比它要传达的状态本身更抢眼。只留这行 11px 小字，靠字色区分两态
+   （跟随中 = 次级灰，已暂停 = 三级更淡），信息一个不少、噪声清零。 */
 .kr-card__follow {
   flex: none;
   font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  color: var(--dsw-alias-label-tertiary);
-  background: var(--kr-hover-bg);
+  color: var(--dsw-alias-label-secondary);
   white-space: nowrap;
+}
+
+.kr-card__follow[data-following="false"] {
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .kr-reasoning-row {

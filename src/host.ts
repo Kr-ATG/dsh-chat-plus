@@ -39,6 +39,12 @@ export { applyMailHost } from './mail/index.ts'
 export type { MailHostConfig, MailHostHandle } from './mail/index.ts'
 // 纯函数再导出：供 smoke 直接断言「CLI 英文报错翻成人话」的映射表。
 export { humanizeCliError } from './mail/cli.ts'
+// 画廊的可测面（索引准入 / raw 路径解析纯函数）：供 smoke 对拍「相对路径按会话
+// cwd 解析」这条回归 —— 它正是「产出物卡点图片 403、侧栏却正常」的根因所在。
+export { __test as galleryTest } from './triad/gallery/index.ts'
+// 内置灵魂预设的可测面：预设是代码常量，某套被改坏或某张卡被 normalizeCard 过滤掉
+// 都不会抛错，只会让面板静默少一行。导出给 smoke 钉住 id 集合与卡片数。
+export { BUILTIN_SOUL_PRESETS, builtinPreset } from './triad/soul/presets.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'dsh-chat-plus'

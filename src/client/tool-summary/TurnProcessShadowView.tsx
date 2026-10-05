@@ -866,16 +866,47 @@ export const TurnProcessShadowView = memo(function TurnProcessShadowView(props: 
 
   // KR 无论当前回合是否 foldable 都由活动卡占位；它从 turn-process 的
   // per-turn 座位出现，因此第一条 assistant 文本之前也能立刻显示。
+  //
+  // **官方那行「已完成，用时 13分14秒」在 KR 模式照常留给官方**（2026-10-05）：
+  // 用户先要「给总结卡加个用时」，再明确「不要放总结里，就用官方的那种」——
+  // 官方这条读数本来就长在**总结卡正上方**（turn-process 的 per-turn 座位，
+  // 官方自己的位置），插件要做的是别把它占掉，而不是在卡片里仿造一句。
+  //
+  // 官方组件在 `turn.status !== 'closed'` 时自己返回 null（进行中只有活动卡），
+  // 所以进行中不会多出一行。
+  //
+  // ⚠ **必须把 turnProcess 折成「不可折叠、无内容」再交给官方**（实测踩到）：
+  // 原样传 `props` 时官方那枚 chevron 是活的，点一下 `turnProcess.setOpen(true)`，
+  // 于是整轮过程投影（思考 + 全部过程正文，实测 1597px）**当场摊进左侧对话流** ——
+  // 那正是 KR 一直要收敛的东西，而用户以为自己在「展开这一行」。
+  // 折过之后：官方读到 `foldable: false`，`canCollapse=false` → 按钮 disabled、
+  // chevron 不渲染、也不再有 aria-expanded，只剩那句读数本身。过程内容仍在右栏
+  // 大盘（操作面板 / 思考卡），一个字节都没少。
+  const OfficialProcessRow = getOfficialTurnProcessNodeView()
   if (isKrMode) {
     return (
-      <KrActivityCardGate
-        turn={turn}
-        reasoning={krProjection.reasoning}
-        tools={krProjection.tools}
-        active={krActive}
-        closing={krClosing}
-        committed={krCommitted}
-      />
+      <>
+        <KrActivityCardGate
+          turn={turn}
+          reasoning={krProjection.reasoning}
+          tools={krProjection.tools}
+          active={krActive}
+          closing={krClosing}
+          committed={krCommitted}
+        />
+        {OfficialProcessRow
+          ? (
+            <OfficialProcessRow
+              {...props}
+              turnProcess={turnProcess === undefined ? undefined : {
+                ...turnProcess,
+                foldable: false,
+                hasContent: false,
+              }}
+            />
+          )
+          : null}
+      </>
     )
   }
   // 普通「对话」把座位原样还给官方：那条「工具调用 N 次 · 已思考…」的折叠行

@@ -522,6 +522,54 @@ if (krEnabled) {
   }
 }
 
+/*
+ * 用时读数 = **官方那条行**，不在总结卡里（用户 2026-10-05 三轮口径的最终结论：
+ * 「给总结卡加个用时」→「用官方的」→「不要放总结里，就用官方的那种」）。
+ *
+ * 钉四件事，任何一件回归用户都会当场看见：
+ *  1. 插件**不得再仿造**读数（dtt__card-elapsed / useTurnElapsed / formatOfficialElapsed
+ *     与那个文件一起清干净）—— 仿造件与官方那行会同时在屏上出现，是两句话；
+ *  2. KR 模式的 turn-process 座位要把官方组件**同时渲染**出来（活动卡 + 官方行），
+ *     官方组件在 turn 未 closed 时自己返回 null，所以进行中不会多出一行；
+ *  3. `[data-turn-process]` 不得出现在 KR 的隐藏名单里 —— 它就是用户要的那条读数；
+ *     同时 `[data-step-process]` 必须在名单里（整轮过程内容仍不给回左侧对话流）；
+ *  4. 总结卡外壳本身保持纯正文（没有任何头部统计件）。
+ */
+{
+  const cardSrc = readFileSync(resolve(ROOT, 'src/client/flow-card.tsx'), 'utf8')
+  const shadowSrc = readFileSync(resolve(ROOT, 'src/client/tool-summary/TurnProcessShadowView.tsx'), 'utf8')
+  const krStyleSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/styles.ts'), 'utf8')
+  const styleSrc = readFileSync(resolve(ROOT, 'src/client/styles.ts'), 'utf8')
+  const hookPath = resolve(ROOT, 'src/client/thinking/use-turn-elapsed.ts')
+  // 只取**选择器**那一段（注释里也会提到这些属性名，必须排除掉）。
+  const hideRule = krStyleSrc.slice(
+    krStyleSrc.indexOf('body[data-dsh-kr-chat="true"] .dts__process'),
+    krStyleSrc.indexOf('[data-step-process],', krStyleSrc.indexOf('body[data-dsh-kr-chat="true"] .dts__process')) + 30,
+  )
+  // 注释里会出现这些名字（当初为什么删的说明），比对前先把注释剥掉。
+  const bareCard = cardSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ')
+  const bareStyle = styleSrc.replace(/\/\*[\s\S]*?\*\//g, ' ')
+  if (/dtt__card-elapsed|useTurnElapsed|formatOfficialElapsed/.test(bareCard + bareStyle)) {
+    fail('总结卡里的仿造用时读数必须整块删除（dtt__card-elapsed / useTurnElapsed 不得残留）')
+  } else if (existsSync(hookPath)) {
+    fail('use-turn-elapsed.ts 已无引用，必须删除（否则下一个人会以为它还在用）')
+  } else if (!/OfficialProcessRow|getOfficialTurnProcessNodeView/.test(shadowSrc)) {
+    fail('KR 模式必须把官方 turn-process 组件渲染出来（那条「已完成，用时」读数归官方）')
+  } else if (!/\{OfficialProcessRow\s*\?/.test(shadowSrc) || !/<OfficialProcessRow/.test(shadowSrc)) {
+    fail('KR 分支必须与活动卡并列渲染官方过程行（缺了那条「已完成，用时」读数就没了）')
+  } else if (!/foldable: false/.test(shadowSrc) || !/hasContent: false/.test(shadowSrc)) {
+    fail('交给官方的 turnProcess 必须折成 foldable:false + hasContent:false（否则点一下会把整轮过程摊进对话流）')
+  } else if (hideRule.includes('[data-turn-process]')) {
+    fail('[data-turn-process] 不得再被 KR 隐藏（它就是官方那条用时读数）')
+  } else if (!hideRule.includes('[data-step-process]')) {
+    fail('[data-step-process] 必须仍在 KR 隐藏名单里（整轮过程内容不给回左侧对话流）')
+  } else if (/dtt__card-elapsed|data-has-elapsed/.test(bareStyle)) {
+    fail('styles.ts 里的仿造读数样式（含 [data-has-elapsed] 让位规则）必须删干净')
+  } else {
+    pass('用时读数归官方：仿造件已删 + KR 渲染官方行 + [data-turn-process] 放行 / [data-step-process] 仍隐藏')
+  }
+}
+
 // 用时读数已从对话流那张「Seeker 正在…」活动卡上撤掉：卡片只讲「正在做什么」，
 // 每秒跳一格的时长留在这里只会跟动作名抢主角。
 if (krEnabled) {
@@ -803,6 +851,17 @@ if (krEnabled) {
   if (!/useState\(inline \? summarizing : false\)/.test(reasoningCode)) {
     reasons.push('卡片初始态必须只看 summarizing（写成 summarizing || !running 会整轮吞卡）')
   }
+  // 6. 标题行右侧只留跟随状态（2026-10-05 用户要求去掉折叠 chevron 与跟随胶囊底色）：
+  //    折叠功能必须还在（整行 role=button + aria-expanded），去掉的只是装饰。
+  if (/kr-reasoning-chevron/.test(reasoningCode)) {
+    reasons.push('思考卡标题行的折叠 chevron 已按用户要求删除（kr-reasoning-chevron 不得复活）')
+  }
+  if (!/role="button"[\s\S]{0,200}aria-expanded={open}/.test(reasoningCode)) {
+    reasons.push('去掉箭头后整行仍必须是可折叠按钮（role=button + aria-expanded），功能不受影响')
+  }
+  if (!/kr-card__follow/.test(reasoningCode) || !/跟随中/.test(reasoningCode)) {
+    reasons.push('跟随状态文字（跟随中 / 已暂停）必须保留，只去掉底色')
+  }
   // 6. 思考取数必须能在 locations 漏掉 step 时兜底扫全量节点，否则工具
   //    间隙里会出现「右栏能抽出预告、对话流却没有思考卡」。
   if (!/EMPTY_REASONING/.test(stepCode) || !/typeof nodes\.values === 'function'/.test(stepCode)) {
@@ -820,7 +879,32 @@ if (krEnabled) {
   if (reasons.length > 0) {
     fail('思考卡性能/时机回退：' + reasons.join('；'))
   } else {
-    pass('思考卡：稳定引用 + 指纹探针 + 尾部窗口 + 按总结卡折叠 + 全量兜底')
+    pass('思考卡：稳定引用 + 指纹探针 + 尾部窗口 + 按总结卡折叠 + 全量兜底 + 无箭头/跟随无底色')
+  }
+}
+
+/*
+ * 大盘的点击入口**只归用户自己发的消息**（2026-10-05 用户要求）。
+ *
+ * 判据两条缺一不可：
+ *  1. 控制器里 click 监听必须用 [data-chat-flow-kind="user"] 定位（原来向上找
+ *     [data-chat-turn] = 整条轮次都可点，助手正文/思考卡/总结卡全在响应点击）；
+ *  2. 光标规则也必须收窄到同一条上（styles.ts）—— 手掌铺满整片对话流正是用户
+ *     报的「总结老是出来一个手掌看着烦人」；其余区域显式 cursor:auto 兜底。
+ */
+if (krEnabled) {
+  const controllerSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/kr-chat-controller.tsx'), 'utf8')
+  const krStyleSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/styles.ts'), 'utf8')
+  if (/target\.closest<HTMLElement>\('\[data-conversation-scroll\] \[data-chat-turn\], \[data-conversation-scroll\] \[data-turn-tail\]'\)/.test(controllerSrc)) {
+    fail('大盘点击不得再按整轮命中（[data-chat-turn] 那版会让助手正文也切轮次）')
+  } else if (!/data-chat-flow-kind="user"/.test(controllerSrc)) {
+    fail('大盘点击必须只认用户消息（data-chat-flow-kind="user"）')
+  } else if (!/\[data-conversation-scroll\] \[data-chat-flow-kind="user"\] \{\s*cursor: pointer/.test(krStyleSrc)) {
+    fail('手掌光标必须只给用户消息那一条')
+  } else if (!/\[data-chat-turn\]:not\(\[data-chat-flow-kind="user"\]\) \{[\s\S]{0,40}cursor: auto/.test(krStyleSrc)) {
+    fail('其余区域必须显式 cursor:auto（不靠隐式结果，防止将来宽规则又铺满手掌）')
+  } else {
+    pass('大盘点击与手掌光标都只归用户消息（其余区域 cursor:auto）')
   }
 }
 
