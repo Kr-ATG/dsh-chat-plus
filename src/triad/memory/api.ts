@@ -265,7 +265,9 @@ async function handle(
       const zhEnabled = await store.isZhInjectEnabled(config.zhInjectDefaultEnabled !== false)
       // diagram 同理并进回包：新开一个 GET 端点等于把翻倍的轮询量固化下来。
       const diagramEnabled = await store.isDiagramInjectEnabled(config.diagramInjectDefaultEnabled !== false)
-      json(res, 200, { enabled: explicit ?? defaultEnabled, defaultEnabled, explicit, zhEnabled, diagramEnabled })
+      // soul 同样并进回包（同一理由：composer 的开关浮层一次 hover 就要知道三条通道的状态）。
+      const soulEnabled = await store.isSoulInjectEnabled(config.soulInjectDefaultEnabled !== false)
+      json(res, 200, { enabled: explicit ?? defaultEnabled, defaultEnabled, explicit, zhEnabled, diagramEnabled, soulEnabled })
       return
     }
     if (method === 'POST' && rest === '/inject-state') {

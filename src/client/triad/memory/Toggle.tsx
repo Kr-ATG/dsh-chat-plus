@@ -41,7 +41,7 @@ const HIDE_DELAY_MS = 120
 
 /** host 缺字段时的兜底形状：中文通道默认开（内置能力），diagram 默认关。 */
 const FALLBACK_STATE: InjectStateView = {
-  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false,
+  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false, soulEnabled: true,
 }
 
 /** 把 host 回包收敛成本地状态形状（缺字段按默认处理）。 */
@@ -55,6 +55,9 @@ function toState(res: InjectStateView): InjectStateView {
     // 缺字段按 false 兜底：diagram 通道默认关，且缺字段意味着旧 host 根本没
     // 这个能力——显示「关」比显示「开」诚实（显示开着却注不进去是假阳性）。
     diagramEnabled: res.diagramEnabled === true,
+    // 灵魂与中文同口径：内置身份契约，缺字段按开。真正决定注不注得进去的是
+    // soul.md 有没有内容（空灵魂不注入，由 host 注入器负责）。
+    soulEnabled: res.soulEnabled !== false,
   }
 }
 
@@ -85,19 +88,22 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
    * 具备的能力；回读拿到的是真实状态。
    */
   const pushChannel = useCallback((
-    key: 'zhEnabled' | 'diagramEnabled',
+    key: 'zhEnabled' | 'diagramEnabled' | 'soulEnabled',
     next: boolean,
   ): void => {
     setBusy(true)
     setState(prev => ({ ...prev, [key]: next }))
     const write = key === 'zhEnabled'
       ? apiRef.current.setZhInjectState(next)
-      : apiRef.current.setDiagramInjectState(next)
+      : key === 'diagramEnabled'
+        ? apiRef.current.setDiagramInjectState(next)
+        : apiRef.current.setSoulInjectState(next)
     void write
       .then(res => {
         // 中文通道缺字段按开兜底（内置能力），diagram 缺字段按关兜底（旧 host
         // 根本没有这个能力，显示「开」是假阳性）——与 toState 的口径一致。
-        const enabled = key === 'zhEnabled' ? res.enabled !== false : res.enabled === true
+        // 中文通道与灵魂通道同口径（内置能力，缺字段按开）；diagram 缺字段按关。
+        const enabled = key === 'diagramEnabled' ? res.enabled === true : res.enabled !== false
         setState(prev => ({ ...prev, [key]: enabled }))
       })
       .catch(reload)
@@ -118,6 +124,7 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           // 同样要透传：这几个 setter 只该动自己的字段，写整个对象会把它抹掉。
           zhEnabled: typeof res.zhEnabled === 'boolean' ? res.zhEnabled : prev.zhEnabled,
           diagramEnabled: typeof res.diagramEnabled === 'boolean' ? res.diagramEnabled : prev.diagramEnabled,
+          soulEnabled: typeof res.soulEnabled === 'boolean' ? res.soulEnabled : prev.soulEnabled,
         }))
       })
       .catch(reload)
@@ -143,6 +150,7 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           explicit: typeof res.explicit === 'boolean' ? res.explicit : prev.explicit,
           zhEnabled: typeof res.zhEnabled === 'boolean' ? res.zhEnabled : prev.zhEnabled,
           diagramEnabled: typeof res.diagramEnabled === 'boolean' ? res.diagramEnabled : prev.diagramEnabled,
+          soulEnabled: typeof res.soulEnabled === 'boolean' ? res.soulEnabled : prev.soulEnabled,
         }))
       })
       .catch(() => undefined)
@@ -376,9 +384,10 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
 
   const zhOn = state.zhEnabled !== false
   const diagramOn = state.diagramEnabled === true
-  // 按钮状态取「两条里有没有开的」——全关才算关，半开按开显示（它是能力入口，
+  const soulOn = state.soulEnabled !== false
+  // 按钮状态取「三条里有没有开的」——全关才算关，半开按开显示（它是能力入口，
   // 不是记忆那种一刀切的开关）。
-  const anyOn = zhOn || diagramOn
+  const anyOn = zhOn || diagramOn || soulOn
   const button = (
     <ToggleButton
       on={anyOn}
@@ -412,6 +421,14 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
           busy={busy}
           label={t('diagramInjectLabel')}
           onToggle={() => { pushChannel('diagramEnabled', !diagramOn) }}
+        />
+        {/* 灵魂：与中文同类的「跨会话恒定」契约，故与它们同卡；详细编辑在
+            工作台 → 记忆 → 灵魂 Tab，这里只给一个总开关。 */}
+        <SwitchRow
+          on={soulOn}
+          busy={busy}
+          label={t('soulInjectLabel')}
+          onToggle={() => { pushChannel('soulEnabled', !soulOn) }}
         />
         <p className={css.injectFoot}>{t('builtinCardFoot')}</p>
       </div>

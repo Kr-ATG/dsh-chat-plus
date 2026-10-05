@@ -20,7 +20,7 @@ import { buildPlainTimeline } from './plain-timeline.ts'
 import { KrPlainTimelineCard } from './KrPlainTimelineCard.tsx'
 import { KrOutputsCard } from './KrOutputsCard.tsx'
 import { collectOutputs, collectSessionToolNodes, outputsFingerprint, type OutputsView } from './outputs.ts'
-import { KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE } from './enabled.ts'
+import { AGENT_DISPLAY_NAME, KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE } from './enabled.ts'
 import { installConversationScrollGuard } from './scroll-guard.ts'
 
 /**
@@ -120,6 +120,26 @@ export const KrAgentPanel = memo(function KrAgentPanel({
       store.setSelectedTurn(null)
     }
   }, [krState.selectedTurn, effectiveLatestTurn, store])
+
+  /*
+   * 会话切换时清掉选中轮次。
+   *
+   * 上面那条只处理「越界」：切到轮次更少的会话时才解除。反过来的情况——从 2 轮
+   * 的会话切到 8 轮的会话、且此前点选过第 2 轮——选中值仍然"合法"，于是右栏
+   * 会**停在新会话的第 2 轮**而不是最新轮次。用户刚切过来看到的是几轮之前的
+   * 中间状态：任务概览显示那时写过的旧清单、操作面板只剩那一轮的动作，
+   * 读起来就是「信息没了」。轮次选中是**会话内**的浏览位置，跨会话不该继承。
+   *
+   * 会话身份由 KrTodoBridge 登记，setLatestChatSessionId 里已经清过一次
+   * （resetSessionCaches），这里再兜一层：本组件在会话切换后可能先于座位
+   * effect 渲染，只靠那一路会漏掉一帧。
+   */
+  const sessionIdRef = useRef<string | null>(latestChatSessionId)
+  useEffect(() => {
+    if (sessionIdRef.current === latestChatSessionId) return
+    sessionIdRef.current = latestChatSessionId
+    if (krState.selectedTurn !== null) store.setSelectedTurn(null)
+  }, [latestChatSessionId, krState.selectedTurn, store])
 
   // 决定当前展示哪个轮次：若用户点击了历史轮次则显示历史轮次，否则跟随最新轮次
   const displayTurn = validSelectedTurn ?? effectiveLatestTurn
@@ -267,15 +287,26 @@ export const KrAgentPanel = memo(function KrAgentPanel({
         }))
       }
     }
+    /*
+     * 回溯口径是**整场会话最近一次**，不再限制在 displayTurn 之前。
+     *
+     * 原实现传 `displayTurn`（截止到当前查看的轮次），于是点开一个**自己没写过
+     * todo** 的历史轮次时回溯不到任何清单，任务卡直接翻成「本轮还没有任务」——
+     * 用户看到的就是「一切换轮次/会话，任务信息就没了」。可任务卡回答的是
+     * 「这次对话在推进什么」，那是**跨轮次持续**的事实：切到第 1 轮去看当时干了
+     * 什么，不代表当前推进中的清单应该消失。有本轮的优先用本轮的，没有就退回
+     * 会话最近一次。
+     */
     const snap = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)
     if (snap) {
-      const fallbackTasks = collectLatestSessionTasks(snap, displayTurn)
+      const fallbackTasks = collectLatestSessionTasks(snap)
       if (fallbackTasks && fallbackTasks.length > 0) {
         return fallbackTasks
       }
     }
     return []
   }, [turnData, isViewingHistory, todoTick, snapTick, displayTurn])
+
 
   // 人话行动时间线：把本轮工具调用翻成中文人话（「打开携程 · 机票」）。
   // 纯推导，无副作用。tools 已由 collectTurnNodes 按 anchorSeq 升序给出，无需再排。
@@ -543,7 +574,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     if (dialogueTitle && dialogueTitle.trim() !== '') {
       return dialogueTitle
     }
-    if (currentRunning) return 'Agent 执行中'
+    if (currentRunning) return `${AGENT_DISPLAY_NAME} 执行中`
     if (validSelectedTurn !== null) return '已选对话'
     return hasContent ? '任务已完成' : '新对话'
   }, [dialogueTitle, currentRunning, validSelectedTurn, hasContent])
@@ -736,7 +767,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
 
         现在只剩**记忆卡**一块：保持钉在最后，维持用户已有的空间习惯；分「工作区
         记忆 / 全局记忆」两个分区，支持多选批量删除。用时与工具调用都已移出
-        footer：用时搬去了对话流里那张「Agent 正在…」活动卡（用时读数跟着本轮
+        footer：用时搬去了对话流里那张「Seeker 正在…」活动卡（用时读数跟着本轮
         动作走，所见即所测）；工具调用卡整块移除，工具细节只留在「操作面板」
         每条末尾的「技术细节」折叠里。
 

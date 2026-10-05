@@ -1,8 +1,9 @@
 /**
- * WorkbenchPanel — 6 合 1 统一工作台主容器。
+ * WorkbenchPanel — 7 合 1 统一工作台主容器。
  *
  * 聚合模块：
- *  1. 记忆 (Memory)    — DSH 暗色系大盘与卡片流
+ *  1. 灵魂 (Soul)      — 身份契约层：卡片 + 预设 + 整段正文/身份/档案/蒸馏
+ *  2. 记忆 (Memory)    — DSH 暗色系大盘与卡片流
  *  2. 能力 (Skills)    — 技能与 MCP 工具包管理
  *  3. 用量 (Usage)     — Token 消耗总览、24小时/月度平滑曲线与 52 周全局热力大盘
  *  4. 画廊 (Gallery)   — 多媒体画廊：所有对话生成的图片 / 网页 / 演示 / 文档一站查看
@@ -22,14 +23,31 @@ import { UsagePanel } from '../usage/dashboard/UsagePanel.js'
 import { GalleryPanel, GalleryTabIcon } from '../gallery/GalleryPanel.js'
 import { MailPanel } from '../mail/Panel.js'
 import { createMemoryApi } from '../memory/api.js'
+import { SoulPanel, createSoulApi } from '../soul/index.js'
 import { createMailApi } from '../mail/api.js'
 import { PopoverShell } from '../popover-shell.js'
 import { SupplierSection } from '../../provider/webui/section.js'
+import { DSH_WHALE_PATH, DSH_WHALE_VIEWBOX } from '../brand/whale-path.js'
 
-export type WorkbenchTab = 'memory' | 'skills' | 'usage' | 'gallery' | 'mail' | 'provider'
+export type WorkbenchTab = 'soul' | 'memory' | 'skills' | 'usage' | 'gallery' | 'mail' | 'provider'
 
 /** 合法 Tab（localStorage 回填白名单）。 */
-const TABS: readonly WorkbenchTab[] = ['memory', 'skills', 'usage', 'gallery', 'mail', 'provider']
+const TABS: readonly WorkbenchTab[] = ['soul', 'memory', 'skills', 'usage', 'gallery', 'mail', 'provider']
+
+/**
+ * 默认 Tab。
+ *
+ * 2026-10-05 用户先要求「灵魂与记忆同屏并排」，随后改为**拆成两个独立分类**
+ * （「还是把记忆和灵魂分开两个分类吧」）。现在的形态是：
+ *
+ *   [灵魂] [记忆] [能力] [用量] [画廊] [邮件] [供应商]
+ *
+ * 灵魂占一个平级 Tab（整页宽度给卡片与预设），记忆占另一个（完整三栏工作台）。
+ * 两者仍是同一件事的两端，但各自独立成页——并排时每边只有半屏，灵魂的卡片
+ * 与记忆的列表都伸展不开。soul 仍在首位并作为默认 Tab，只有用户主动切过
+ * 别的 Tab 才会被 localStorage 记住。
+ */
+export const DEFAULT_TAB: WorkbenchTab = 'soul'
 
 export interface WorkbenchPanelProps {
   onClose: () => void
@@ -48,6 +66,20 @@ export function WorkbenchGridIcon({ size = 15 }: { size?: number }): JSX.Element
   )
 }
 
+/**
+ * 灵魂 Tab 图标：DSH 鲸鱼剪影。
+ *
+ * 用官方 FishLogo 的 path（与截图卡里的品牌徽标同一形状），只取一小段足以辨认的
+ * 轮廓——Tab 里 13px 的尺寸下细节全糊，认的是「那是一条鲸鱼」这个整体剪影。
+ */
+function WhaleTabIcon(): JSX.Element {
+  return (
+    <svg width="14" height="11" viewBox={DSH_WHALE_VIEWBOX} fill="currentColor" aria-hidden="true">
+      <path d={DSH_WHALE_PATH} />
+    </svg>
+  )
+}
+
 /** 供应商图标（插头 + 座，与原设置页语义一致）。 */
 function ProviderTabIcon(): JSX.Element {
   return (
@@ -60,19 +92,27 @@ function ProviderTabIcon(): JSX.Element {
   )
 }
 
-export function WorkbenchPanel({ onClose, initialTab = 'memory' }: WorkbenchPanelProps): JSX.Element {
+export function WorkbenchPanel({ onClose, initialTab = DEFAULT_TAB }: WorkbenchPanelProps): JSX.Element {
   ensureWorkbenchStyles()
 
   const [activeTab, setActiveTab] = useState<WorkbenchTab>(() => {
     try {
       const saved = localStorage.getItem('dsh-workbench-active-tab') as WorkbenchTab | null
-      if (saved && TABS.includes(saved)) return saved
+      if (saved && TABS.includes(saved)) {
+        // 'memory' 是**合法**值（记忆是独立分类），原样回填——2026-10-05 拆开之前
+        // 这里曾把它强制迁移到 'soul'（当时灵魂与记忆同屏并排），拆分后那条迁移
+        // 必须去掉，否则用户每次打开工作台都会被拽去灵魂页。
+        return saved
+      }
     } catch { /* 忽略读取错误 */ }
     return initialTab
   })
 
   const memoryApi = useMemo(() => createMemoryApi(), [])
   const mailApi = useMemo(() => createMailApi(), [])
+  // 灵魂 API 面用单例（无状态 fetch 包装）：每次渲染返回新对象会让子面板的
+  // useEffect 依赖随渲染重发请求，记忆面板历史上打过一分钟 498 次的请求风暴。
+  const soulApi = useMemo(() => createSoulApi(), [])
 
   const handleSelectTab = (tab: WorkbenchTab): void => {
     setActiveTab(tab)
@@ -94,8 +134,18 @@ export function WorkbenchPanel({ onClose, initialTab = 'memory' }: WorkbenchPane
               <span>工作台</span>
             </div>
 
-            {/* Segmented Tabs: 记忆 · 能力 · 用量 · 画廊 · 邮件 · 供应商 */}
+            {/* Segmented Tabs: 灵魂 · 记忆 · 能力 · 用量 · 画廊 · 邮件 · 供应商 */}
             <div className="wb-tabs" data-workbench-nav="true">
+              <button
+                type="button"
+                className="wb-tab-btn"
+                data-active={activeTab === 'soul' ? 'true' : undefined}
+                onClick={() => { handleSelectTab('soul') }}
+              >
+                <WhaleTabIcon />
+                <span>灵魂</span>
+              </button>
+
               <button
                 type="button"
                 className="wb-tab-btn"
@@ -188,6 +238,16 @@ export function WorkbenchPanel({ onClose, initialTab = 'memory' }: WorkbenchPane
 
         {/* 主体内容视图（按 Tab 切换；key 随 Tab 变化，重播 .wb-body > * 的入场动效） */}
         <div className="wb-body">
+          {/* 灵魂：身份契约层独占一页。整页宽度给卡片区与预设区——并排时左半屏
+              只有 485px，卡片列表和预设行都被挤成一列小按钮（2026-10-05 拆分原因）。 */}
+          {activeTab === 'soul' && (
+            <div key="soul" className="wb-soul-scroll">
+              <SoulPanel api={soulApi} embedded />
+            </div>
+          )}
+
+          {/* 记忆：完整三栏工作台（列表 / 详情 / 导航），一个能力都不少。
+              面板内不再挂「灵魂」子 Tab——灵魂是平级分类，入口只此一处。 */}
           {activeTab === 'memory' && (
             <MemoryPanel key="memory" {...memoryApi} onClose={onClose} embedded />
           )}

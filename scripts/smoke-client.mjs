@@ -518,7 +518,7 @@ if (krEnabled) {
   }
 }
 
-// 用时读数已从对话流那张「Agent 正在…」活动卡上撤掉：卡片只讲「正在做什么」，
+// 用时读数已从对话流那张「Seeker 正在…」活动卡上撤掉：卡片只讲「正在做什么」，
 // 每秒跳一格的时长留在这里只会跟动作名抢主角。
 if (krEnabled) {
   const cardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrLiveActivityCard.tsx'), 'utf8')
@@ -1546,6 +1546,147 @@ if (krEnabled) {
     fail('trash() 必须把 confirmationToken 传进 writeCall（只收形参不往下传 = 第二阶段又拿新令牌，永远停在 pending）')
   } else {
     pass('面板写操作：点一下就执行（无待确认条）+ host 侧 replay 原样重放两阶段')
+  }
+}
+
+// ── 任务/操作面板的取数与回填（2026-10-05 修「切换会话后两张卡就空了」）──────
+//
+// 三个必须同时在位的形状，缺一个就会复发：
+//  1. **PTC 内层穿透**：模型在 PTC 模式下把整批工具塞进一次 run_code，真正的
+//     todo_write 全在 root.subCalls 里，顶层只有 run_code。只认顶层 call.name
+//     就整类漏掉任务清单（实测本会话 5 次 todo_write 无一在顶层）。
+//  2. **候选按 seq 取最新**：locations / nodes.values / order 三路扫描的先后不
+//     保证按时间序，边扫边覆盖会让较早那份清单赢，任务卡显示过期状态。
+//  3. **切换会话立即回填 live todos**：清空是同步的，回填却只挂在 [todos]
+//     引用变化上；切回已定型的历史会话时引用不变，effect 不跑，卡片长期空态。
+if (krEnabled) {
+  const shadowSrc = readFileSync(resolve(ROOT, 'src/client/tool-summary/TurnProcessShadowView.tsx'), 'utf8')
+  const bridgeSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/kr-todo-bridge.ts'), 'utf8')
+  const panelSrc2 = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8')
+  const reasons = []
+
+  if (!/function collectTodoTasksFromTree/.test(shadowSrc)) {
+    reasons.push('缺少 PTC 内层穿透（run_code 的 subCalls 里才是真正的 todo_write）')
+  }
+  // 三处调用点：本轮收集 / 跨轮次回溯 / 活动投影，缺一处就有一种场景空白。
+  const nestedCalls = (shadowSrc.match(/collectTodoTasksFromTree\(/g) ?? []).length
+  if (nestedCalls < 4) {
+    reasons.push(`PTC 穿透只在 ${nestedCalls - 1} 处生效（本轮收集 / 跨轮次回溯 / 活动投影三处都要接）`)
+  }
+  if (!/todoCandidates\.sort\(\(a, b\) => a\.seq - b\.seq\)/.test(shadowSrc)) {
+    reasons.push('本轮任务候选必须按 seq 取最新（三路扫描顺序不定，边扫边覆盖会取到旧清单）')
+  }
+  // 内层调用两种形状都要认：已结束的包在 call 里，运行中的把 name/argsRaw 摊平。
+  if (!/sub\?\.call\?\.name \?\? sub\?\.name/.test(shadowSrc)
+    || !/sub\?\.call\?\.argsRaw \?\? sub\?\.argsRaw/.test(shadowSrc)) {
+    reasons.push('内层调用需同时认「call 包装」与「摊平」两种形状（运行中的没有 call）')
+  }
+  if (!/setLiveDshTodos\(Array\.isArray\(todosRef\.current\)/.test(bridgeSrc)) {
+    reasons.push('会话身份登记时必须立即回填 live todos（只靠 [todos] 引用变化会长期空态）')
+  }
+  if (!/const todosRef = useRef\(todos\)/.test(bridgeSrc)) {
+    reasons.push('回填需从 ref 取最新投影（todos 进依赖会让 cleanup 把会话 id 置 null）')
+  }
+  if (!/collectLatestSessionTasks\(snap\)/.test(panelSrc2)) {
+    reasons.push('任务回溯口径必须是整场会话（传 displayTurn 会让没写过 todo 的历史轮次翻空）')
+  }
+  if (reasons.length > 0) {
+    fail('任务/操作面板取数回退：' + reasons.join('；'))
+  } else {
+    pass('任务取数：PTC 内层穿透 + 按 seq 取最新 + 切会话立即回填 live todos')
+  }
+}
+
+// ── 灵魂卡片化 + 「灵魂 / 记忆」两个独立分类（2026-10-05）────────────────────
+//
+// 这几条是**布局契约**，不是实现细节。历史沿革值得写下来，否则后人很容易改回去：
+//   1. 一开始灵魂只是记忆面板里的一个 Tab；
+//   2. 2026-10-05 用户要求「打开工作台后左侧是灵魂、右侧是记忆」→ 同屏并排一页；
+//   3. 同日用户改口「还是把记忆和灵魂分开两个分类吧」→ **当前形态：两个平级 Tab**。
+// 并排时每边只有半屏，灵魂的卡片列表与记忆的三栏都伸展不开——这才是拆分的原因。
+// 断言必须锁住「灵魂与记忆各自独立成页」，否则后人「顺手」合回去时没有任何提示。
+{
+  const hubSrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/WorkbenchPanel.tsx'), 'utf8')
+  const hubCss = readFileSync(resolve(ROOT, 'src/client/triad/hub/styles.ts'), 'utf8')
+  const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/memory/Panel.tsx'), 'utf8')
+  const whaleSrc = readFileSync(resolve(ROOT, 'src/client/triad/soul/WhaleLogo.tsx'), 'utf8')
+  const cardsSrc = readFileSync(resolve(ROOT, 'src/client/triad/soul/CardsSection.tsx'), 'utf8')
+  const presetsSrc = readFileSync(resolve(ROOT, 'src/client/triad/soul/PresetsSection.tsx'), 'utf8')
+  const reasons = []
+
+  if (!/export const DEFAULT_TAB: WorkbenchTab = 'soul'/.test(hubSrc)) {
+    reasons.push('默认 Tab 必须是 soul（用户要求打开工作台先看到灵魂）')
+  }
+  // 灵魂与记忆各自独立成页（互不嵌套）：soul 分类只放 SoulPanel，memory 分类只放 MemoryPanel。
+  if (!/activeTab === 'soul'[\s\S]{0,300}SoulPanel/.test(hubSrc)) {
+    reasons.push('「灵魂」必须是独立分类，直接挂 SoulPanel')
+  }
+  if (!/activeTab === 'memory'[\s\S]{0,300}MemoryPanel/.test(hubSrc)) {
+    reasons.push('「记忆」必须是独立分类，直接挂 MemoryPanel')
+  }
+  if (/wb-pair/.test(hubSrc) || /wb-pair/.test(hubCss)) {
+    reasons.push('并排布局（wb-pair）已废弃：用户要求灵魂与记忆分开两个分类')
+  }
+  if (/pairMode/.test(panelSrc)) {
+    reasons.push('pairMode 已废弃：记忆面板不再有「只做概览」的半屏形态')
+  }
+  // 灵魂入口唯一：记忆面板内不得再有「灵魂」子 Tab / SoulPanel（拆分后归工作台分类）。
+  // 注意判据要精确到「记忆分类那一块」——hub 里的 soulApi 是灵魂分类自己在用，合法。
+  if (/SoulPanel|'soul'/.test(panelSrc)) {
+    reasons.push('记忆面板内不得再挂灵魂子 Tab（灵魂是平级分类，入口只此一处）')
+  }
+  const memoryBranch = /activeTab === 'memory'[\s\S]{0,400}?MemoryPanel[^>]*\/>/.exec(hubSrc)
+  if (memoryBranch === null || /soulApi/.test(memoryBranch[0])) {
+    reasons.push('记忆分类的 MemoryPanel 不得再接收 soulApi（灵魂入口只此一处）')
+  }
+  // 判据：必须有「原样回填」这条分支，且不得再出现任何 'memory' 的强制迁移
+  // （曾经有过 saved === 'memory' → 'soul'，拆分后那会让用户每次都被拽去灵魂页）。
+  if (!/return saved/.test(hubSrc) || /saved === 'memory'/.test(hubSrc)) {
+    reasons.push("localStorage 的 'memory' 是合法值，必须原样回填（拆分后不可再强制迁移到 soul）")
+  }
+  if (!/\.wb-soul-scroll\s*\{[\s\S]{0,200}overflow-y:\s*auto/.test(hubCss)) {
+    reasons.push('灵魂分类要独占整页滚动容器（wb-soul-scroll）')
+  }
+
+  // 鲸鱼：动效类名在样式表里（组件只挂类名），path 是官方完整数据。
+  const soulCss = readFileSync(resolve(ROOT, 'src/client/triad/soul/styles.ts'), 'utf8')
+  if (!/dsh-soul-whale-breathe/.test(soulCss)) reasons.push('鲸鱼缺少呼吸动效')
+  if (!/dsh-soul-whale-sweep/.test(soulCss)) reasons.push('鲸鱼缺少流光动效')
+  if (!/prefers-reduced-motion[\s\S]{0,600}dsh-soul-whale/.test(soulCss)) {
+    reasons.push('鲸鱼动效必须在 prefers-reduced-motion 下关闭')
+  }
+  // 灵魂主体双栏（用户 2026-10-05 要求「灵魂用双栏布局」）：左卡片区 / 右预设区。
+  // 注意 soulCss 在本块上方才声明——把这条断言写在其声明之前会触发 TDZ 直接崩掉脚本。
+  const soulPanelSrc = readFileSync(resolve(ROOT, 'src/client/triad/soul/SoulPanel.tsx'), 'utf8')
+  if (!/css\.columns[\s\S]{0,900}CardsSection[\s\S]{0,900}css\.colRight[\s\S]{0,600}PresetsSection/.test(soulPanelSrc)) {
+    reasons.push('灵魂主体必须是双栏：左卡片区 / 右预设区')
+  }
+  if (!/\.dsh-soul-columns\s*\{[\s\S]{0,160}grid-template-columns/.test(soulCss)) {
+    reasons.push('灵魂双栏要用 grid 两列，并在窄面板下折叠成单列')
+  }
+  // path 在源码里是**分段拼接**的（只为可读性），判据必须取「常量声明到常量结束」
+  // 之间的全部单引号串再拼接：按段首字符过滤会漏掉以负号开头的续段，量出来比真值短，
+  // 把一份正确的 3448 字符 path 误判成手绘简化版（踩过一次）。
+  const whaleStart = whaleSrc.indexOf('const FISH_LOGO_PATH')
+  const whaleEnd = whaleSrc.indexOf('/** WhaleLogo 属性')
+  const whalePath = (whaleStart === -1 || whaleEnd === -1)
+    ? ''
+    : [...whaleSrc.slice(whaleStart, whaleEnd).matchAll(/'([^']*)'/g)].map(match => match[1]).join('')
+  if (whalePath.length !== 3448 || !whalePath.startsWith('M22.9168')) {
+    reasons.push('鲸鱼 path 必须是官方 FishLogo 的完整数据（3448 字符），不是手绘简化版')
+  }
+  if (!/cards|Card/.test(cardsSrc) || !/soul-cards-|soulCard/.test(cardsSrc + soulCss)) {
+    reasons.push('缺少灵魂卡片区')
+  }
+  const soulLocales = readFileSync(resolve(ROOT, 'src/client/triad/soul/locales.ts'), 'utf8')
+  if (!/soulPresetApplyReplace: '整体替换'/.test(soulLocales) || !/soulPresetApplyMerge: '合并应用'/.test(soulLocales)) {
+    reasons.push('预设区必须同时提供「整体替换」与「合并应用」两条路径')
+  }
+  if (reasons.length > 0) {
+    fail('灵魂/记忆分类契约：' + reasons.join('；'))
+  } else {
+    pass('工作台分类：灵魂与记忆各自独立成页（默认 soul · 无并排残留 · memory 原样回填）')
+    pass('灵魂卡片化：会动的鲸鱼（官方 path）+ 卡片区 + 预设两条应用路径')
   }
 }
 

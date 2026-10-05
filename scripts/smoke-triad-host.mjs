@@ -193,6 +193,16 @@ need(paths.some(p => p.startsWith('/api/chat-flow/generated-images')), 'chat-plu
 need(tools.includes('download'), 'chat-plus download tool still registered')
 need(!tools.includes('automation'), 'automation tool gone (官方 schedule_* 工具接管)')
 need(tools.includes('memory_search') && tools.includes('memory_remember'), 'memory tools registered')
+// 记忆第四层「灵魂（Soul）」：路由与工具都挂在记忆模块内（不另开工作台 Tab）。
+// 这条断言防的是「soul 模块被 try/catch 静默吞掉」——记忆引擎照常工作，
+// 只有灵魂面板整块 404，没有断言就只能在用户点开面板时才发现。
+need(paths.some(p => p.startsWith('/api/dsh-memory/soul')), 'soul routes registered (/api/dsh-memory/soul)')
+need(tools.includes('soul_show') && tools.includes('soul_set'), 'soul tools registered (soul_show / soul_set)')
+// 灵魂卡片化（2026-10-05）：卡片是灵魂的权威层（soul.md 是它的全文投影）。
+// 三个卡片工具漏注册 = 「模型能在对话里改人设」这条路径整块消失，而面板侧照常
+// 可用——没有断言就只能等用户自己发现。
+need(tools.includes('soul_cards') && tools.includes('soul_card_set') && tools.includes('soul_card_remove'),
+  'soul card tools registered (soul_cards / soul_card_set / soul_card_remove)')
 need(listeners.has('agent/pre-step'), 'agent/pre-step injection hooked')
 need(listeners.has('session/event'), 'session/event capture hooked')
 // 邮箱工具：11 个 mail_* 全注册（含验证码等待与附件下载）。

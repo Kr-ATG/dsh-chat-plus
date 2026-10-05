@@ -106,3 +106,14 @@ export const KR_OUTPUTS_CARD_VISIBLE = true
  * （关掉后问答在界面上没有任何出口，这是刻意的——它只该由这个开关决定）。
  */
 export const KR_ASK_CARD_VISIBLE = true
+
+/**
+ * KR 界面上「这个正在干活的家伙」叫什么。
+ *
+ * 对话流那张活动卡（KrLiveActivityCard）与右侧大盘的进行中标题都用它拼文案：
+ * 原来是硬编码的「Agent 正在分析」「Agent 执行中」，现按用户要求统一显示
+ * **Seeker**（与顶栏那枚视图标签同名，同一套 UI 里不该有两个自称）。
+ *
+ * 只改这一处即整条链生效——文案全部由此常量拼出，不再散落字面量。
+ */
+export const AGENT_DISPLAY_NAME = 'Seeker'

@@ -190,6 +190,67 @@ export interface TurnTaskItem {
   readonly status: 'pending' | 'in_progress' | 'completed'
 }
 
+/* ── PTC 内层调用穿透 ────────────────────────────────────────────────────
+ *
+ * 模型在 PTC 模式（run_code）下会把整批工具塞进**一次** run_code 调用里，
+ * 真正干活的是 `root.subCalls` 里的内层调用，顶层节点名只有 run_code。
+ * 于是「本轮有没有 todo_write」按顶层 `call.name` 判断会整类漏掉——实测本
+ * 会话 5 次 todo_write 全在 subCalls 里，顶层一次都没有，任务卡只能靠官方
+ * live todos 投影兜底；而那份投影在切会话时会被清空，回填又依赖引用变化，
+ * 表现就是「切换会话后任务概览空着不回来」。
+ *
+ * 内层调用有两种形状：已结束的带 `call: { name, argsRaw }` 与 `content`，
+ * 运行中的把 name/argsRaw 摊平在自己身上（无 call 包装）。两路都要认。
+ */
+
+/** 内层调用的工具名。 */
+function subCallName(sub: any): string {
+  const name = sub?.call?.name ?? sub?.name
+  return typeof name === 'string' ? name : ''
+}
+
+/** 内层调用的原始入参 JSON。 */
+function subCallArgsRaw(sub: any): string | undefined {
+  const raw = sub?.call?.argsRaw ?? sub?.argsRaw
+  return typeof raw === 'string' ? raw : undefined
+}
+
+/**
+ * todo_write 入参 → 任务项。形状不对返回 null（调用方保持既有清单不变）。
+ * 抽成公共函数：顶层调用与 PTC 内层调用走**同一套**解析口径，不会两边分叉。
+ */
+function tasksFromTodoArgs(raw: string | undefined, turn: number): TurnTaskItem[] | null {
+  if (raw === undefined || raw.trim() === '') return null
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    if (!parsed || !Array.isArray(parsed.todos) || parsed.todos.length === 0) return null
+    return parsed.todos.map((item: any, idx: number) => ({
+      id: `todo-${turn}-${idx}`,
+      content: String(item.content ?? ''),
+      status: (item.status === 'completed' || item.status === 'in_progress' || item.status === 'pending') ? item.status : 'pending',
+    }))
+  } catch {
+    return null
+  }
+}
+
+/** 一个调用树里所有 todo_write 产生的清单，按出现顺序（后面的覆盖前面的）。 */
+function collectTodoTasksFromTree(root: any, turn: number): TurnTaskItem[] | null {
+  let tasks: TurnTaskItem[] | null = null
+  const visit = (node: any, depth: number): void => {
+    if (!node || depth > 4) return
+    const name = subCallName(node)
+    if (name === 'todo_write') {
+      const parsed = tasksFromTodoArgs(subCallArgsRaw(node), turn)
+      if (parsed !== null) tasks = parsed
+    }
+    const children = node?.subCalls ?? node?.call?.subCalls
+    if (Array.isArray(children)) for (const child of children) visit(child, depth + 1)
+  }
+  visit(root, 0)
+  return tasks
+}
+
 export function collectTurnNodes(snapshot: any, turn: number): {
   readonly tools: readonly ChatNode<'tool-call'>[]
   readonly reasoning: readonly ActivityReasoningItem[]
@@ -201,6 +262,12 @@ export function collectTurnNodes(snapshot: any, turn: number): {
   const toolMap = new Map<string, ChatNode<'tool-call'>>()
   const reasoningList: ActivityReasoningItem[] = []
   let turnTasks: TurnTaskItem[] = []
+  /*
+   * 本轮出现的所有 todo_write 候选（含 PTC 内层）。收集而不是"边扫边覆盖"：
+   * locations / nodes.values / order 三路扫描的先后不保证按时间序，直接覆盖
+   * 会让**较早**的那份清单赢，任务卡于是显示过期状态。最后按 seq 取最大。
+   */
+  const todoCandidates: { readonly seq: number; readonly tasks: TurnTaskItem[] }[] = []
 
   if (snapshot === null || snapshot === undefined) {
     return { tools: [], reasoning: [], tasks: [] }
@@ -216,17 +283,19 @@ export function collectTurnNodes(snapshot: any, turn: number): {
       try {
         const root = (toolNode as any).data?.root
         const tName = root?.call?.name || root?.toolName || root?.name || (toolNode as any).data?.call?.name
+        const seq = (toolNode as any).anchorSeq ?? (toolNode as any).data?.seq ?? 0
         if (tName === 'todo_write') {
           const raw = root?.call?.argsRaw || root?.arguments || (toolNode as any).data?.call?.argsRaw
-          const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
-          if (parsed && Array.isArray(parsed.todos) && parsed.todos.length > 0) {
-            turnTasks = parsed.todos.map((item: any, idx: number) => ({
-              id: `todo-${turn}-${idx}`,
-              content: String(item.content ?? ''),
-              status: (item.status === 'completed' || item.status === 'in_progress' || item.status === 'pending') ? item.status : 'pending',
-            }))
-          }
+          const parsed = tasksFromTodoArgs(raw, turn)
+          if (parsed !== null) todoCandidates.push({ seq, tasks: parsed })
         }
+        /*
+         * 穿透 PTC 内层调用：run_code 里批量执行的 todo_write 顶层看不到
+         * （顶层名字只有 run_code）。这一路是**常态**而非边角——本会话全部
+         * 任务清单都从这儿来，漏掉就等于任务卡永远空着。
+         */
+        const nested = collectTodoTasksFromTree(root, turn)
+        if (nested !== null) todoCandidates.push({ seq, tasks: nested })
       } catch {}
     } else if (candidate.kind === 'submitted-plan') {
       try {
@@ -315,6 +384,11 @@ export function collectTurnNodes(snapshot: any, turn: number): {
 
   const tools = [...toolMap.values()].sort((a, b) => (a.anchorSeq ?? 0) - (b.anchorSeq ?? 0))
   reasoningList.sort((a, b) => (a.step ?? 0) - (b.step ?? 0))
+  // 取本轮最后一次写入的清单（seq 最大者）。
+  if (todoCandidates.length > 0) {
+    todoCandidates.sort((a, b) => a.seq - b.seq)
+    turnTasks = todoCandidates[todoCandidates.length - 1]!.tasks
+  }
 
   let turnStart: number | undefined
   let turnEnd: number | undefined
@@ -403,16 +477,16 @@ export function collectLatestSessionTasks(snapshot: any, upToTurn?: number): rea
         const tName = root?.call?.name || root?.toolName || root?.name || candidate.data?.call?.name
         if (tName === 'todo_write') {
           const raw = root?.call?.argsRaw || root?.arguments || candidate.data?.call?.argsRaw
-          const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
-          if (parsed && Array.isArray(parsed.todos) && parsed.todos.length > 0) {
-            const tasks: TurnTaskItem[] = parsed.todos.map((item: any, idx: number) => ({
-              id: `todo-${candTurn}-${idx}`,
-              content: String(item.content ?? ''),
-              status: (item.status === 'completed' || item.status === 'in_progress' || item.status === 'pending') ? item.status : 'pending',
-            }))
-            candidates.push({ turn: candTurn, seq, tasks })
-          }
+          const tasks = tasksFromTodoArgs(raw, candTurn)
+          if (tasks !== null) candidates.push({ turn: candTurn, seq, tasks })
         }
+        /*
+         * PTC 内层调用同样要收（理由见 collectTurnNodes）：跨轮次回溯任务清单时
+         * 顶层一个 todo_write 都没有，只有 run_code 的内层藏着，不穿透就永远
+         * 回溯不到任何清单。
+         */
+        const nested = collectTodoTasksFromTree(root, candTurn)
+        if (nested !== null) candidates.push({ turn: candTurn, seq, tasks: nested })
       } catch {}
     } else if (candidate.kind === 'submitted-plan') {
       try {
@@ -528,6 +602,9 @@ function collectKrActivityProjection(snapshot: any, turn: number, includeHidden 
       try {
         const root = (toolNode as any).data?.root
         if (callName(root) === 'todo_write') addTodoTasks(argFields(toolArgsRaw(root)).todos)
+        // PTC 内层调用里的 todo_write：顶层只有 run_code，不穿透就整类漏掉。
+        const nestedTodo = collectTodoTasksFromTree(root, turn)
+        if (nestedTodo !== null) addTodoTasks(nestedTodo.map((item) => ({ content: item.content, status: item.status })))
       } catch { /* 未知 todo 形状不影响其它活动 */ }
       return
     }

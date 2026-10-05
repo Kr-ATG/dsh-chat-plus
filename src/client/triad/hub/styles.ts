@@ -169,8 +169,23 @@ const SHEET = `
   gap: 14px;
   min-width: 0;
 }
+/* ── 「灵魂」页（工作台第一个 Tab，2026-10-05 拆分后独占整页） ──
+   2026-10-05 用户先要「灵魂与记忆同屏并排」，随即改成「分开两个分类」——
+   并排时每边只有半屏，灵魂的卡片列表与记忆的三栏都伸展不开。
+   现在这里是**整页滚动容器**：面板根节点自带内距（.dsh-soul-root 的 padding），
+   所以这层只负责滚动，不再叠一层 padding（会变成双重内边距）。
+   灵魂面板内部用容器查询按**自身宽度**折叠两栏，整页宽度下自然是两栏布局。 */
+.wb-soul-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .wb-body > *, .wb-supplier-scroll > * { animation: none !important; }
+  .wb-body > *, .wb-supplier-scroll > *, .wb-soul-scroll > * { animation: none !important; }
 }
 `
 

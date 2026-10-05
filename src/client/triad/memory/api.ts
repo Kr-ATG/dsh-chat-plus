@@ -180,6 +180,14 @@ export interface InjectStateView {
    * 更不误导（开着却注不进去才是最坏的假阳性）。
    */
   diagramEnabled?: boolean
+  /**
+   * 灵魂（Soul）内置通道是否开启。
+   *
+   * 与 zh 同口径：缺字段按 true 兜底。它是记忆库之上的第四层身份契约，
+   * 默认就该生效；真正决定「注不注得进去」的是 soul.md 有没有内容——
+   * 空灵魂不注入，这一条由 host 的注入器负责，开关只表达用户意图。
+   */
+  soulEnabled?: boolean
 }
 
 /**
@@ -325,6 +333,15 @@ export interface MemoryApi {
   /** 对话内流程图内置通道开关（全局单值，与主开关无联动）。 */
   getDiagramInjectState: () => Promise<ZhInjectStateView>
   setDiagramInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
+  /**
+   * 灵魂（Soul）内置通道开关（全局单值，与主开关无联动）。
+   *
+   * 独立端点而非并进 /inject-state：灵魂面板自己要读这个状态（它不是只在
+   * composer 的 hover 浮层里出现），而 /inject-state 需要 sessionId、
+   * 语义是「本会话注不注入」，两件事不该互相借用。
+   */
+  getSoulInjectState: () => Promise<ZhInjectStateView>
+  setSoulInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
   consolidate: (scope?: 'all' | 'global' | 'project', projectHash?: string) => Promise<{ ok: boolean; results: ConsolidateResultView[] }>
   revisions: () => Promise<{ revisions: RevisionView[] }>
   rollback: (revisionId: string) => Promise<{ ok: boolean }>
@@ -382,6 +399,8 @@ export function createMemoryApi(): MemoryApi {
     setZhInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/zh-inject-state', { enabled }),
     getDiagramInjectState: () => getJson<ZhInjectStateView>('/diagram-inject-state'),
     setDiagramInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/diagram-inject-state', { enabled }),
+    getSoulInjectState: () => getJson<ZhInjectStateView>('/soul/state'),
+    setSoulInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/soul/state', { enabled }),
     consolidate: (scope = 'all', projectHash) => sendJson<{ ok: boolean; results: ConsolidateResultView[] }>('/consolidate', { scope, projectHash }),
     revisions: () => getJson<{ revisions: RevisionView[] }>('/revisions'),
     rollback: (revisionId) => sendJson<{ ok: boolean }>('/rollback', { revisionId }),

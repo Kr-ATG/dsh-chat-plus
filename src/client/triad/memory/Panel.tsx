@@ -55,7 +55,14 @@ import { ConfirmDialog } from './ConfirmDialog.js'
 import { PshBody, PopoverShell } from '../popover-shell.js'
 import { markReadIds, readIds } from './Notify.js'
 
-/** 面板视图（左栏导航决定）。 */
+/**
+ * 面板视图（左栏导航决定）。
+ *
+ * 灵魂**不再是这里的子 Tab**（2026-10-05 用户要求「把记忆和灵魂分开两个分类」）：
+ * 它曾作为记忆第四层挂在这个面板里，拆分后归工作台的「灵魂」分类独占。
+ * 同一个面板留两个入口只会让人困惑「哪个才是真的」，所以这里整块移除，
+ * 而不是留一个跳转按钮。
+ */
 export type MemoryTab = 'home' | 'all' | 'changes' | 'revisions' | 'trash' | 'settings'
 
 /** 时间分组。 */

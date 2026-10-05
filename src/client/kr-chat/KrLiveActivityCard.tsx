@@ -16,6 +16,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import { callName, isRunning } from '../tool-summary/tool-stats.ts'
 import { useCrossfadeText, useMotionAllowed } from '../motion-utils.ts'
+import { AGENT_DISPLAY_NAME } from './enabled.ts'
 
 const EXIT_MS = 980
 const AVATAR_STORAGE_KEY = 'dsh.kr_chat.agent_avatar.v1'
@@ -187,12 +188,12 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
   }, [tools])
   const thinking = reasoning.some((item) => item.running)
   const action = closing
-    ? 'Agent 正在总结'
+    ? `${AGENT_DISPLAY_NAME} 正在总结`
     : runningTool !== null
-      ? `Agent 正在${toolVerb(runningTool)}`
+      ? `${AGENT_DISPLAY_NAME} 正在${toolVerb(runningTool)}`
       : thinking
-        ? 'Agent 正在思考'
-        : active ? 'Agent 正在分析' : 'Agent 正在整理结果'
+        ? `${AGENT_DISPLAY_NAME} 正在思考`
+        : active ? `${AGENT_DISPLAY_NAME} 正在分析` : `${AGENT_DISPLAY_NAME} 正在整理结果`
   // 动作名换成交叉淡入淡出：旧层保留着淡出，新层同时淡入。
   const actionLayers = useCrossfadeText(action, motion)
 
@@ -305,7 +306,7 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
     >
       <section
         className="kr-agent-mini-card"
-        aria-label="Agent 当前状态"
+        aria-label={`${AGENT_DISPLAY_NAME} 当前状态`}
         aria-live={active && !closing ? 'polite' : 'off'}
       >
         <button
@@ -323,8 +324,8 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
             setAvatarMenu(true)
             setAvatarError(false)
           }}
-          title="设置 Agent 头像"
-          aria-label="设置 Agent 头像"
+          title={`设置 ${AGENT_DISPLAY_NAME} 头像`}
+          aria-label={`设置 ${AGENT_DISPLAY_NAME} 头像`}
           aria-expanded={avatarMenu}
         >
           {avatar === null ? defaultAvatar() : <img src={avatar} alt="" />}
@@ -377,10 +378,10 @@ export const KrLiveActivityCard = memo(function KrLiveActivityCard({
           className="kr-agent-avatar-menu"
           style={avatarMenuPosition as CSSProperties}
           role="dialog"
-          aria-label="Agent 头像设置"
+          aria-label={`${AGENT_DISPLAY_NAME} 头像设置`}
           onClick={(event) => { event.stopPropagation() }}
         >
-          <div className="kr-agent-avatar-menu__title">Agent 设置</div>
+          <div className="kr-agent-avatar-menu__title">{`${AGENT_DISPLAY_NAME} 设置`}</div>
           <button type="button" className="kr-agent-avatar-menu__action" onClick={() => { inputRef.current?.click() }}>
             上传头像
           </button>

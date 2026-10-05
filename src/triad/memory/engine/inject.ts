@@ -4,6 +4,10 @@
  * 绝不写 system prompt（DSH persona complete:true 会静默丢弃）；
  * 只注入当前工作区项目 + 全局层；token 超预算按重要性截断，最低保留置顶。
  * 命中刷新：被注入的条目距上次命中 ≥1 天时刷新 lastHitAt 并加分。
+ *
+ * 除主注入外，本文件还承载三条**内置通道**（zh 中文偏好 / diagram 流程图规范 /
+ * soul 顶层身份契约）：各自独立 stepCounters、各自全局开关、每会话只注首步、
+ * 位置一律在「项目排除 + 主注入开关」两道闸门之前，失败只记日志。
  */
 
 import { createUserMessage } from '../../../vendor/dsh-llm/index.js'
@@ -20,6 +24,20 @@ export interface PreStepAgent {
     readonly id: string
     readonly header?: { cwd?: string }
   }
+}
+
+/**
+ * 灵魂通道的读取面。
+ *
+ * 刻意只要求一个方法而不是 import SoulStore 类型：注入引擎不该知道 Soul 的存储
+ * 布局（数据根、档案切换、原子写都在 store 里），它只问一句「现在要注入的正文是
+ * 什么」。这样 Soul 模块整体坏掉时，这里拿到的是 '' 而不是一个 import 期崩溃。
+ * 卡片化（schema v2）改的是这个方法的**内部实现**，签名与语义不变：仍然返回
+ * 「现在要注入的正文」，空串 = 不注入。
+ */
+export interface SoulSource {
+  /** 当前灵魂正文（卡片装配结果；空串 = 无内容，不注入）。 */
+  injectionContent(): Promise<string>
 }
 
 export interface MemoryInjector {
@@ -132,11 +150,32 @@ const DIAGRAM_INJECTION_RULE = [
   '  · 该围栏只在「Seeker」视图渲染，普通「对话」视图里会原样显示成代码块。你无法确知当前处于哪个视图——若这次任务明确要出图供人阅读，优先用 mermaid（截图能出真图）。',
 ].join('\n')
 
+/**
+ * 灵魂（Soul）通道的注入头部。
+ *
+ * 与 zh / diagram 的差异：那两条投的是**插件内置**的文本（语言契约、渲染规范），
+ * 这一条投的是**用户自己写的**人设。因此头部措辞要显式声明两件事：
+ *  1. 它是「顶层身份契约」，优先于模型的默认人格设定 —— 不写这句，模型会把
+ *     它当成又一段参考资料，语气照旧。
+ *  2. 它**不覆盖**项目指令 —— 灵魂是全局恒定的，而 AGENTS.md 是本工作区的硬约束；
+ *     不写优先级，模型在「灵魂说英文、项目说中文」时只能靠猜。
+ *
+ * 正文由 SoulStore.injectionContent() 提供，**schema v2 起是卡片装配结果**
+ * （按 order 升序、只取启用卡、每 kind 一个段标题、2000 字符硬预算丢整张卡）。
+ * 这个文件刻意不知道卡片的存在：它只问一句「现在要注入什么」，装配与预算都在
+ * soul/cards.ts 里，改装配策略不需要动注入引擎。
+ */
+const SOUL_INJECTION_HEADER = [
+  '【灵魂 · 内置通道】以下是用户的顶层身份契约（名字/角色/语气/语言/行为准则），跨会话恒定，优先于模型的默认人格设定。',
+  '（若与当前项目的 AGENTS.md / 项目指令或系统提示冲突，一律以项目指令为准。）',
+].join('\n')
+
 /** 创建注入器。 */
 export function createMemoryInjector(
   store: MemoryStore,
   config: MemoryConfig,
   logger: { debug?: (message: string) => void; warn?: (message: string) => void } | undefined,
+  soulSource?: SoulSource,
 ): MemoryInjector {
   /** 每会话 step 计数（仅内存）。 */
   const stepCounters = new Map<string, number>()
@@ -154,6 +193,12 @@ export function createMemoryInjector(
    * 各的，共用一个 Map 会互相抢占首步名额。
    */
   const diagramStepCounters = new Map<string, number>()
+
+  /**
+   * soul 通道的每会话 step 计数，理由同 zhStepCounters——四条通道各记各的，
+   * 共用一个 Map 会互相抢占首步名额。
+   */
+  const soulStepCounters = new Map<string, number>()
 
   async function buildMemoryBlock(
     agent: PreStepAgent,
@@ -284,6 +329,41 @@ export function createMemoryInjector(
       }
     }
 
+    // ── 灵魂（Soul）顶层身份契约注入（内置通道） ─────────────────────
+    // 位置与理由同上面两条内置通道：两道闸门**之前**。灵魂回答的是「这个助手
+    // 是谁」，跟「记忆库要不要进上下文」正交；放到闸门之后，用户一关主注入
+    // 人设就跟着消失，而人设恰恰是最该跨会话恒定的那部分。
+    // 没有任何启用卡片（或卡片正文全空）时 injectionContent() 返回空串，整条通道
+    // 静默跳过——默认模板只在面板里当编辑起点，绝不冒充用户人设注入。
+    if (soulSource !== undefined) {
+      const soulEnabled = await store.isSoulInjectEnabled(config.soulInjectDefaultEnabled !== false)
+      if (!soulEnabled) {
+        logger?.debug?.('[dsh-memory] soul injection off (switch disabled)')
+      } else if (!soulStepCounters.has(sessionId)) {
+        soulStepCounters.set(sessionId, 1)
+        try {
+          const soulText = await soulSource.injectionContent()
+          if (soulText !== '') {
+            messages = [...messages, createUserMessage({
+              content: [{ type: 'text', text: `${SOUL_INJECTION_HEADER}\n\n${soulText}` }],
+              source: {
+                kind: 'plugin:dsh-memory',
+                plugin: 'dsh-memory',
+                form: 'snapshot',
+                sections: [{ name: '灵魂', text: soulText }],
+              },
+            })]
+            logger?.debug?.(`[dsh-memory] soul injection ok (${soulText.length} chars)`)
+          } else {
+            logger?.debug?.('[dsh-memory] soul injection skipped (no enabled cards)')
+          }
+        } catch (error) {
+          // 灵魂通道失败绝不能影响主注入与其它通道：记日志后继续往下走。
+          logger?.warn?.(`[dsh-memory] soul injection failed: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+    }
+
     // 项目注入排除：被排除的工作区里，会话不注入**记忆库条目**（用户在面板
     // 项目上下文条里按项目关闭注入）。判定在会话级开关之前——排除是项目级
     // 硬闸，会话级开关管不到它。注意这不再影响上面已产出的中文块。
@@ -338,6 +418,7 @@ export function createMemoryInjector(
       stepCounters.delete(sessionId)
       zhStepCounters.delete(sessionId)
       diagramStepCounters.delete(sessionId)
+      soulStepCounters.delete(sessionId)
     },
   }
 }

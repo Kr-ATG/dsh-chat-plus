@@ -714,6 +714,26 @@ export class MemoryStore {
     await this.writeState(state)
   }
 
+  // ── 灵魂（Soul）注入开关（全局单值） ──────────────────────────────
+
+  /**
+   * 灵魂注入是否开启（三态：state 显式值 ?? 调用方给的 fallback）。
+   *
+   * 与 zh / diagram 同样是**全局单值**：灵魂是跨会话恒定的顶层身份契约，
+   * 逐会话开关只会制造「这个会话是人设、下个不是」的人格分裂。
+   */
+  async isSoulInjectEnabled(fallback: boolean): Promise<boolean> {
+    const state = await this.readState()
+    return typeof state.soulInjectEnabled === 'boolean' ? state.soulInjectEnabled : fallback
+  }
+
+  /** 写灵魂注入开关（全局单值；直接落盘，调用频率极低）。 */
+  async setSoulInjectEnabled(enabled: boolean): Promise<void> {
+    const state = await this.readState()
+    state.soulInjectEnabled = enabled
+    await this.writeState(state)
+  }
+
   // ── 项目 meta ───────────────────────────────────────────────────────
 
   async readProjectMeta(hash: string): Promise<ProjectMeta | undefined> {

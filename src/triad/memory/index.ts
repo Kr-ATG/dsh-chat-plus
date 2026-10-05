@@ -4,8 +4,10 @@
  * - session/event → turn/end 捕获 → LLM 提取候选 → 直接入库 + changes 变更流
  * - ticker → 每 N 轮增量编译 / 会话结束 final 编译 / 每日编译（衰减+折叠+滚出+daily）
  * - agent/pre-step → 记忆注入（带来源 user message，绝不写 system prompt）
+ *   外带三条内置通道：zh 中文偏好 / diagram 流程图规范 / soul 顶层身份契约
  * - tools → memory_search / memory_remember / memory_pin / memory_tag / memory_forget
  * - webServer → /api/dsh-memory/*（面板数据 + 裁决操作）
+ * - Soul（记忆第四层）→ /api/dsh-memory/soul/*（灵魂读写/档案切换/蒸馏）+ soul_show / soul_set
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -15,6 +17,7 @@ import { extractCandidates, isDuplicateContent, transcriptFromEvents } from './e
 import { createMemoryInjector } from './engine/inject.js'
 import { MemoryStore, entryIdOf, summarize } from './engine/store.js'
 import { setWebuiMemoryStore } from '../memory-store-singleton.js'
+import { mountSoul, SoulStore } from '../soul/index.js'
 import { createTicker } from './engine/ticker.js'
 import { registerMemoryTools } from './tools.js'
 import { applyConfigOverrides, DEFAULT_CONFIG, type MemoryConfig } from './types.js'
@@ -69,8 +72,22 @@ export function applyMemory(ctx: Context, input: Partial<MemoryConfig> | undefin
   const ticker = createTicker(ctx, store, config)
   ctx.effect(() => ticker.dispose, 'dsh-memory: ticker')
 
+  // ── Soul（记忆第四层：顶层身份契约）────────────────────────────────
+  // 挂载必须早于注入器构造：注入器要拿 soul 实例作 soulSource。整体 try/catch
+  // 隔离——灵魂是锦上添花的能力，路由/工具挂不上不该把记忆引擎一起带走
+  // （soul 为 undefined 时注入侧整条通道静默跳过）。
+  let soul: SoulStore | undefined
+  try {
+    const mounted = mountSoul(ctx, store, config)
+    soul = mounted.soul
+    ctx.effect(() => mounted.dispose, 'dsh-memory: soul')
+    ctx.logger?.info?.('[dsh-memory] soul layer mounted')
+  } catch (error) {
+    ctx.logger?.warn?.(`[dsh-memory] soul layer failed to mount: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
   // ── pre-step 注入（prepend：在下游贡献之后追加到最终 messages） ──────
-  const injector = createMemoryInjector(store, config, ctx.logger)
+  const injector = createMemoryInjector(store, config, ctx.logger, soul)
   ctx.on('agent/pre-step', ((
     payload: { agent: LiveAgent; messages: unknown[]; signal: AbortSignal },
     next: () => Promise<{ kind: 'enter'; messages: unknown[] } | { kind: 'reject' }>,

@@ -108,6 +108,14 @@ export interface StoreState {
    * 呈现能力，不是语言契约，不该每个会话白烧一份常驻 token）。
    */
   diagramInjectEnabled?: boolean
+  /**
+   * 灵魂（Soul）注入开关（全局单值，三态缺省）。
+   * 记忆第四层「顶层身份契约」：用户写的人设/语气/准则，每会话首步独立注入一条
+   * user message。与 zh / diagram 通道同范式——主注入关闭或项目被排除时仍单独生效，
+   * 因为「我是谁」跟「记忆库要不要进上下文」是两件正交的事。
+   * 缺省 = 跟随 config.soulInjectDefaultEnabled（默认开）。
+   */
+  soulInjectEnabled?: boolean
 }
 
 /** 单个会话的 ticker 状态。 */
@@ -207,6 +215,14 @@ export interface MemoryConfig {
    * 而规则文本约 1KB，每会话常驻首轮，开销换不回对等收益。
    */
   diagramInjectDefaultEnabled: boolean
+  /**
+   * 灵魂（Soul）注入默认开关（内置能力，默认开）。
+   *
+   * 与前两条内置通道同构：能力硬编码在插件内、无卸载路径，只有这一个开关。
+   * 默认开的理由与 diagram 相反：它投的是**用户自己写的**顶层身份契约，
+   * 空 soul.md 时通道整体不注入（零开销），一旦写了就说明用户期望它每次都生效。
+   */
+  soulInjectDefaultEnabled: boolean
   /** 注入检索 top-k（当前任务相关记忆注入条数；identity/pinned/长期常驻不占此预算）。 */
   injectTopK: number
   /** 全局条目数上限（超限按 importance + recency 淘汰低分条目）。 */
@@ -259,6 +275,7 @@ export const DEFAULT_CONFIG: MemoryConfig = {
   injectDefaultEnabled: true,
   zhInjectDefaultEnabled: true,
   diagramInjectDefaultEnabled: false,
+  soulInjectDefaultEnabled: true,
   injectTopK: 8,
   entryLimit: 500,
   pruneNeverHitDays: 21,
@@ -350,7 +367,7 @@ export type ConfigNumberKey = keyof typeof CONFIG_NUMBER_BOUNDS
 
 const CONFIG_NUMBER_KEYS = Object.keys(CONFIG_NUMBER_BOUNDS) as ConfigNumberKey[]
 
-const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'diagramInjectDefaultEnabled'] as const
+const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'diagramInjectDefaultEnabled', 'soulInjectDefaultEnabled'] as const
 
 /** 可调布尔字段名。 */
 export type ConfigBooleanKey = (typeof CONFIG_BOOLEAN_KEYS)[number]

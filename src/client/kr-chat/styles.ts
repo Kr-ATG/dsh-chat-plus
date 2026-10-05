@@ -2384,7 +2384,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
    多少、无论滚动位置。旧方案是滚动区内的 sticky bottom:0，内容少时卡片
    跟在其它卡后面悬在中间，做不到「永远在下方」，已废弃。
 
-   footer 现在只服务记忆卡一块（用时已搬去对话流里那张「Agent 正在…」活动卡，
+   footer 现在只服务记忆卡一块（用时已搬去对话流里那张「Seeker 正在…」活动卡，
    工具调用卡整块移除），所以它与滚动区是「内容 / 常驻区」的分工。 */
 .kr-panel__memory-dock {
   flex: none;
