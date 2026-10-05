@@ -244,7 +244,7 @@ export function VisionModelBlock(): ReactNode {
                 </div>
               )}
 
-            <div style={FILL_PANEL}>
+            <div className="phub-fill" style={FILL_PANEL}>
               <SelectField
                 label="供应商"
                 value={addProvider}

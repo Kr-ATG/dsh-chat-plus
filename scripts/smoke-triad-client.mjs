@@ -799,6 +799,26 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     pass('供应商列表 P 标记 + 详情行内代理开关保留（与代理页同一份名单）')
   }
 
+  // 6) 布局：左栏不再有收窄态；宽屏三栏由 ResizeObserver 量容器实宽决定
+  const listSrc = stripSrc(readSrcOf('src/client/provider/webui/chat/ChatProviderList.tsx'))
+  if (/iconOnly|onToggleCollapse|navColCollapsedStyle/.test(listSrc)) {
+    fail('供应商左栏不该再有收窄态（用户 2026-10-05 点名去掉：收窄后只剩图标列，没有使用场景）')
+  } else {
+    pass('供应商左栏无收窄态（宽度固定 232）')
+  }
+  if (!/ResizeObserver/.test(supplierSrc) || !/WIDE_LAYOUT_PX/.test(supplierSrc)) {
+    fail('供应商页必须用 ResizeObserver 量容器实宽决定三栏/堆叠（媒体查询量的是视口，与容器宽度不是一回事）')
+  } else if (!/data-wide/.test(supplierSrc) || !/data-wide/.test(stripSrc(readSrcOf('src/client/provider/webui/styles.ts')))) {
+    fail('三栏开关必须走 data-wide 属性（组件置属性 + 样式表接管布局）')
+  } else {
+    pass('供应商页宽屏三栏：ResizeObserver 量容器实宽 → data-wide → CSS 切三栏')
+  }
+  if (!/setPresetOpen/.test(listSrc) || !/showPresets/.test(listSrc)) {
+    fail('目录预设必须默认折叠（一百多个内建提供方全展开会把已配置那几行淹掉）')
+  } else {
+    pass('目录预设默认折叠（选中预设行时自动展开）')
+  }
+
   // 6) 快照 store 必须换引用（useSyncExternalStore 只在引用变化时重渲染）
   const storeSrc = stripSrc(readSrcOf('src/client/provider/webui/chat/store.ts'))
   if (!/snapshot = draft/.test(storeSrc) || !/const draft = \{ \.\.\.snapshot \}/.test(storeSrc)) {

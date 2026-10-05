@@ -29,10 +29,6 @@ export interface ChatProviderListProps {
   onAddCustom: () => void
   /** 整页加载失败后的重试。 */
   onRetry: () => void
-  /** 收窄为纯图标列（选中供应商后父组件置 true，给右侧详情让宽度）。 */
-  collapsed?: boolean
-  /** 切换收窄 / 展开。 */
-  onToggleCollapse?: () => void
 }
 
 /** 一行提供方的 models 数组（无则 []）；父组件的性能基准测试弹窗用它取模型清单。 */
@@ -49,10 +45,15 @@ export function modelsOf(state: ModelsSettingsState, row: ProviderRow): readonly
  * @returns 导航栏（分组列表 + 添加按钮）。
  */
 export function ChatProviderList(props: ChatProviderListProps): ReactNode {
-  const { state, selected, onSelect, onAddCustom, onRetry, collapsed, onToggleCollapse } = props
-  const iconOnly = collapsed === true
+  const { state, selected, onSelect, onAddCustom, onRetry } = props
   const configured = state.rows.filter(row => row.configured)
   const addable = state.rows.filter(row => !row.configured && row.entry.settingsNs !== '')
+  // 目录预设默认折叠：目录里有一百多个内建提供方，全展开会把「已配置」那几行
+  // 淹掉——用户日常只用已配置的，要找新供应商时再展开。
+  const [presetOpen, setPresetOpen] = useState(false)
+  // 选中的是预设行时必须自动展开，否则选中项藏在折叠区里，用户看不到自己点了谁。
+  const selectedIsPreset = selected !== undefined && addable.some(row => row.entry.provider === selected)
+  const showPresets = presetOpen || selectedIsPreset
 
   const proxySnapshot = useProxySnapshot()
   const isRowProxied = (row: ProviderRow): boolean => {
@@ -67,73 +68,35 @@ export function ChatProviderList(props: ChatProviderListProps): ReactNode {
 
   if (state.status === 'loading' && state.rows.length === 0) {
     return (
-      <section className="phub-nav" style={iconOnly ? navColCollapsedStyle : navColStyle}>
+      <section className="phub-nav" style={navColStyle}>
         <div style={navHeaderStyle}>
-          {iconOnly ? null : <p style={titleStyle}>{chatCopy.chatTitle}</p>}
-          {onToggleCollapse === undefined ? null : (
-            <button
-              type="button"
-              className="dsh-webui-icon-btn"
-              style={collapseBtnStyle}
-              title={iconOnly ? '展开供应商列表' : '收窄为图标'}
-              aria-label={iconOnly ? '展开供应商列表' : '收窄为图标'}
-              onClick={onToggleCollapse}
-            >
-              {iconOnly ? '»' : '«'}
-            </button>
-          )}
+          <p style={titleStyle}>{chatCopy.chatTitle}</p>
         </div>
-        {iconOnly ? null : <p style={hintStyle}>加载中…</p>}
+        <p style={hintStyle}>加载中…</p>
       </section>
     )
   }
   if (state.status === 'error') {
     return (
-      <section className="phub-nav" style={iconOnly ? navColCollapsedStyle : navColStyle}>
+      <section className="phub-nav" style={navColStyle}>
         <div style={navHeaderStyle}>
-          {iconOnly ? null : <p style={titleStyle}>{chatCopy.chatTitle}</p>}
-          {onToggleCollapse === undefined ? null : (
-            <button
-              type="button"
-              className="dsh-webui-icon-btn"
-              style={collapseBtnStyle}
-              title={iconOnly ? '展开供应商列表' : '收窄为图标'}
-              aria-label={iconOnly ? '展开供应商列表' : '收窄为图标'}
-              onClick={onToggleCollapse}
-            >
-              {iconOnly ? '»' : '«'}
-            </button>
-          )}
+          <p style={titleStyle}>{chatCopy.chatTitle}</p>
         </div>
-        {iconOnly ? null : <p style={errorStyle}>{`${chatCopy.loadFailed}: ${state.error ?? ''}`}</p>}
-        {iconOnly ? null : (
-          <button type="button" className="dsh-webui-capsule-btn" style={addBtnStyle} onClick={onRetry}>
-            {chatCopy.retry}
-          </button>
-        )}
+        <p style={errorStyle}>{chatCopy.loadFailed + ': ' + (state.error ?? '')}</p>
+        <button type="button" className="dsh-webui-capsule-btn" style={addBtnStyle} onClick={onRetry}>
+          {chatCopy.retry}
+        </button>
       </section>
     )
   }
 
   return (
-    <section className="phub-nav" style={iconOnly ? navColCollapsedStyle : navColStyle}>
+    <section className="phub-nav" style={navColStyle}>
       <div style={navHeaderStyle}>
-        {iconOnly ? null : <p style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{chatCopy.chatTitle}</p>}
-        {onToggleCollapse === undefined ? null : (
-          <button
-            type="button"
-            className="dsh-webui-icon-btn"
-            style={collapseBtnStyle}
-            title={iconOnly ? '展开供应商列表' : '收窄为图标'}
-            aria-label={iconOnly ? '展开供应商列表' : '收窄为图标'}
-            onClick={onToggleCollapse}
-          >
-            {iconOnly ? '»' : '«'}
-          </button>
-        )}
+        <p style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{chatCopy.chatTitle}</p>
       </div>
 
-      {iconOnly ? null : <div style={navScrollStyle}>
+      <div style={navScrollStyle}>
         <p style={groupLabelStyle}>{chatCopy.configuredGroup}</p>
         {configured.length === 0 ? <p style={hintStyle}>暂无已配置的提供方。</p> : null}
         {configured.map(row => (
@@ -146,73 +109,55 @@ export function ChatProviderList(props: ChatProviderListProps): ReactNode {
           />
         ))}
 
-        <p style={{ ...groupLabelStyle, marginTop: 8 }}>{chatCopy.presetGroup}</p>
-        {addable.length === 0 ? <p style={hintStyle}>目录中暂无其他提供方。</p> : null}
-        {addable.map(row => (
-          <NavRow
-            key={row.entry.provider}
-            row={row}
-            preset
-            selected={selected === row.entry.provider}
-            proxied={isRowProxied(row)}
-            onSelect={() => { onSelect(row.entry.provider) }}
-          />
-        ))}
-      </div>}
-
-      {iconOnly ? (
-        <div style={navIconScrollStyle}>
-          {[...configured, ...addable].map(row => (
-            <NavRow
-              key={row.entry.provider}
-              row={row}
-              preset={!row.configured}
-              selected={selected === row.entry.provider}
-              proxied={isRowProxied(row)}
-              iconOnly
-              onSelect={() => { onSelect(row.entry.provider) }}
-            />
-          ))}
-        </div>
-      ) : null}
-
-      {iconOnly ? (
         <button
           type="button"
-          className="dsh-webui-capsule-btn"
-          style={addIconBtnStyle}
-          disabled={!state.writable}
-          title={chatCopy.addCustom}
-          aria-label={chatCopy.addCustom}
-          onClick={onAddCustom}
+          className="phub-group-toggle"
+          style={{ ...groupToggleStyle, marginTop: 8 }}
+          aria-expanded={showPresets}
+          onClick={() => { setPresetOpen(v => !v) }}
         >
-          +
+          <span style={groupChevronStyle(showPresets)} aria-hidden="true">›</span>
+          <span>{chatCopy.presetGroup}</span>
+          <span style={groupCountStyle}>{addable.length}</span>
         </button>
-      ) : (
-        <button
-          type="button"
-          className="dsh-webui-capsule-btn"
-          style={addBtnStyle}
-          disabled={!state.writable}
-          onClick={onAddCustom}
-        >
-          + {chatCopy.addCustom}
-        </button>
-      )}
+        {showPresets
+          ? (addable.length === 0
+              ? <p style={hintStyle}>目录中暂无其他提供方。</p>
+              : addable.map(row => (
+                <NavRow
+                  key={row.entry.provider}
+                  row={row}
+                  preset
+                  selected={selected === row.entry.provider}
+                  proxied={isRowProxied(row)}
+                  onSelect={() => { onSelect(row.entry.provider) }}
+                />
+              )))
+          : null}
+      </div>
+
+      <button
+        type="button"
+        className="dsh-webui-capsule-btn"
+        style={addBtnStyle}
+        disabled={!state.writable}
+        onClick={onAddCustom}
+      >
+        + {chatCopy.addCustom}
+      </button>
     </section>
   )
 }
 
-/** 左栏导航行：官方图标 + 名称 + 走代理P标签 + 凭据状态点；选中行以填充面高亮。收窄时只留图标。 */
+
+/** 左栏导航行：官方图标 + 名称 + 走代理 P 标签 + 凭据状态点；选中行以填充面高亮。 */
 function NavRow({
-  row, preset, selected, iconOnly, proxied, onSelect,
+  row, preset, selected, proxied, onSelect,
 }: {
   row: ProviderRow
   /** 目录预设行（未配置）：名称降级为次级文字色。 */
   preset?: boolean
   selected: boolean
-  /** 纯图标模式：隐藏名称与状态点，只留图标（title 仍报名称）。 */
-  iconOnly?: boolean
   /** 是否走代理。 */
   proxied?: boolean
   onSelect: () => void
@@ -222,7 +167,7 @@ function NavRow({
   return (
     <div
       className="dsh-webui-provider-nav-row"
-      style={iconOnly === true ? { ...base, ...navRowIconOnlyStyle } : base}
+      style={base}
       role="button"
       tabIndex={0}
       aria-current={selected ? 'true' : undefined}
@@ -230,31 +175,10 @@ function NavRow({
       onClick={onSelect}
       onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect() } }}
     >
-      <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-        <ProviderIcon provider={row.entry.provider} name={row.entry.displayName} size={18} />
-        {iconOnly === true && isProxiedOn ? (
-          <span
-            style={{
-              position: 'absolute',
-              bottom: -2,
-              right: -4,
-              fontSize: 8,
-              lineHeight: '10px',
-              padding: '0 2px',
-              borderRadius: 3,
-              background: 'var(--dsw-alias-state-business-primary, #3370ff)',
-              color: '#fff',
-              fontWeight: 700,
-            }}
-            title="走代理"
-          >
-            P
-          </span>
-        ) : null}
-      </div>
-      {iconOnly === true ? null : <span style={preset === true ? navNamePresetStyle : navNameStyle}>{row.entry.displayName}</span>}
-      {iconOnly !== true && isProxiedOn ? <span style={proxyTagStyle} title="走代理">P</span> : null}
-      {iconOnly === true || preset === true ? null : <CredentialDot row={row} />}
+      <ProviderIcon provider={row.entry.provider} name={row.entry.displayName} size={18} />
+      <span style={preset === true ? navNamePresetStyle : navNameStyle}>{row.entry.displayName}</span>
+      {isProxiedOn ? <span style={proxyTagStyle} title="走代理">P</span> : null}
+      {preset === true ? null : <CredentialDot row={row} />}
     </div>
   )
 }
@@ -294,54 +218,14 @@ function CredentialDot({ row }: { row: ProviderRow }): ReactNode {
 
 /* ---------- 内联样式（对齐官方 ModelsSection.module.css 规格） ---------- */
 
-/* 左栏：窄导航列（给右侧详情留出主要宽度）。 */
+/* 左栏：宽度由外层 .phub-navwrap 容器决定（写死宽度会在右边留一条死空白）。 */
 const navColStyle: CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 8,
-  width: 160, flex: 'none', minWidth: 0,
+  width: '100%', flex: '1 1 auto', minWidth: 0, minHeight: 0, height: '100%',
 }
-
-/* 左栏收窄态：只留图标一列（选中供应商后自动收窄，右侧模型列表变宽）。 */
-const navColCollapsedStyle: CSSProperties = {
-  display: 'flex', flexDirection: 'column', gap: 8,
-  width: 52, flex: 'none', minWidth: 0, alignItems: 'stretch',
-}
-
 /* 标题行：标题 + 收窄/展开按钮。 */
 const navHeaderStyle: CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 4, minHeight: 22,
-}
-
-/* 收窄/展开小按钮：22×22 图标钮。 */
-const collapseBtnStyle: CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-  width: 22, height: 22, padding: 0, marginLeft: 'auto',
-  border: 'none', borderRadius: 6, background: 'transparent',
-  color: 'var(--dsw-alias-label-tertiary, #8f959e)',
-  fontSize: 12, lineHeight: '18px', cursor: 'pointer', flex: 'none',
-}
-
-/* 收窄态图标滚动区：与展开态同高，栏内自滚。 */
-const navIconScrollStyle: CSSProperties = {
-  display: 'flex', flexDirection: 'column', gap: 4,
-  overflowY: 'auto', minHeight: 0, maxHeight: 464,
-  alignItems: 'stretch',
-}
-
-/* 纯图标行：图标居中。 */
-const navRowIconOnlyStyle: CSSProperties = {
-  justifyContent: 'center', padding: '8px 4px',
-}
-
-/* 收窄态添加按钮：正方形 + 号。 */
-const addIconBtnStyle: CSSProperties = {
-  boxSizing: 'border-box',
-  alignSelf: 'center',
-  width: 28, height: 28, padding: 0, flexShrink: 0,
-  border: '1px solid var(--dsw-alias-border-l2, #dcdfe6)',
-  borderRadius: 14,
-  background: 'transparent',
-  color: 'var(--dsw-alias-label-primary, #1f2329)',
-  fontSize: 14, lineHeight: '18px', cursor: 'pointer',
 }
 
 const titleStyle: CSSProperties = {
@@ -354,6 +238,35 @@ const groupLabelStyle: CSSProperties = {
   color: 'var(--dsw-alias-label-tertiary, #8f959e)',
 }
 
+/* 可折叠分组标题：与静态分组标题同字号同色，但整行可点、带 chevron 与计数。 */
+const groupToggleStyle: CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 6,
+  margin: '2px 0 0', padding: '4px 6px', width: '100%',
+  border: 'none', borderRadius: 6, background: 'transparent',
+  color: 'var(--dsw-alias-label-tertiary, #8f959e)',
+  fontSize: 12, lineHeight: '16px', fontFamily: 'inherit',
+  cursor: 'pointer', textAlign: 'left',
+  transition: 'background .16s, color .16s',
+}
+
+/** 折叠 chevron：展开时旋转 90°（160ms，与工作台 Tab 切换同一节奏）。 */
+function groupChevronStyle(open: boolean): CSSProperties {
+  return {
+    display: 'inline-block', flexShrink: 0,
+    fontSize: 12, lineHeight: '12px',
+    transform: open ? 'rotate(90deg)' : 'none',
+    transition: 'transform 160ms cubic-bezier(.2,.8,.2,1)',
+  }
+}
+
+/* 分组计数：极淡的数字，避免「目录预设」四个字后面空落落。 */
+const groupCountStyle: CSSProperties = {
+  marginLeft: 'auto', flexShrink: 0,
+  fontSize: 11, lineHeight: '16px',
+  color: 'var(--dsw-alias-label-tertiary, #8f959e)',
+  opacity: 0.75,
+}
+
 const hintStyle: CSSProperties = {
   margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-tertiary, #8f959e)',
 }
@@ -363,9 +276,12 @@ const errorStyle: CSSProperties = {
 }
 
 /* 列表滚动区：目录很长时栏内自滚，「+ 添加」按钮始终钉在栏底可见。 */
+/* 列表滚动区：目录很长时栏内自滚，「+ 添加」按钮始终钉在栏底可见。
+   高度取 flex:1 填满栏内剩余空间（原先写死 maxHeight:464 是设置弹窗时代的
+   产物——搬进工作台整页后，栏比 464 高得多，列表缩在上半截、下面空一大片）。 */
 const navScrollStyle: CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 4,
-  overflowY: 'auto', minHeight: 0, maxHeight: 464,
+  overflowY: 'auto', overflowX: 'hidden', minHeight: 0, flex: '1 1 auto',
   paddingRight: 2, marginLeft: -4, paddingLeft: 4,
 }
 

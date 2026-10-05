@@ -128,21 +128,23 @@ const CUSTOM_TARGET: ChatProviderTarget = {
   mode: 'custom',
 }
 
-/** 左导航宽度：展开 232 / 收窄 52（滑动过渡由 .phub-nav 的 transition 承担）。 */
+/** 左导航固定宽度（宽度滑动过渡由 .phub-navwrap 的 transition 承担）。 */
 const NAV_WIDTH = 232
-const NAV_WIDTH_COLLAPSED = 52
 
+/* 两栏布局：左栏 flex-start（它自己 sticky 且限高），右栏 stretch 撑满。 */
 const hubLayoutStyle: Record<string, string | number> = {
-  display: 'flex', alignItems: 'stretch', gap: 16, minWidth: 0, width: '100%',
+  display: 'flex', alignItems: 'flex-start', gap: 16, minWidth: 0, width: '100%',
 }
 
 const detailColStyle: Record<string, string | number> = {
-  flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column',
+  flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignSelf: 'stretch',
 }
 
+/* 详情面板：规格由 .phub-panel 承担（与底部三块的 .phub-block 同一套 token），
+   这里只补 flex 让它填满左栏高度。 */
 const detailPanelStyle: Record<string, string | number> = {
-  border: '1px solid var(--dsw-alias-border-l2, #dcdfe6)', borderRadius: 12,
-  padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0, flex: 1,
+  display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0, flex: 1,
+  maxHeight: 'calc(100vh - 150px)', overflowY: 'auto', overflowX: 'hidden',
 }
 
 /* 右侧面板工具条：关闭按钮右对齐一行（不占视觉噪音）。 */
@@ -159,10 +161,9 @@ const panelCloseBtnStyle: Record<string, string | number> = {
   fontSize: 14, lineHeight: '20px', cursor: 'pointer', flex: 'none',
 }
 
+/* 占位卡：规格由 .phub-placeholder 承担（虚线 + 淡入），这里只留结构。 */
 const placeholderStyle: Record<string, string | number> = {
-  flex: 1, minHeight: 220, display: 'flex', flexDirection: 'column', alignItems: 'center',
-  justifyContent: 'center', gap: 4, border: '1px dashed var(--dsw-alias-border-l3, #c9cdd4)',
-  borderRadius: 12, color: 'var(--dsw-alias-label-tertiary, #8f959e)', textAlign: 'center', padding: 24,
+  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6,
 }
 
 /**
@@ -186,20 +187,39 @@ export function SupplierSection(props: { ctx?: ClientContext } = {}): unknown {
   return h(Loaded, { injected: built.injected })
 }
 
+/** 三栏布局的宽度阈值（px）：低于它底部三块回到上下堆叠。 */
+const WIDE_LAYOUT_PX = 1280
+
 function Loaded({ injected }: { injected: SupplierInjected }): unknown {
   const { controller, api } = injected
   const state: ModelsSettingsState = useSnapshot(controller.store)
+  /*
+   * 宽屏三栏 / 窄屏堆叠。
+   *
+   * 用 ResizeObserver 量容器实宽而不是媒体查询：工作台主区宽度取决于侧边栏
+   * 折叠、窗口大小与右侧栏，媒体查询量的是视口，与容器宽度不是一回事——
+   * 窗口 1600 但侧栏展开时容器只有 900，媒体查询会误判成宽屏。
+   * 观察自己（.phub-host）而不是窗口，才是「这个页面有没有地方并排」的真答案。
+   */
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  const [wide, setWide] = useState(false)
+  useEffect(() => {
+    const el = hostRef.current
+    if (el === null || typeof ResizeObserver === 'undefined') return undefined
+    const read = (): void => { setWide(el.getBoundingClientRect().width >= WIDE_LAYOUT_PX) }
+    read()
+    const observer = new ResizeObserver(read)
+    observer.observe(el)
+    return () => { observer.disconnect() }
+  }, [])
   const [selected, setSelected] = useState<string | undefined>(undefined)
   const [addingCustom, setAddingCustom] = useState(false)
-  // 左栏收窄态：选中供应商后自动收窄为纯图标，右侧模型列表变宽；关闭详情时还原。
-  const [navCollapsed, setNavCollapsed] = useState(false)
   useEffect(() => {
     if (state.status === 'idle') void controller.load()
   }, [controller, state.status])
   const closeDetail = (changed: boolean): void => {
     setSelected(undefined)
     setAddingCustom(false)
-    setNavCollapsed(false)
     if (changed) void controller.load()
   }
   const selectedRow = selected !== undefined ? state.rows.find(r => r.entry.provider === selected) : undefined
@@ -233,29 +253,33 @@ function Loaded({ injected }: { injected: SupplierInjected }): unknown {
       animDetail,
     ]
     : [animDetail]
-  // 左栏宽度：工作台里不再受设置弹窗宽度约束，展开 232 / 收窄 52。
+  // 左栏固定宽度（工作台里不再受设置弹窗宽度约束，也不需要收窄态）。
   const navStyle: Record<string, string | number> = {
-    flex: `0 0 ${navCollapsed ? NAV_WIDTH_COLLAPSED : NAV_WIDTH}px`,
-    width: navCollapsed ? NAV_WIDTH_COLLAPSED : NAV_WIDTH,
+    flex: `0 0 ${NAV_WIDTH}px`,
+    width: NAV_WIDTH,
   }
-  return h('div', { className: 'phub-host' }, [
+  const blocks = h('div', { key: 'blocks', className: 'phub-blocks' }, [
+    h(VisionModelBlock, { key: 'vision' }),
+    h(ImageModelBlock, { key: 'image' }),
+    h(VideoModelBlock, { key: 'video' }),
+  ])
+  return h('div', { className: 'phub-host', ref: hostRef, 'data-wide': wide ? 'true' : undefined }, [
     h('div', { key: 'hub', style: hubLayoutStyle }, [
-      h('div', { key: 'navWrap', className: 'phub-nav', style: navStyle }, [
+      h('div', { key: 'navWrap', className: 'phub-navwrap', style: navStyle }, [
         h(ChatProviderList, {
           key: 'nav', state, selected,
-          collapsed: navCollapsed,
-          onToggleCollapse: () => { setNavCollapsed(v => !v) },
-          onSelect: (p: string) => { setSelected(p); setAddingCustom(false); setNavCollapsed(true) },
-          onAddCustom: () => { setAddingCustom(true); setNavCollapsed(true) },
+          onSelect: (p: string) => { setSelected(p); setAddingCustom(false) },
+          onAddCustom: () => { setAddingCustom(true) },
           onRetry: () => { void controller.load() },
         }),
       ]),
       h('div', { key: 'detail', style: detailColStyle }, [
-        h('div', { key: 'panel', style: detailPanelStyle }, panelBody),
+        h('div', { key: 'panel', className: hasDetail ? 'phub-panel' : 'phub-panel phub-placeholder', style: detailPanelStyle }, panelBody),
       ]),
+      // 宽屏：三块模型设置并到右列，与「左列表 + 右详情」组成三栏。
+      wide ? blocks : null,
     ]),
-    h(VisionModelBlock, { key: 'vision' }),
-    h(ImageModelBlock, { key: 'image' }),
-    h(VideoModelBlock, { key: 'video' }),
+    // 窄屏：维持上下堆叠（原样）。
+    wide ? null : blocks,
   ])
 }

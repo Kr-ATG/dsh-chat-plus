@@ -16,15 +16,70 @@ export function injectStyles(): () => void {
     tag.id = STYLE_ID
     tag.dataset.plugin = 'dsh-chat-plus'
     tag.textContent = `
-.phub-host{display:flex;flex-direction:column;gap:20px}
+/* ── 页面骨架：窄屏纵向堆叠 / 宽屏三栏（列表 · 详情 · 模型设置） ──
+   宽窄由组件用 ResizeObserver 量自身宽度后打 data-wide（媒体查询量视口，
+   与容器实宽不是一回事）。 */
+.phub-host{display:flex;flex-direction:column;gap:18px}
+.phub-host[data-wide] > div:first-child{display:flex;align-items:flex-start;gap:16px;min-width:0;width:100%}
+/* 宽屏时底部三块作为 hub 的第三列：宽度随容器走（clamp 440–640），自身可滚。
+   原先写死 380，详情列在 2000+ 宽屏下被拉到 1200 多，模型目录那些行长得离谱。 */
+.phub-host[data-wide] > div:first-child > .phub-blocks{flex:0 0 clamp(440px,34%,640px);width:clamp(440px,34%,640px);max-height:calc(100vh - 150px);overflow-y:auto;overflow-x:hidden;padding-right:2px;animation:phub-block-in 280ms cubic-bezier(.2,.8,.2,1) backwards}
+/* 右列窄：三块里的「供应商 / 模型」两级下拉改成上下堆叠，别把模型名挤成竖排。 */
+.phub-host[data-wide] .phub-blocks .phub-fill{flex-direction:column;align-items:stretch}
+.phub-host[data-wide] .phub-blocks .phub-fill > *{width:100%}
+.phub-host[data-wide] > div:first-child > .phub-blocks::-webkit-scrollbar{width:8px}
+.phub-host[data-wide] > div:first-child > .phub-blocks::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l3,#c9cdd4);border-radius:4px}
+.phub-host[data-wide] > div:first-child > .phub-blocks::-webkit-scrollbar-track{background:transparent}
+/* 宽屏时详情列与左栏一起收在视口内，底部三块跟着右列滚。
+   详情面板自身限宽：表单行拉到 1200+ 时「标签—控件」两端的距离已经超出
+   扫视范围，模型目录那几行也会变成一条横带。 */
+.phub-host[data-wide] > div:first-child > div:nth-child(2){align-self:stretch;min-width:0}
+.phub-host[data-wide] .phub-panel{max-width:1080px}
 .phub-block-title{font-size:14px;font-weight:600;margin-bottom:8px}
 .phub-hint{font-size:12px;color:var(--dsw-alias-label-secondary,#888);margin-bottom:10px}
-/* 左栏收窄/展开：宽度滑动（进出同动画，flex 右侧自动跟随伸缩） */
-.phub-nav{overflow:hidden;transition:width 220ms ease}
+
+/* 左栏容器（外层）：宽度滑动 + 滚动时跟随（sticky）。
+   高度上限按视口算：目录预设展开后行数可以到一百多，不限高就会把右侧详情
+   与底部三块一起顶到视口外——那正是「页面看着乱」的主因。
+   overflow:hidden 只收横向（过渡期间的行溢出），纵向交给内层滚动区。 */
+.phub-navwrap{overflow:hidden;transition:width 220ms cubic-bezier(.2,.8,.2,1);position:sticky;top:0;align-self:flex-start;display:flex;flex-direction:column;max-height:calc(100vh - 150px);box-sizing:border-box}
+
 /* 右侧详情：打开/切换/关闭回占位时滑入（key 变化重播） */
-.phub-detail-in{display:flex;flex-direction:column;min-width:0;animation:phub-slide-in 220ms ease}
+.phub-detail-in{display:flex;flex-direction:column;min-width:0;animation:phub-slide-in 220ms cubic-bezier(.2,.8,.2,1)}
 @keyframes phub-slide-in{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion: reduce){.phub-nav{transition:none}.phub-detail-in{animation:none}}
+
+/* ── 行 hover / 按下：列表行与底部三块的行卡片共用同一套反馈 ── */
+.phub-host .dsh-webui-provider-nav-row{transition:background .16s ease,box-shadow .16s ease}
+.phub-host .dsh-webui-provider-nav-row:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.08))}
+.phub-host .dsh-webui-provider-nav-row:active{transform:translateY(1px)}
+.phub-host .dsh-webui-provider-nav-row:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:1px}
+
+/* 可折叠分组标题（「目录预设」）：hover 提亮，chevron 旋转由内联样式给。 */
+.phub-group-toggle:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.08));color:var(--dsw-alias-label-secondary,#4e5969)}
+
+/* ── 详情面板与底部三块：同一张卡片的两种用法（同 token / 同圆角 / 同内距） ── */
+.phub-panel{border:1px solid var(--dsw-alias-border-l2,#dcdfe6);border-radius:12px;padding:14px 18px;display:flex;flex-direction:column;gap:10px;min-width:0;box-sizing:border-box}
+.phub-block{border:1px solid var(--dsw-alias-border-l2,#dcdfe6);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;min-width:0;box-sizing:border-box;transition:border-color .18s ease}
+.phub-block:hover{border-color:var(--dsw-alias-border-l3,#c9cdd4)}
+.phub-block-in{animation:phub-block-in 280ms cubic-bezier(.2,.8,.2,1) backwards}
+/* 底部三块错峰入场：60ms 一档，整页像一次性铺开而不是同时闪出来。 */
+.phub-blocks{display:flex;flex-direction:column;gap:14px;min-width:0}
+.phub-blocks > *:nth-child(1){animation-delay:40ms}
+.phub-blocks > *:nth-child(2){animation-delay:100ms}
+.phub-blocks > *:nth-child(3){animation-delay:160ms}
+@keyframes phub-block-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+/* 展开的「说明」段落：高度不变，只淡入，避免整块跳动。 */
+.phub-desc-in{animation:phub-desc-in 200ms ease backwards}
+@keyframes phub-desc-in{from{opacity:0}to{opacity:1}}
+
+/* 空态占位：细虚线 + 居中说明，随页面淡入（无内容时不撑一条边框出来）。 */
+.phub-placeholder{border-style:dashed;border-color:var(--dsw-alias-border-l3,#c9cdd4);color:var(--dsw-alias-label-tertiary,#8f959e);text-align:center;align-items:center;justify-content:center;min-height:220px;padding:24px;animation:phub-block-in 260ms cubic-bezier(.2,.8,.2,1) backwards}
+
+@media (prefers-reduced-motion: reduce){
+  .phub-navwrap{transition:none}
+  .phub-detail-in,.phub-block-in,.phub-placeholder,.phub-desc-in{animation:none}
+  .phub-host .dsh-webui-provider-nav-row{transition:none}
+}
 `
     document.head.appendChild(tag)
     injected = true

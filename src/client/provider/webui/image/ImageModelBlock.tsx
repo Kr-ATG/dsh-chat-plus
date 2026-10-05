@@ -92,7 +92,7 @@ export function ImageModelBlock(): ReactNode {
       {providers.length === 0 && error === null
         ? <StateHint text="加载中…" />
         : (
-          <div style={FILL_PANEL}>
+          <div className="phub-fill" style={FILL_PANEL}>
             <SelectField label="供应商" value={currentProvider} onChange={setSelectedProvider}>
               {providers.map(p => <option key={p.provider} value={p.provider}>{p.displayName || p.provider}</option>)}
             </SelectField>

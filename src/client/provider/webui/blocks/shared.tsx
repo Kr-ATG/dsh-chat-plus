@@ -45,17 +45,18 @@ export const CAPSULE_BTN: CSSProperties = {
 
 export const CAPSULE_BTN_DISABLED: CSSProperties = { ...CAPSULE_BTN, opacity: 0.45, cursor: 'default' }
 
-/** 行卡片：细描边、12px 圆角、无底色。 */
+/** 行卡片：细描边、10px 圆角、无底色（与供应商详情里的行卡片同规格）。 */
 export const ROW_CARD: CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10,
-  padding: '9px 12px', borderRadius: 12, minWidth: 0,
+  padding: '9px 12px', borderRadius: 10, minWidth: 0,
   border: '1px solid var(--dsw-alias-border-l2)',
+  transition: 'border-color .16s, background .16s',
 }
 
-/** 编辑面（填充面）：添加控件所在的一行。 */
+/** 编辑面（填充面）：添加控件所在的一行（宽屏右列窄时由 .phub-fill 改成列向）。 */
 export const FILL_PANEL: CSSProperties = {
   display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap',
-  padding: '10px 12px', borderRadius: 12,
+  padding: '10px 12px', borderRadius: 10,
   background: 'var(--dsw-alias-bg-module-platform, #f2f3f5)',
 }
 
@@ -164,7 +165,7 @@ export function BlockShell({ title, activeText, description, children }: {
 }): ReactNode {
   const [open, setOpen] = useState(false)
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
+    <section className="phub-block phub-block-in" style={{ minWidth: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--dsw-alias-label-primary)', flexShrink: 0 }}>
           {title}
@@ -188,7 +189,9 @@ export function BlockShell({ title, activeText, description, children }: {
           {open ? '收起说明' : '说明'}
         </button>
       </div>
-      {open ? <p style={HINT_TEXT}>{description}</p> : null}
+      {open
+        ? <p className="phub-desc-in" style={HINT_TEXT}>{description}</p>
+        : null}
       {children}
     </section>
   )
