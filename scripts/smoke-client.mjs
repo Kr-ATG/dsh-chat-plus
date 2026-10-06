@@ -381,6 +381,9 @@ const expectedStyles = [
   // 工具闸门胶囊（src/client/tools-gate/styles.ts）：computer-use / browser-use
   // 按需开关的滑块、扫光、抖动。纯 CSS 动效，带 prefers-reduced-motion 兜底。
   'dsh-tools-gate-style',
+  // 侧栏文档预览面板样式（src/client/sidebar-doc/index.tsx）。8b1db4b 引入时
+  // 漏登本表，导致 smoke 一直报 unexpected extra styles —— 补录。
+  'dsh-sdp-styles',
   ...(krEnabled ? ['dsh-kr-chat-styles'] : []),
 ]
 for (const expected of expectedStyles) {
