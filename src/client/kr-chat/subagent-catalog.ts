@@ -269,6 +269,9 @@ export function useSubagentCatalog(parentSessionId: string | null, pollMs = 1500
       return { rows: [], runningCount: 0, doneCount: 0, state: 'unloaded' } as SubagentCatalogView
     }
     // tick 是唯一的刷新触发：快照本身是外部可变对象，不进依赖。
+    // 出口保证非 nullish：消费端用 `catalog !== null` 判空，undefined 会穿透
+    // 进 SubagentBlock 读 catalog.state 直接抛错，整棵大盘跟着白屏。
     const view = readSubagentCatalog(snapshotOf(sessionsService()), parentSessionId)
+    return view ?? { rows: [], runningCount: 0, doneCount: 0, state: 'unloaded' } as SubagentCatalogView
   }, [parentSessionId, tick])
 }

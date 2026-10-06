@@ -109,6 +109,13 @@ export interface StoreState {
    */
   diagramInjectEnabled?: boolean
   /**
+   * 对话内 HTML 卡片（html 围栏）能力规范注入开关（全局单值，三态缺省）。
+   * 与 diagram 通道同一范式：主注入关闭、项目被设为「不注入」时仍单独注入。
+   * 缺省 = 跟随 config.htmlInjectDefaultEnabled（默认关——与 diagram 同理，
+   * 它是呈现能力而非语言契约，规范文本约 1KB，不该每个会话白烧）。
+   */
+  htmlInjectEnabled?: boolean
+  /**
    * 灵魂（Soul）注入开关（全局单值，三态缺省）。
    * 记忆第四层「顶层身份契约」：用户写的人设/语气/准则，每会话首步独立注入一条
    * user message。与 zh / diagram 通道同范式——主注入关闭或项目被排除时仍单独生效，
@@ -116,6 +123,14 @@ export interface StoreState {
    * 缺省 = 跟随 config.soulInjectDefaultEnabled（默认开）。
    */
   soulInjectEnabled?: boolean
+  /**
+   * 效率约束（省 token/耗时）规范注入开关（全局单值，三态缺省）。
+   * 与 diagram / html 同一范式：硬编码在插件内、无卸载路径，主注入关闭或项目被
+   * 排除时仍单独注入。投的是一段静态规范文本（结构拆分优先 + 单步体积压缩），
+   * 不读条目、不做检索、不参与命中加分。
+   * 缺省 = 跟随 config.efficiencyInjectDefaultEnabled（默认开）。
+   */
+  efficiencyInjectEnabled?: boolean
 }
 
 /** 单个会话的 ticker 状态。 */
@@ -216,6 +231,18 @@ export interface MemoryConfig {
    */
   diagramInjectDefaultEnabled: boolean
   /**
+   * 对话内 HTML 卡片能力规范注入默认开关（内置能力，**默认开**）。
+   *
+   * 与 diagramInjectDefaultEnabled 的形状完全同构，但默认值刻意相反：
+   *  · diagram 是「锦上添花的一张图」——不画图任务照样完成，所以默认关省 token；
+   *  · HTML 卡片是**交付形态本身**（可交互的小工具、可视化、演示页），不注入
+   *    规范模型就永远不会想到用它，等于这个能力不存在。渲染器虽然无条件生效
+   *    （用户明确说「给我个 HTML 计算器」时照样会渲染），但「模型会主动用它」
+   *    才是这个能力真正的价值所在。
+   * 文本约 1.4KB、每会话首步一次，换一个能被主动使用的交付形态，划算。
+   */
+  htmlInjectDefaultEnabled: boolean
+  /**
    * 灵魂（Soul）注入默认开关（内置能力，默认开）。
    *
    * 与前两条内置通道同构：能力硬编码在插件内、无卸载路径，只有这一个开关。
@@ -223,6 +250,15 @@ export interface MemoryConfig {
    * 空 soul.md 时通道整体不注入（零开销），一旦写了就说明用户期望它每次都生效。
    */
   soulInjectDefaultEnabled: boolean
+  /**
+   * 效率约束（省 token/耗时）规范注入默认开关（内置能力，**默认开**）。
+   *
+   * 与 htmlInjectDefaultEnabled 同构：投的是一段静态规范文本，每会话首步一次。
+   * 默认开的理由：它约束的是 agent 的 token/耗时行为本身（结构拆分优先、单步
+   * 体积压缩），对所有会话普遍有益；文本约 1KB，换一条跨会话恒定的效率纪律，划算。
+   * 与 diagram 默认关相反——diagram 只影响「要不要多画一张图」，不影响任务成本。
+   */
+  efficiencyInjectDefaultEnabled: boolean
   /** 注入检索 top-k（当前任务相关记忆注入条数；identity/pinned/长期常驻不占此预算）。 */
   injectTopK: number
   /** 全局条目数上限（超限按 importance + recency 淘汰低分条目）。 */
@@ -275,7 +311,11 @@ export const DEFAULT_CONFIG: MemoryConfig = {
   injectDefaultEnabled: true,
   zhInjectDefaultEnabled: true,
   diagramInjectDefaultEnabled: false,
+  // 默认开：HTML 卡片是交付形态本身（见字段注释），不注入模型就不会主动用。
+  htmlInjectDefaultEnabled: true,
   soulInjectDefaultEnabled: true,
+  // 默认开：约束 agent 的 token/耗时行为本身，对所有会话普遍有益（见字段注释）。
+  efficiencyInjectDefaultEnabled: true,
   injectTopK: 8,
   entryLimit: 500,
   pruneNeverHitDays: 21,
@@ -367,7 +407,7 @@ export type ConfigNumberKey = keyof typeof CONFIG_NUMBER_BOUNDS
 
 const CONFIG_NUMBER_KEYS = Object.keys(CONFIG_NUMBER_BOUNDS) as ConfigNumberKey[]
 
-const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'diagramInjectDefaultEnabled', 'soulInjectDefaultEnabled'] as const
+const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'diagramInjectDefaultEnabled', 'htmlInjectDefaultEnabled', 'soulInjectDefaultEnabled', 'efficiencyInjectDefaultEnabled'] as const
 
 /** 可调布尔字段名。 */
 export type ConfigBooleanKey = (typeof CONFIG_BOOLEAN_KEYS)[number]

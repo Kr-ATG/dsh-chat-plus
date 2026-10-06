@@ -985,10 +985,12 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     fail('GalleryPanel 必须复用共享 MediaLightbox（不得自带第二份 Lightbox）')
   } else if (!/galleryRawUrl\(item\.path\)/.test(panelSrc)) {
     fail('画廊文件预览必须走 /api/triad/gallery/raw（host 索引白名单），不得直接 file:// 或 /api/file')
-  } else if (!/tryOpenInSidebar\(item\.path/.test(panelSrc)) {
-    fail('PPT/Word/Excel 必须走官方右栏文档预览（tryOpenInSidebar），拿不到服务才降级下载')
-  } else if (!/INLINE_PREVIEW_KINDS/.test(panelSrc)) {
-    fail('画廊必须按类别分流打开方式（内联预览白名单）')
+  } else if (!/MediaLightbox[\s\S]{0,900}?onOpenSidebar=/.test(panelSrc)) {
+    fail('弹窗必须保留「预览文档」出口（官方原生保真度仍是备选路径）')
+  } else if (!/PAGED_PREVIEW_KINDS|'slide'/.test(lbSrc)) {
+    fail('PPT/Word/Excel 必须由弹窗内联预览（host 出页图翻页）—— 官方右栏那条链路在本机实测不可用')
+  } else if (!/previewThumbUrl/.test(panelSrc)) {
+    fail('画廊 html / ppt / word 缩略图必须走 host 的 /office/thumb（否则只有类型图标，认不出是哪张）')
   } else if (!/IntersectionObserver/.test(panelSrc) || !/generatedUrlCache/.test(panelSrc)) {
     fail('generated（生图）缩略图必须进视口才解析 spill（IntersectionObserver）且结果进缓存')
   } else if (!/prefers-reduced-motion/.test(srcOf('src/client/triad/gallery/styles.ts'))) {
@@ -996,7 +998,7 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   } else if (!/tg-card-in/.test(srcOf('src/client/triad/gallery/styles.ts'))) {
     fail('画廊卡片必须有入场动效（tg-card-in 级联上浮）')
   } else {
-    pass('画廊面板：沙箱 iframe + raw 白名单 + 右栏 Office 预览 + spill 懒解析 + 动效在位')
+    pass('画廊面板：沙箱 iframe + raw 白名单 + 弹窗内联 Office 预览 + 首页缩略图 + 右栏出口 + spill 懒解析 + 动效在位')
   }
 
   if (!/parseTimeQuery/.test(apiSrc) || !/presetRange/.test(apiSrc) || !/groupByDay|dayKeyOf/.test(apiSrc + panelSrc)) {

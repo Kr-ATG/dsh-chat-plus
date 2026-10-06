@@ -64,9 +64,12 @@ let effectRan = false
 let effectDisposer = null
 const injectNamesSeen = []
 const registeredTools = []
+const registeredCommands = []
+const assembleListeners = []
 const providerRoutes = []
 const providerTools = []
 const providerNamespaces = []
+const liveRouteAgent = { id: 'route-session' }
 const providerCtx = {
   logger: { warn: () => {}, error: () => {}, info: () => {}, debug: () => {} },
   effect(fn) { const d = fn(); return typeof d === 'function' ? d : () => {} },
@@ -93,6 +96,15 @@ const stubCtx = {
   // 老写法（apply 里直接 ctx.webServer.xxx）在这里拿不到该属性 → TypeError。
   inject(names, callback) {
     injectNamesSeen.push([...names])
+    // 工具闸门的命令注册面：只有它注入 ['commands']。
+    if (names.includes('commands')) {
+      callback({
+        commands: {
+          register(definition) { registeredCommands.push(definition); return () => {} },
+        },
+      })
+      return
+    }
     // 供应商中心的延迟注入：8 个服务（settings/webServer/llm/tools/fs/
     // sandboxPolicy/shell/web）齐全时才回调。
     // 供应商中心的延迟注入：服务名里带 fs（只有 providerHubServices 会这么写）。
@@ -127,6 +139,24 @@ const stubCtx = {
       },
     }
     callback(webCtx)
+  },
+  // 工具闸门挂 system-prompt/assemble 出口过滤（工具注册层级无关，一律过组装）。
+  on(event, listener) { if (event === 'system-prompt/assemble') assembleListeners.push(listener) },
+  // tools 服务用于命令文案里的体积统计（无 inject 要求，故走 ctx.get）；
+  // agents 用于把状态路由收到的 session id 换回 agent 对象。
+  // 注意：必须返回**同一个** agent 对象——闸门状态挂在 agent 上的 WeakMap 里，
+  // 每次新建对象会让写入的状态读不回来（真实运行时 agents.get 也返回稳定对象）。
+  get(name) {
+    if (name === 'agents') return { get: (id) => (id === 'route-session' ? liveRouteAgent : undefined) }
+    if (name !== 'tools') return undefined
+    return {
+      schemas: () => [
+        { name: 'cua_driver_native__click', description: 'click', parameters: { type: 'object' } },
+        { name: 'cua_driver_native__drag', description: 'drag', parameters: { type: 'object' } },
+        { name: 'mcp__playwright-mcp__browser_click', description: 'click', parameters: { type: 'object' } },
+        { name: 'pwsh', description: 'shell', parameters: { type: 'object' } },
+      ],
+    }
   },
 }
 
@@ -165,13 +195,15 @@ for (const expected of ['download', 'generate_image', 'generate_video']) {
 if (!effectRan) fail('deferred webServer callback never ran')
 else pass('deferred webServer callback executed')
 
-// 9 条：本插件 4 条（generated-images / open-path 两条 exact + screenshot /
-// download 两条 prefix）+ 融合的 dsh-provider-hub 5 条（/api/dsh-proxy、
-// /api/model-capabilities、/api/provider-hub-keys 三条 prefix +
+// 6 条：本插件 6 条（generated-images / open-path / tools-gate 三条 exact +
+// screenshot / download / office 三条 prefix）+ 融合的 dsh-provider-hub 5 条
+// （/api/dsh-proxy、/api/model-capabilities、/api/provider-hub-keys 三条 prefix +
 // /api/dsh-prompt-optimize 与 /stop 两条 exact）。
 // open-path 是「用文件资源管理器打开」改道用的（windowsHide 会吞掉 Explorer）。
-if (registered.length !== 4) {
-  fail(`expected exactly 4 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
+// office 是 2026-10-06 新增：ppt/word/pdf 的页图与 PDF 渲染（画廊缩略图、
+// 产出物弹窗内联预览、官方侧边栏接管三处共用）。
+if (registered.length !== 6) {
+  fail(`expected exactly 6 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
 } else {
   const exacts = registered.filter(spec => spec?.kind === 'exact')
   const prefix = registered.filter(spec => spec?.kind === 'prefix')
@@ -179,8 +211,10 @@ if (registered.length !== 4) {
     fail(`unexpected exact route specs: ${JSON.stringify(exacts)}`)
   } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/open-path')) {
     fail('missing open-path route (exact /api/chat-flow/open-path)')
+  } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/tools-gate')) {
+    fail('missing tools-gate route (exact /api/chat-flow/tools-gate)')
   } else {
-    pass('registered GET /api/chat-flow/generated-images + /open-path (kind=exact)')
+    pass('registered GET /api/chat-flow/generated-images + /open-path + /tools-gate (kind=exact)')
   }
   const downloadRoute = prefix.find(spec => spec?.path === '/api/chat-flow/download')
   if (downloadRoute === undefined) {
@@ -193,6 +227,12 @@ if (registered.length !== 4) {
     fail(`unexpected prefix route spec: ${JSON.stringify(prefix)}`)
   } else {
     pass('registered /api/chat-flow/screenshot (kind=prefix, render/save/reveal/image/diagnose)')
+  }
+  const office = prefix.find(spec => spec?.path === '/api/chat-flow/office')
+  if (office === undefined) {
+    fail('missing office preview route (prefix /api/chat-flow/office)')
+  } else {
+    pass('registered /api/chat-flow/office (kind=prefix, info/page/pdf/thumb)')
   }
   for (const spec of registered) {
     if (typeof spec?.handler !== 'function') fail(`route handler is not a function: ${spec?.path}`)
@@ -303,6 +343,258 @@ if (providerNamespaces.length >= 3) {
   pass(`provider hub settings namespaces preserved: ${providerNamespaces.join(', ')}`)
 }
 
+// ── 工具闸门：默认全关 + `/指令` 按会话打开 ──────────────────────────────
+// 主回归：computer-use（56 个）+ browser-use（24 个）实测占全部工具定义
+// 74.7%（约 3.1 万 tok/请求），默认必须不进入请求；`/` 命令打开后才注入。
+if (registeredCommands.length !== 2) {
+  fail(`expected 2 gate commands (computer-use / browser-use), got ${JSON.stringify(registeredCommands.map(c => c?.name))}`)
+} else {
+  const names = registeredCommands.map(c => c?.name).sort()
+  if (names[0] !== 'browser-use' || names[1] !== 'computer-use') {
+    fail(`gate command names must be browser-use / computer-use, got ${JSON.stringify(names)}`)
+  } else if (registeredCommands.some(c => typeof c?.handler !== 'function')) {
+    fail('gate command without a handler')
+  } else if (registeredCommands.some(c => c?.input?.hint === undefined)) {
+    // 回归钉子：**必须**声明 input。官方 ui-commands 的 matchEnter 对不带 input
+    // 的宿主命令只认裸 token，`/computer-use off` 会被静默降级成普通提示词发给
+    // 模型 —— 用户以为关了，其实只是说了句话。这条断言防的正是那种静默失败。
+    fail('gate commands must declare input.hint（否则 /xxx off 会静默降级为普通提示词）')
+  } else {
+    pass(`gate commands registered: /${names.join(', /')} (input hint ${JSON.stringify(registeredCommands[0]?.input?.hint)})`)
+  }
+}
+if (assembleListeners.length !== 1) {
+  fail(`expected exactly 1 system-prompt/assemble listener, got ${assembleListeners.length}`)
+} else {
+  pass('gate hooks system-prompt/assemble (registration-layer agnostic)')
+}
+
+const gateTest = mod.toolsGateTest
+if (gateTest === undefined) {
+  fail('tools-gate test surface (__test) not exported')
+} else {
+  const assemble = (agent) => ({
+    tools: [
+      { name: 'pwsh', description: 'shell', parameters: {} },
+      { name: 'cua_driver_native__click', description: 'click', parameters: {} },
+      { name: 'cua_driver_native__drag', description: 'drag', parameters: {} },
+      { name: 'mcp__playwright-mcp__browser_click', description: 'click', parameters: {} },
+    ],
+    sections: [
+      { name: 'persona', text: 'x' },
+      { name: 'computer-use:cua-driver-native', text: 'guidance' },
+      { name: 'mcp:playwright-mcp', text: 'server instructions' },
+    ],
+  })
+  const project = async (agent) => {
+    const listener = assembleListeners[0]
+    return listener(assemble(agent), { agent, scope: agent }, async () => assemble(agent))
+  }
+  const namesOf = (out) => out.tools.map(t => t.name).sort().join(',')
+  const sectionsOf = (out) => out.sections.map(s => s.name).sort().join(',')
+
+  const agentA = { id: 'agent-a' }
+  const off = await project(agentA)
+  if (namesOf(off) !== 'pwsh') {
+    fail(`默认（未开关）应只留 pwsh，实得 ${namesOf(off)}`)
+  } else if (!sectionsOf(off).includes('persona')) {
+    fail(`默认应保留 persona 段，实得 ${sectionsOf(off)}`)
+  } else if (!sectionsOf(off).includes('tools-gate:offline')) {
+    fail(`默认应追加「工具关着」的说明段（否则模型会假装调用），实得 ${sectionsOf(off)}`)
+  } else {
+    pass('默认全关：电脑/浏览器工具与 provider 提示词段移除 + 追加「工具关着」说明段')
+  }
+
+  // 说明段必须点名每个关着的组与开启方式，且不含已开启的组。
+  const offlineText = off.sections.find(s => s.name === 'tools-gate:offline')?.text ?? ''
+  if (!offlineText.includes('/computer-use on') || !offlineText.includes('/browser-use on')) {
+    fail(`说明段应点名两个关着的组的开启命令，实得 ${JSON.stringify(offlineText)}`)
+  } else if (!/不要假装/.test(offlineText)) {
+    fail('说明段应明确禁止假装调用（否则模型会编造已操作）')
+  } else {
+    pass('说明段点名关着的组 + 开启命令 + 禁止假装调用')
+  }
+
+  // 非 agent 组装（标题生成等服务级请求）原样放行：不误伤。
+  const agentless = await project(undefined)
+  if (namesOf(agentless) !== 'cua_driver_native__click,cua_driver_native__drag,mcp__playwright-mcp__browser_click,pwsh') {
+    fail(`无 agent 的组装不该被过滤，实得 ${namesOf(agentless)}`)
+  } else {
+    pass('无 agent 的组装原样放行（服务级请求不受闸门影响）')
+  }
+
+  const invoke = async (name, rawInput, agent) => {
+    const def = registeredCommands.find(c => c?.name === name)
+    return def.handler({ agent, rawInput, attachments: [], signal: undefined, commandId: 'x' })
+  }
+
+  const onResult = await invoke('computer-use', ' on', agentA)
+  const afterOn = await project(agentA)
+  if (namesOf(afterOn) !== 'cua_driver_native__click,cua_driver_native__drag,pwsh') {
+    fail(`/computer-use on 后应注入 cua 工具，实得 ${namesOf(afterOn)}`)
+  } else if (!sectionsOf(afterOn).includes('computer-use:cua-driver-native')) {
+    fail(`/computer-use on 后应恢复 guidance 段，实得 ${sectionsOf(afterOn)}`)
+  } else if (sectionsOf(afterOn).includes('mcp:playwright-mcp')) {
+    fail('/computer-use on 不该连带打开浏览器组')
+  } else {
+    pass(`/computer-use on 只打开本组（工具 ${namesOf(afterOn)}；段 ${sectionsOf(afterOn)}）`)
+  }
+  if (onResult?.kind !== 'success' || !/已启用/.test(onResult?.text ?? '')) {
+    fail(`/computer-use on 应回 success 且文案含「已启用」，实得 ${JSON.stringify(onResult)}`)
+  } else if (!/2 个电脑操作工具/.test(onResult.text)) {
+    fail(`回执应带上该组工具数量（来自 ctx.get('tools').schemas），实得 ${JSON.stringify(onResult.text)}`)
+  } else {
+    pass('切换回执带上该组工具个数与 token 量级（用户能看见省了多少）')
+  }
+  // 部分开启时说明段必须只提还关着的组（开着的不该被劝去开）。
+  const partialNotice = afterOn.sections.find(s => s.name === 'tools-gate:offline')?.text ?? ''
+  if (partialNotice.includes('/computer-use on')) {
+    fail(`已开启的组不该出现在「关着」说明里，实得 ${JSON.stringify(partialNotice)}`)
+  } else if (!partialNotice.includes('/browser-use on')) {
+    fail(`还关着的组应出现在说明里，实得 ${JSON.stringify(partialNotice)}`)
+  } else {
+    pass('部分开启时说明段只点名还关着的组')
+  }
+
+  await invoke('browser-use', 'on', agentA)
+  const bothOn = await project(agentA)
+  if (namesOf(bothOn) !== 'cua_driver_native__click,cua_driver_native__drag,mcp__playwright-mcp__browser_click,pwsh') {
+    fail(`两组都打开时应全部注入，实得 ${namesOf(bothOn)}`)
+  } else {
+    pass('/browser-use on 与电脑组互不干扰（两组可同时开）')
+  }
+
+  // 会话隔离：另一个 agent 不该继承 agentA 的开关。
+  const agentB = { id: 'agent-b' }
+  const bDefault = await project(agentB)
+  if (namesOf(bDefault) !== 'pwsh') {
+    fail(`开关必须按会话隔离，agentB 实得 ${namesOf(bDefault)}`)
+  } else {
+    pass('开关按 agent 隔离（新会话默认仍是全关）')
+  }
+
+  const offResult = await invoke('computer-use', 'off', agentA)
+  const afterOff = await project(agentA)
+  if (namesOf(afterOff) !== 'mcp__playwright-mcp__browser_click,pwsh') {
+    fail(`/computer-use off 后应移除 cua 工具，实得 ${namesOf(afterOff)}`)
+  } else {
+    pass('/computer-use off 立刻收回本组（浏览器组不受影响）')
+  }
+  if (offResult?.kind !== 'success' || !/已关闭/.test(offResult?.text ?? '')) {
+    fail(`/computer-use off 应回 success 且文案含「已关闭」，实得 ${JSON.stringify(offResult)}`)
+  }
+
+  // 不带参数 = 切换；非法取值 = error（不静默降级）。
+  // 此刻状态是 off（上一步刚 off 过），故第一次裸调用 → 启用，第二次 → 关闭。
+  const toggle1 = await invoke('computer-use', '', agentA)
+  const toggle2 = await invoke('computer-use', '  ', agentA)
+  if (toggle1?.kind !== 'success' || toggle2?.kind !== 'success' || !/已启用/.test(toggle1.text) || !/已关闭/.test(toggle2.text)) {
+    fail(`裸 /computer-use 应逐次切换，实得 ${JSON.stringify([toggle1, toggle2])}`)
+  } else {
+    pass('裸 /computer-use 逐次切换（toggle 语义）')
+  }
+  const bad = await invoke('computer-use', 'maybe', agentA)
+  if (bad?.kind !== 'error' || !/用法/.test(bad?.text ?? '')) {
+    fail(`非法取值应回 error 且带用法，实得 ${JSON.stringify(bad)}`)
+  } else {
+    pass('非法取值回 error 并给出用法（命令行不会被静默吞掉）')
+  }
+  const status = await invoke('computer-use', 'status', agentA)
+  if (status?.kind !== 'success' || !/电脑操作/.test(status?.text ?? '')) {
+    fail(`/computer-use status 应回当前状态，实得 ${JSON.stringify(status)}`)
+  } else {
+    pass('/computer-use status 回当前状态')
+  }
+
+  // 纯函数：分组判定与体积统计（改前缀或加新组时的钉子）。
+  if (gateTest.groupOfTool('pwsh') !== null) fail('pwsh 不该被任何闸门组命中')
+  else if (gateTest.groupOfTool('cua_driver_native__click')?.key !== 'computer-use') fail('cua 前缀未命中 computer-use 组')
+  else if (gateTest.groupOfTool('mcp__playwright-mcp__browser_click')?.key !== 'browser-use') fail('playwright 前缀未命中 browser-use 组')
+  else pass('分组前缀判定正确（未命中的普通工具一律放行）')
+  const measured = gateTest.measureGroup(
+    [{ name: 'cua_driver_native__a', parameters: {} }, { name: 'cua_driver_native__b', parameters: {} }, { name: 'pwsh', parameters: {} }],
+    gateTest.DEFAULT_GATE_GROUPS[0],
+  )
+  if (measured.count !== 2 || measured.bytes <= 0) fail(`measureGroup 统计错误：${JSON.stringify(measured)}`)
+  else pass(`measureGroup 统计正确（2 个工具 / ${measured.bytes} B）`)
+
+  // 状态路由：客户端胶囊读/写与 /指令 同一张状态表（GET 读、POST 写）。
+  const route = registered.find(spec => spec?.path === '/api/chat-flow/tools-gate')
+  const callRoute = async (method, url, body) => {
+    const chunks = []
+    const req = {
+      method,
+      url,
+      on(event, listener) {
+        if (event === 'data' && body !== undefined) listener(JSON.stringify(body))
+        if (event === 'end') listener()
+      },
+      destroy() {},
+    }
+    let payload = null
+    let status = 0
+    const res = {
+      writeHead(code) { status = code },
+      end(text) { payload = JSON.parse(text) },
+    }
+    route.handler(req, res)
+    // POST 走 promise 链，让微任务跑完。
+    await new Promise(resolve => setTimeout(resolve, 0))
+    return { status, payload }
+  }
+  const agentState = { id: 'route-session' }
+  if (typeof route?.handler !== 'function') {
+    fail('tools-gate route has no handler')
+  } else {
+    // GET：未开关时两组都应是 enabled=false。
+    const read = await callRoute('GET', '/api/chat-flow/tools-gate?session=route-session')
+    if (read.status !== 200 || read.payload?.ok !== true) {
+      fail(`GET /tools-gate 应回 200 {ok:true}，实得 ${JSON.stringify(read)}`)
+    } else if (!Array.isArray(read.payload.groups) || read.payload.groups.some(g => g.enabled !== false)) {
+      fail(`GET /tools-gate 默认应两组全关，实得 ${JSON.stringify(read.payload.groups)}`)
+    } else if (!read.payload.keys.includes('computer-use') || !read.payload.keys.includes('browser-use')) {
+      fail(`GET /tools-gate 应带 keys，实得 ${JSON.stringify(read.payload.keys)}`)
+    } else {
+      pass(`GET /tools-gate 回两组默认全关（keys ${read.payload.keys.join(', ')}）`)
+    }
+    // POST：写一组，回新状态。
+    const write = await callRoute('POST', '/api/chat-flow/tools-gate', { session: 'route-session', key: 'computer-use', enabled: true })
+    if (write.payload?.ok !== true) {
+      fail(`POST /tools-gate 应回 ok，实得 ${JSON.stringify(write)}`)
+    } else {
+      const group = write.payload.groups.find(g => g.key === 'computer-use')
+      if (group?.enabled !== true) fail(`POST 后该组应为 enabled，实得 ${JSON.stringify(group)}`)
+      else if (write.payload.groups.find(g => g.key === 'browser-use')?.enabled !== false) {
+        fail('POST 不该连带打开另一组')
+      } else {
+        pass('POST /tools-gate 只切换目标组并回新状态')
+      }
+    }
+    // 未知会话/组：如实报 false，不抛 500。
+    const badWrite = await callRoute('POST', '/api/chat-flow/tools-gate', { session: 'nope', key: 'computer-use', enabled: true })
+    if (badWrite.status !== 200 || badWrite.payload?.ok !== false) {
+      fail(`未知会话应回 200 {ok:false}，实得 ${JSON.stringify(badWrite)}`)
+    } else {
+      pass('未知会话/组回 200 {ok:false}（闸门是可选能力，不报红）')
+    }
+    // 单一真相：胶囊（路由）写的状态，/指令 必须读得到，反之亦然。
+    const statusAfterRouteWrite = await invoke('computer-use', 'status', liveRouteAgent)
+    if (!/已启用/.test(statusAfterRouteWrite?.text ?? '')) {
+      fail(`胶囊与 /指令 状态不一致：路由写了 enabled，/computer-use status 却回 ${JSON.stringify(statusAfterRouteWrite)}`)
+    } else {
+      pass('胶囊与 /指令 共用同一张状态表（无第二套真相）')
+    }
+    const routeAfterCommandWrite = await invoke('browser-use', 'on', liveRouteAgent)
+    const readBack = await callRoute('GET', '/api/chat-flow/tools-gate?session=route-session')
+    const browserGroup = readBack.payload?.groups?.find(g => g.key === 'browser-use')
+    if (routeAfterCommandWrite?.kind !== 'success' || browserGroup?.enabled !== true) {
+      fail(`/指令 写的状态，路由读不到：${JSON.stringify({ routeAfterCommandWrite, browserGroup })}`)
+    } else {
+      pass('/指令 写的状态，胶囊（路由）读得到')
+    }
+  }
+}
+
 // 源码契约：官方「模型」设置页不再被隐藏（hideOfficialModelsNav 已删除）。
 const providerStylesSrc = stripComments(srcOf('src/client/provider/webui/styles.ts'))
 if (/hideOfficialModelsNav/.test(providerStylesSrc)) {
@@ -318,6 +610,218 @@ if (/settings\.(section|general\.item)/.test(providerClientSrc)) {
   fail('供应商中心仍在注册设置座位：应当只由工作台 Tab 承载')
 } else {
   pass('供应商中心不再注册 settings.section / settings.general.item 座位')
+}
+
+/* ── Office 预览（2026-10-06）：纯函数契约 + 真 HTTP 链路 ────────────────
+ *
+ * 这块的价值全在「错了也不会报错」：引擎解析失败只是静默退回下载按钮、
+ * 路径准入错只是 403、扩展名表漏一个只是那一类永远没有缩略图。所以既要钉
+ * 纯函数，也要真发一次请求（用假 ctx 挂路由 + node:http 收响应）。
+ */
+{
+  const officeTest = mod.officeTest
+  const admitTest = mod.officeAdmitTest
+  const scratchTest = mod.officeScratchTest
+
+  // 1) 路由分流表：四条端点的 tail 都要认得出（漏一个就是那个功能 404）。
+  const expectedTails = { '/info': 'info', '/page': 'page', '/pdf': 'pdf', '/thumb': 'thumb' }
+  let routeTableOk = true
+  for (const [tail, kind] of Object.entries(expectedTails)) {
+    if (officeTest.resolveRoute(tail) !== kind || officeTest.resolveRoute(`${tail}/`) !== kind) routeTableOk = false
+  }
+  if (!routeTableOk || officeTest.resolveRoute('/nope') !== null) {
+    fail('office 路由分流表错误（info/page/pdf/thumb 必须都认，未知 tail 必须为 null）')
+  } else {
+    pass('office 路由四条端点分流正确（info / page / pdf / thumb）')
+  }
+
+  // 2) 可渲染扩展名：pdf / ppt / pptx / doc / docx 必须在列；代码与图片不在列
+  //    （图片走自己的 raw，不该被误判成 Office）。
+  const renderable = officeTest.RENDERABLE_EXT
+  const mustHave = ['.pdf', '.ppt', '.pptx', '.doc', '.docx', '.odp', '.odt']
+  const missing = mustHave.filter(ext => !renderable.has(ext))
+  if (missing.length > 0) fail(`office 可渲染扩展名缺 ${missing.join(', ')}`)
+  else if (renderable.has('.png') || renderable.has('.html')) {
+    fail('office 可渲染表不该含图片 / html（它们走各自的链路）')
+  } else {
+    pass(`office 可渲染扩展名覆盖 PPT/Word/PDF（${mustHave.join(' ')}）`)
+  }
+
+  // 2b) 引擎向上查找逻辑：给一个「<某目录>/node_modules/@deepseek-ai/...」的
+  //     已知布局，必须能沿父目录找到入口。这条错了不会报错，只会静默退回
+  //     下载按钮 —— 也就是 ppt / word 永远没有预览。
+  const dshRuntime = process.env.DSH_RUNTIME ?? 'D:\\AI\\Dsh\\dsh-runtime'
+  const expectedKit = resolve(dshRuntime, 'node_modules', '@deepseek-ai', 'libreoffice-kit', 'lib', 'index.js')
+  if (!existsSync(expectedKit)) {
+    pass('本机没有 DSH runtime 的 libreoffice-kit（跳过引擎查找断言）')
+  } else {
+    const found = officeTest.locateKit([resolve(dshRuntime, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')])
+    if (found === null) fail('locateKit 未能在 DSH runtime 布局下找到 libreoffice-kit')
+    else if (resolve(found) !== resolve(expectedKit)) fail(`locateKit 命中错误路径：${found}`)
+    else pass('locateKit 沿 DSH 安装布局找到 liboffice-kit 入口')
+  }
+
+  // 3) 路径准入键归一：Windows 盘符大小写与反斜杠必须折叠成同一个键。
+  const keyA = admitTest.previewPathKey('D:\\AI\\Dsh\\a.html')
+  const keyB = admitTest.previewPathKey('d:/ai/dsh/A.HTML')
+  if (keyA !== keyB) fail(`准入键未归一：${keyA} !== ${keyB}`)
+  else pass('office 准入键归一（裸反斜杠与盘符大小写折叠一致）')
+
+  // 4) 工作目录候选：必须是「候选根 / _tmp/.dsh-office-scratch」，且第一档跟随
+  //    工作区（实测判据：scratch 落在 workspace 之下才拿得到沙箱写权限）。
+  //    放在 _tmp/ 而不是工作区根：临时产物该落 _tmp（工作区根多一个点目录是噪声）。
+  const candidates = scratchTest.candidates()
+  const suffix = scratchTest.SCRATCH_DIR_NAME.replace(/\\/g, '/')
+  if (candidates.length === 0) {
+    fail('office 工作目录候选项为空（引擎会照着坏掉的 TEMP 去写盘）')
+  } else if (!candidates.every(p => p.replace(/\\/g, '/').endsWith(suffix))) {
+    fail(`office 候选项命名不符：${JSON.stringify(candidates)}`)
+  } else {
+    const normalized = candidates[0].replace(/\\/g, '/').toLowerCase()
+    const cwdNormalized = process.cwd().replace(/\\/g, '/').toLowerCase()
+    if (!normalized.startsWith(cwdNormalized)) {
+      fail(`office 首选项未跟随工作区：${candidates[0]}（cwd=${process.cwd()}）`)
+    } else {
+      pass(`office 工作目录首选跟随工作区（${suffix}）`)
+    }
+  }
+
+  // 4b) ACE 判据（纯函数）：这条错了不会报错，只会静默选中一个写不了的目录，
+  //     于是 ppt/word 预览继续失败、看起来像「修复没生效」。
+  const aceCases = [
+    ['S-1-4-697522640-1053477726:(OI)(CI)(W,D,DC)', true],
+    ['S-1-4-1-2-3:(OI)(CI)(M)', true],
+    ['S-1-4-1-2-3:(OI)(CI)(F)', true],
+    ['S-1-4-1-2-3:(OI)(CI)(RX)', false],
+    ['S-1-4-1-2-3:(OI)(CI)(S,X)', false],
+    ['Everyone:(CI)(DENY)(DC)', false],
+    ['BUILTIN\\Users:(RX)', false],
+  ]
+  const aceBad = aceCases.filter(([line, want]) => scratchTest.parseAceLines(`dir ${line}`) !== want)
+  if (aceBad.length > 0) {
+    fail(`ACE 写权限判据错误：${JSON.stringify(aceBad.map(c => c[0]))}`)
+  } else {
+    pass('ACE 写权限判据正确（W/M/F 算可写，RX/S/X 与无沙箱 ACE 不算）')
+  }
+
+  // 5) 真链路：用假 ctx 挂路由 → node:http 起服务 → 请求四条端点。
+  //
+  //    未准入的路径必须 403（这条路由族等于「读本机任意文件」，判据松了就是
+  //    任意文件读取）；已登记的路径在引擎可用时须出 PNG。引擎不可用（非 win32 /
+  //    没装 kit）时整块降级为「503 而不是 500」的断言 —— 那仍是一次真请求。
+  const http = await import('node:http')
+  const registrations = []
+  let officeMod = null
+  const fakeWebCtx = {
+    logger: { warn: () => {}, error: () => {}, info: () => {}, debug: () => {} },
+    effect(fn) { const d = fn(); return typeof d === 'function' ? d : () => {} },
+    get: () => undefined,
+    webServer: { register(spec) { registrations.push(spec); return () => {} } },
+  }
+  try {
+    officeMod = await import(new URL(`file://${HOST.replace(/\\/g, '/')}`))
+    officeMod.applyOfficePreview(fakeWebCtx)
+  } catch (error) {
+    fail(`applyOfficePreview threw: ${error?.stack ?? error}`)
+  }
+  const officeRoute = registrations.find(spec => spec?.path === '/api/chat-flow/office')
+  if (officeRoute === undefined) {
+    fail('applyOfficePreview 未注册 /api/chat-flow/office 路由')
+  } else if (officeRoute.kind !== 'prefix' || typeof officeRoute.handler !== 'function') {
+    fail(`office 路由形状错误：${JSON.stringify({ kind: officeRoute.kind })}`)
+  } else {
+    pass('applyOfficePreview 注册 prefix /api/chat-flow/office')
+
+    const server = http.createServer((req, res) => officeRoute.handler(req, res))
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = server.address().port
+    const get = (path) => new Promise((resolve) => {
+      const req = http.get({ host: '127.0.0.1', port, path, headers: { host: `127.0.0.1:${port}` } }, (res) => {
+        const chunks = []
+        res.on('data', (c) => chunks.push(c))
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }))
+      })
+      req.on('error', () => resolve({ status: 0, headers: {}, body: Buffer.alloc(0) }))
+    })
+
+    try {
+      // 5a) 未准入的路径：403（**不得**因为路径不存在就变成 404 —— 404 会泄露
+      //     「本机确实有这个文件」这条信息）。
+      const denied = await get('/api/chat-flow/office/page?path=' + encodeURIComponent('C:\\Windows\\win.ini'))
+      if (denied.status !== 403) {
+        fail(`office 未准入路径应 403，实得 ${denied.status}`)
+      } else {
+        pass('office 未准入路径 403（这条路由族没有开成任意文件读）')
+      }
+
+      // 5b) 未知端点：404 + JSON。
+      const unknown = await get('/api/chat-flow/office/nope')
+      if (unknown.status !== 404) fail(`office 未知端点应 404，实得 ${unknown.status}`)
+      else pass('office 未知端点 404')
+
+      // 5c) 已登记路径 + 引擎可用 → 真出 PNG（页图链路端到端）。
+      const engine = await officeMod.officeEngineAvailable().catch(() => false)
+      if (!engine) {
+        pass('office 引擎不可用（未装 libreoffice-kit）→ 跳过真渲染断言')
+      } else {
+        const sample = process.env.DSH_SMOKE_OFFICE_SAMPLE
+          ?? 'D:\\AI\\Dsh\\dsh-chat-plus\\README.md' // 只用来验准入，不参与渲染
+        const pptx = process.env.DSH_SMOKE_OFFICE_PPTX
+        if (pptx !== undefined && existsSync(pptx)) {
+          officeMod.rememberOfficePaths([pptx])
+          const info = await get('/api/chat-flow/office/info?path=' + encodeURIComponent(pptx))
+          let payload = null
+          try { payload = JSON.parse(info.body.toString('utf8')) } catch { /* 非 JSON 走下面报错 */ }
+          if (info.status !== 200 || payload?.ok !== true) {
+            fail(`office /info 对已登记 pptx 应 200 {ok:true}，实得 ${info.status} ${info.body.toString('utf8').slice(0, 160)}`)
+          } else if (payload.renderable !== true || typeof payload.scratch !== 'string') {
+            fail(`office /info 应回 renderable + scratch 诊断，实得 ${JSON.stringify(payload)}`)
+          } else {
+            pass(`office /info 回 renderable + 工作目录（${payload.scratch}）`)
+          }
+        } else {
+          void sample
+          pass('office 引擎可用（真渲染留待 DSH_SMOKE_OFFICE_PPTX 指定样本时断言）')
+        }
+      }
+    } finally {
+      await new Promise(resolve => server.close(resolve))
+    }
+  }
+}
+
+/* ── spill 准入（2026-10-06 修「画廊生图格子全空」）─────────────────────
+ *
+ * 判据错了不会报错，只会让历史会话的生图条目**全部 403** —— 界面上是一排
+ * 点开什么都没有的空白格子。所以正反例都要钉：历史 root 可读、任意路径不可读、
+ * 伪造命名不可读。
+ */
+{
+  const spillTest = mod.spillTest
+  const fakeRoots = [spillTest.canonical('C:/fake/dsh-spill-Ab3x9Q')]
+  const cases = [
+    ['历史 root 内的生图 spill', 'C:/fake/dsh-spill-Ab3x9Q/session-0123456789ab/abcd1234-generate_image.txt', true],
+    ['任意路径', 'C:/Windows/win.ini', false],
+    ['root 内但无 session 层', 'C:/fake/dsh-spill-Ab3x9Q/loose.txt', false],
+    ['session 目录但非 txt', 'C:/fake/dsh-spill-Ab3x9Q/session-0123456789ab/x.png', false],
+    ['路径穿越', 'C:/fake/dsh-spill-Ab3x9Q/session-0123456789ab/../../evil.txt', false],
+    ['伪造 root 前缀（非精确 6 位）', 'C:/fake/dsh-spill-test-1/session-0123456789ab/x.txt', false],
+    ['相对路径', 'session-0123456789ab/x.txt', false],
+  ]
+  const bad = []
+  for (const [label, path, want] of cases) {
+    const verdict = mod.admitSpillPath(path, fakeRoots)
+    if (verdict.ok !== want) bad.push(`${label}: 期望 ${want ? '通过' : '拒绝'}，实得 ${verdict.ok ? '通过' : `拒(${verdict.reason})`}`)
+  }
+  if (bad.length > 0) fail(`spill 准入判据错误：${bad.join('；')}`)
+  else pass('spill 准入：历史 root 可读 + 任意/伪造/穿越路径全拒（7 组正反例）')
+
+  // root 发现：base 必须并上「插件启动时记住的原始 tmpdir」—— office 模块会把
+  // TEMP 改到 workspace，改完 os.tmpdir() 就不再是 spill root 的出生地，只信当前
+  // tmpdir 会一个历史 root 都扫不到（整批生图重新变 403）。
+  const bases = spillTest.spillBases()
+  if (bases.length < 2) fail(`spill root 扫描基准必须 ≥2 个（原始 tmpdir + 当前 tmpdir + 平台惯例），实得 ${bases.length}`)
+  else pass(`spill root 扫描基准取并集（${bases.length} 个，TEMP 被改写后仍能发现历史 root）`)
 }
 
 console.log(`\n${process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED'} — ${HOST}`)

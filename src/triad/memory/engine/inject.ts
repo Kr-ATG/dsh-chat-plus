@@ -162,6 +162,42 @@ const DIAGRAM_INJECTION_RULE = [
 ].join('\n')
 
 /**
+ * 对话内 HTML 卡片（html 围栏）能力规范注入文本。
+ *
+ * 与 DIAGRAM_INJECTION_RULE 同构：客户端 `splitHtml()` 会拦截正文里的 ```html
+ * 围栏并渲染成沙箱 iframe 卡片，但模型默认不知道这个围栏存在——又是「有渲染器、
+ * 没接线」。这里补的是指令侧那一半。
+ *
+ * 措辞里刻意写清三条**沙箱事实**，因为模型对 HTML 的默认直觉全都基于普通浏览器：
+ *  · 没有 same-origin —— localStorage / 宿主 DOM / 外部接口调用都拿不到；
+ *  · 高度必须自适应（宿主按上报高度给框，写死 100vh 会撑出滚动条）；
+ *  · 不引外网资源（CDN 脚本在内网/离线环境直接白屏）。
+ * 不写这三条，模型会写出「能跑但什么都不显示」的卡片，而且它自己看不到结果。
+ */
+const HTML_INJECTION_RULE = [
+  '【对话内 HTML 卡片 · 内置通道】本客户端的对话流会把 ```html 代码围栏渲染成一张可交互的沙箱卡片（独立 iframe，带预览/源码切换、复制、重载、全屏）。',
+  '需要给出「能点、能动、能算」的东西时用它：小工具、计算器、图表、可视化、演示页、单页原型。纯静态说明文字不要用它。',
+  '',
+  '格式：直接写 ```html 围栏，围栏正文就是完整可运行的 HTML（片段或整篇文档都行）。',
+  '',
+  '沙箱事实（不知道这些会写出「能跑但什么都不显示」的卡片）：',
+  '  · iframe 只有 allow-scripts，**没有 same-origin**：拿不到宿主页面与 DOM，localStorage / cookie / 宿主接口一律不可用；也不要假设能读外部接口。',
+  '  · 高度自适应：宿主按内容真实高度给框。不要写 height:100vh、不要给 body 加固定高度，否则会出现内部滚动条或大片空白。',
+  '  · 不引外部资源：CDN 脚本、外链字体、外链图片在离线或内网环境直接白屏。CSS 与 JS 全部内联，图形用内联 SVG / canvas 画。',
+  '  · 点击链接会开新标签页（文档已设 base target=_blank），不要在卡片内部做整页跳转。',
+  '  · 深浅主题：宿主会把明暗状态以 html[data-ds-dark-theme] 属性同步进来，可用它写两套配色；不写就跟随 color-scheme。',
+  '',
+  '硬性约束：',
+  '  · 单张卡片正文 ≤ 80KB，超出会静默回退成普通代码块（不报错、也不会告诉你失败）。',
+  '  · 围栏语言标记必须正好是 html（```html-preview 这类不算）。',
+  '  · 一条回复里最多一张 HTML 卡片；需要多个视图就在卡片内部自己做切换。',
+  '',
+  '两条纪律：',
+  '  · 卡片是交付物本身，不是正文的插图：先用一句话说清它是什么、怎么用，再给围栏。',
+  '  · 不要用 ```html 来展示「示例代码」——那会被渲染成真卡片。要给人看源码请用其它语言标记。',
+].join('\n')
+
+/**
  * 灵魂（Soul）通道的注入头部。
  *
  * 与 zh / diagram 的差异：那两条投的是**插件内置**的文本（语言契约、渲染规范），
@@ -179,6 +215,37 @@ const DIAGRAM_INJECTION_RULE = [
 const SOUL_INJECTION_HEADER = [
   '【灵魂 · 内置通道】以下是用户的顶层身份契约（名字/角色/语气/语言/行为准则），跨会话恒定，优先于模型的默认人格设定。',
   '（若与当前项目的 AGENTS.md / 项目指令或系统提示冲突，一律以项目指令为准。）',
+].join('\n')
+
+/**
+ * 效率约束（省 token/耗时）规范注入文本。
+ *
+ * 为什么需要它：DSH agent 每个 step 全量重发上下文，token 的 98–99% 是
+ * cacheReadTokens，总成本 ≈ Σ每步上下文体积，是步数的二次函数。这套纪律来自
+ * 对 6 个 V4.1F 大会话（106–331 步，20M–146M token）的真实事件流重放实测，
+ * 按收益排序写成三档。不注入，模型默认会把 300+ 步全堆在一个会话里续命、
+ * 把整段文件与命令回显灌进历史——每一条都会被后续所有步重复计费。
+ *
+ * 与 diagram / html 同构：纯静态规范文本，不读条目、不做检索、不参与命中加分。
+ * 措辞刻意写清「结构拆分 > 体积压缩 > 去重循环」的收益梯度，因为最反直觉的一点是：
+ * 合并碎步/去重循环实测收益≈0（真重复步每会话仅 0–6 个），真正的大头是把重活
+ * 委派给 fresh 子代理（省 35–50%），而 fork 子代理几乎白给（−3%~16%）。
+ */
+const EFFICIENCY_INJECTION_RULE = [
+  '【效率约束 · 内置通道】本环境每个 step 全量重发上下文，token 的 98–99% 是 cacheRead，总成本 ≈ Σ每步上下文体积（步数的二次函数）。以下为实测验证的省 token/耗时纪律，按收益排序：',
+  '',
+  '一、结构拆分（最大杠杆，省 35–50%）：长任务不要把 300+ 步全堆在一个会话里续命。',
+  '  · 委派子任务用 fresh 子代理（subagent 工具，自带轻量上下文），不要用 subagent_fork——fork 继承本会话全部历史，实测几乎不省（−3%~16%）。',
+  '  · fresh 子代理看不到对话历史，委派 prompt 必须自包含（把所需上下文写全）。',
+  '  · 适合委派：可清晰描述的独立子任务（实现某模块、跑某验证、单方向调研）；不适合：强依赖对话中间状态的活。',
+  '  · 确需跨阶段续跑（调研→实现→验证）时，在阶段边界收口：状态总结落盘 _tmp/ 或记忆，提示用户开新会话继续。',
+  '',
+  '二、单步体积压缩（次级杠杆，省 ~10%）：',
+  '  · pwsh 输出先过滤再返回（Select-Object -First/-Last、Select-String、截断），单条控制在 ~5KB 内；超长结果落盘 _tmp/ 再精准读取，绝不整段灌进历史。',
+  '  · read 大文件一律 offset/limit 切片（先 grep/glob 定位行号），>4KB 不整读、同一文件不重复全读。',
+  '  · reasoning/回复精炼，不复述工具输出原文、不写过程流水账。',
+  '',
+  '三、几乎无收益、不必刻意：合并碎步/去重循环/校验节制——实测真重复步每会话仅 0–6 个，省不到 token。独立调用仍应并行发（省时间不省 token）；校验按「连贯改动做完统一 build+smoke、失败才深挖」执行，不要为省 token 牺牲验证覆盖。',
 ].join('\n')
 
 /** 创建注入器。 */
@@ -206,10 +273,22 @@ export function createMemoryInjector(
   const diagramStepCounters = new Map<string, number>()
 
   /**
+   * html 通道的每会话 step 计数，理由同 diagramStepCounters——五条内置通道
+   * 各记各的，共用一个 Map 会互相抢占首步名额。
+   */
+  const htmlStepCounters = new Map<string, number>()
+
+  /**
    * soul 通道的每会话 step 计数，理由同 zhStepCounters——四条通道各记各的，
    * 共用一个 Map 会互相抢占首步名额。
    */
   const soulStepCounters = new Map<string, number>()
+
+  /**
+   * efficiency 通道的每会话 step 计数，理由同 zhStepCounters——各通道各记各的，
+   * 共用一个 Map 会互相抢占首步名额。
+   */
+  const efficiencyStepCounters = new Map<string, number>()
 
   async function buildMemoryBlock(
     agent: PreStepAgent,
@@ -340,6 +419,31 @@ export function createMemoryInjector(
       }
     }
 
+    // ── 对话内 HTML 卡片能力规范注入（内置通道） ──────────────────────
+    // 位置同 diagram：两道闸门之前。它回答的同样是「本客户端支持什么呈现
+    // 能力」，与「记忆库要不要进上下文」正交。
+    const htmlEnabled = await store.isHtmlInjectEnabled(config.htmlInjectDefaultEnabled !== false)
+    if (!htmlEnabled) {
+      logger?.debug?.('[dsh-memory] html injection off (switch disabled)')
+    } else if (!htmlStepCounters.has(sessionId)) {
+      htmlStepCounters.set(sessionId, 1)
+      try {
+        messages = [...messages, createUserMessage({
+          content: [{ type: 'text', text: HTML_INJECTION_RULE }],
+          source: {
+            kind: 'plugin:dsh-memory',
+            plugin: 'dsh-memory',
+            form: 'snapshot',
+            sections: [{ name: '对话内 HTML 卡片', text: HTML_INJECTION_RULE }],
+          },
+        })]
+        logger?.debug?.('[dsh-memory] html injection ok')
+      } catch (error) {
+        // 失败绝不能影响主注入与其它通道。
+        logger?.warn?.(`[dsh-memory] html injection failed: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
     // ── 灵魂（Soul）顶层身份契约注入（内置通道） ─────────────────────
     // 位置与理由同上面两条内置通道：两道闸门**之前**。灵魂回答的是「这个助手
     // 是谁」，跟「记忆库要不要进上下文」正交；放到闸门之后，用户一关主注入
@@ -372,6 +476,31 @@ export function createMemoryInjector(
           // 灵魂通道失败绝不能影响主注入与其它通道：记日志后继续往下走。
           logger?.warn?.(`[dsh-memory] soul injection failed: ${error instanceof Error ? error.message : String(error)}`)
         }
+      }
+    }
+
+    // ── 效率约束（省 token/耗时）规范注入（内置通道） ─────────────────
+    // 位置同 diagram / html：两道闸门之前。它回答的是「本环境如何省成本」，
+    // 跟「记忆库要不要进上下文」正交；这套纪律跨会话恒定，不该随主开关一起消失。
+    const efficiencyEnabled = await store.isEfficiencyInjectEnabled(config.efficiencyInjectDefaultEnabled !== false)
+    if (!efficiencyEnabled) {
+      logger?.debug?.('[dsh-memory] efficiency injection off (switch disabled)')
+    } else if (!efficiencyStepCounters.has(sessionId)) {
+      efficiencyStepCounters.set(sessionId, 1)
+      try {
+        messages = [...messages, createUserMessage({
+          content: [{ type: 'text', text: EFFICIENCY_INJECTION_RULE }],
+          source: {
+            kind: 'plugin:dsh-memory',
+            plugin: 'dsh-memory',
+            form: 'snapshot',
+            sections: [{ name: '效率约束', text: EFFICIENCY_INJECTION_RULE }],
+          },
+        })]
+        logger?.debug?.('[dsh-memory] efficiency injection ok')
+      } catch (error) {
+        // 失败绝不能影响主注入与其它通道。
+        logger?.warn?.(`[dsh-memory] efficiency injection failed: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
 
@@ -429,7 +558,9 @@ export function createMemoryInjector(
       stepCounters.delete(sessionId)
       zhStepCounters.delete(sessionId)
       diagramStepCounters.delete(sessionId)
+      htmlStepCounters.delete(sessionId)
       soulStepCounters.delete(sessionId)
+      efficiencyStepCounters.delete(sessionId)
     },
   }
 }

@@ -27,7 +27,7 @@ import {
 import type { ProbeResult } from '../open-preview.ts'
 import { workspaceCwdOf } from '../client-ctx.ts'
 import { sessionRawUrl } from '../triad/gallery/api.ts'
-import { INLINE_PREVIEW_KINDS, MediaLightbox, type LightboxItem } from '../triad/gallery/media-lightbox.tsx'
+import { canInlinePreview, MediaLightbox, type LightboxItem } from '../triad/gallery/media-lightbox.tsx'
 import type { OutputKind, OutputItem, OutputsView } from './outputs.ts'
 
 /**
@@ -396,12 +396,16 @@ export const KrOutputsCard = memo(function KrOutputsCard({
   }, [sessionId])
 
   /**
-   * 行主体点击（2026-10-04）：可内联预览类别开画廊式 Lightbox；md / 代码 /
-   * Office 等**除外** —— 回退原侧栏路。对话滚动守卫已改为 KR 视图常驻
-   * （scroll-guard.ts，在 KrAgentPanel 挂载），这里不再 per-click 装钩。
+   * 行主体点击（2026-10-04）：可内联预览类别开画廊式 Lightbox；不可预览的
+   * 类别（3D 模型 / 压缩包 / 代码）回退原侧栏路 —— 浏览器渲染不了它们，
+   * 右栏至少能给出文件信息。
+   *
+   * 2026-10-06 起 ppt / word / excel 也进 Lightbox：三类此前被排除在外，理由是
+   * 「官方右栏有 Office 预览」；实测那条链路在本机是坏的（LibreOffice 转换写盘
+   * 被沙箱拒），点开只会让卡片的行看起来「点不动」。现在由 host 出页图内联预览。
    */
   const openInline = useCallback((item: OutputItem, index: number) => {
-    if (!INLINE_PREVIEW_KINDS.has(item.kind)) { void openPath(item.path); return }
+    if (!canInlinePreview(item.kind, item.path)) { void openPath(item.path); return }
     setLightboxIndex(index)
   }, [openPath])
 
@@ -437,19 +441,32 @@ export const KrOutputsCard = memo(function KrOutputsCard({
   )
 
   /*
-   * Lightbox 的取图地址：**优先官方 /api/file**（与右栏文档预览同一条链路）。
+   * Lightbox 的取图地址：按类别分三条链路，各有各的理由。
    *
-   * 为什么不再一律走画廊的 /raw（2026-10-05）：/raw 是插件自己的路由，它的准入
-   * 名单由 host 半身在内存里折出来 —— 名单与浏览器里的这份清单是**两套独立状态**，
-   * 任一侧没跟上（host 还挂着旧模块、会话索引尚未折到这条路径），用户看到的就是
-   * 「产出物卡里明明有这张图，点开却是裂图」。而侧栏那条路一直是好的，因为它走
-   * 官方 workspaceFiles / /api/file，与插件的索引无关。
+   * 1) **html 成品（page）必须走插件自己的 /raw**（2026-10-06 修「点开 html 没有
+   *    任何 UI」）。根因：官方 /api/file 是**原样吐字节**的静态服务，不做任何
+   *    注入；而产出物 html 普遍是「同目录还有 css/js/图」的多文件成品（落地页、
+   *    报告、演示页）。经 /api/file 打开时相对资源按 `/api/` 这个目录解析，
+   *    `./style.css` 直接 404 —— 页面结构在、样式全失，看起来就是「一片空白 /
+   *    纯文字」。插件的 /raw 会注入 `<base href="/api/triad/gallery/raw-asset/
+   *    <token>/">`，把相对资源引到同目录资源路由，成品才真的活过来。
    *
-   * 于是这里与侧栏**对齐到同一条链路**：折成绝对路径后交给 /api/file；只有折不出
-   * 绝对路径（会话 cwd 未知）时才退回 /raw（host 侧能按会话 cwd 解析）。
-   * 画廊面板仍走 /raw —— 那是跨会话清单，白名单语义在那里才成立。
+   * 2) **pdf / ppt / word / excel 走插件的 /office/***（2026-10-06 新增）：
+   *    pdf 由 host 转好落盘后直接内嵌；Office 三类由 host 出页图。都不再依赖
+   *    官方文档预览那条链路（本机实测它是坏的）。
+   *
+   * 3) 其余（图片 / 视频 / 音频）**优先官方 /api/file**（与右栏文档预览同一条
+   *    链路，单文件字节服务最稳，且不经过插件的索引白名单）。
+   *
+   * 为什么图片这条当初要退回官方（2026-10-05 的修复）：/raw 是插件自己的路由，
+   * 它的准入名单由 host 半身在内存里折出来 —— 名单与浏览器里的清单是两套独立
+   * 状态，任一侧没跟上，用户看到的就是「产出物卡里明明有这张图，点开却是裂图」。
+   * 单文件资源没有 base 注入的需求，走官方那条更省心。折不出绝对路径
+   * （会话 cwd 未知）时才退回 /raw（host 侧能按会话 cwd 解析）。
    */
   const mediaUrlOf = useCallback((item: LightboxItem): string => {
+    // html 成品：必须走 /raw（注入 base），否则成品页的相对资源全 404。
+    if (item.kind === 'page') return sessionRawUrl(item.path, item.sessionId)
     const official = localFileMediaUrl(item.path)
     return official ?? sessionRawUrl(item.path, item.sessionId)
   }, [])

@@ -714,6 +714,26 @@ export class MemoryStore {
     await this.writeState(state)
   }
 
+  // ── 对话内 HTML 卡片能力规范注入开关（全局单值） ────────────────────
+
+  /**
+   * html 围栏规范注入是否开启（三态：state 显式值 ?? 调用方给的 fallback）。
+   *
+   * 与 diagram 通道同样是**全局单值**，理由完全一致：它是「本客户端支持什么
+   * 呈现能力」的声明，不是逐会话的上下文松紧。
+   */
+  async isHtmlInjectEnabled(fallback: boolean): Promise<boolean> {
+    const state = await this.readState()
+    return typeof state.htmlInjectEnabled === 'boolean' ? state.htmlInjectEnabled : fallback
+  }
+
+  /** 写 html 规范注入开关（全局单值；直接落盘，调用频率极低）。 */
+  async setHtmlInjectEnabled(enabled: boolean): Promise<void> {
+    const state = await this.readState()
+    state.htmlInjectEnabled = enabled
+    await this.writeState(state)
+  }
+
   // ── 灵魂（Soul）注入开关（全局单值） ──────────────────────────────
 
   /**
@@ -731,6 +751,27 @@ export class MemoryStore {
   async setSoulInjectEnabled(enabled: boolean): Promise<void> {
     const state = await this.readState()
     state.soulInjectEnabled = enabled
+    await this.writeState(state)
+  }
+
+  // ── 效率约束规范注入开关（全局单值） ────────────────────────────────
+
+  /**
+   * 效率约束注入是否开启（三态：state 显式值 ?? 调用方给的 fallback）。
+   *
+   * 与 diagram / html 通道同样是**全局单值**：它投的是「本环境如何省 token」的
+   * 静态纪律，跨会话恒定，逐会话开关只会制造「这个会话守纪律、下个不守」的
+   * 不可预期。
+   */
+  async isEfficiencyInjectEnabled(fallback: boolean): Promise<boolean> {
+    const state = await this.readState()
+    return typeof state.efficiencyInjectEnabled === 'boolean' ? state.efficiencyInjectEnabled : fallback
+  }
+
+  /** 写效率约束注入开关（全局单值；直接落盘，调用频率极低）。 */
+  async setEfficiencyInjectEnabled(enabled: boolean): Promise<void> {
+    const state = await this.readState()
+    state.efficiencyInjectEnabled = enabled
     await this.writeState(state)
   }
 

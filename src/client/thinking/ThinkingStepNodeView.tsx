@@ -42,6 +42,8 @@ import { LiveThinkingCard as StackLiveCard, type LiveThinkingItem } from './live
 import { FlowCard } from '../flow-card.tsx'
 import { splitDiagram } from '../diagram/parse.ts'
 import { DiagramCard } from '../diagram/DiagramCard.tsx'
+import { splitHtml, looksLikeHtmlFence } from '../html-embed/parse.ts'
+import { HtmlCard } from '../html-embed/HtmlCard.tsx'
 import { splitProtoTabs } from '../proto/parse.ts'
 import { ProtoTabsCard } from '../proto/ProtoTabsCard.tsx'
 import { isRunning } from '../tool-summary/tool-stats.ts'
@@ -208,7 +210,11 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
     if (block === undefined) continue
     switch (block.kind) {
       case 'text': {
-        // proto-tabs / diagram 围栏 → 卡片组件，其余仍走官方 MarkdownText。
+        // proto-tabs / diagram / html 围栏 → 卡片组件，其余仍走官方 MarkdownText。
+        //
+        // 两级切分是有序的：html 先切（它的围栏正文里可能整段包含 ```diagram
+        // 之类的示例文本，先切 html 才不会把示例误当成真卡片），剩下的 markdown
+        // 片段再走 diagram。顺序反过来会让 HTML 示例里的围栏被吃掉。
         const pushMd = (key: string, text: string): void => {
           if (text === '') return
           splitDiagram(text).forEach((sub, subIndex) => {
@@ -221,8 +227,29 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
             }
           })
         }
+        const pushHtml = (key: string, text: string): void => {
+          if (text === '') return
+          // streaming 必须透传：流式期未闭合的 ```html 要变成「预渲染中」占位卡，
+          // 而不是把几百行代码逐字往外冒。定稿后同一条围栏若仍未闭合（模型输出
+          // 被截断），回退成代码块显示真实内容。
+          splitHtml(text, streaming).forEach((sub, subIndex) => {
+            if (sub.kind === 'html') {
+              // key 里**不能**带 pending：闭合那一刻 key 必须保持不变，React 才会
+              // 复用同一个 HtmlCard 实例，让卡片从占位平滑变成真身而不是闪一下。
+              rendered.push(
+                <Fresh live={streaming} freshKey={`${key}-he${subIndex}`}>
+                  <HtmlCard spec={sub.spec} pending={sub.pending} />
+                </Fresh>,
+              )
+            } else {
+              pushMd(`${key}-h${subIndex}`, sub.text)
+            }
+          })
+        }
         const parts = splitProtoTabs(block.text)
-        if (parts.length === 1 && parts[0]?.kind === 'md' && parts[0].text.indexOf('diagram') < 0) {
+        // 快路径判据必须是「真的有个 html 围栏」，不能只测正文里出现过 html 三个字母
+        // ——「HTML 卡片」这种普通措辞会让每段正文都白跑一遍切分。
+        if (parts.length === 1 && parts[0]?.kind === 'md' && parts[0].text.indexOf('diagram') < 0 && !looksLikeHtmlFence(parts[0].text)) {
           rendered.push(
             <Fresh live={streaming} freshKey={`md${index}`}><MarkdownText text={decorate(block.text)} streaming={streaming} labels={labels} fileMentions={mentionResolver} pathImages={env?.pathImages} /></Fresh>,
           )
@@ -231,7 +258,7 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
             if (part.kind === 'card') {
               rendered.push(<Fresh live={streaming} freshKey={`proto${index}-${partIndex}`}><ProtoTabsCard spec={part.spec} /></Fresh>)
             } else {
-              pushMd(`${index}-${partIndex}`, part.text)
+              pushHtml(`${index}-${partIndex}`, part.text)
             }
           })
         }

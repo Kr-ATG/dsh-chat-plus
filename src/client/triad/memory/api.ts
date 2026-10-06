@@ -181,6 +181,13 @@ export interface InjectStateView {
    */
   diagramEnabled?: boolean
   /**
+   * 对话内 HTML 卡片规范内置通道是否开启。
+   *
+   * 同样由 /inject-state 顺带回传。旧 host 不回此字段时按 false 兜底——与
+   * diagram 完全同口径：默认关，且缺字段意味着这版 host 根本没这个能力。
+   */
+  htmlEnabled?: boolean
+  /**
    * 灵魂（Soul）内置通道是否开启。
    *
    * 与 zh 同口径：缺字段按 true 兜底。它是记忆库之上的第四层身份契约，
@@ -188,6 +195,15 @@ export interface InjectStateView {
    * 空灵魂不注入，这一条由 host 的注入器负责，开关只表达用户意图。
    */
   soulEnabled?: boolean
+  /**
+   * 效率约束内置通道是否开启。
+   *
+   * 同样由 /inject-state 顺带回传。旧 host 不回此字段时按 false 兜底——与
+   * diagram / html 完全同口径：它是新增能力，缺字段意味着这版 host 根本没有，
+   * 显示「开」是假阳性（开着却注不进去最误导）。config 默认开只决定新 host
+   * 的真实值，不改变缺字段兜底口径。
+   */
+  efficiencyEnabled?: boolean
 }
 
 /**
@@ -333,6 +349,9 @@ export interface MemoryApi {
   /** 对话内流程图内置通道开关（全局单值，与主开关无联动）。 */
   getDiagramInjectState: () => Promise<ZhInjectStateView>
   setDiagramInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
+  /** 对话内 HTML 卡片内置通道开关（全局单值，与主开关无联动）。 */
+  getHtmlInjectState: () => Promise<ZhInjectStateView>
+  setHtmlInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
   /**
    * 灵魂（Soul）内置通道开关（全局单值，与主开关无联动）。
    *
@@ -342,6 +361,9 @@ export interface MemoryApi {
    */
   getSoulInjectState: () => Promise<ZhInjectStateView>
   setSoulInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
+  /** 效率约束内置通道开关（全局单值，与主开关无联动）。 */
+  getEfficiencyInjectState: () => Promise<ZhInjectStateView>
+  setEfficiencyInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
   consolidate: (scope?: 'all' | 'global' | 'project', projectHash?: string) => Promise<{ ok: boolean; results: ConsolidateResultView[] }>
   revisions: () => Promise<{ revisions: RevisionView[] }>
   rollback: (revisionId: string) => Promise<{ ok: boolean }>
@@ -399,8 +421,12 @@ export function createMemoryApi(): MemoryApi {
     setZhInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/zh-inject-state', { enabled }),
     getDiagramInjectState: () => getJson<ZhInjectStateView>('/diagram-inject-state'),
     setDiagramInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/diagram-inject-state', { enabled }),
+    getHtmlInjectState: () => getJson<ZhInjectStateView>('/html-inject-state'),
+    setHtmlInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/html-inject-state', { enabled }),
     getSoulInjectState: () => getJson<ZhInjectStateView>('/soul/state'),
     setSoulInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/soul/state', { enabled }),
+    getEfficiencyInjectState: () => getJson<ZhInjectStateView>('/efficiency-inject-state'),
+    setEfficiencyInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/efficiency-inject-state', { enabled }),
     consolidate: (scope = 'all', projectHash) => sendJson<{ ok: boolean; results: ConsolidateResultView[] }>('/consolidate', { scope, projectHash }),
     revisions: () => getJson<{ revisions: RevisionView[] }>('/revisions'),
     rollback: (revisionId) => sendJson<{ ok: boolean }>('/rollback', { revisionId }),

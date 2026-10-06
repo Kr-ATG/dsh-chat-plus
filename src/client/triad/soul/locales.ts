@@ -23,8 +23,12 @@ export const zh = {
   soulRetry: '重试',
   soulClose: '关闭',
 
-  soulEditorTab: '编辑',
-  soulPreviewTab: '预览',
+  soulZonePreview: '预览',
+  soulZoneEdit: '修改',
+  soulZoneEditHint: '整段改写入口：正文、身份字段、档案、蒸馏',
+  soulPreviewCardsTab: '卡片',
+  soulPreviewTextTab: '全文',
+  soulPreviewRendered: '渲染后的全文 · 改完即时同步',
   soulContentLabel: '灵魂正文',
   soulContentPlaceholder: '用第一人称写一段人设：你是谁、怎么说话、在意什么…',
   soulCharCount: '{n} 字',
@@ -154,8 +158,6 @@ export const zh = {
   soulPresetSaveFailed: '保存预设失败：{reason}',
   soulPresetDeleteFailed: '删除预设失败：{reason}',
   soulWhaleLabel: 'DSH 鲸鱼',
-  soulLegacySection: '整段正文 / 身份字段 / 档案 / 蒸馏',
-  soulLegacySectionHint: '卡片是权威：保存卡片后这段正文由 host 重新拼出来。要整段改也可以，改完仍会同步回卡片视图。',
 } satisfies Record<string, string>
 
 /** dsh-soul locale key union. */
@@ -174,8 +176,12 @@ export const en = {
   soulRetry: 'Retry',
   soulClose: 'Close',
 
-  soulEditorTab: 'Edit',
-  soulPreviewTab: 'Preview',
+  soulZonePreview: 'Preview',
+  soulZoneEdit: 'Edit',
+  soulZoneEditHint: 'Whole-text entry: prose, identity fields, profiles, distill',
+  soulPreviewCardsTab: 'Cards',
+  soulPreviewTextTab: 'Full text',
+  soulPreviewRendered: 'Rendered text · updates as you type',
   soulContentLabel: 'Soul text',
   soulContentPlaceholder: 'Write the persona in first person: who you are, how you speak, what you care about…',
   soulCharCount: '{n} chars',
@@ -305,8 +311,6 @@ export const en = {
   soulPresetSaveFailed: 'Failed to save preset: {reason}',
   soulPresetDeleteFailed: 'Failed to delete preset: {reason}',
   soulWhaleLabel: 'DSH whale',
-  soulLegacySection: 'Full text / identity fields / profiles / distill',
-  soulLegacySectionHint: 'Cards are the source of truth: saving a card makes the host rebuild this text. Editing it here still syncs back to the card view.',
 } satisfies Record<SoulLocaleKey, string>
 
 /** 轻量翻译函数类型（面板与浮层开关共用）。 */

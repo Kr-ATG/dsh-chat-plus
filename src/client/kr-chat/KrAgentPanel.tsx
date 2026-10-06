@@ -22,6 +22,7 @@ import { KrOutputsCard } from './KrOutputsCard.tsx'
 import { collectOutputs, collectSessionToolNodes, outputsFingerprint, type OutputsView } from './outputs.ts'
 import { AGENT_DISPLAY_NAME, KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE } from './enabled.ts'
 import { installConversationScrollGuard } from './scroll-guard.ts'
+import { useOfficialWidthHandleFix } from './official-width-handles.ts'
 
 /**
  * 左侧对话流必须保留的最小宽度（px）。
@@ -99,6 +100,13 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   // 官方跟随控制器在内容提交/布局变化时会把不贴底的读者拉回 floor，插件层常驻
   // 状态机只对抗「无用户意图 + 短窗口落底」这一种指纹，其余一律放行。
   useEffect(() => installConversationScrollGuard(), [])
+
+  // 官方「正文宽度」两条拖拽手柄按**容器中心**定位（见 official-width-handles.ts）。
+  // Seeker 把容器改成 flex row 并塞进本面板后，容器比对话流宽出一个面板，手柄于是
+  // 整体右移半个面板宽 —— 用户报的「官方那个拖拽手柄不在对应的位置」。这里在面板
+  // 挂载期间把它们摆回对话流内容区两侧（可拖、可调宽度，只是位置对了），
+  // 卸载即还原官方原样。
+  useOfficialWidthHandleFix()
 
   // 动态计算当前会话真实的最新轮次（以会话快照与 DOM 节点为准，绝不被历史缓存干扰）
   const snapshot = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)

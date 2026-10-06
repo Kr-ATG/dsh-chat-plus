@@ -39,6 +39,8 @@ import {
   type SessionContext,
 } from './store.ts'
 import { galleryDedupeKey } from './extract.ts'
+import { rememberOfficePaths } from '../../office/admit.ts'
+import { admitSpillPath, spillRoots } from '../../spill/index.ts'
 
 const ROUTE = '/api/triad/gallery'
 
@@ -129,14 +131,25 @@ interface VerifiedResponse extends Omit<GalleryResponse, 'items'> {
 /**
  * 对渲染结果做一次存在性核对（statSync，逐个 try/catch）。
  * 确认不存在的条目直接剔除 —— 与产出物卡「只列磁盘上真实存在的文件」同口径。
+ *
+ * generated（生图 spill）条目多加一道核对（2026-10-06）：**读不到的也不列**。
+ * 它的 .txt 在磁盘上存在 ≠ 本服务能读到 —— spill root 每次进程重启换名，历史
+ * root 若不在可信集合里（被手动改名 / 移到别处 / 清理器已收走），读取路由会
+ * 403，画廊里就是一个点开什么都没有的空白格子。用户看到的正是这种「不存在」：
+ * 条目在、内容取不回。所以核对口径从「文件在」收紧成「文件在 **且** 准入通过」。
+ *
+ * @param response - 聚合结果。
+ * @param spillRoots - 可信 spill root 列表（由调用方从 spillStore 现取）。
  */
-function verifyResponse(response: GalleryResponse): VerifiedResponse {
+function verifyResponse(response: GalleryResponse, spillRoots: readonly string[]): VerifiedResponse {
   const items: VerifiedItem[] = []
   const sessionCounts = new Map<string, number>()
   for (const item of response.items) {
     try {
       const info = statSync(item.path)
       if (!info.isFile() || info.size <= 0) continue
+      // 只有 generated 条目走 spill 准入核对；磁盘成品条目不受影响。
+      if (item.source === 'generated' && !admitSpillPath(item.path, spillRoots).ok) continue
       items.push({ ...item, size: info.size })
       sessionCounts.set(item.sessionId, (sessionCounts.get(item.sessionId) ?? 0) + 1)
     } catch { /* 不存在 / 无权限：不列 */ }
@@ -179,6 +192,9 @@ function rememberIndex(items: readonly VerifiedItem[]): void {
   const index = new Map<string, VerifiedItem>()
   for (const item of items) index.set(galleryDedupeKey(item.path), item)
   lastIndex = index
+  // 同一次聚合顺带喂给 office 预览路由的准入名单：两条路由族认的是同一份
+  // 「本插件索引过的产出物」，各自再折一遍会话就等于两套真相（会漂）。
+  rememberOfficePaths(items.map((item) => item.path))
 }
 
 function isIndexed(path: string): boolean {
@@ -273,6 +289,9 @@ async function admitRawPath(ctx: Context, raw: string, sessionId: string): Promi
   // 其余（绝对未命中 / 相对）都要看**这个会话自己产出过什么**。
   if (sessionId === '') return null
   const context = await sessionContextFor(readDeps(ctx), sessionId)
+  // 顺带登记：用户可能从没开过画廊（全局索引为空），此时产出物卡点开图片 / 文档
+  // 走的就是这条会话作用域路。office 预览路由的准入名单需要同一份结论。
+  rememberOfficePaths(context.items.map((item) => item.path))
   return resolveAdmittedPath(raw, target, context)
 }
 
@@ -447,7 +466,15 @@ async function handleMediaAndIndex(ctx: Context, req: IncomingMessage, res: Serv
     const force = url.searchParams.get('refresh') === '1'
     const deps = readDeps(ctx)
     const collected = await collectGallery(deps, force)
-    const verified = verifyResponse(collected)
+    // generated 条目的核对要问「本服务能否读到」：spillStore 未就绪时退化成空
+    // 集合 —— 那批条目会被剔除，宁可少列也不留空白格子。
+    const activeRoot = (() => {
+      try {
+        const store = (ctx as unknown as { get?: (n: string) => unknown }).get?.('spillStore') as { root?: unknown } | undefined
+        return typeof store?.root === 'string' ? store.root : null
+      } catch { return null }
+    })()
+    const verified = verifyResponse(collected, spillRoots(activeRoot))
     rememberIndex(verified.items)
     json(res, 200, {
       ok: true,

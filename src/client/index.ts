@@ -25,6 +25,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { injectStyles as injectToolSummaryStyles } from './tool-summary/styles.ts'
 import { injectStyles as injectBaseStyles } from './styles.ts'
 import { injectDiagramStyles } from './diagram/styles.ts'
+import { injectHtmlEmbedStyles } from './html-embed/styles.ts'
 import { injectProtoStyles } from './proto/styles.ts'
 import { injectDownloadStyles } from './download/styles.ts'
 import { DownloadCard } from './download/DownloadCard.tsx'
@@ -42,6 +43,8 @@ import { KrTodoBridge } from './kr-chat/kr-todo-bridge.ts'
 import { KR_CHAT_ENABLED } from './kr-chat/enabled.ts'
 import { applyTriadClient } from './triad/index.ts'
 import { applyProviderClient } from './provider/index.ts'
+import { applyToolsGateClient } from './tools-gate/index.tsx'
+import { applySidebarDocument } from './sidebar-doc/index.tsx'
 import { buildActivityGrid, activityColor, ACTIVITY_COLUMNS } from './triad/usage/dashboard/ActivityGrid.js'
 import { setClientCtx } from './client-ctx.ts'
 
@@ -156,6 +159,7 @@ export function apply(ctx: ClientContext): void {
   guarded(ctx, 'chat-flow styles', injectBaseStyles)
   guarded(ctx, 'proto card styles', injectProtoStyles)
   guarded(ctx, 'diagram styles', injectDiagramStyles)
+  guarded(ctx, 'html embed styles', injectHtmlEmbedStyles)
   guarded(ctx, 'download card styles', injectDownloadStyles)
   // 共享活动抽屉：思考与工具调用的详情面板（body 级宿主，只挂一次）。
   guarded(ctx, 'activity drawer', mountActivityDrawer)
@@ -278,6 +282,30 @@ export function apply(ctx: ClientContext): void {
   guarded(ctx, 'provider hub (seats/prompt-optimize)', () => {
     applyProviderClient(ctx)
   })
+
+  // ── 工具闸门胶囊（computer-use / browser-use 按需开关）────────────────
+  // 与 host 半身配对：host 默认把这两组工具挡在每轮请求外（实测占全部工具
+  // 定义 74.7%），这里给输入栏工具行右侧一个看得见、点得到的开关。状态与
+  // `/computer-use`、`/browser-use` 命令读写同一张 host 状态表，无第二套真相。
+  guarded(ctx, 'tools gate chips', () => {
+    applyToolsGateClient(ctx)
+  })
+
+  // ── 官方侧边栏的 PDF / Office 文档渲染器（2026-10-06）──────────────────
+  // 官方 documentpreview 内嵌的 pdf.js 对带 /ID 的 PDF 会抛
+  // 「n.toHex is not a function」（worker 内联源码，无法补丁），ppt/word 转出的
+  // PDF 走同一条链路一起坏。这里按官方契约注册 priority: 'extension' 的渲染器
+  // 接管 pdf / doc / docx / ppt / pptx 等，正文用浏览器内置 PDF 查看器渲染。
+  //
+  // **不走 ctx.inject**：documentPreviews 是官方包用 `ctx.reflect.provide` 挂到
+  // 根上下文的服务，inject 回调的 scope 上读它会被 cordis Proxy 拒（未声明属性
+  // 一读就抛），表现是静默不挂。根 ctx 上直接读才是官方自己的用法
+  // （它内部各渲染器也是 `ctx.documentPreviews.register`）。bundle 顺序里
+  // dsh-web-app 在本插件之前，provide 已发生；老宿主没这个包时读取抛错，
+  // applySidebarDocument 内部 catch 后原样兜底。
+  guarded(ctx, 'sidebar document renderer', () => {
+    applySidebarDocument(ctx as unknown as Record<string, any>)
+  })
 }
 
 /** 纯逻辑再导出：供 smoke 断言「Token 活动」贡献热力模型 + 人话行动流翻译。 */
@@ -291,3 +319,18 @@ export { buildActivityGrid, activityColor, ACTIVITY_COLUMNS }
 export { collectModels, collectProviders, filterDaysByScope, providerOfModel } from './triad/usage/dashboard/aggregate.ts'
 export { toPlainStep, plainToolName, siteOf, isMetaTool, spawnsSubagents, humanIssue } from './kr-chat/plain-language.ts'
 export { buildPlainTimeline, condenseSteps } from './kr-chat/plain-timeline.ts'
+/**
+ * 工具闸门菜单图标的判据（纯函数）：供 smoke 直接钉住「哪些菜单行该补图标」。
+ *
+ * 这条判据错了不会报错，只会让菜单里多出几个错的图标（描述里提到命令名的普通
+ * 行被误标），必须能被测试直接断言，不能只靠看代码。
+ */
+export { gateIconForRow, decorateGateMenuRows, GATE_ICON_ATTR, GATE_ICON_COMMANDS } from './tools-gate/menu-icons.ts'
+/**
+ * 对话内 HTML 卡片：围栏切分 + iframe 文档装配的纯逻辑，供 smoke 直接钉住。
+ *
+ * 这两条判据错了都不会报错——围栏不命中就静默显示成代码块，沙箱写错就变成
+ * 「能跑但能碰宿主」。必须能被测试断言，不能只靠看代码。
+ */
+export { splitHtml, looksLikeHtmlFence } from './html-embed/parse.ts'
+export { assembleHtmlDocument, BRIDGE_TO_HOST, BRIDGE_TO_FRAME, MAX_FRAME_HEIGHT, MIN_FRAME_HEIGHT } from './html-embed/bridge.ts'

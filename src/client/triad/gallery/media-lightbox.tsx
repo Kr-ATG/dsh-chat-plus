@@ -10,9 +10,12 @@
  *  · video / audio → 原生播放器；
  *  · page   → 沙箱 iframe（host 的 /raw 或 /session-raw 已注入 base 与 CSP
  *    sandbox；这里再不给 allow-same-origin，成品页落不透明源）；
- *  · pdf    → iframe（浏览器自带查看器）；
- *  · 其余（slide / sheet / doc / code …）→ 组件内只给占位与出口按钮，
- *    调用方应在打开前自行分流（Office 家族走官方右栏文档预览）。
+ *  · pdf    → iframe 直接指向**插件自己的 /office/pdf**（已经真 PDF，浏览器
+ *    自带查看器；用官方 /api/file 那条路在本地 file 基址下会 401/白屏）；
+ *  · slide / sheet / doc（PPT / Excel / Word）→ 服务端出页图的图片序列：
+ *    LibreOffice 渲染首页 + 页码切换，不再依赖系统 Office 或官方 PDF 链路
+ *    （后者要求 TEMP 落在带沙箱写 ACE 的目录，否则 100% 报转换失败）。
+ *  · 其余（code …）→ 组件内只给占位与出口按钮。
  *
  * 全屏态（2026-10-04 新增）：右上角一枚展开/收拢钮（F 键同效），进入后预览体
  * 铺满视口、元信息行沉底成渐变浮层、翻页钮收进内侧；Esc 分层——全屏中先退
@@ -24,7 +27,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { formatRelativeTime, formatSize, resolveGeneratedUrls, type GalleryKind } from './api.js'
+import {
+  displayNameOf, formatRelativeTime, formatSize, officePageUrl, officePdfUrl, officeRenderable,
+  resolveGeneratedUrls, type GalleryKind,
+} from './api.js'
 import { ensureGalleryStyles } from './styles.js'
 
 /** Lightbox 条目（画廊 GalleryItem 与产出物 OutputItem 的公共超集）。 */
@@ -38,8 +44,43 @@ export interface LightboxItem {
   readonly sessionId: string
 }
 
-/** 可在 Lightbox 内直接预览的类别。 */
-export const INLINE_PREVIEW_KINDS: ReadonlySet<string> = new Set(['image', 'video', 'audio', 'page', 'pdf'])
+/**
+ * 可在 Lightbox 内直接预览的类别。
+ *
+ * 2026-10-06 扩容：原本 ppt / word / excel 被排除在外，理由是「官方右栏有
+ * Office 预览」。实测那条路在本机**根本不通**（LibreOffice 转换写盘被沙箱拒，
+ * 报 impl_store failed），于是这三类在画廊里点开只有一句「该格式不支持页内
+ * 预览」+ 一个必然失败的「预览文档」按钮。现在改由插件自己的 host 路由出
+ * 页图，三类一并内联。
+ *
+ * ⚠ 类别是粗粒度的：`sheet` 里还有 csv / tsv、`doc` 里还有 md / txt，而引擎
+ * 只认 `OFFICE_RENDERABLE_EXT`。所以真正的分流判据是 `canInlinePreview()`，
+ * 这张表只是「可能内联」的快速过滤（也供产出物卡的行点击复用）。
+ */
+export const INLINE_PREVIEW_KINDS: ReadonlySet<string> = new Set([
+  'image', 'video', 'audio', 'page', 'pdf', 'slide', 'sheet', 'doc',
+])
+
+/**
+ * 真正的内联预览判据（类别 + 扩展名）。调用方（产出物卡 / 画廊）用它决定
+ * 「点开是进 Lightbox 还是回退右栏」——判错了的表现是点一下什么都不发生
+ * （Lightbox 里只有一句占位），比直接走右栏更糟。
+ *
+ * ⚠ `page`（html 成品）必须**先短路放行**：它走的是插件 /raw 的沙箱 iframe，
+ * 与 Office 那条「引擎渲染页图」的链路无关，`officeRenderable` 对它一律返回
+ * false。曾经的写法直接套 officeRenderable，结果 html 卡片点一下就变成了静默
+ * 下载（弹窗根本不开）—— 正是这次要修的「点开没有 UI」换了个形态复现。
+ *
+ * @param kind - 展示类别。
+ * @param path - 文件路径。
+ */
+export function canInlinePreview(kind: string, path: string): boolean {
+  if (!INLINE_PREVIEW_KINDS.has(kind)) return false
+  // image / video / audio / page：走原生元素或插件 /raw 的沙箱 iframe，无引擎依赖。
+  if (kind === 'image' || kind === 'video' || kind === 'audio' || kind === 'page') return true
+  // pdf / slide / sheet / doc：需要 host 侧引擎出页图或 PDF。
+  return officeRenderable(kind, path)
+}
 
 /** spill 解析缓存：路径 → 可显示 URL 列表（网格缩略图与 Lightbox 共享）。 */
 export const generatedUrlCache = new Map<string, readonly string[]>()
@@ -106,6 +147,137 @@ export interface MediaLightboxProps {
   readonly onOpenSidebar?: (item: LightboxItem) => void
 }
 
+/** 服务端页图预览的页码上限（与 host 的 MAX_PAGES 一致）。 */
+const MAX_PAGE_VIEW = 12
+
+/**
+ * PPT / Word / Excel 的页内预览：服务端逐页出 PNG，客户端就是 <img> 序列。
+ *
+ * 为什么是图片而不是 iframe PDF 查看器：
+ *  · 官方那条 PDF 链路要加载 7MB 的 pdf.js chunk，只为看一页 PPT 不值；
+ *  · 关键是**侧边栏那条官方 Office 预览在本机是坏的**（见 host 的 office/scratch.ts
+ *    根因），把弹窗也压在同一条链路上等于两个地方一起坏；
+ *  · 页图天然带「有多少页」这个信息，翻页 UI 因此不用另探一次。
+ *
+ * 页码与页数从响应头（x-dsh-page / x-dsh-page-count）读：图片请求本身就能带回
+ * 元信息，不必先发一次 JSON 探测再发一次图片。
+ */
+function PagedPreview({ item, full }: { readonly item: LightboxItem; readonly full: boolean }): JSX.Element {
+  const [page, setPage] = useState(1)
+  const [pageCount, setPageCount] = useState(0)
+  const [failed, setFailed] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  // 换条目时回到第一页（上一份文档的页码对新文档无意义）。
+  useEffect(() => { setPage(1); setPageCount(0); setFailed(false); setLoading(true) }, [item.path])
+
+  const src = officePageUrl(item.path, item.sessionId, page)
+  const total = pageCount > 0 ? Math.min(pageCount, MAX_PAGE_VIEW) : MAX_PAGE_VIEW
+
+  if (failed) {
+    return (
+      <div className="tg-lb__loading tg-lb__loading--col">
+        <KindIcon kind={item.kind} size={64} />
+        <span>这一份暂时渲染不出来（引擎或文件状态不支持），可以下载后本地打开。</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="tg-paged" data-full={full ? 'true' : undefined}>
+      <img
+        className="tg-lb__img tg-paged__img"
+        src={src}
+        alt={`${item.name} 第 ${page} 页`}
+        draggable={false}
+        data-loaded={loading ? undefined : 'true'}
+        onLoad={() => { setLoading(false) }}
+        onError={() => { setFailed(true); setLoading(false) }}
+      />
+      {loading && (
+        <span className="tg-paged__spin" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+            <path d="M12 3a9 9 0 1 0 9 9" />
+          </svg>
+        </span>
+      )}
+      {/*
+        翻页条：只要不止一页就常驻。
+        一开始写成「页数超上限 或 已翻过页」才出现，结果 12 页的 PPT 首页
+        只能看到一张图、没有任何「还能往下翻」的线索 —— 用户以为预览就这一页。
+        页数是响应头带回来的，首屏通常几十毫秒内就有，不会长期空转。
+      */}
+      {pageCount > 1 && (
+        <div className="tg-paged__bar">
+          <button
+            type="button"
+            className="tg-lb__btn tg-paged__step"
+            disabled={page <= 1}
+            onClick={() => { setLoading(true); setPage((value) => Math.max(1, value - 1)) }}
+          >
+            上一页
+          </button>
+          <span className="tg-paged__pos">
+            {page}{pageCount > 0 ? ` / ${pageCount}` : ''}
+            {pageCount > MAX_PAGE_VIEW ? `（预览前 ${MAX_PAGE_VIEW} 页）` : ''}
+          </span>
+          <button
+            type="button"
+            className="tg-lb__btn tg-paged__step"
+            disabled={pageCount > 0 ? page >= total : page >= MAX_PAGE_VIEW}
+            onClick={() => { setLoading(true); setPage((value) => value + 1) }}
+          >
+            下一页
+          </button>
+        </div>
+      )}
+      {/* 页数探测：预取下一页的响应头（不发第二次图片解码开销太大的请求，
+          只取头部）。失败静默——翻页按钮仍可用，只是没有总数。 */}
+      {pageCount === 0 && (
+        <PageCountProbe
+          path={item.path}
+          sessionId={item.sessionId}
+          onCount={(value) => { setPageCount(value) }}
+          onFail={() => { /* 引擎不可用由 onError 那条路兜住 */ }}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * 用一次 HEAD 请求读出文档页数。
+ *
+ * 放在独立组件里是为了让它只挂一次（依赖不变就不重跑），并且与图片加载解耦：
+ * 页数拿不到不该让预览失败，图片加载失败也不该被页数探测拖着不显示。
+ */
+function PageCountProbe({ path, sessionId, onCount, onFail }: {
+  readonly path: string
+  readonly sessionId: string
+  readonly onCount: (value: number) => void
+  readonly onFail: () => void
+}): JSX.Element | null {
+  const done = useRef(false)
+  useEffect(() => {
+    if (done.current) return undefined
+    done.current = true
+    let alive = true
+    void (async () => {
+      try {
+        const res = await fetch(officePageUrl(path, sessionId, 1), { method: 'HEAD', cache: 'force-cache' })
+        const raw = res.headers.get('x-dsh-page-count')
+        const value = raw === null ? 0 : Number(raw)
+        if (alive && Number.isFinite(value) && value > 0) onCount(value)
+        else if (alive) onFail()
+      } catch {
+        if (alive) onFail()
+      }
+    })()
+    return () => { alive = false }
+  }, [path, sessionId, onCount, onFail])
+  return null
+}
+
 export function MediaLightbox({
   items, index, fileUrlOf, onNavigate, onClose, onOpenSession, onOpenSidebar,
 }: MediaLightboxProps): JSX.Element | null {
@@ -121,13 +293,15 @@ export function MediaLightbox({
   const closeTimer = useRef<number | null>(null)
 
   // generated 条目：打开时解析 spill（缓存命中则同步返回）。
+  // 缓存只认非空结果：空数组写进缓存会让「这次没解析出来」变成永久结论
+  // （服务端修好后 Lightbox 仍显示「已过期」），与画廊缩略图同一条口径。
   useEffect(() => {
     if (item === undefined || item.source !== 'generated') { setGenUrls(null); return }
     const cached = generatedUrlCache.get(item.path)
-    if (cached !== undefined) { setGenUrls(cached); return }
+    if (cached !== undefined && cached.length > 0) { setGenUrls(cached); return }
     let alive = true
     void resolveGeneratedUrls(item.path).then((urls) => {
-      generatedUrlCache.set(item.path, urls)
+      if (urls.length > 0) generatedUrlCache.set(item.path, urls)
       if (alive) setGenUrls(urls)
     })
     return () => { alive = false }
@@ -223,10 +397,17 @@ export function MediaLightbox({
           />
         )
       case 'pdf':
-        return <iframe className="tg-lb__frame" src={raw} title={item.name} />
+        // 直接喂插件自己的 /office/pdf（host 侧已转好并落盘缓存）。
+        // 不再用官方 /api/file：那条路在 dsh-app:// 基址下拿不到认证，本地
+        // file 场景会 401；而 /office/pdf 与弹窗其余部分同一套准入，稳。
+        return <iframe className="tg-lb__frame" src={officePdfUrl(item.path, item.sessionId)} title={item.name} />
+      case 'slide':
+      case 'sheet':
+      case 'doc':
+        // PPT / Excel / Word：服务端出页图，客户端翻页。
+        return <PagedPreview item={item} full={full} />
       default:
-        // slide / sheet / doc / code：浏览器渲染不了，调用方应在打开前分流；
-        // 走到这里给占位与两个出口（右栏预览 / 下载）。
+        // code 等：浏览器渲染不了。
         return (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, color: '#c7ccd4' }}>
             <KindIcon kind={item.kind} size={72} />
@@ -282,7 +463,7 @@ export function MediaLightbox({
         )}
         {body()}
         <div className="tg-lb__meta">
-          <span className="tg-lb__name" title={item.path}>{item.name}</span>
+          <span className="tg-lb__name" title={item.path}>{displayNameOf(item)}</span>
           <span className="tg-lb__dim">
             {formatRelativeTime(item.time)}
             {item.source === 'file' && item.size !== undefined && item.size > 0 ? ' · ' + formatSize(item.size) : ''}

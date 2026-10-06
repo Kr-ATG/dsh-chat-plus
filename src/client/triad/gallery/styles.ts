@@ -224,6 +224,17 @@ const SHEET = `
 .tg-lb__hint{color:#8b9099;font-size:11px;animation:tg-fade-in 300ms ease 160ms backwards}
 .tg-lb__genrow{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;max-height:76vh;overflow:auto}
 .tg-lb__genrow .tg-lb__img{max-height:64vh}
+/* ── 页图预览（PPT / Word / Excel）──────────────────────────────── */
+.tg-paged{position:relative;display:flex;flex-direction:column;align-items:center;gap:10px;max-width:min(92vw,1480px);max-height:76vh}
+.tg-paged__img{margin:0 auto;max-width:min(92vw,1480px);max-height:70vh;object-fit:contain;background:#fff}
+.tg-paged[data-full="true"] .tg-paged__img{max-width:100vw;max-height:calc(100vh - 96px)}
+.tg-paged__spin{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;background:rgba(15,17,23,.62);color:#e5e7eb;pointer-events:none;animation:tg-fade-in 140ms ease}
+.tg-paged__spin svg{animation:tg-spin 900ms linear infinite}
+.tg-paged__bar{display:flex;align-items:center;gap:10px;padding:4px 10px;border-radius:12px;background:rgba(15,17,23,.72);border:1px solid rgba(255,255,255,.12);animation:tg-fade-in 200ms ease}
+.tg-paged__step{height:26px;padding:0 12px}
+.tg-paged__step:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.tg-paged__pos{font-size:12px;color:#d7dbe2;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tg-lb__loading--col{flex-direction:column;gap:12px;max-width:44ch;text-align:center;line-height:1.7;color:#9ca3af}
 .tg-lb__loading{color:#c7ccd4;font-size:12.5px;display:flex;align-items:center;gap:8px}
 .tg-lb__loading svg{animation:tg-spin 900ms linear infinite}
 
@@ -233,6 +244,7 @@ const SHEET = `
   .tg-lb[data-full="true"] .tg-lb__stage{animation:none!important}
   .tg-skel__thumb::after,.tg-skel__line::after{animation:none!important}
   .tg-empty__icon,.tg-stale__dot,.tg-icon-btn[data-spinning="true"] svg,.tg-lb__loading svg{animation:none!important}
+  .tg-paged__spin,.tg-paged__spin svg,.tg-paged__bar{animation:none!important}
   .tg-day,.tg-day::before,.tg-day__head,.tg-day__dot,.tg-day__rule,.tg-time-pop,.tg-search__time-tag,.tg-time-bar{animation:none!important}
   .tg-time-pop__preset,.tg-time-pop__apply,.tg-view__btn{transition:none!important}
   .tg-time-bar__icon{animation:none!important}

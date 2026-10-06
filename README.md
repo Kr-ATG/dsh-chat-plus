@@ -9,7 +9,8 @@
   500ms 走两行，上翻即停）· 流式新文字淡入（只动新挂载块，旧文不动）· 忙碌标签 2s 微光 ·
   工具行 / 气泡展开收起过渡（260ms / 200ms，播完再卸载）
 - **正文增强**：proto-tabs 可交互卡片（pill / expand / glow）· diagram 流程图围栏
-  （JSON → SVG）· 生图画廊条 · 重试行影子 · **裸路径自动变成可点链接**（含「整段只有一个
+  （JSON → SVG）· **html 沙箱卡片**（```html 围栏 → 独立 iframe，可跑真 HTML/JS，
+  高度自适应上报、只给 allow-scripts）· 生图画廊条 · 重试行影子 · **裸路径自动变成可点链接**（含「整段只有一个
   图片路径 → 直接渲染成图」，见「正文文件提及与右栏预览」）
 - **界面与工具**：会话头部「对话 / 轨迹」标签上移到右上角 · 桌面壳窗口控制留位与主题同步 ·
   对话截图（无头浏览器出图，可内嵌本地 HTML）· download 下载工具（wire 工具 + 实时进度条）
@@ -120,6 +121,67 @@ shape 三选一 oval / rect / diamond，pts 为完整折线点（含起终点，
 配置面：`state.diagramInjectEnabled`（面板落盘）/ `config.diagramInjectDefaultEnabled`（`cordis.patch.yml` 覆盖）。路由 `GET|POST /api/dsh-memory/diagram-inject-state`，状态随 `/inject-state` 回包顺带返回（不新开 GET 端点，避免放大 composer 的既有轮询量）。
 
 > 卡片只在 **「Seeker」视图**渲染，普通「对话」视图里同一个围栏会原样显示成代码块（`pluginRenders = !KR_CHAT_ENABLED || isKrMode`）。
+
+## HTML 卡片（html 围栏）
+
+正文里的 ```html 围栏渲染成一张**沙箱 iframe 卡片**——对话流里能跑真 HTML/JS，
+对齐官方 MCP Apps widget 的形态（tool 返回 `ui://` 资源 → 宿主内联渲染），
+只是把「资源声明」换成「围栏标记」：
+
+````
+```html
+<h1>计数器</h1>
+<button id="b">+1</button><p id="v">0</p>
+<script>
+let n = 0
+document.getElementById('b').onclick = () => { document.getElementById('v').textContent = ++n }
+</script>
+```
+````
+
+卡片带四个按钮：**预览/源码切换**（默认预览，看源码一键切）、**复制源码**、
+**重新加载**、**全屏**（portal 到 body，Esc 关闭）。
+
+**流式期先出占位卡**：模型写 HTML 卡片是逐字吐出来的，几百行代码逐字往外冒既没法读、
+又把对话流撑得老长。所以一出现 ```` ```html ```` 就换成一张「正在预渲染…」占位卡
+（呼吸点 + 不确定进度条 + 实时字节数），围栏闭合后**原地**变成真卡片。
+
+这条链路的实现约束（改坏了不报错，只表现为「卡片闪一下」或「代码又在逐字冒」）：
+
+| 约束 | 原因 |
+|---|---|
+| 占位内容写成返回 JSX 的普通函数 `pendingStage()`，在**同一个 `<figure>` 内**条件渲染 | 写成独立组件（或 `if (pending) return <PendingCard/>`）会让 React 卸载重建 DOM。实测过：节点 identity 会变，闭合那一刻卡片跳一下，高度过渡也丢 |
+| 调用方给的 React key **不能带 pending** | key 一变就换实例，同样触发重建。key 只由片段序号决定，pending 翻转时保持不变 |
+| 占位期**不挂 iframe** | 半截 HTML 挂进去只会白屏，且每个 delta 都重载一次 |
+| 非流式期（历史消息）不产生占位 | 被截断的未闭合围栏不该永远停在「预渲染中」，要回退成代码块显示真实内容 |
+
+**安全模型（改动前先读这段）**：
+
+| 约束 | 做法 | 为什么 |
+|---|---|---|
+| 沙箱 | `sandbox="allow-scripts"`，**不给 `allow-same-origin`** | 内容来自模型。两者同给等于没沙箱（浏览器也会告警），模型产出的 HTML 就能读宿主 DOM、拿会话数据 |
+| 高度 | iframe 内注入 bridge，ResizeObserver + MutationObserver → `postMessage` 上报 | opaque origin 下宿主**读不到** iframe 内部 DOM，这正是官方 widget 需要 `notifyIntrinsicHeight()` 的原因，不是绕路 |
+| 消息校验 | 来源窗口比对 + `source` 命名空间标记 + 数值范围钳制 `[40, 4000]` | 不信任 iframe 的任何消息；它只被允许改变一件事——自己的显示高度 |
+| 导航 | `<base target="_blank">` + `allow-popups` | 不设的话，卡片里点链接会在 iframe 内导航走，用户失去内容且回不去 |
+| 主题 | 宿主把明暗状态推给 iframe（`html[data-ds-dark-theme]`） | iframe 是独立文档，不继承宿主 CSS 变量 |
+
+**容错（全部静默回退成普通代码块，绝不抛错）**：空内容、不含标签、超过 80KB、
+语言标记不是精确的 `html`（`html-preview` / `html5` 不认）。切分是两级有序的：先切
+html 再切 diagram，这样 HTML 示例里的 diagram 围栏不会被误渲染成卡片。
+
+**模型怎么知道这个围栏**：`HTML_INJECTION_RULE` 内置通道，与 diagram 完全同构
+（独立 user message、`agent/pre-step`、位置在两道闸门之前、每会话只注首步）。
+开关同在 composer 的**「内置提示词通道」**卡片里，**默认开**——与 diagram 默认关相反：
+diagram 是「锦上添花的一张图」，不画图任务照样完成；HTML 卡片是**交付形态本身**
+（可交互小工具、可视化、演示页），不注入模型就永远不会主动用它，等于这个能力不存在。
+规范文本刻意写清三条沙箱事实（没有 same-origin / 高度必须自适应 / 不引外网资源），
+少一条模型就会写出「能跑但什么都不显示」的卡片。
+
+配置面：`state.htmlInjectEnabled`（面板落盘）/ `config.htmlInjectDefaultEnabled`
+（`cordis.patch.yml` 覆盖，默认 true）。路由 `GET|POST /api/dsh-memory/html-inject-state`，
+状态随 `/inject-state` 回包顺带返回（同 diagram，不新开 GET 端点）。
+
+> 与 diagram 同门控：只在 **「Seeker」视图**渲染，普通「对话」视图里原样显示成代码块。
 
 ## 内置技能：diagram-design + motion-primitives（不可删除）
 
@@ -575,10 +637,21 @@ HTTP 实测 `/media` 索引含该图片、`/raw` 相对与绝对路径均返回 
 面板每张卡一行：kind 图标 + 标题 + 开关 + 展开编辑 + 删除；失焦即存、删除先播 180ms
 退场再提交、拖拽带插入位指示线。
 
-**预设**：内置 5 套中文预设（**代码常量、只读、随包升级**）——工程搭档 / 严谨分析师 /
-写作助手 / 极简执行者（各 4 张卡），以及 2026-10-06 新增的 **可爱风**（5 张卡，多一张
-`style` 风格卡）。前四套是四套**工作形态**，可爱风是唯一的**语气档**——换的是说话方式
-（轻快、带小语气、少量 emoji），工作方式与工程搭档同源，故单独排在列表末尾。每套两个动作：**整体替换**（清空现有卡片整套采用）/
+**预设**：内置 8 套中文预设（**代码常量、只读、随包升级**），分两组、两个维度：
+
+- **工作形态**（前四套，各 4 张卡）：工程搭档 / 严谨分析师 / 写作助手 / 极简执行者。
+  回答「这份活该怎么干」——准则与边界各不相同，语气只作附带差异。
+- **角色人格**（后四套，各 5 张卡，多一张 `style` 风格卡）：**萝莉 / 御姐 / 女王 / 公主**。
+  回答「用什么身份和腔调说话」——换的是自称、句式与情绪节奏，工作方式与工程搭档同源，
+  故单独排在后面，避免被误读成职责设定。四套的差别落在真正读得出的地方
+  （自称 / 句式 / 情绪节奏 / 挑剔对象），不是同一套换形容词。
+
+> 2026-10-06 变更：原第 5 套 `builtin:cute`（可爱风）**换成 `builtin:loli`（萝莉）**，
+> 并补齐御姐 / 女王 / 公主。旧 id 未保留——留着它会让「萝莉」长期挂着 cute 的名字。
+> 唯一兼容影响：历史卡片上的 `presetId: 'builtin:cute'` 徽标找不到对应预设名，
+> 注入内容与卡片数据不受影响。
+
+每套两个动作：**整体替换**（清空现有卡片整套采用）/
 **合并应用**（同 kind 覆盖、custom 追加、其余保留）；另有「存为预设」把当前卡片存成
 自定义预设（`presets.json`，可删；内置预设删除一律 400）。
 
@@ -827,6 +900,51 @@ service 图上是一等公民。只调它的 API 会让两插件之间形成隐�
 smoke 契约同步改断言
 `main / workbench` + `sidebar.panellist / workbench` @ order 20。
 
+### 画廊里的生图格子全空（2026-10-06 修）
+
+**症状**：画廊「图片」分类下 14 张生图条目全是**点开什么都没有的空白格子**，
+卡片名还挂着 `cb201f791a3a-generate_image.txt` 这种名字 —— 一枚「图片」徽标
+配一个 `.txt`，读起来就是「这条坏了 / 文件不存在」。
+
+**根因（两层）**：
+
+1. **spill root 每次进程重启换名**。`dsh-spill-local` 没配置 root 时用
+   `mkdtempSync(join(tmpdir(), 'dsh-spill-'))` 建目录；而画廊是**跨会话**清单，
+   它列出的生图 locator 来自历史会话，文件躺在之前若干次启动留下的 root 里。
+   读取路由 `/api/chat-flow/generated-images` 原来的准入是「目标必须在
+   **当前进程**的 `spillStore.root` 之内」→ 历史 spill 全部 403。实测 14/14 文件
+   都在磁盘上（2.2~2.7MB、内容可解析），只是不在当前 root。
+2. **失败结果被写进共享缓存**。`GeneratedThumb` 把解析结果（含空数组）写进
+   `generatedUrlCache`，下次挂载命中空缓存直接 return、**一个请求都不发** ——
+   服务端修好之后客户端也永远停在空白格子。
+
+**修法**：
+
+* `src/spill/index.ts`（新）—— 准入判据改成「目标必须严格是
+  `<可信 root>/session-<12 位 hex>/<名>.txt>`」，可信 root = 当前活动 root +
+  **OS tmpdir 下所有符合官方命名形状**（`^dsh-spill-[A-Za-z0-9]{6}$`，与官方
+  启动清理用的 `DEFAULT_ROOT_RE` 逐字一致）的历史 root。语义与官方的清理面
+  对齐：同一台机器上由本后端创建过的 spill root 都可读。安全面反而更严
+  （多锁一层 session 目录命名 + 后缀白名单 + 文件名逐段校验）；root 集合由
+  「扫描 tmpdir 里符合精确命名的真实目录」得出，任意路径构造不出通过判据的目标。
+* **base 目录取并集**：本插件为修官方 Office 预览会把 `process.env.TEMP` 改到
+  workspace（见上一节），改完 `os.tmpdir()` 就不再是 spill root 的出生地 ——
+  只信当前 tmpdir 会一个历史 root 都扫不到。所以 base = 插件加载时记住的原始
+  tmpdir + 当前 tmpdir + 平台惯例位置。
+* `/media` 下发前对 generated 条目加一道核对：**读不到的不列**（准入不过就剔除），
+  与「只列磁盘上真实存在的文件」同一条原则。
+* 客户端缓存**只认非空结果**；解析失败的条目由卡片上报、面板从清单里剔除
+  （`gonePaths`，只增不减），不留空白格子。缩略图 `onError` 也走同一条路，但先
+  探一次状态码：4xx（真读不到）才隐藏，5xx（引擎缺失/超时）保留图标 —— 否则
+  非 win32 机器上所有 Office 缩略图会整类消失。
+* 展示名在客户端渲染时改写（`displayNameOf`）：`cb201f791a3a-generate_image.txt`
+  → `cb201f79-生图.png`。放客户端而不是 host 折叠层，因为折叠态有磁盘缓存、
+  旧会话不会重折。
+
+**验证**：独立服务 + CDP 实机，14/14 生图条目全部出真实缩略图（`naturalWidth=164`），
+空白格子 0；准入正反例 7 组（历史 root 通过 / 任意路径、伪造前缀、路径穿越、
+非 txt、无 session 层、相对路径全拒）进冒烟。
+
 ### 多媒体画廊（2026-10-04 新增）
 
 工作台第五个 Tab「画廊」：**所有对话生成的图片 / 网页 / 演示 / 文档 / 表格 /
@@ -908,13 +1026,91 @@ PPT/Word/Excel 走官方右栏文档预览（`tryOpenInSidebar`，与对话流�
 `media-lightbox.tsx`，画廊与产出物卡共用同一套预览与全屏。
 
 **产出物卡同款预览（2026-10-04 追加）**：右栏「产出物」行拆成**两个动作**——行主体
-（缩略图 + 文件名）点开**画廊式 Lightbox**（图/视频/音频/网页/PDF 内联预览，含全屏钮）；
-行尾一枚真按钮「在侧栏打开」维持**原来的官方右栏预览链路**（hover / 行内聚焦才浮现，
-与旧箭头同一套节奏）。**md / 代码 / Office 等不可内联预览的类别除外**：行主体点击直接
-回退原侧栏路（浏览器渲染不了 Office，md 在右栏文本预览更合适）。文件地址走
+（缩略图 + 文件名）点开**画廊式 Lightbox**；行尾一枚真按钮「在侧栏打开」维持**原来的
+官方右栏预览链路**（hover / 行内聚焦才浮现，与旧箭头同一套节奏）。**3D 模型 / 压缩包 /
+代码等浏览器渲染不了的类别除外**：行主体点击直接回退原侧栏路。文件地址走
 `/api/triad/gallery/raw?path=..&session=<sid>` —— host 新增**会话作用域准入**
 （`store.sessionItemsFor` 按需折该会话清单，带 revision/事件数缓存）：用户没开过画廊时
 全局索引未建，产出物卡也能安全取文件，且只认该会话自己产出过的路径。
+
+### 产出物弹窗的 html 没有 UI（2026-10-06 修）
+
+**症状**：产出物卡里点开一个 **html 成品**，弹窗里是一个**没有任何样式的裸页面** ——
+文字在、结构在，但布局、配色、图形全丢，看起来就是"一片空白"/"这不是我做的那张页"。
+
+**根因**：取文件地址走的是官方 `/api/file`。它是**原样吐字节**的静态文件服务，不做任何
+注入；而对话产出的 html 普遍是**多文件成品**（落地页、报告、演示页，同目录还有 css/js/图）。
+经 `/api/file` 打开时，页面里 `./style.css` 这类相对路径按 `/api/` 这个**目录**解析 →
+一律 404 → 页面结构在、样式与脚本全失。对照实测（两张 iframe 并排截图）：
+
+| 链路 | 响应里的 `<base>` | 渲染结果 |
+|---|---|---|
+| 插件 `/api/triad/gallery/raw` | `<base href="/api/triad/gallery/raw-asset/<token>/">` | 深色落地页完整呈现（配色/图形/交互都在） |
+| 官方 `/api/file` | **无** | 白底、默认字体、无布局 —— 就是"没有 UI" |
+
+**修法**：`KrOutputsCard` 的 `mediaUrlOf` 对 **`kind === 'page'` 短路走插件的 `/raw`**，
+其余类别（图片/视频/音频）仍优先官方 `/api/file`（单文件字节服务，不经插件索引白名单，
+是 2026-10-05 那次"裂图"修复要保的性质）。`/raw` 会注入 `<base>` 把相对资源引到
+`/raw-asset/<token>/`，成品页才真的活过来。
+
+### PPT / Word / Excel 的预览（2026-10-06 新增）
+
+**症状一**：画廊里点一个 **ppt / word / excel**，面板消失、右栏弹一句
+「无法预览此 Office 文件」。**症状二**：画廊里这三类卡片**只有一枚类型图标**，一整屏
+长得一样的占位图，认不出哪张是哪张。
+
+**根因（同一个，且不在本插件里）**：官方「侧边栏文档预览」对 ppt/word 走
+`ctx.officeToPdf.render()` → `@deepseek-ai/libreoffice-kit`（随 DSH 安装的原生
+LibreOffice + PDFium）转 PDF。本机实测**每一次转换都失败**：
+
+```
+LibreOffice native conversion failed:
+SfxBaseModel::impl_store <...> failed: 0x507(Io Class:Access Code:7)
+                               / 0xc10(Io Class:Write Code:16)
+```
+
+起初看着像"引擎装坏了"，逐项排除（引擎文件 sha256 与 `prebuilds.json` 逐条核对 729/729
+齐全、helper 直连可跑）后，真实判据是**输出/临时目录的位置**：
+
+* 同一份 pptx、同一个 helper、同一份环境变量，只有把 **`TEMP` 指向 `D:\AI\Dsh`
+  （当前 workspace）之下**时才成功；指向 `C:\...\Temp`、`D:\` 根、
+  `D:\AI\DeepseekHarness` 一律失败。
+* 差别在 ACL：`D:\AI\Dsh` 带 `S-1-4-697522640-…:(OI)(CI)(W,D,DC)`（沙箱给 workspace
+  授的写权限），子目录继承；其余目录没有这条 → LibreOffice 受限执行体写不进去。
+* 而 kit 的 scratch 来自 `mkdtemp(join(tmpdir(), …))`，Windows 上 Node 的
+  `os.tmpdir()` 直接读 `process.env.TEMP`。链路因此是：**TEMP 落在没有沙箱写 ACE 的
+  目录 → scratch 也在那里 → 存盘被拒 → 官方 provider 报转换失败**。
+* 交叉验证：同样的四象限在**脱离 DSH 进程树**（计划任务）下复现完全一致 → 不是本插件
+  的沙箱副作用，是宿主 TEMP 与 workspace 授权的错配。
+
+**修法**（两处，同一套引擎）：
+
+1. **`src/office/scratch.ts`** —— 进程级校正 `process.env.TEMP`：原 TEMP 已带沙箱写
+   ACE 就**一个字节都不改**（多数机器走这条）；否则在候选里（进程 cwd → 活跃会话
+   workspace → `DSH_HOME/storages` → 系统 temp）挑第一个**确实带该 ACE**的目录。
+   判据来自实测（`icacls` 输出里有没有 `S-1-4-*` 且权限含 W/M/F），不是猜"哪个盘行"。
+   必须进程级：官方 provider 与我们在同一进程里，读的是同一个 `process.env.TEMP` ——
+   **这一步顺带把官方侧边栏的 ppt/word 预览一起修好了**（实测：挂载前 tmpdir 是 C 盘
+   Temp、转换失败；挂载后指向 workspace scratch、转换成功出 1.9MB PDF）。
+2. **`src/office/index.ts`** —— `/api/chat-flow/office/*` 四条路由：
+   `info`（能否渲染 + 诊断回显）/ `page`（第 N 页 PNG）/ `pdf`（整份 PDF）/ `thumb`
+   （首页位图缩略图）。html 走**常驻无头浏览器截首屏**，pdf/Office 走 LibreOffice
+   栅格化；页图按「源文件 mtime+size」的哈希落盘缓存（实测命中后 2~4ms）。
+   准入与 `/api/triad/gallery/raw` **共用同一份名单**（`src/office/admit.ts`）——
+   这条路由族等于"读本机任意文件"，不能开成自由读；未登记的路径 403（冒烟有断言）。
+
+**客户端随之收口**：`INLINE_PREVIEW_KINDS` 扩容到 `slide / sheet / doc`，真正的分流
+判据是 `canInlinePreview(kind, path)`（类别 + 扩展名，引擎不认的 csv/tsv/rtf 会回落）；
+弹窗里对这三类渲染**页图序列 + 翻页条**（页数从响应头 `x-dsh-page-count` 读回，不额外
+探一次）；画廊卡片用 `/office/thumb` 拿真实首页位图当缩略图，失败静默回落类型图标。
+
+**验证**：host 端到端（真引擎）
+`pptx 首页 1.28MB PNG / 12 页`、`pdf 首页 379KB/68 页`、`html 首屏 134KB`、
+`pptx → 1.9MB PDF`、未登记路径 403；浏览器实机（CDP 驱动真实页面）
+**16/16 文档卡片全部出图**、点开 ppt 弹窗渲染出 `1467×826` 首页 + 翻页条、点开 html
+弹窗 iframe 走 `/raw` 且带 `sandbox="allow-scripts allow-popups allow-forms allow-modals"`。
+冒烟新增 7 条 office 断言（路由分流 / 扩展名表 / locateKit 向上查找 / 准入键归一 /
+工作目录候选 / ACE 判据 / 真 HTTP 链路 403+404）。
 
 **重启要求**：host 路由在服务启动时注册 —— 升级插件后需重启 DSH 服务；client 侧
 对 404 给了明确人话提示（"画廊服务未挂载：请重启 DSH 服务后再试"），不再糊一句
@@ -1468,6 +1664,13 @@ src/
         ├── popover-shell.tsx        — 面板外壳（page 铺满 main / compact 贴入口小卡片）
         ├── responsive.ts            — 响应式
         └── triad-modal-animation.ts —  triad 版弹窗动画（与主插件那版不等价，故改名）
+src/office/                           — Office / PDF 预览 host 半身（2026-10-06）
+├── scratch.ts                       — LibreOffice 工作目录校正（TEMP 必须落在带沙箱写 ACE 的目录；
+│                                      进程级，顺带修好官方侧边栏的 ppt/word 预览）
+├── admit.ts                         — 产出物路径准入（全局名单 + 会话作用域折卷，与 gallery/raw 共用口径）
+└── index.ts                         — /api/chat-flow/office/*（info / page / pdf / thumb）
+src/spill/                           — spill 读取准入 host 半身（2026-10-06）
+└── index.ts                         — 历史 spill root 发现 + `<root>/session-<12hex>/*.txt` 严格准入
 src/triad/                           — 原 dsh-triad 工作台 host 半身
 ├── host.ts                          — applyTriadHost（各模块各 try/catch）
 ├── memory/                          — 记忆引擎：store / tools / api / engine/（extract|compile|inject|retrieval|scoring|embedding|consolidate|ticker）

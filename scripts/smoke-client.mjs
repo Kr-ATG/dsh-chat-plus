@@ -360,6 +360,9 @@ const expectedStyles = [
   'dsh-chat-flow-styles', 'dsh-tool-summary-styles',
   'dsh-chat-flow-shot-styles', 'dsh-modal-animation-styles',
   'dsh-chat-flow-proto-styles', 'dsh-chat-flow-diagram-styles',
+  // 对话内 HTML 卡片（src/client/html-embed/styles.ts）：标题栏 + 沙箱舞台 +
+  // 全屏层。与 diagram 同批注入，独立 style id。
+  'dsh-chat-flow-html-embed-styles',
   'dsh-chat-flow-download-styles',
   'dsh-triad-skill-source-styles',
   // 供应商页样式（原 dsh-provider-hub/webui/styles）：.phub-* 卡片与控件规格、
@@ -375,6 +378,9 @@ const expectedStyles = [
   'dsh-triad-responsive-styles',
   // 全局动画节流（页面不可见时暂停全页 CSS 动画），与 KR 开关无关，始终注入。
   'dsh-anim-pause',
+  // 工具闸门胶囊（src/client/tools-gate/styles.ts）：computer-use / browser-use
+  // 按需开关的滑块、扫光、抖动。纯 CSS 动效，带 prefers-reduced-motion 兜底。
+  'dsh-tools-gate-style',
   ...(krEnabled ? ['dsh-kr-chat-styles'] : []),
 ]
 for (const expected of expectedStyles) {
@@ -642,16 +648,135 @@ if (!code.includes('data-dsh-anim-paused') || !code.includes('animation-play-sta
   pass('global animation throttle pauses all CSS animations when the page is hidden')
 }
 
-// 十四枚槽位：对话增强五枚（turn-process / assistant-step keyed / 截图按钮 /
-// download toolview / kr-todo-bridge）+ 融合工作台九枚（记忆 / 能力 / 邮箱三个
-// 工作台各两枚：main 页 + sidebar.panellist 菜单行，共 6；composer 两枚开关
-// dsh-memory-builtin-toggle / dsh-memory-inject-toggle；skill toolview 一枚）。
+// 十一枚槽位：对话增强六枚（turn-process / assistant-step keyed / 截图按钮 /
+// download toolview / kr-todo-bridge / tools-gate 胶囊）+ 融合工作台五枚
+// （记忆 / 能力 / 邮箱三个工作台各两枚：main 页 + sidebar.panellist 菜单行，
+// 共 6；composer 两枚开关 dsh-memory-builtin-toggle / dsh-memory-inject-toggle；
+// skill toolview 一枚）。
 // 座位 id/order/locale 全部原样保留；原 automation-notifier 随自动化模块一起下线。
 const cell = (key) => registeredSlots.find((s) => s?.slot === 'conversation.chat.node' && s?.key === key)
-if (registeredSlots.length !== 10) {
-  fail(`expected 10 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
+if (registeredSlots.length !== 11) {
+  fail(`expected 11 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
 } else {
-  pass('registered 10 seats (5 chat-plus + 5 triad: 1 unified workbench page/row + 2 toggles + skill toolview)')
+  pass('registered 11 seats (6 chat-plus + 5 triad: 1 unified workbench page/row + 2 toggles + skill toolview)')
+}
+
+// 工具闸门卡片：挂在输入栏工具行**左端**（与记忆注入开关同一排），order 100。
+// 曾经挂在 input.right / order 6 —— 那里紧邻模型选择器，实测两枚胶囊的文字与
+// 模型名重叠（用户实机截图确认）。左端才是「输入区能力开关」的既有座位。
+const gateSeat = registeredSlots.find((s) => s?.slot === 'conversation.input.left' && s?.id === 'dsh-tools-gate')
+if (gateSeat === undefined) {
+  fail(`missing tools-gate seat (conversation.input.left / dsh-tools-gate)，实得 ${JSON.stringify(registeredSlots.filter(s => s?.id === 'dsh-tools-gate'))}`)
+} else if (gateSeat.order !== 100) {
+  fail(`tools-gate 座位 order 应为 100（排在记忆开关 98/99 之后），实得 ${gateSeat.order}`)
+} else {
+  pass('tools-gate 卡片座位：conversation.input.left / order 100')
+}
+// 卡片而非散落胶囊：一个容器装两个开关项。
+if (!code.includes('dsh-gate-card') || !code.includes('dsh-gate-item')) {
+  fail('client bundle 缺少工具闸门卡片结构（dsh-gate-card / dsh-gate-item）')
+} else if (code.includes('dsh-gate-chip')) {
+  fail('旧的独立胶囊样式（dsh-gate-chip）不该再出现')
+} else {
+  pass('工具闸门渲染为一张卡片（dsh-gate-card 内含 dsh-gate-item）')
+}
+// 布局硬约束（实机踩过，两次都表现为「页面上只剩一条竖线」，不报错）：
+//  1. 卡片必须 flex:none —— 槽位容器是 display:contents，真正定宽的是官方工具行
+//     （实测 234px 可用），可压缩的卡片会被压成 2px；
+//  2. 卡片上不能挂 container-type —— 容器查询基准是自身内容宽度，而宽度又由内容
+//     决定，被挤窄就触发「隐藏文字」规则，自噬到只剩图标。
+{
+  const cardRule = /\.dsh-gate-card\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
+  const itemRule = /\.dsh-gate-item\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
+  if (cardRule === '') fail('未找到 .dsh-gate-card 规则')
+  else if (!/flex:\s*none/.test(cardRule)) fail('.dsh-gate-card 必须 flex:none（否则被工具行压成 2px，页面上只剩一条竖线）')
+  else if (/container-type/.test(cardRule)) fail('.dsh-gate-card 不能挂 container-type（容器查询会自噬：变窄→隐藏文字→更窄）')
+  else if (!/width:\s*max-content/.test(cardRule)) fail('.dsh-gate-card 需要 width:max-content（内容定宽）')
+  else if (!/flex:\s*none/.test(itemRule)) fail('.dsh-gate-item 必须 flex:none')
+  else pass('工具闸门布局硬约束在位（卡片与开关项 flex:none、无容器查询、width:max-content）')
+  // 名称必须视觉隐藏但留在无障碍树里（工具行放不下中文标签）。
+  const labelRule = /\.dsh-gate-item__label\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
+  if (labelRule === '') fail('未找到 .dsh-gate-item__label 规则（名称需视觉隐藏但可被读屏念出）')
+  else if (!/clip-path/.test(labelRule) || !/position:\s*absolute/.test(labelRule)) {
+    fail('.dsh-gate-item__label 应为视觉隐藏（absolute + clip-path），而非 display:none（后者读屏也念不到）')
+  } else {
+    pass('工具闸门名称视觉隐藏但保留在无障碍树（读屏可念，鼠标说明走 title）')
+  }
+}
+// 契约：卡片与 /指令 读写同一路由；两条命令名与 host 侧分组 key 逐字一致。
+if (!code.includes('/api/chat-flow/tools-gate')) {
+  fail('client bundle 缺少 tools-gate 状态路由调用')
+} else {
+  pass('client bundle 调用 host 状态路由 /api/chat-flow/tools-gate')
+}
+for (const motion of ['dsh-gate-sheen', 'dsh-gate-shake', 'dsh-gate-pulse', 'dsh-gate-card-in', 'prefers-reduced-motion']) {
+  if (!code.includes(motion)) fail(`工具闸门动效缺失：${motion}`)
+}
+pass('工具闸门动效齐备（卡片入场 + 扫光 + 抖动 + 脉冲 + reduced-motion 兜底）')
+
+// `/` 菜单图标：宿主命令没有官方 icon 通道（candidates() 只认 6 个内置
+// definitionId），且同名 contribution 会抛 collides 把菜单炸掉。所以走
+// MutationObserver 打属性 + CSS mask。
+for (const piece of ['data-dsh-gate-icon', 'dsh-gate-icon-computer', 'dsh-gate-icon-browser', 'MutationObserver']) {
+  if (!code.includes(piece)) fail(`/ 菜单图标链路缺失：${piece}`)
+}
+pass('/ 菜单图标链路齐备（属性标记 + CSS mask 图标 + 观察器维持）')
+
+// 判据本身（真实实现，不是复刻）：按官方菜单行的 DOM 形状决定哪些行该补图标。
+// 判据错了不报错、只多几个错图标，所以必须直接断言。
+if (typeof mod.gateIconForRow !== 'function') {
+  fail('client 入口未导出 gateIconForRow（菜单图标判据无法被测试钉住）')
+} else {
+  // 造一行：children = [类名, 文本][]，firstElementChild 取第一个。
+  const mkRow = (children) => {
+    const kids = children.map(([cls, text]) => ({ className: cls, textContent: text }))
+    return {
+      firstElementChild: kids[0] ?? null,
+      attrs: {},
+      hasAttribute(k) { return k in this.attrs },
+      setAttribute(k, v) { this.attrs[k] = v },
+    }
+  }
+  const hit = []
+  for (const name of mod.GATE_ICON_COMMANDS) {
+    const got = mod.gateIconForRow(mkRow([['itemName', name], ['itemDescription', `开关（/${name} on|off）`]]))
+    if (got !== name) fail(`「${name}」行应命中，实得 ${JSON.stringify(got)}`)
+    else hit.push(name)
+  }
+  if (hit.length === mod.GATE_ICON_COMMANDS.length) {
+    pass(`命中两条指令行（${hit.join(', ')}）`)
+  }
+  // 官方命令行不被误标。
+  const others = ['goal', 'plan', 'compact', 'permission', 'export', 'feedback']
+  const wrong = others.filter((n) => mod.gateIconForRow(mkRow([['itemName', n], ['itemDescription', 'x']])) !== null)
+  if (wrong.length > 0) fail(`官方命令行被误标：${wrong.join(', ')}`)
+  else pass(`${others.length} 条官方命令行都不被误标`)
+  // 关键回归：描述里提到命令名的普通行不能被误标（判据必须是严格相等）。
+  const decoy = mkRow([['itemName', 'some-other-cmd'], ['itemDescription', '参考 /computer-use on|off 的写法']])
+  if (mod.gateIconForRow(decoy) !== null) {
+    fail('描述里提到命令名的普通行被误标 —— 判据必须严格相等而非包含')
+  } else {
+    pass('描述里提到命令名的普通行不被误标（严格相等判据）')
+  }
+  // 官方已给图标的行（第一个子元素是空 itemIcon）→ 不补，避免双图标。
+  if (mod.gateIconForRow(mkRow([['itemIcon', ''], ['itemName', 'computer-use']])) !== null) {
+    fail('官方已给图标的行不该再补（会出现双图标）')
+  } else {
+    pass('官方已给图标的行不重复补')
+  }
+  // 幂等：已标记的行不重复计数。
+  const rows = [
+    mkRow([['itemName', 'computer-use']]),
+    mkRow([['itemName', 'goal']]),
+    mkRow([['itemName', 'browser-use']]),
+  ]
+  const firstPass = mod.decorateGateMenuRows({ querySelectorAll: () => rows })
+  const secondPass = mod.decorateGateMenuRows({ querySelectorAll: () => rows })
+  if (firstPass !== 2 || secondPass !== 0) {
+    fail(`菜单图标幂等失败：首次 ${firstPass}（应 2）、二次 ${secondPass}（应 0）`)
+  } else {
+    pass('菜单图标幂等：首次标 2 行、二次标 0 行（观察器重复触发不反复改 DOM）')
+  }
 }
 
 // 4合1 统一工作台页面：本体挂官方 `main`（key=workbench），侧边栏菜单行 `sidebar.panellist`（id=workbench）。
@@ -1214,10 +1339,16 @@ if (krEnabled) {
     fail('产出物行尾必须有「在侧栏打开」真 button（保留原右栏预览链路，用户 2026-10-04 点名）')
   } else if (!/aria-label=\{`在侧栏打开 \$\{item\.name\}`\}/.test(outputsCode)) {
     fail('行尾钮必须带 aria-label（它是真动作，不再是 aria-hidden 视觉箭头）')
-  } else if (!/INLINE_PREVIEW_KINDS\.has\(item\.kind\)/.test(outputsCode)) {
-    fail('行主体点击必须分流：可内联预览类别开 Lightbox，md/代码等回退侧栏原路')
+  } else if (!/canInlinePreview\(item\.kind, item\.path\)/.test(outputsCode)) {
+    fail('行主体点击必须分流：可内联预览类别开 Lightbox，代码 / 3D / 压缩包等回退侧栏原路')
   } else if (!/MediaLightbox/.test(outputsCode) || !/sessionRawUrl\(item\.path/.test(outputsCode)) {
     fail('产出物卡必须复用画廊共享 MediaLightbox，且文件地址走 session 作用域 raw')
+  } else if (!/item\.kind === 'page'[\s\S]{0,120}?sessionRawUrl/.test(outputsCode)) {
+    // 2026-10-06 修「点开 html 什么都没有」：官方 /api/file 是原样吐字节的静态
+    // 服务，**不注入 <base>**，多文件成品（同目录 css/js/图）的相对资源会按
+    // /api/ 这个目录解析、全部 404 —— 页面结构在、样式全失，看起来就是一片空白。
+    // 插件的 /raw 会注入 <base href=".../raw-asset/<token>/">，必须让 page 走它。
+    fail('html 成品（page）必须走插件 /raw（注入 base），不能走官方 /api/file —— 否则相对资源全 404，点开就是无 UI 的裸页面')
   } else if (/<img\b/.test(outputsCode)) {
     fail('缩略图必须是按类型画的 SVG，不得用 <img> 拉真实文件（28px 见方读不出画面，且每行一次请求）')
   } else if (!/function Thumb\(\{ kind \}/.test(outputsCode) || !/case 'model3d':/.test(outputsCode)) {
@@ -1743,14 +1874,40 @@ if (krEnabled) {
   if (!/prefers-reduced-motion[\s\S]{0,600}dsh-soul-whale/.test(soulCss)) {
     reasons.push('鲸鱼动效必须在 prefers-reduced-motion 下关闭')
   }
-  // 灵魂主体双栏（用户 2026-10-05 要求「灵魂用双栏布局」）：左卡片区 / 右预设区。
+  // 灵魂三区（用户 2026-10-06 要求「左侧预览、右侧修改、上面 1/3 预设」）：
+  //   上 = 预设区（高度上限 1/3），下 = stage 里左预览 / 右修改。
+  // 断言锁住三件容易「顺手改回去」的事：上面的预设区、下面左右两栏、以及
+  // 上面那格必须是**高度上限**而不是内容自然高度或写死的比例。
   // 注意 soulCss 在本块上方才声明——把这条断言写在其声明之前会触发 TDZ 直接崩掉脚本。
   const soulPanelSrc = readFileSync(resolve(ROOT, 'src/client/triad/soul/SoulPanel.tsx'), 'utf8')
-  if (!/css\.columns[\s\S]{0,900}CardsSection[\s\S]{0,900}css\.colRight[\s\S]{0,600}PresetsSection/.test(soulPanelSrc)) {
-    reasons.push('灵魂主体必须是双栏：左卡片区 / 右预设区')
+  // 判据用「六段的源码顺序」而不是正则跨度：三区之间隔着区头、段控等一堆 JSX，
+  // 任何字数上限都会随着后续加功能被顶破（写死 2600 就在第一次加区头时失效了）。
+  // 起点必须跳到 `const body = (` 之后——import 段里也有 PresetsSection / CardsSection，
+  // 从文件头搜会让它们排在 css.presetsTop 之前，顺序判据直接误判。
+  const bodyStart = soulPanelSrc.indexOf('const body = (')
+  const zoneOrder = ['css.presetsTop', 'PresetsSection', 'css.stage', 'css.panePreview', 'CardsSection', 'css.paneEdit']
+    .map(marker => soulPanelSrc.indexOf(marker, bodyStart))
+  if (bodyStart < 0 || zoneOrder.some(index => index < 0) || zoneOrder.some((index, i) => i > 0 && index < zoneOrder[i - 1])) {
+    reasons.push('灵魂必须是三区：上预设区 / 左下预览（卡片）/ 右下修改')
   }
-  if (!/\.dsh-soul-columns\s*\{[\s\S]{0,160}grid-template-columns/.test(soulCss)) {
-    reasons.push('灵魂双栏要用 grid 两列，并在窄面板下折叠成单列')
+  // fit-content(33%) = 内容高度为准、最多吃到 1/3。不能写死 1fr/2fr：预设只有 4 条时
+  // 格子仍占满 1/3，预设卡片与下面两栏之间会空出一条带子（用户 2026-10-06 点名
+  // 反馈「上面和左右侧布局中间不要留这么大空白」）。
+  if (!/\.dsh-soul-work\s*\{[\s\S]{0,200}grid-template-rows:fit-content\(33%\)/.test(soulCss)) {
+    reasons.push('上面那格必须是高度上限 fit-content(33%)：内容少时不留空白，多了也不超 1/3')
+  }
+  if (!/\.dsh-soul-stage\s*\{[\s\S]{0,200}grid-template-columns:minmax\(0,1fr\) minmax\(0,1fr\)/.test(soulCss)) {
+    reasons.push('下方必须是左预览 / 右修改两栏，并在窄面板下折叠成单列')
+  }
+  // 折叠按钮已删（用户 2026-10-06：「这个折叠去掉」）。锁住它不再回来：修改区内容
+  // 常驻，右栏顶部不该再出现一枚「整段正文 / 身份字段 / 档案 / 蒸馏」的纯标签。
+  if (/css\.legacyHead|dsh-soul-legacy-head/.test(soulPanelSrc + soulCss)) {
+    reasons.push('修改区外层折叠按钮已废弃（用户要求去掉），别再挂回来')
+  }
+  // 「全文」预览必须渲染富文本：直接把 markdown 原文铺出来会被用户判为
+  // 「非要做技术的才看得懂」。判据：预览走 SoulMarkdown，且裸渲染的 css.preview 不再用于正文。
+  if (!/previewTab === 'text'[\s\S]{0,600}SoulMarkdown/.test(soulPanelSrc)) {
+    reasons.push('「全文」预览必须渲染 markdown 富文本（SoulMarkdown），不能直接铺原文')
   }
   // path 在源码里是**分段拼接**的（只为可读性），判据必须取「常量声明到常量结束」
   // 之间的全部单引号串再拼接：按段首字符过滤会漏掉以负号开头的续段，量出来比真值短，
@@ -1775,6 +1932,178 @@ if (krEnabled) {
   } else {
     pass('工作台分类：灵魂与记忆各自独立成页（默认 soul · 无并排残留 · memory 原样回填）')
     pass('灵魂卡片化：会动的鲸鱼（官方 path）+ 卡片区 + 预设两条应用路径')
+  }
+}
+
+// ── 对话内 HTML 卡片（```html 围栏 → 沙箱 iframe）───────────────────────
+//
+// 这组断言盯的是「静默失效」：围栏不命中只会显示成代码块，沙箱写错只会变成
+// 「能跑但能碰宿主」——两者都不报错，只能靠断言钉住。
+{
+  const reasons = []
+  if (typeof mod.splitHtml !== 'function' || typeof mod.looksLikeHtmlFence !== 'function') {
+    reasons.push('缺少 splitHtml / looksLikeHtmlFence 导出')
+  } else {
+    // ① 正常围栏必须切出卡片，且标题从 <title> / <h1> 提取。
+    const ok = mod.splitHtml('前文\n```html\n<h1>计数器</h1><button>+1</button>\n```\n后文')
+    const card = ok.find((part) => part.kind === 'html')
+    if (ok.length !== 3 || card === undefined) {
+      reasons.push(`普通围栏未被切出卡片：${JSON.stringify(ok.map(p => p.kind))}`)
+    } else {
+      if (card.spec.title !== '计数器') reasons.push(`标题应从 h1 提取，实得 ${card.spec.title}`)
+      if (!card.spec.html.includes('<button>')) reasons.push('卡片正文丢了 HTML 内容')
+      if (ok[0].kind !== 'md' || ok[2].kind !== 'md') reasons.push('围栏前后的 markdown 必须原样保留')
+    }
+    // ② 语言标记必须精确匹配 html：```html-preview / ```html5 不得被吞。
+    for (const lang of ['html-preview', 'html5']) {
+      const parts = mod.splitHtml('```' + lang + '\n<div>x</div>\n```')
+      if (parts.some((part) => part.kind === 'html')) reasons.push('```' + lang + ' 不该被识别成 HTML 卡片')
+    }
+    // ③ 大写到 ```HTML 要认（模型经常这么写）。
+    if (!mod.splitHtml('```HTML\n<div>x</div>\n```').some((part) => part.kind === 'html')) {
+      reasons.push('```HTML 大写标记应被识别')
+    }
+    // ④ 未闭合围栏（流式半截）不得渲染成真卡片：否则每个 delta 都会重载 iframe。
+    if (mod.splitHtml('```html\n<div>半截').some((part) => part.kind === 'html')) {
+      reasons.push('未闭合围栏不得渲染成真卡片（流式期必须保持代码块或占位）')
+    }
+    // ⑤ 空内容 / 纯文字 / 超长 → 一律回退原文。
+    if (mod.splitHtml('```html\n\n```').some((part) => part.kind === 'html')) reasons.push('空围栏应回退')
+    if (mod.splitHtml('```html\njust text\n```').some((part) => part.kind === 'html')) reasons.push('无标签内容应回退')
+    const huge = '```html\n<div>' + 'x'.repeat(81000) + '</div>\n```'
+    if (mod.splitHtml(huge).some((part) => part.kind === 'html')) reasons.push('超长围栏应回退成代码块')
+    // ⑥ 廉价预判不能误伤普通正文（正文里出现 "HTML" 三个字母太常见）。
+    if (mod.looksLikeHtmlFence('这是一张 HTML 卡片，见下方')) reasons.push('looksLikeHtmlFence 不能只看 html 字样')
+    if (!mod.looksLikeHtmlFence('```html\n<div></div>\n```')) reasons.push('looksLikeHtmlFence 漏掉了真围栏')
+
+    // ⑦ 流式期未闭合围栏 → pending 占位卡（本轮需求的核心）。
+    //
+    // 背景：模型写 HTML 卡片是逐字流出来的，几百行代码逐字往外冒既没法读又把
+    // 对话流撑长。所以一出现 ```html 就该换成一张「预渲染中」的占位卡。
+    {
+      const live = mod.splitHtml('前文\n```html\n<h1>计数器</h1>\n<button>+1', true)
+      const ph = live.find((part) => part.kind === 'html')
+      if (ph === undefined) {
+        reasons.push('流式期未闭合的 ```html 必须产出占位卡（不能把代码逐字往外冒）')
+      } else {
+        if (ph.pending !== true) reasons.push('流式期未闭合围栏必须标记 pending=true')
+        if (!ph.spec.html.includes('<h1>计数器</h1>')) reasons.push('占位卡丢了已写出的正文（字节数就靠它显示）')
+        if (ph.spec.bytes !== ph.spec.html.length) reasons.push('占位卡的 bytes 必须等于已写出的字符数')
+        // 围栏标记行本身不能出现在卡片正文里。
+        if (ph.spec.html.includes('```')) reasons.push('占位卡正文不得包含围栏标记本身')
+      }
+      // 闭合那一刻：同一条内容必须从 pending=true 变成 pending=false，
+      // 且**片段序号不变**（key 不变 → React 复用同一实例 → 不闪）。
+      const closed = mod.splitHtml('前文\n```html\n<h1>计数器</h1>\n<button>+1</button>\n```', true)
+      const done = closed.find((part) => part.kind === 'html')
+      if (done === undefined || done.pending !== false) {
+        reasons.push('围栏闭合后必须转为 pending=false（同 key 原位换真身）')
+      } else if (done.spec.title !== '计数器') {
+        reasons.push(`闭合后应能从 h1 抠出标题，实得 ${done.spec.title}`)
+      }
+      // 非流式期（历史消息）不得产出占位卡：被截断的围栏不该永远停在「预渲染中」。
+      if (mod.splitHtml('```html\n<div>被截断', false).some((part) => part.kind === 'html')) {
+        reasons.push('非流式期的未闭合围栏必须回退成代码块（不能永远显示预渲染中）')
+      }
+      // 未闭合围栏若不是 html 语言，一律不碰（```js 半截照旧走代码块）。
+      if (mod.splitHtml('```js\nconst a = 1', true).some((part) => part.kind === 'html')) {
+        reasons.push('只有 ```html 才走占位卡，其它语言的半截围栏不得被吞')
+      }
+      // 正文里的普通反引号（行内代码）不该被误判成围栏。
+      if (mod.splitHtml('用 `code` 说明，然后 ```html 开始', true).some((part) => part.kind === 'html' && part.pending)) {
+        reasons.push('行内反引号不得被误判成未闭合围栏')
+      }
+    }
+  }
+
+  // ⑦ 沙箱装配：安全约束是硬判据，不是风格问题。
+  if (typeof mod.assembleHtmlDocument !== 'function') {
+    reasons.push('缺少 assembleHtmlDocument 导出')
+  } else {
+    const doc = mod.assembleHtmlDocument('<div>hi</div>')
+    if (!doc.includes('<div>hi</div>')) reasons.push('装配后的文档丢了原内容')
+    if (!doc.includes(mod.BRIDGE_TO_HOST)) reasons.push('装配后的文档缺少高度桥脚本')
+    if (!doc.includes('<base target="_blank">')) reasons.push('缺少 base target=_blank（卡片内点击会在 iframe 里导航走）')
+    // 完整文档分支：不能重复套骨架，兜底样式进 head、bridge 进 body 末尾。
+    const full = mod.assembleHtmlDocument('<!doctype html><html><head><title>t</title></head><body><p>x</p></body></html>')
+    if ((full.match(/<html/g) ?? []).length !== 1) reasons.push('完整文档不得被再套一层骨架')
+    if (!/<\/body>/.test(full) || full.indexOf(mod.BRIDGE_TO_HOST) > full.indexOf('</body>')) {
+      reasons.push('bridge 必须插在 </body> 之前')
+    }
+    // 兜底样式必须在模型自己的样式**之前**（head 开头）：插在 body 末尾会用
+    // 兜底覆盖模型写的 body margin 等设计意图（实测踩过）。
+    if (full.indexOf('<style>html,body{margin:0') > full.indexOf('<title>')) {
+      reasons.push('兜底样式必须插在 head 开头（在模型样式之前），否则会覆盖模型自己的布局')
+    }
+    // 没有 head 的完整文档也不能丢 bridge。
+    const noHead = mod.assembleHtmlDocument('<html><body><p>y</p></body></html>')
+    if (!noHead.includes(mod.BRIDGE_TO_HOST)) reasons.push('无 head 的完整文档也必须注入 bridge')
+    if (!(mod.MAX_FRAME_HEIGHT > mod.MIN_FRAME_HEIGHT)) reasons.push('高度上下限不合法')
+  }
+
+  // ⑧ 主题同步：亮色必须**移除属性**而不是设成 "false"。
+  // CSS 选择器 html[data-ds-dark-theme] 只看属性在不在，写 "false" 一样命中，
+  // 于是模型写的两套配色在亮色下也会走暗色那套（实测踩过）。
+  // cardSrc 必须在用之前读（写在下面会触发 TDZ，脚本直接崩）。
+  const cardSrc = readFileSync(resolve(ROOT, 'src/client/html-embed/HtmlCard.tsx'), 'utf8')
+  const bridgeSrc = readFileSync(resolve(ROOT, 'src/client/html-embed/bridge.ts'), 'utf8')
+  if (!/removeAttribute\("data-ds-dark-theme"\)/.test(bridgeSrc)) {
+    reasons.push('亮色主题必须 removeAttribute，不能设成 "false"（属性存在即命中暗色选择器）')
+  }
+  // 握手：srcDoc 异步解析，宿主挂载时推的那条主题消息会早于 iframe 注册监听而丢失。
+  if (!/"ready"/.test(bridgeSrc)) reasons.push('iframe 就绪后必须主动发 ready（否则主题消息会丢）')
+  if (!/data\.kind === 'ready'/.test(cardSrc)) reasons.push('宿主必须响应 ready 并回推主题')
+
+  // ⑨ iframe 的 sandbox 属性：只给 allow-scripts，绝不能带 allow-same-origin。
+  const sandboxAttr = /sandbox="([^"]*)"/.exec(cardSrc)?.[1] ?? ''
+  if (sandboxAttr === '') {
+    reasons.push('HtmlCard 的 iframe 没有 sandbox 属性')
+  } else {
+    if (!sandboxAttr.includes('allow-scripts')) reasons.push('sandbox 必须给 allow-scripts')
+    if (sandboxAttr.includes('allow-same-origin')) {
+      reasons.push('sandbox 绝不能带 allow-same-origin（模型产出的 HTML 会拿到宿主 DOM）')
+    }
+  }
+  // ⑩ 高度上报必须做三重校验：来源窗口 / 命名空间 / 数值范围。
+  if (!/event\.source !== frameRef\.current\.contentWindow/.test(cardSrc)) {
+    reasons.push('高度上报缺少来源窗口校验')
+  }
+  if (!/data\.source !== BRIDGE_TO_HOST/.test(cardSrc)) reasons.push('高度上报缺少命名空间校验')
+  if (!/Math\.min\(MAX_FRAME_HEIGHT/.test(cardSrc)) reasons.push('高度上报缺少范围钳制')
+
+  // ⑪ pending 态的渲染约束：占位内容不能挂 iframe，且切换时不能卸载重挂。
+  //
+  // 这里断言的是**实现形状**而不是行为：占位必须写成返回 JSX 的普通函数，在
+  // 同一个 <figure> 内部条件渲染。写成独立组件（或提前 return）会让 React 在
+  // pending 翻转时卸载重建 DOM —— 实测过，卡片会跳一下，且丢掉高度过渡。
+  if (!/function pendingStage\(/.test(cardSrc)) {
+    reasons.push('占位内容必须写成普通函数 pendingStage（独立组件会导致闭合瞬间重建 DOM）')
+  }
+  if (/if \(pending\) return/.test(cardSrc)) {
+    reasons.push('不得提前 return 占位组件（会卸载重建 <figure>，闭合那一刻卡片会跳）')
+  }
+  if (!/\{pending \? pendingStage\(spec\.bytes\) : showSource \?/.test(cardSrc)) {
+    reasons.push('占位与真身必须在同一个 <figure> 内条件渲染（保住 DOM 节点 identity）')
+  }
+  // 占位内容里绝不能有 iframe —— 半截 HTML 挂进去只会白屏 + 每个 delta 重载。
+  const pendingFn = /function pendingStage[\s\S]*?\n}/.exec(cardSrc)?.[0] ?? ''
+  if (pendingFn === '') reasons.push('找不到 pendingStage 实现')
+  else if (/<iframe/.test(pendingFn)) reasons.push('pendingStage 不得挂 iframe（半截 HTML 会白屏且反复重载）')
+  // 占位样式必须在册（含 reduced-motion 兜底：关掉动效后不能看起来像卡死）。
+  const cssSrc = readFileSync(resolve(ROOT, 'src/client/html-embed/styles.ts'), 'utf8')
+  for (const cls of ['dtt-he__pending-dot', 'dtt-he__pending-bar', 'dtt-he__stage--pending']) {
+    if (!cssSrc.includes(cls)) reasons.push(`缺少占位卡样式 .${cls}`)
+  }
+  if (!/prefers-reduced-motion[\s\S]{0,400}dtt-he__pending-dot/.test(cssSrc)) {
+    reasons.push('占位卡动效必须在 prefers-reduced-motion 下兜底（不能留下「看起来卡死」的等待态）')
+  }
+
+  if (reasons.length > 0) {
+    fail('对话内 HTML 卡片契约：' + reasons.join('；'))
+  } else {
+    pass('HTML 卡片：围栏切分精确（大小写/未闭合/超长/空内容各自回退）+ 标题提取')
+    pass('HTML 卡片：流式期未闭合围栏 → 预渲染占位卡（pending 翻转同 key，不闪）')
+    pass('HTML 卡片：沙箱只给 allow-scripts + 高度上报三重校验 + base target=_blank')
   }
 }
 

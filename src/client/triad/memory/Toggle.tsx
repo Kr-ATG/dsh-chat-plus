@@ -39,9 +39,16 @@ export type MemoryToggleProps =
 /** 悬停移出后的延迟收起（毫秒）：给鼠标跨过按钮↔卡片间隙留时间。 */
 const HIDE_DELAY_MS = 120
 
-/** host 缺字段时的兜底形状：中文通道默认开（内置能力），diagram 默认关。 */
+/**
+ * host 缺字段时的兜底形状：中文通道 / 灵魂 / html 默认开（内置能力），diagram 默认关，
+ * efficiency 默认关（旧 host 没这个能力，显示「开」是假阳性）。
+ *
+ * 只在请求失败时用（正常路径由 host 回包决定）。html 的兜底取 true 与
+ * config.htmlInjectDefaultEnabled 同口径——它默认开，请求失败时显示「关」会让
+ * 用户以为能力没开。
+ */
 const FALLBACK_STATE: InjectStateView = {
-  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false, soulEnabled: true,
+  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false, htmlEnabled: true, soulEnabled: true, efficiencyEnabled: false,
 }
 
 /** 把 host 回包收敛成本地状态形状（缺字段按默认处理）。 */
@@ -55,9 +62,14 @@ function toState(res: InjectStateView): InjectStateView {
     // 缺字段按 false 兜底：diagram 通道默认关，且缺字段意味着旧 host 根本没
     // 这个能力——显示「关」比显示「开」诚实（显示开着却注不进去是假阳性）。
     diagramEnabled: res.diagramEnabled === true,
+    // html 与 diagram 完全同口径：默认关，缺字段意味着旧 host 没这个能力。
+    htmlEnabled: res.htmlEnabled === true,
     // 灵魂与中文同口径：内置身份契约，缺字段按开。真正决定注不注得进去的是
     // soul.md 有没有内容（空灵魂不注入，由 host 注入器负责）。
     soulEnabled: res.soulEnabled !== false,
+    // efficiency 与 diagram / html 同口径：缺字段意味着旧 host 根本没这个能力，
+    // 显示「关」比显示「开」诚实（开着却注不进去是假阳性）。
+    efficiencyEnabled: res.efficiencyEnabled === true,
   }
 }
 
@@ -88,7 +100,7 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
    * 具备的能力；回读拿到的是真实状态。
    */
   const pushChannel = useCallback((
-    key: 'zhEnabled' | 'diagramEnabled' | 'soulEnabled',
+    key: 'zhEnabled' | 'diagramEnabled' | 'htmlEnabled' | 'soulEnabled' | 'efficiencyEnabled',
     next: boolean,
   ): void => {
     setBusy(true)
@@ -97,13 +109,17 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
       ? apiRef.current.setZhInjectState(next)
       : key === 'diagramEnabled'
         ? apiRef.current.setDiagramInjectState(next)
-        : apiRef.current.setSoulInjectState(next)
+        : key === 'htmlEnabled'
+          ? apiRef.current.setHtmlInjectState(next)
+          : key === 'soulEnabled'
+            ? apiRef.current.setSoulInjectState(next)
+            : apiRef.current.setEfficiencyInjectState(next)
     void write
       .then(res => {
-        // 中文通道缺字段按开兜底（内置能力），diagram 缺字段按关兜底（旧 host
-        // 根本没有这个能力，显示「开」是假阳性）——与 toState 的口径一致。
-        // 中文通道与灵魂通道同口径（内置能力，缺字段按开）；diagram 缺字段按关。
-        const enabled = key === 'diagramEnabled' ? res.enabled === true : res.enabled !== false
+        // 中文通道缺字段按开兜底（内置能力），diagram / html / efficiency 缺字段按关兜底（旧
+        // host 根本没有这个能力，显示「开」是假阳性）——与 toState 的口径一致。
+        // 中文通道与灵魂通道同口径（内置能力，缺字段按开）；diagram / html / efficiency 缺字段按关。
+        const enabled = key === 'diagramEnabled' || key === 'htmlEnabled' || key === 'efficiencyEnabled' ? res.enabled === true : res.enabled !== false
         setState(prev => ({ ...prev, [key]: enabled }))
       })
       .catch(reload)
@@ -124,7 +140,9 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           // 同样要透传：这几个 setter 只该动自己的字段，写整个对象会把它抹掉。
           zhEnabled: typeof res.zhEnabled === 'boolean' ? res.zhEnabled : prev.zhEnabled,
           diagramEnabled: typeof res.diagramEnabled === 'boolean' ? res.diagramEnabled : prev.diagramEnabled,
+          htmlEnabled: typeof res.htmlEnabled === 'boolean' ? res.htmlEnabled : prev.htmlEnabled,
           soulEnabled: typeof res.soulEnabled === 'boolean' ? res.soulEnabled : prev.soulEnabled,
+          efficiencyEnabled: typeof res.efficiencyEnabled === 'boolean' ? res.efficiencyEnabled : prev.efficiencyEnabled,
         }))
       })
       .catch(reload)
@@ -150,7 +168,9 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           explicit: typeof res.explicit === 'boolean' ? res.explicit : prev.explicit,
           zhEnabled: typeof res.zhEnabled === 'boolean' ? res.zhEnabled : prev.zhEnabled,
           diagramEnabled: typeof res.diagramEnabled === 'boolean' ? res.diagramEnabled : prev.diagramEnabled,
+          htmlEnabled: typeof res.htmlEnabled === 'boolean' ? res.htmlEnabled : prev.htmlEnabled,
           soulEnabled: typeof res.soulEnabled === 'boolean' ? res.soulEnabled : prev.soulEnabled,
+          efficiencyEnabled: typeof res.efficiencyEnabled === 'boolean' ? res.efficiencyEnabled : prev.efficiencyEnabled,
         }))
       })
       .catch(() => undefined)
@@ -384,10 +404,12 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
 
   const zhOn = state.zhEnabled !== false
   const diagramOn = state.diagramEnabled === true
+  const htmlOn = state.htmlEnabled === true
   const soulOn = state.soulEnabled !== false
-  // 按钮状态取「三条里有没有开的」——全关才算关，半开按开显示（它是能力入口，
+  const efficiencyOn = state.efficiencyEnabled === true
+  // 按钮状态取「五条里有没有开的」——全关才算关，半开按开显示（它是能力入口，
   // 不是记忆那种一刀切的开关）。
-  const anyOn = zhOn || diagramOn || soulOn
+  const anyOn = zhOn || diagramOn || htmlOn || soulOn || efficiencyOn
   const button = (
     <ToggleButton
       on={anyOn}
@@ -422,6 +444,14 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
           label={t('diagramInjectLabel')}
           onToggle={() => { pushChannel('diagramEnabled', !diagramOn) }}
         />
+        {/* HTML 卡片与流程图同类（都是「正文围栏 → 沙箱卡片」的呈现能力），
+            故同卡同区；详细说明见 host 侧 HTML_INJECTION_RULE。 */}
+        <SwitchRow
+          on={htmlOn}
+          busy={busy}
+          label={t('htmlInjectLabel')}
+          onToggle={() => { pushChannel('htmlEnabled', !htmlOn) }}
+        />
         {/* 灵魂：与中文同类的「跨会话恒定」契约，故与它们同卡；详细编辑在
             工作台 → 记忆 → 灵魂 Tab，这里只给一个总开关。 */}
         <SwitchRow
@@ -429,6 +459,15 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
           busy={busy}
           label={t('soulInjectLabel')}
           onToggle={() => { pushChannel('soulEnabled', !soulOn) }}
+        />
+        {/* 效率约束：实测验证的省 token/耗时纪律（结构拆分 > 体积压缩），
+            跨会话恒定的行为契约，与灵魂同类放最后；文本见 host 侧 EFFICIENCY_INJECTION_RULE。 */}
+        <SwitchRow
+          on={efficiencyOn}
+          busy={busy}
+          label={t('efficiencyInjectLabel')}
+          hint={t('efficiencyInjectHint')}
+          onToggle={() => { pushChannel('efficiencyEnabled', !efficiencyOn) }}
         />
         <p className={css.injectFoot}>{t('builtinCardFoot')}</p>
       </div>

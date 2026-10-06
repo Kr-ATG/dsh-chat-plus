@@ -45,6 +45,7 @@
 
 export const css = {
   root: 'dsh-soul-root',
+  rootFill: 'dsh-soul-root-fill',
   scroll: 'dsh-soul-scroll',
   header: 'dsh-soul-header',
   brand: 'dsh-soul-brand',
@@ -52,7 +53,6 @@ export const css = {
   headMain: 'dsh-soul-head-main',
   title: 'dsh-soul-title',
   desc: 'dsh-soul-desc',
-  headMeta: 'dsh-soul-head-meta',
   chip: 'dsh-soul-chip',
   chipOk: 'dsh-soul-chip-ok',
   chipWarn: 'dsh-soul-chip-warn',
@@ -70,10 +70,16 @@ export const css = {
   noticeOk: 'dsh-soul-notice-ok',
   noticeErr: 'dsh-soul-notice-err',
 
-  // ── 双栏主体（左卡片 / 右预设） ──
-  columns: 'dsh-soul-columns',
-  colLeft: 'dsh-soul-col-left',
-  colRight: 'dsh-soul-col-right',
+  // ── 三区骨架（2026-10-06：上 1/3 预设 · 左下预览 · 右下修改） ──
+  work: 'dsh-soul-work',
+  presetsTop: 'dsh-soul-presets-top',
+  stage: 'dsh-soul-stage',
+  pane: 'dsh-soul-pane',
+  panePreview: 'dsh-soul-pane-preview',
+  paneEdit: 'dsh-soul-pane-edit',
+  paneHead: 'dsh-soul-pane-head',
+  paneTitle: 'dsh-soul-pane-title',
+  paneHint: 'dsh-soul-pane-hint',
 
   cols: 'dsh-soul-cols',
   mainCol: 'dsh-soul-main-col',
@@ -206,13 +212,8 @@ export const css = {
   presetFormOpen: 'dsh-soul-preset-form-open',
   presetFormInner: 'dsh-soul-preset-form-inner',
 
-  // ── 折叠的「整段正文 / 身份 / 档案 / 蒸馏」（旧能力全保留，默认收起） ──
+  // ── 修改列容器（整段正文 / 身份 / 档案 / 蒸馏，常驻展开） ──
   legacy: 'dsh-soul-legacy',
-  legacyHead: 'dsh-soul-legacy-head',
-  legacyHeadDirty: 'dsh-soul-legacy-head-dirty',
-  legacyBody: 'dsh-soul-legacy-body',
-  legacyBodyOpen: 'dsh-soul-legacy-body-open',
-  legacyInner: 'dsh-soul-legacy-inner',
 } as const
 
 const STYLE_ID = 'dsh-triad-soul-styles'
@@ -261,6 +262,11 @@ const SHEET = `
    视口宽度：容器查询是唯一正确的手段（媒体查询在这里永远是错的）。 */
 .dsh-soul-root{container-type:inline-size;container-name:soulpanel;display:flex;flex-direction:column;gap:12px;padding:14px 16px 26px;box-sizing:border-box;min-width:0;font-size:13px;line-height:20px}
 .dsh-soul-scroll{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column}
+/* embedded（工作台整页）：父级 .wb-soul-scroll 是 flex 列，root 撑满高度，
+   高度配额交给 .dsh-soul-work 的两行网格——「上 1/3」只有在这种定高语境里才成立。
+   非 embedded（composer 浮层）仍是内容自适应 + 整页滚动。 */
+.dsh-soul-root-fill{flex:1;min-height:0}
+.dsh-soul-root-fill>.dsh-soul-work{flex:1;min-height:0}
 
 /* 入场错峰：与工作台弹窗的 stagger 同节奏（60ms 起步、每块 +40ms）。
    backwards 而非 both——both 会在结束后残留 to 帧 transform，把后代 position:fixed
@@ -274,6 +280,17 @@ const SHEET = `
 .dsh-soul-root>*:nth-child(n+6){animation-delay:200ms}
 @keyframes dsh-soul-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 
+/* ── 三区入场：上 → 左下 → 右下 依次落位（60ms 步进，与工作台 stagger 同节奏）──
+   区域多了一层容器，root 的 nth-child 错峰此时只覆盖到 work 这一个子级，
+   所以三区各自补一条。用 backwards 而非 both（both 会把 to 帧 transform 残留，
+   让后代的 position:sticky / fixed 变成局部坐标）。 */
+.dsh-soul-presets-top,.dsh-soul-pane{animation:dsh-soul-rise .26s cubic-bezier(.2,.8,.2,1) backwards}
+.dsh-soul-presets-top{animation-delay:0ms}
+.dsh-soul-pane-preview{animation-delay:60ms}
+.dsh-soul-pane-edit{animation-delay:120ms}
+/* 区头 sticky 时下面滚过的卡片会被它半透明底压住，加一条分隔线让层次清楚 */
+.dsh-soul-pane-head::after{content:'';position:absolute;left:0;right:0;bottom:0;height:1px;background:var(--s-border);opacity:.7}
+
 /* ── 头部：**一行**放下鲸鱼 + 标题 + 状态 ─────────────────────────────
    改版前是「鲸鱼独占一行 + 标题 + 两行说明 + 右侧四个胶囊」，头部 162px；
    现在 30px 鲸鱼与标题同行，说明压成单行省略（全文进 title），
@@ -285,7 +302,6 @@ const SHEET = `
 .dsh-soul-title{display:inline-flex;align-items:center;gap:7px;font-size:14.5px;font-weight:650;line-height:21px;color:var(--s-text)}
 .dsh-soul-title svg{color:var(--s-primary)}
 .dsh-soul-desc{font-size:11.5px;line-height:16px;color:var(--s-text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-soul-head-meta{flex:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 
 /* ── 状态胶囊 ─────────────────────────────────────────────────────── */
 .dsh-soul-chip{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:999px;font-size:11px;line-height:17px;white-space:nowrap;background:color-mix(in srgb,var(--s-text-3) 14%,transparent);color:var(--s-text-2)}
@@ -310,33 +326,56 @@ const SHEET = `
 .dsh-soul-notice-ok{border:1px solid var(--s-ok);background:var(--s-ok-bg);color:var(--s-ok)}
 .dsh-soul-notice-err{border:1px solid var(--s-err);background:var(--s-err-bg);color:var(--s-err)}
 
-/* ── 折叠区（旧能力：整段正文 / 身份字段 / 档案 / 蒸馏） ────────────── */
+/* ── 编辑列容器（整段正文 / 身份字段 / 档案 / 蒸馏） ─────────────────
+   2026-10-06 二轮：外层那枚「整段正文 / 身份字段 / 档案 / 蒸馏」折叠按钮**删掉**了。
+   用户原话「这个折叠去掉」——它是一枚纯标签（居中的一行字 + 收起箭头），
+   点开之后里面才是真内容，等于让用户多点一次才看到「修改」区有什么；
+   而它平时还占着右栏顶部一整行的视觉宽度。现在内容常驻，区头已经说明这里是
+   「修改」，不再需要第二层名字。 */
 .dsh-soul-legacy{display:flex;flex-direction:column;gap:10px}
-.dsh-soul-legacy-head{display:flex;align-items:center;gap:7px;align-self:stretch;justify-content:center;appearance:none;border:1px solid var(--s-border-2);border-radius:9px;background:var(--s-layer);padding:6px 11px;font-family:inherit;font-size:12px;font-weight:500;line-height:18px;color:var(--s-text-2);cursor:pointer;transition:border-color .16s ease,color .16s ease,background .16s ease}
-.dsh-soul-legacy-head:hover{border-color:var(--s-primary);color:var(--s-primary);background:var(--s-primary-soft)}
-/* 未保存态：折叠时保存按钮藏在里面，入口必须自己会喊人（琥珀色 + 呼吸点） */
-.dsh-soul-legacy-head-dirty,.dsh-soul-legacy-head-dirty:hover{border-color:color-mix(in srgb,var(--s-warn) 55%,transparent);color:var(--s-warn);background:var(--s-warn-bg)}
-.dsh-soul-legacy-head-dirty .dsh-soul-state-dot{animation:dsh-soul-blink 1.5s ease-in-out infinite}
-.dsh-soul-legacy-body{display:grid;grid-template-rows:0fr;opacity:0;visibility:hidden;transition:grid-template-rows .22s cubic-bezier(.2,.8,.2,1),opacity .2s ease,visibility 0s linear .22s}
-.dsh-soul-legacy-body-open{grid-template-rows:1fr;opacity:1;visibility:visible;transition:grid-template-rows .22s cubic-bezier(.2,.8,.2,1),opacity .2s ease,visibility 0s}
-.dsh-soul-legacy-body>*{overflow:hidden;min-height:0}
-.dsh-soul-legacy-inner{display:flex;flex-direction:column;gap:12px}
 
-/* ── 双栏主体：左卡片 / 右预设（2026-10-05 用户要求「灵魂用双栏布局」） ──
-   拆成独立分类后灵魂独占整页（实测 969px），单列堆叠会让右半边整片空着。
-   左栏给卡片区（内容随卡片数量增长，是主工作区），右栏给预设区（条数固定 4~6 条）。
-   比例 1.55 : 1 —— 卡片行有标题 + 元信息 + 开关 + 两个图标按钮，需要更宽；
-   预设行只有「图标 + 名称 + 两个按钮」，440px 足够。
-   align-items: start：预设只有 4 条时不要被拉伸成与左栏等高的空卡。
-   折叠看**自身**宽度（容器查询）而非视口，窄面板下顺序为卡片 → 预设。 */
-.dsh-soul-columns{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:14px;align-items:start}
-.dsh-soul-col-left,.dsh-soul-col-right{min-width:0;display:flex;flex-direction:column;gap:12px}
+/* ── 三区骨架：上 1/3 预设 · 左下预览 · 右下修改（2026-10-06 用户要求） ──
+   为什么必须定高分区：用户要的「上面三分之一」是**高度比例**语义。继续整页滚动
+   的话「三分之一」会退化成「第一块内容多高就是多高」——预设只有 4 行时占 200px，
+   加一条自定义预设就变成四分之一，比例语义直接失效。所以 root 从「内容列」改成
+   「撑满可用高度 + 纵向 flex」，work 两行网格里把上面那一格限定成 1/3，
+   三区各自滚动。窄面板（容器查询）下比例语义不成立，回到整页滚动的堆叠形态。
+   预设区在顶部是**横宽矮**的形状，所以预设列表改多列网格（原来一列纵向排，在
+   三分之一高度里只能露出两行）。
 
-/* ── 两栏 ───────────────────────────────────────────────────────────
-   侧栏从写死的 320px 收到 300px，并在**面板自身**窄于 820px 时折叠成单列。
-   并排布局里左栏只有 485px：不折叠的话主栏剩不到 120px，正文编辑器会竖排成
-   两个字一行（改版前截图里最难看的正是这处）。 */
-.dsh-soul-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,300px);gap:14px;align-items:start}
+   2026-10-06 二轮：行高用 fit-content(33%) 而不是写死的 1fr。
+   写死 1fr 时预设内容只有 224px、格子却有 285px，预设卡片和下面两栏之间
+   白白空出一条 60px 的带子（用户点名反馈「上面和左右侧布局中间不要留这么大空白」）。
+   fit-content(33%) = 内容高度为准、最多吃到 1/3：预设少时不空、预设多了也不会
+   顶穿比例。 */
+.dsh-soul-work{flex:1;min-height:0;display:grid;grid-template-rows:fit-content(33%) minmax(0,1fr);gap:10px}
+/* 预设区没内容（host 未更新）：整格塌掉，高度让给下面两栏 */
+.dsh-soul-presets-top[data-empty]{display:none}
+.dsh-soul-presets-top[data-empty]+.dsh-soul-stage{grid-row:1 / -1}
+.dsh-soul-presets-top{min-width:0;min-height:0;display:flex;flex-direction:column;gap:8px;overflow-y:auto;overflow-x:hidden}
+.dsh-soul-stage{min-width:0;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:stretch}
+.dsh-soul-pane{min-width:0;min-height:0;display:flex;flex-direction:column;gap:10px;overflow-y:auto;overflow-x:hidden}
+/* 卡片是内容自适应高度的块，不要被 flex 列拉成等高的空卡 */
+.dsh-soul-pane>.dsh-soul-card,.dsh-soul-pane>.dsh-soul-legacy{flex:none}
+/* 两栏的语义靠**底色差**表达（左预览 = 只读观感，右修改 = 可编辑面），
+   而不是加标题文字或边框堆叠：用户反感注释性文字堆砌。 */
+.dsh-soul-pane-preview{padding-right:2px}
+.dsh-soul-pane-edit{padding-right:2px}
+
+/* ── 区头：区名 + 段控 + 状态点（一行，粘在区顶） ───────────────────── */
+.dsh-soul-pane-head{flex:none;position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:2px 0 8px;background:color-mix(in srgb,var(--s-layer) 88%,transparent);backdrop-filter:blur(6px)}
+.dsh-soul-pane-head::after{content:'';position:absolute;left:0;right:0;bottom:0;height:1px;background:var(--s-border);opacity:.7}
+.dsh-soul-pane-title{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;line-height:20px;color:var(--s-text);white-space:nowrap}
+.dsh-soul-pane-title svg{color:var(--s-primary)}
+.dsh-soul-pane-hint{flex:1;min-width:0;font-size:11px;line-height:16px;color:var(--s-text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-soul-pane-head .dsh-soul-tabs{margin-left:auto}
+.dsh-soul-pane-head .dsh-soul-state{margin-left:auto}
+.dsh-soul-pane-head .dsh-soul-tabs+.dsh-soul-state{margin-left:0}
+
+/* ── 折叠区内部（整段正文 / 身份字段 / 蒸馏） ─────────────────────────
+   这一段现在活在右下「修改」栏里（半宽），原来写死的 300px 侧栏在这里放不下：
+   主栏会被压到 ~120px，正文编辑器竖排成两个字一行。所以它固定单列堆叠。 */
+.dsh-soul-cols{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}
 .dsh-soul-main-col,.dsh-soul-side-col{min-width:0;display:flex;flex-direction:column;gap:14px}
 
 /* ── 卡片 ─────────────────────────────────────────────────────────── */
@@ -427,7 +466,31 @@ const SHEET = `
 .dsh-soul-diff-line-del{background:var(--s-diff-del);color:var(--s-text);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--s-err) 60%,transparent)}
 
 /* ── 预览 / 身份只读展示 ──────────────────────────────────────────── */
-.dsh-soul-preview{white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:21px;color:var(--s-text);max-height:320px;overflow-y:auto}
+/* 「全文」预览渲染的是**富文本**而不是裸 markdown 源码：用户看到的应该是
+   「身份 / 名字：执行者」这样的排版结果，而不是 ## 身份 、- 名字：执行者
+   这种带记号的原文（用户原话「预览没有正常的格式吗，非要做技术的才能看懂吗」）。
+   样式取 --s-* 短名，与面板其余部分同源；行内强调与代码沿用记忆面板的比例。 */
+.dsh-soul-md{font-size:13px;line-height:1.65;color:var(--s-text);word-break:break-word;animation:dsh-soul-rise .2s cubic-bezier(.2,.8,.2,1) backwards}
+.dsh-soul-md>*:first-child{margin-top:0}
+.dsh-soul-md>*:last-child{margin-bottom:0}
+.dsh-soul-md__p{margin:0 0 8px}
+.dsh-soul-md__h{margin:14px 0 7px;font-weight:650;line-height:1.4;color:var(--s-text)}
+.dsh-soul-md__h:first-child{margin-top:0}
+.dsh-soul-md__h[data-level='3']{font-size:14.5px}
+.dsh-soul-md__h[data-level='4']{font-size:13.5px}
+.dsh-soul-md__h[data-level='5'],.dsh-soul-md__h[data-level='6']{font-size:12.5px;color:var(--s-text-2)}
+.dsh-soul-md__list{margin:0 0 8px;padding-left:20px}
+.dsh-soul-md__list li{margin:2px 0}
+.dsh-soul-md__quote{margin:0 0 8px;padding:2px 0 2px 10px;border-left:2px solid var(--s-border-2);color:var(--s-text-2)}
+.dsh-soul-md__code{padding:1px 5px;border-radius:4px;background:var(--s-soft);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em}
+.dsh-soul-md__pre{margin:0 0 8px;padding:10px 12px;border-radius:8px;overflow-x:auto;background:var(--s-soft);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.6;white-space:pre}
+.dsh-soul-md__pre code{background:none;padding:0}
+.dsh-soul-md__hr{margin:12px 0;border:0;border-top:1px solid var(--s-border-2)}
+.dsh-soul-md__link{color:var(--s-primary);text-decoration:none}
+.dsh-soul-md__link:hover{text-decoration:underline}
+/* 卡片 ⇄ 全文 切换时给全文一个落位淡入：切换本身没有别的视觉线索，
+   完全没有动效会让人以为「点了没反应」（用户要求 UI 改动必须有可见动效）。 */
+.dsh-soul-preview{white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:21px;color:var(--s-text);animation:dsh-soul-rise .2s cubic-bezier(.2,.8,.2,1) backwards}
 .dsh-soul-preview-empty{font-size:12.5px;line-height:19px;color:var(--s-text-3)}
 .dsh-soul-identity-list{display:flex;flex-direction:column;gap:4px}
 .dsh-soul-identity-row{display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;align-items:baseline}
@@ -544,8 +607,10 @@ body[data-ds-dark-theme] .dsh-soul-toggle-row{--s-card-bg:var(--dsw-static-neutr
 /* ── 预设区 ─────────────────────────────────────────────────────────
    一行一个预设：左图标 + 名称/徽标，右两个动作（整体替换 / 合并应用）+ 删除（仅自定义）。
    两个按钮常驻会变成一堵按钮墙，所以默认压到 55% 透明度、行 hover 才提满；
-   说明文字也不再常驻，改为整行的 title 提示（信息没丢，只是不再抢视线）。 */
-.dsh-soul-preset-list{display:flex;flex-direction:column;gap:6px}
+   说明文字也不再常驻，改为整行的 title 提示（信息没丢，只是不再抢视线）。
+   2026-10-06：预设区搬到顶部三分之一高度，纵向排只能露出两行，改成多列网格
+   （auto-fill 300px），窄到排不下两列时由容器查询回落单列。 */
+.dsh-soul-preset-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:6px;align-content:start}
 .dsh-soul-preset-row{display:flex;align-items:center;gap:9px;padding:7px 10px;border:1px solid var(--s-border-2);border-radius:10px;background:var(--s-layer);box-sizing:border-box;transition:border-color .18s ease,background .18s ease,transform .16s cubic-bezier(.2,.8,.2,1),box-shadow .18s ease}
 .dsh-soul-preset-row:hover{border-color:color-mix(in srgb,var(--s-primary) 45%,transparent);transform:translateY(-1px);box-shadow:0 3px 12px color-mix(in srgb,var(--s-text) 7%,transparent)}
 .dsh-soul-preset-row-in{animation:dsh-soul-row-in .22s cubic-bezier(.2,.8,.2,1) backwards}
@@ -575,27 +640,33 @@ body[data-ds-dark-theme] .dsh-soul-toggle-row{--s-card-bg:var(--dsw-static-neutr
 
 /* ── focus 规范 ───────────────────────────────────────────────────── */
 .dsh-soul-tab:focus-visible,.dsh-soul-btn:focus-visible,.dsh-soul-input:focus-visible,
-.dsh-soul-textarea:focus-visible,.dsh-soul-switch:focus-visible,.dsh-soul-legacy-head:focus-visible,
+.dsh-soul-textarea:focus-visible,.dsh-soul-switch:focus-visible,
 .dsh-soul-card-row-main:focus-visible,.dsh-soul-kind-chip:focus-visible{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--s-primary) 35%,transparent)}
 
-/* ── 窄面板：右栏落到主栏下面 ───────────────────────────────────────
+/* ── 窄面板：右下「修改」落到左下「预览」下面 ─────────────────────────
    看的是**面板自身**宽度（container-type 在 .dsh-soul-root 上），
    所以并排布局的 485px 左半页也会正确折叠成单列。 */
 @container soulpanel (max-width: 820px){
-  .dsh-soul-cols{grid-template-columns:minmax(0,1fr)}
+  .dsh-soul-stage{grid-template-columns:minmax(0,1fr)}
   .dsh-soul-diff{flex-direction:column}
   .dsh-soul-diff-divider{width:auto;height:1px}
 }
-/* 双栏在 900px 以下折叠：再窄卡片行的动作按钮会被挤到换行 */
+/* 三区比例只在宽面板下成立：窄于 900px 时上下比例会把两栏压成两条缝，
+   改为「三区纵向堆叠 + 父级整页滚动」的形态（比例语义此时无意义）。
+   注意这里**不能**写 .dsh-soul-root-fill 自己的 display/overflow——CSS 容器查询
+   只匹配容器的后代，容器自身（.dsh-soul-root 就是那个 container）永远不会命中，
+   写了是死规则。root 在窄面板下仍高 1940 > 视口 971，滚动由父级 .wb-soul-scroll
+   的 overflow-y:auto 承担（实测 client 971 / scroll 1940，可滚）。 */
 @container soulpanel (max-width: 900px){
-  .dsh-soul-columns{grid-template-columns:minmax(0,1fr)}
+  .dsh-soul-work{display:flex;flex-direction:column;gap:14px;min-height:0}
+  .dsh-soul-presets-top,.dsh-soul-pane{overflow:visible;min-height:0}
 }
 /* ── 右栏（预设）在半宽下的降级 ──────────────────────────────────────
-   右栏实测 380~440px：预设行里「名称 + 内置徽标 + N 张卡 + 两个按钮」挤不下，
-   徽标会被 flex-wrap 顶到第二行，一行从 42px 涨到 66px——四行就是 100px 白高。
-   做法不是砍按钮（功能不能少），而是让**徽标让位**：名称单行省略、卡片数徽标隐藏
-   （卡数在「整体替换」的语义里不是决策信息），按钮永远完整。 */
+   预设区现在横宽铺满顶部：4~6 条预设排成多列网格，比原来一列纵向排省一半高度。
+   窄到排不下两列时回到单列（每行「名称 + 内置徽标 + N 张卡 + 两个按钮」挤不下，
+   徽标会被 flex-wrap 顶到第二行，一行从 42px 涨到 66px）。 */
 @container soulpanel (max-width: 1180px){
+  .dsh-soul-preset-list{grid-template-columns:minmax(0,1fr)}
   .dsh-soul-preset-name{flex-wrap:nowrap;overflow:hidden}
   .dsh-soul-preset-name>span:not(.dsh-soul-badge){display:none}
   .dsh-soul-preset-main{overflow:hidden}
@@ -615,13 +686,16 @@ body[data-ds-dark-theme] .dsh-soul-toggle-row{--s-card-bg:var(--dsw-static-neutr
 }
 /* 媒体查询兜底：宿主没开容器查询时（老 WebView），按视口宽度折叠。 */
 @media (max-width: 1080px){
-  .dsh-soul-cols{grid-template-columns:minmax(0,1fr)}
+  .dsh-soul-stage{grid-template-columns:minmax(0,1fr)}
   .dsh-soul-diff{flex-direction:column}
   .dsh-soul-diff-divider{width:auto;height:1px}
 }
-/* 媒体查询兜底同样覆盖双栏（老 WebView 无容器查询时按视口折叠） */
+/* 媒体查询兜底同样覆盖三区比例（老 WebView 无容器查询时按视口回落堆叠） */
 @media (max-width: 1180px){
-  .dsh-soul-columns{grid-template-columns:minmax(0,1fr)}
+  .dsh-soul-root-fill{display:block;overflow-y:auto}
+  .dsh-soul-work{display:flex;flex-direction:column}
+  .dsh-soul-presets-top,.dsh-soul-pane{overflow:visible}
+  .dsh-soul-preset-list{grid-template-columns:minmax(0,1fr)}
 }
 @media (max-width: 720px){
   .dsh-soul-field-row{grid-template-columns:minmax(0,1fr)}
@@ -637,6 +711,7 @@ body[data-ds-dark-theme] .dsh-soul-toggle-row{--s-card-bg:var(--dsw-static-neutr
   .dsh-soul-whale-body,.dsh-soul-whale:hover .dsh-soul-whale-body{animation:none}
   .dsh-soul-whale-sweep,.dsh-soul-whale-glow{animation:none;display:none}
   .dsh-soul-root>*,.dsh-soul-draft,.dsh-soul-profile-row-in,.dsh-soul-profile-new-row{animation:none}
+  .dsh-soul-presets-top,.dsh-soul-pane,.dsh-soul-preview{animation:none}
   .dsh-soul-spin,.dsh-soul-check,.dsh-soul-btn-done{animation:none}
   .dsh-soul-skeleton-row{animation:none}
   .dsh-soul-state-dirty .dsh-soul-state-dot{animation:none}

@@ -544,6 +544,43 @@ export async function probePageHeight(fileUrl: string, cssWidth: number, fallbac
 }
 
 /**
+ * 渲染一个**本地文件**（html 成品）为 PNG（base64），用于产出物缩略图。
+ *
+ * 与 renderPng 的区别：不写临时 HTML，直接导航到目标文件的 file:// 地址 ——
+ * html 成品的相对资源（同目录 css/js/图）按它自己的目录解析，跟用户双击打开
+ * 是同一条路径。视口按缩略图比例给，只截首屏（不量内容高度、不做长图拼接）：
+ * 缩略图要的是「一眼认出这是什么」，不是完整内容。
+ *
+ * 串行走同一条队列：常驻实例与截图共用，不额外起浏览器。
+ *
+ * @param fileUrl - 目标页面的 file:// 地址。
+ * @param cssWidth - 排版宽度（CSS px）。
+ * @param cssHeight - 视口高度（CSS px）。
+ * @param scale - 输出缩放（deviceScaleFactor）。
+ * @returns PNG 的 base64 数据（不含 data: 前缀）。
+ */
+export function renderFileThumbnail(fileUrl: string, cssWidth: number, cssHeight: number, scale = 1): Promise<string> {
+  const task = async (): Promise<string> => {
+    try {
+      const target = await ensureEngine()
+      await setViewport(target.session, cssWidth, cssHeight, scale)
+      await navigateAndWait(target.session, fileUrl, 12000, true)
+      // 等字体与图片落定：缩略图最常见的问题就是截到「字还没换完 / 图还没解码」。
+      await evaluateJson(target.session, settleJs(2000), true, 4000).catch(() => null)
+      await evaluateJson(target.session, 'new Promise(r => requestAnimationFrame(r))', true).catch(() => null)
+      return captureScreenshot(target.session, 100, 'png', true, 20000)
+    } finally {
+      // 与 renderPng 同款：每次渲染都把空闲回收计时推后，否则一张长任务
+      // 跑过 IDLE_TTL 时实例会被自己回收掉。
+      touchIdle()
+    }
+  }
+  const run = chain.then(task, task)
+  chain = run.catch(() => {})
+  return run
+}
+
+/**
  * 渲染 HTML 为 PNG（base64）。串行执行；实例失效时自动重建并重试一次。
  * @param input - HTML 与视口尺寸。
  * @returns PNG 的 base64 数据（不含 data: 前缀）。

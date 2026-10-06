@@ -15,12 +15,21 @@
  * 增量折叠，stat 核对过才下发）；generated（生图/生视频）条目经既有的
  * /api/chat-flow/generated-images 二次解析成可显示 URL。
  *
- * 三类内容的三种打开方式（与各自的最优预览链路对齐）：
+ * 三类内容的两种打开方式（2026-10-06 收口为「一律弹窗内预览」）：
  *  · 图片 / 视频 / 音频 / 网页 → Lightbox 内直接预览（网页走沙箱 iframe，
  *    host 已注入 base 与 CSP sandbox，成品页读不到宿主同源状态）；
- *  · PDF → Lightbox 内嵌 iframe（浏览器自带 PDF 查看器）；
- *  · PPT / Word / Excel → 官方右栏文档预览（tryOpenInSidebar，与对话流里
- *    点文件链接同一条链路），拿不到服务时降级为下载。
+ *  · PDF → Lightbox 内嵌插件自己的 /office/pdf（真 PDF，浏览器查看器）；
+ *  · PPT / Word / Excel → Lightbox 内由 host 出页图并翻页。
+ *
+ *  为什么原来这三类走「打开官方右栏」：那时假设官方文档预览可用。实测在本机
+ *  官方那条 Office 链路是坏的（LibreOffice 转换写盘被沙箱拒，报 impl_store
+ *  failed），于是画廊里点一个 ppt 的结果是「面板关了、右栏弹一条转换失败」。
+ *  现在改成插件自己出页图，同一套准入口径，也不再依赖宿主侧 TEMP 的权限状况。
+ *
+ *  缩略图（同为 2026-10-06）：html / ppt / word / pdf 的卡片此前只有一枚类型
+ *  图标 —— 一整屏长得一样的占位图，认不出哪张是哪张。现在经 host 的
+ *  /office/thumb 取首页位图当缩略图（html 走无头浏览器截首屏，文档走
+ *  LibreOffice / PDFium 栅格化），失败时回落原来的类型图标。
  *
  * 动效（渐进式微调，不推翻工作台既有骨架）：卡片入场级联上浮、hover 浮起 +
  * 缩略图缓推、类别徽标下滑浮现、骨架屏微光、Lightbox 缩放入场与关闭钮旋转、
@@ -32,14 +41,17 @@ import type { CSSProperties } from 'react'
 import {
   dayKeyOf,
   dayLabelOf,
+  displayNameOf,
   fetchGalleryMedia,
   formatRelativeTime,
   formatSize,
   galleryRawUrl,
   inTimeRange,
   KIND_LABEL,
+  officeRenderable,
   parseTimeQuery,
   presetRange,
+  previewThumbUrl,
   resolveGeneratedUrls,
   TIME_PRESET_LABEL,
   type GalleryItem,
@@ -49,7 +61,7 @@ import {
   type TimeRange,
 } from './api.js'
 import { ensureGalleryStyles } from './styles.js'
-import { generatedUrlCache, INLINE_PREVIEW_KINDS, MediaLightbox } from './media-lightbox.js'
+import { generatedUrlCache, canInlinePreview, MediaLightbox } from './media-lightbox.js'
 import { tryOpenInSidebar } from '../../open-preview.js'
 import { getClientCtx } from '../../client-ctx.js'
 
@@ -246,14 +258,30 @@ function shrinkThumbToDisplaySize(img: HTMLImageElement): void {
  * 生图/生视频条目的缩略图：spill 文件 2~9MB，不能首屏全解析 ——
  * IntersectionObserver 进视口才请求，解析结果进共享缓存
  * （media-lightbox 的 generatedUrlCache，Lightbox 打开时秒回）。
+ *
+ * 解析失败（spill 被清理 / 内容不是生图结果 / 读取被拒）**整卡隐藏**，由
+ * `onUnresolvable` 上报路径、面板把它从清单里剔掉（2026-10-06 用户点名：
+ * 「不存在的文件就不要显示了」）。原来失败时画一枚类型图标占位，结果就是
+ * 一整排点开什么都没有的空白格子 —— 比不显示更误导：它承诺了内容却没有。
+ * 隐藏是唯一诚实的口径，与 host 侧「列出的条目必须读得到」同一条原则。
  */
-function GeneratedThumb({ path, alt, thumbClass = 'tg-card__thumb' }: { readonly path: string; readonly alt: string; readonly thumbClass?: string }): JSX.Element {
+function GeneratedThumb({ path, alt, thumbClass = 'tg-card__thumb', onUnresolvable }: {
+  readonly path: string
+  readonly alt: string
+  readonly thumbClass?: string
+  readonly onUnresolvable?: (path: string) => void
+}): JSX.Element {
   const [urls, setUrls] = useState<readonly string[]>(() => generatedUrlCache.get(path) ?? [])
   const [failed, setFailed] = useState(false)
   const holderRef = useRef<HTMLDivElement | null>(null)
+  const reportedRef = useRef(false)
 
   useEffect(() => {
-    if (generatedUrlCache.has(path)) { setUrls(generatedUrlCache.get(path) ?? []); return undefined }
+    // 缓存只认**非空**结果：空数组是「这次没解析出来」，不是「以后也解析不出」。
+    // 旧实现把失败也写进缓存，于是服务端修好（比如 spill 准入放宽）之后客户端
+    // 命中空缓存直接 return、一个请求都不发 —— 14 张生图永远停在空白格子。
+    const cached = generatedUrlCache.get(path)
+    if (cached !== undefined && cached.length > 0) { setUrls(cached); return undefined }
     const holder = holderRef.current
     if (holder === null || typeof IntersectionObserver === 'undefined') {
       void load()
@@ -269,18 +297,25 @@ function GeneratedThumb({ path, alt, thumbClass = 'tg-card__thumb' }: { readonly
 
     async function load(): Promise<void> {
       const resolved = await resolveGeneratedUrls(path)
-      generatedUrlCache.set(path, resolved)
-      if (resolved.length === 0) setFailed(true)
-      else setUrls(resolved)
+      // 只有成功才写共享缓存（Lightbox 打开时秒回）；失败不写，下次进视口重试。
+      if (resolved.length > 0) generatedUrlCache.set(path, resolved)
+      if (resolved.length === 0) {
+        setFailed(true)
+        // 只上报一次：state 更新会重渲染，重复上报会让父组件的 Set 反复重建。
+        if (!reportedRef.current) {
+          reportedRef.current = true
+          onUnresolvable?.(path)
+        }
+      } else {
+        setUrls(resolved)
+      }
     }
-  }, [path])
+  }, [path, onUnresolvable])
 
   if (failed) {
-    return (
-      <div ref={holderRef} className={thumbClass}>
-        <span className="tg-card__icon"><KindIcon kind="image" size={40} /></span>
-      </div>
-    )
+    // 隐藏由父组件完成（从清单里剔除）；这里只留一个零尺寸占位，避免
+    // 「先画图标再消失」的闪动 —— 剔除发生在同一次渲染周期内。
+    return <div ref={holderRef} className={thumbClass} data-unresolvable="true" />
   }
   const first = urls[0]
   if (first === undefined) {
@@ -301,27 +336,82 @@ function GeneratedThumb({ path, alt, thumbClass = 'tg-card__thumb' }: { readonly
 
 /* ── 卡片 ────────────────────────────────────────────────────────────── */
 
-/** 磁盘图片的加载态管理：解码完成前不闪白（opacity 0 → 1 过渡）。 */
-function FileThumb({ item, now, thumbClass = 'tg-card__thumb' }: { readonly item: GalleryItem; readonly now: number; readonly thumbClass?: string }): JSX.Element {
+/**
+ * 走服务端「首页位图」当缩略图的类别（html 截首屏 / 文档首页栅格化）。
+ *
+ * `page`（html 成品）与 `pdf` 直接放行；Office 三类再叠一层扩展名判据
+ * （`officeRenderable`）—— `sheet` 里的 csv / tsv、`doc` 里的 rtf 引擎都不认，
+ * 发出去只会拿到 415，白等一次往返。
+ */
+function thumbUrlOf(item: GalleryItem): string | null {
+  if (item.kind === 'page' || item.kind === 'pdf') return previewThumbUrl(item.path, item.sessionId)
+  if (officeRenderable(item.kind, item.path)) return previewThumbUrl(item.path, item.sessionId)
+  return null
+}
+
+/**
+ * 磁盘图片的加载态管理：解码完成前不闪白（opacity 0 → 1 过渡）。
+ *
+ * 同时承担页 / 文档三类的新缩略图（2026-10-06）：它们经 host 的 /office/thumb
+ * 取首页位图。走同一条 `<img>` + `shrinkThumbToDisplaySize`（位图下来往往比
+ * 显示尺寸大得多，不降采样滚动就掉帧），失败一律**静默回落类型图标** ——
+ * 缩略图是锦上添花，不能因为渲染不出来就把卡片变成空白。
+ */
+/**
+ * 磁盘文件的缩略图：image 走画廊 /raw，html / pdf / Office 走 host 的
+ * /office/thumb（首页位图）。
+ *
+ * 加载失败（文件被删 / 准入没跟上 / 引擎不可用）**上报隐藏**而不是回落类型
+ * 图标（2026-10-06 用户点名「不存在的文件就不要显示」）：host 的 /media 已经
+ * 核对过存在性与 spill 准入，客户端再取不到基本就是真读不到 —— 留一枚图标
+ * 等于承诺了一个打不开的内容。video / audio 没有缩略图链路（本来就只有图标 +
+ * 播放角标），不属于「读不到」，保持原样。
+ */
+function FileThumb({ item, now, thumbClass = 'tg-card__thumb', onUnresolvable }: {
+  readonly item: GalleryItem
+  readonly now: number
+  readonly thumbClass?: string
+  readonly onUnresolvable?: (path: string) => void
+}): JSX.Element {
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
   void now
 
-  if (item.kind === 'image' && !failed) {
+  const serverThumb = thumbUrlOf(item)
+  /**
+   * 缩略图加载失败时探一次真实状态码，再决定「隐藏」还是「回落图标」。
+   *
+   * 4xx（404 文件没了 / 403 准入没跟上）= 这条永远取不到内容 → 上报隐藏；
+   * 5xx（引擎缺失 / 转换超时）= 环境问题，条目本身是好的 → 保留类型图标，
+   * 点开弹窗里还有失败态文案与下载出口。不分开会误伤：非 win32 或没装引擎的
+   * 机器上所有 Office 缩略图都 503，一律隐藏等于整类条目从画廊消失。
+   */
+  const handleThumbError = useCallback((): void => {
+    setFailed(true)
+    const url = serverThumb ?? galleryRawUrl(item.path)
+    void fetch(url, { method: 'HEAD', cache: 'no-store' })
+      .then((res) => { if (res.status >= 400 && res.status < 500) onUnresolvable?.(item.path) })
+      .catch(() => { /* 网络抖动：保留图标，不判死刑 */ })
+  }, [serverThumb, item.path, onUnresolvable])
+
+  if ((item.kind === 'image' || serverThumb !== null) && !failed) {
     return (
       <div className={thumbClass}>
         <img
           className="tg-card__img"
-          src={galleryRawUrl(item.path)}
+          // 图片走画廊自己的 raw（索引即白名单）；html / 文档走 office/thumb
+          // （按扩展名分流到无头浏览器截图或 LibreOffice 栅格化）。
+          src={serverThumb ?? galleryRawUrl(item.path)}
           alt={item.name}
           loading="lazy"
           decoding="async"
           draggable={false}
           data-loaded={loaded ? 'true' : undefined}
           onLoad={(event) => { setLoaded(true); shrinkThumbToDisplaySize(event.currentTarget) }}
-          onError={() => { setFailed(true) }}
+          onError={handleThumbError}
         />
-        {!loaded && <span className="tg-card__icon"><KindIcon kind="image" size={40} /></span>}
+        {/* 文档类位图要跑一次真渲染（秒级），期间的占位图与失败回落是同一枚。 */}
+        {!loaded && <span className="tg-card__icon"><KindIcon kind={item.kind} size={serverThumb !== null ? 44 : 40} /></span>}
       </div>
     )
   }
@@ -339,11 +429,16 @@ interface CardProps {
   readonly sessionTitle: string | null
   readonly now: number
   readonly onOpen: (item: GalleryItem) => void
+  /** 缩略图确认读不到时上报路径（面板把该条目从清单里剔掉）。 */
+  readonly onUnresolvable?: (path: string) => void
   /** 手机相册式方格：只留正方形缩略图，名字/类别沉到 hover 浮层。 */
   readonly compact?: boolean
 }
 
-const GalleryCard = ({ item, index, sessionTitle, now, onOpen, compact = false }: CardProps): JSX.Element => (
+const GalleryCard = ({ item, index, sessionTitle, now, onOpen, onUnresolvable, compact = false }: CardProps): JSX.Element => {
+  // generated 条目的原始名是 spill 容器的 .txt 文件名，上屏前换成内容类型名。
+  const shownName = displayNameOf(item)
+  return (
   <button
     type="button"
     className={compact ? 'tg-card tg-card--tile' : 'tg-card'}
@@ -352,17 +447,17 @@ const GalleryCard = ({ item, index, sessionTitle, now, onOpen, compact = false }
     title={item.path}
   >
     {item.source === 'generated'
-      ? <GeneratedThumb path={item.path} alt={item.name} thumbClass={compact ? 'tg-tile__thumb' : 'tg-card__thumb'} />
-      : <FileThumb item={item} now={now} thumbClass={compact ? 'tg-tile__thumb' : 'tg-card__thumb'} />}
+      ? <GeneratedThumb path={item.path} alt={shownName} thumbClass={compact ? 'tg-tile__thumb' : 'tg-card__thumb'} onUnresolvable={onUnresolvable} />
+      : <FileThumb item={item} now={now} thumbClass={compact ? 'tg-tile__thumb' : 'tg-card__thumb'} onUnresolvable={onUnresolvable} />}
     <span className="tg-card__kind-dot">{KIND_LABEL[item.kind]}</span>
     {compact ? (
       <span className="tg-tile__meta">
-        <span className="tg-tile__name" title={item.name}>{item.name}</span>
+        <span className="tg-tile__name" title={shownName}>{shownName}</span>
         <span className="tg-tile__sub">{formatRelativeTime(item.time, now)}</span>
       </span>
     ) : (
       <span className="tg-card__meta">
-        <span className="tg-card__name">{item.name}</span>
+        <span className="tg-card__name">{shownName}</span>
         <span className="tg-card__sub">
           <span>{sessionTitle ?? '会话'}</span>
           <span>·</span>
@@ -377,7 +472,8 @@ const GalleryCard = ({ item, index, sessionTitle, now, onOpen, compact = false }
       </span>
     )}
   </button>
-)
+  )
+}
 
 
 /* ── 面板主体 ────────────────────────────────────────────────────────── */
@@ -398,6 +494,18 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
+  /**
+   * 缩略图确认读不到的条目（2026-10-06 用户点名：不存在的文件不要显示）。
+   *
+   * host 的 /media 已经核对过存在性与 spill 准入，这里兜的是「列表下发之后
+   * 才失效」与「host 认为在、客户端取不回」两种残余：条目渲染时发现取不到
+   * 内容，就把路径记进这个集合、从清单里剔掉 —— 不留点开空白的格子。
+   * 只增不减（与 gonePaths 同口径）：一次失败就够判死刑，重试只会闪。
+   */
+  const [gonePaths, setGonePaths] = useState<ReadonlySet<string>>(() => new Set())
+  const hideUnresolvable = useCallback((path: string) => {
+    setGonePaths((prev) => (prev.has(path) ? prev : new Set(prev).add(path)))
+  }, [])
   /** 视图形态（网格 ⇄ 时间轴）；默认时间轴（用户 2026-10-04 指定）。 */
   const [view, setView] = useState<ViewMode>('timeline')
   /** 显式时间筛选（时钟钮弹层设置）；null = 不限。 */
@@ -493,23 +601,27 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
     return { from, to, label: `${timeFilter.label} ∩ ${queryTimeRange.label}` }
   }, [timeFilter, queryTimeRange])
 
-  /** 过滤后的展示清单（时间降序，host 已排好，这里只做筛选）。 */
+  /** 过滤后的展示清单（时间降序，host 已排好，这里只做筛选 + 剔除读不到的）。 */
   const visible = useMemo(() => {
     const base = items ?? []
     const needle = queryTimeRange === null ? query.trim().toLowerCase() : ''
     return base.filter((item) => {
+      if (gonePaths.has(item.path)) return false
       if (sessionId !== null && item.sessionId !== sessionId) return false
       if (kind !== null && item.kind !== kind) return false
       if (effectiveRange !== null && !inTimeRange(item.time, effectiveRange)) return false
       if (needle !== '') {
         const title = sessionById.get(item.sessionId)?.title ?? ''
-        if (!item.name.toLowerCase().includes(needle)
+        // 搜索面与展示名对齐：generated 条目上屏的是「生图.png」这类名字，
+        // 只匹配原始 .txt 名会让「搜生图」一条都搜不到。
+        if (!displayNameOf(item).toLowerCase().includes(needle)
+          && !item.name.toLowerCase().includes(needle)
           && !item.path.toLowerCase().includes(needle)
           && !title.toLowerCase().includes(needle)) return false
       }
       return true
     })
-  }, [items, sessionId, kind, query, queryTimeRange, effectiveRange, sessionById])
+  }, [items, sessionId, kind, query, queryTimeRange, effectiveRange, sessionById, gonePaths])
 
   /** 时间轴分组（visible 的按天折叠）。 */
   const dayGroups = useMemo(() => groupByDay(visible, now), [visible, now])
@@ -535,15 +647,21 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
     setTimePopover(false)
   }, [customFrom, customTo])
 
+  /**
+   * 打开一个条目（2026-10-06 收口）：**能内联的一律进 Lightbox**。
+   *
+   * 此前 ppt / word / excel 走的是「关掉工作台页 + 官方右栏预览」，理由是那条
+   * 链路有原生保真度。实测本机官方 Office 转换是坏的（LibreOffice 写盘被沙箱
+   * 拒），于是点一个 ppt 只会让面板消失、右栏弹一句转换失败 —— 比不响应更糟。
+   * 现在三类都由 host 出页图在弹窗里预览，「预览文档」按钮仍保留在弹窗底部，
+   * 想要官方那条路（或下载）随时可走。
+   *
+   * 判据用 `canInlinePreview`（类别 + 扩展名）：csv / tsv / rtf 这些同类别但
+   * 引擎不认的扩展名会回落到「下载」，而不是让用户对着占位图等一场注定失败的
+   * 渲染。
+   */
   const openItem = useCallback((item: GalleryItem) => {
-    // Office 家族（slide/sheet/doc）不进 Lightbox：直接走官方右栏文档预览。
-    if (!INLINE_PREVIEW_KINDS.has(item.kind)) {
-      const session = sessionById.get(item.sessionId)
-      if (tryOpenInSidebar(item.path, { sessionId: item.sessionId, cwd: session?.cwd ?? undefined })) {
-        onClose()
-        return
-      }
-      // 拿不到右栏服务（理论上不该发生）：退化为下载。
+    if (!canInlinePreview(item.kind, item.path)) {
       const anchor = document.createElement('a')
       anchor.href = galleryRawUrl(item.path)
       anchor.download = item.name
@@ -553,7 +671,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
       return
     }
     setLightboxIndex(visible.indexOf(item))
-  }, [visible, sessionById, onClose])
+  }, [visible])
 
   /** 跳到条目所属会话：官方 uiWorkspace.openSession + 关掉工作台页。 */
   const openSessionOf = useCallback((item: { readonly sessionId: string }) => {
@@ -855,6 +973,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
                     sessionTitle={sessionById.get(item.sessionId)?.title ?? null}
                     now={now}
                     onOpen={openItem}
+                    onUnresolvable={hideUnresolvable}
                     compact
                   />
                 ))}
@@ -873,14 +992,18 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
                 sessionTitle={sessionById.get(item.sessionId)?.title ?? null}
                 now={now}
                 onOpen={openItem}
+                onUnresolvable={hideUnresolvable}
               />
             ))}
           </div>
         </div>
       )}
 
-      {/* Lightbox（共享组件：画廊与产出物卡同一套预览与全屏） */}
-      {lightboxIndex !== null && lightboxIndex >= 0 && (
+      {/* Lightbox（共享组件：画廊与产出物卡同一套预览与全屏）。
+          上界守卫必须带：gonePaths 剔除条目后 visible 会缩短，旧 index 可能越界
+          （越界时 MediaLightbox 内部 item===undefined 会 return null，不崩但弹窗
+          凭空消失，比不显示更怪）。 */}
+      {lightboxIndex !== null && lightboxIndex >= 0 && lightboxIndex < visible.length && (
         <MediaLightbox
           items={visible}
           index={lightboxIndex}
@@ -889,6 +1012,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
           onClose={() => { setLightboxIndex(null) }}
           onOpenSession={(item) => { openSessionOf(item); setLightboxIndex(null) }}
           onOpenSidebar={(item) => {
+            // 出口保留：官方的原生保真度（字体、复杂排版）仍是备选路径。
             const session = sessionById.get(item.sessionId)
             if (tryOpenInSidebar(item.path, { sessionId: item.sessionId, cwd: session?.cwd ?? undefined })) setLightboxIndex(null)
           }}

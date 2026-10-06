@@ -13,7 +13,7 @@
  */
 
 import { resolve, dirname } from 'node:path'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -72,6 +72,7 @@ const listeners = new Map()
 const tools = []
 const logs = []
 const injectNamesSeen = []
+const commandsSeen = []
 
 const ctx = {
   logger: { info: (m) => logs.push(['info', m]), warn: (m) => logs.push(['warn', m]), debug: () => {} },
@@ -106,6 +107,9 @@ const ctx = {
   // 会话级 MCP 的挂载主体：mcp-status 会用 ctx.get('agents').list() 逐个取
   // scoped 工具视图（官方 browser-use 把 playwright-mcp 挂在 Agent scope 里）。
   agents: { list: () => [{ id: 'agent-under-test' }] },
+  // 工具闸门（src/tools-gate）的 `/computer-use`、`/browser-use` 走这个服务。
+  // 桩给全，否则闸门会走「服务面不完整」的降级分支，这里的命令断言就没意义了。
+  commands: { register: (definition) => { commandsSeen.push(definition.name); return () => {} } },
   effect: (fn) => { fn?.(); return () => {} },
   settings: { get: () => ({ providers: {} }), register: () => () => {} },
   credentials: {},
@@ -260,20 +264,40 @@ need(tools.includes('soul_show') && tools.includes('soul_set'), 'soul tools regi
 // 可用——没有断言就只能等用户自己发现。
 need(tools.includes('soul_cards') && tools.includes('soul_card_set') && tools.includes('soul_card_remove'),
   'soul card tools registered (soul_cards / soul_card_set / soul_card_remove)')
-// 内置灵魂预设（2026-10-06 新增「可爱风」）：预设是**代码常量**，某套被改坏、或某张卡
-// 被 normalizeCard 过滤掉（标题正文同时为空）都不会抛错——只会在面板上静默少一行 / 少一张卡。
-// 这里直接钉住 router 返给面板的同一份常量：id 集合 + 可爱风那套的卡数与 style 卡。
+// 内置灵魂预设（2026-10-06：原「可爱风」换成「萝莉」，并新增御姐 / 女王 / 公主）。
+// 预设是**代码常量**，某套被改坏、或某张卡被 normalizeCard 过滤掉（标题正文同时
+// 为空）都不会抛错——只会在面板上静默少一行 / 少一张卡。这里直接钉住 router 返给
+// 面板的同一份常量：id 顺序 + 四套角色人格各自的卡数与 style 卡。
 {
   const presets = mod.BUILTIN_SOUL_PRESETS
-  const expectedIds = ['builtin:engineer', 'builtin:analyst', 'builtin:writer', 'builtin:concise', 'builtin:cute']
+  const expectedIds = [
+    'builtin:engineer', 'builtin:analyst', 'builtin:writer', 'builtin:concise',
+    'builtin:loli', 'builtin:oneesan', 'builtin:queen', 'builtin:princess',
+  ]
   const ids = Array.isArray(presets) ? presets.map(preset => preset.id) : []
   need(ids.join(',') === expectedIds.join(','),
-    `builtin soul presets = ${expectedIds.length} 套（含 builtin:cute 可爱风），实际 [${ids.join(', ')}]`)
-  const cute = typeof mod.builtinPreset === 'function' ? mod.builtinPreset('builtin:cute') : null
-  need(cute !== null && cute.name === '可爱风' && cute.cards.length === 5,
-    'builtin:cute 是可整体套用的完整人格：5 张卡（identity/tone/principles/boundaries/style）')
-  need(cute !== null && cute.cards.some(card => card.kind === 'style' && card.body !== ''),
-    'builtin:cute 带 style（风格）卡：可爱风靠它落地，缺了就只剩一张语气卡')
+    `builtin soul presets = ${expectedIds.length} 套（4 工作形态 + 4 角色人格），实际 [${ids.join(', ')}]`)
+  // 旧 id 必须真的消失：留着 builtin:cute 会让「萝莉」这套长期挂着 cute 的名字。
+  need(!ids.includes('builtin:cute'), 'builtin:cute 已被 builtin:loli 取代（不留旧 id 混淆）')
+  // 四套角色人格都是「可直接生效的完整人格」：5 张卡，且都有 style 卡落地说法，
+  // 缺了 style 就只剩一张语气卡（语气是全套里最容易写、也最不生效的一层）。
+  const PERSONAS = [
+    ['builtin:loli', '萝莉'],
+    ['builtin:oneesan', '御姐'],
+    ['builtin:queen', '女王'],
+    ['builtin:princess', '公主'],
+  ]
+  for (const [id, name] of PERSONAS) {
+    const preset = typeof mod.builtinPreset === 'function' ? mod.builtinPreset(id) : null
+    need(preset !== null && preset.name === name && preset.cards.length === 5,
+      `${id}（${name}）是可整体套用的完整人格：5 张卡（identity/tone/principles/boundaries/style）`)
+    need(preset !== null && preset.cards.some(card => card.kind === 'style' && card.body.trim() !== ''),
+      `${id} 带 style（风格）卡：角色腔调靠它落地，缺了就只剩一张语气卡`)
+    // 人设只改说法、不改事实：四套都必须显式写下「报错/事故/安全话题照直说」这条硬边界。
+    // 少了它，模型很容易把「本王 / 本公主」那层气场带到故障通报里。
+    need(preset !== null && preset.cards.some(card => card.kind === 'boundaries' && /报错|事故|安全/.test(card.body)),
+      `${id} 的 boundaries 必须点明「报错 / 事故 / 安全话题照直说，不带人设腔」`)
+  }
 }
 need(listeners.has('agent/pre-step'), 'agent/pre-step injection hooked')
 need(listeners.has('session/event'), 'session/event capture hooked')
@@ -327,6 +351,101 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
     need(github?.scope === 'global', 'global server stays scope="global"')
     need(body?.toolCount === 2, `toolCount counts both scopes (got ${body?.toolCount})`)
   }
+}
+
+// ── HTML 卡片通道：路由 + 注入规范 + 配置项 ────────────────────────────
+//
+// 这条链路最容易「静默半通」：客户端渲染器在，host 侧却没接线（模型永远不知道
+// 这个围栏存在），或者开关写进了 config 但读取端忘了带。三个点都要断言。
+{
+  const route = routes.get('/api/dsh-memory')
+  need(route !== undefined, 'memory prefix route reachable for the html-channel assertion')
+  if (route !== undefined) {
+    // handler 是 `void handle(...)` 包出来的异步函数：必须等一拍再读 captured，
+    // 同步读会永远看到 status 0（第一次写这条断言就踩了）。
+    const call = async (method, url) => {
+      const captured = { status: 0, body: null }
+      const res = {
+        writeHead: (status) => { captured.status = status },
+        end: (payload) => { try { captured.body = JSON.parse(payload) } catch { captured.body = null } },
+      }
+      route.handler({ method, url, socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:3080' } }, res)
+      await new Promise((r) => setTimeout(r, 60))
+      return captured
+    }
+    const got = await call('GET', '/api/dsh-memory/html-inject-state')
+    need(got.status === 200, `GET /html-inject-state answers 200（实得 ${got.status}）`)
+    need(typeof got.body?.enabled === 'boolean', 'html-inject-state returns a boolean enabled')
+    // 默认开：这是「交付形态本身」，不注入模型就不会主动用（见 types.ts 字段注释）。
+    need(got.body?.enabled === true, `html 通道默认开（实得 ${JSON.stringify(got.body)}）`)
+    need(got.body?.builtin === true, 'html-inject-state is tagged builtin (无卸载入口)')
+  }
+
+  // 注入器里的规范文本必须真的存在且带齐沙箱事实——少一条模型就会写出白屏卡片。
+  const injectSrc = readFileSync(resolve(ROOT, 'src/triad/memory/engine/inject.ts'), 'utf8')
+  for (const [needle, why] of [
+    ['HTML_INJECTION_RULE', '规范常量'],
+    ['没有 same-origin', '沙箱隔离事实'],
+    ['高度自适应', '高度上报事实'],
+    ['不引外部资源', '离线可用事实'],
+    ['80KB', '容量上限'],
+    ['data-ds-dark-theme', '主题同步事实'],
+  ]) {
+    need(injectSrc.includes(needle), `HTML 注入规范必须写清「${why}」（缺 ${needle}）`)
+  }
+  need(/htmlStepCounters/.test(injectSrc) && /isHtmlInjectEnabled/.test(injectSrc),
+    'html 通道有独立 step 计数器（不与其它通道抢首步名额）')
+
+  // 配置项三处必须齐：类型、默认值、可调布尔键表。
+  const typesSrc = readFileSync(resolve(ROOT, 'src/triad/memory/types.ts'), 'utf8')
+  need(/htmlInjectDefaultEnabled: boolean/.test(typesSrc), 'MemoryConfig 声明 htmlInjectDefaultEnabled')
+  need(/htmlInjectDefaultEnabled: true/.test(typesSrc), 'htmlInjectDefaultEnabled 默认 true')
+  need(/CONFIG_BOOLEAN_KEYS[\s\S]{0,400}htmlInjectDefaultEnabled/.test(typesSrc),
+    'htmlInjectDefaultEnabled 在 CONFIG_BOOLEAN_KEYS 里（否则面板/补丁写不进去）')
+  const storeSrc = readFileSync(resolve(ROOT, 'src/triad/memory/engine/store.ts'), 'utf8')
+  need(/isHtmlInjectEnabled/.test(storeSrc) && /setHtmlInjectEnabled/.test(storeSrc),
+    'store 提供 html 开关的读写')
+
+  // ── efficiency 通道（与 html 同构） ─────────────────────────────────
+  if (route !== undefined) {
+    const call2 = async (method, url) => {
+      const captured = { status: 0, body: null }
+      const res = {
+        writeHead: (status) => { captured.status = status },
+        end: (payload) => { try { captured.body = JSON.parse(payload) } catch { captured.body = null } },
+      }
+      route.handler({ method, url, socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:3080' } }, res)
+      await new Promise((r) => setTimeout(r, 60))
+      return captured
+    }
+    const got = await call2('GET', '/api/dsh-memory/efficiency-inject-state')
+    need(got.status === 200, `GET /efficiency-inject-state answers 200（实得 ${got.status}）`)
+    need(typeof got.body?.enabled === 'boolean', 'efficiency-inject-state returns a boolean enabled')
+    // 默认开：它约束 agent 的 token/耗时行为本身，对所有会话普遍有益（见 types.ts 字段注释）。
+    need(got.body?.enabled === true, `efficiency 通道默认开（实得 ${JSON.stringify(got.body)}）`)
+    need(got.body?.builtin === true, 'efficiency-inject-state is tagged builtin (无卸载入口)')
+    // inject-state 合并回包也必须带上 efficiencyEnabled（开关浮层一次 hover 要全部状态）。
+    const is = await call2('GET', '/api/dsh-memory/inject-state?sessionId=smoke-eff')
+    need(typeof is.body?.efficiencyEnabled === 'boolean', 'GET /inject-state 顺带回传 efficiencyEnabled')
+  }
+  // 注入器里的规范文本必须真的存在且带齐三档纪律——少一档模型就学偏重点。
+  for (const [needle, why] of [
+    ['EFFICIENCY_INJECTION_RULE', '规范常量'],
+    ['fresh 子代理', '结构拆分主杠杆'],
+    ['subagent_fork', 'fork 几乎白给的反直觉事实'],
+    ['offset/limit', 'read 切片纪律'],
+    ['真重复步', '去重收益≈0 的事实'],
+  ]) {
+    need(injectSrc.includes(needle), `效率注入规范必须写清「${why}」（缺 ${needle}）`)
+  }
+  need(/efficiencyStepCounters/.test(injectSrc) && /isEfficiencyInjectEnabled/.test(injectSrc),
+    'efficiency 通道有独立 step 计数器（不与其它通道抢首步名额）')
+  need(/efficiencyInjectDefaultEnabled: boolean/.test(typesSrc), 'MemoryConfig 声明 efficiencyInjectDefaultEnabled')
+  need(/efficiencyInjectDefaultEnabled: true/.test(typesSrc), 'efficiencyInjectDefaultEnabled 默认 true')
+  need(/CONFIG_BOOLEAN_KEYS[\s\S]{0,400}efficiencyInjectDefaultEnabled/.test(typesSrc),
+    'efficiencyInjectDefaultEnabled 在 CONFIG_BOOLEAN_KEYS 里（否则面板/补丁写不进去）')
+  need(/isEfficiencyInjectEnabled/.test(storeSrc) && /setEfficiencyInjectEnabled/.test(storeSrc),
+    'store 提供 efficiency 开关的读写')
 }
 
 const warns = logs.filter(([lvl]) => lvl === 'warn')

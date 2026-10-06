@@ -83,6 +83,117 @@ export function sessionRawUrl(path: string, sessionId: string): string {
   return `/api/triad/gallery/raw?path=${encodeURIComponent(path)}&session=${encodeURIComponent(sessionId)}`
 }
 
+/* ── Office / PDF / HTML 预览（插件自己的 host 路由）─────────────────────
+ *
+ * 三条地址对应 host src/office/index.ts 的三条路由。都存在同一个准入口径下
+ * （只认被对话产出过的路径），所以可以直接喂给 <img> / <iframe>。
+ *
+ * `session` 只在「全局索引还没建」时才需要 —— 例如用户从没开过画廊，直接在
+ * 产出物卡里点开一个 ppt。带上它，host 会现折那个会话的产出清单来准入。
+ */
+
+/**
+ * host 能渲染的扩展名（**必须与 host 的 RENDERABLE_EXT 逐字一致**）。
+ *
+ * 与 `libreoffice-kit` 的 IMAGE_FORMATS 对齐，刻意不含 csv / tsv / rtf：它们
+ * 不在引擎的渲染表里，收进来只会让请求跑到一半才报「不支持」。客户端用这张
+ * 表提前判一次，避免让用户等一场注定失败的转换。
+ */
+export const OFFICE_RENDERABLE_EXT: ReadonlySet<string> = new Set([
+  'pdf', 'ppt', 'pptx', 'odp', 'doc', 'docx', 'odt', 'xls', 'xlsx', 'ods',
+])
+
+/**
+ * 一个画廊/产出物类别能否由插件内联预览。
+ *
+ * 比 `INLINE_PREVIEW_KINDS` 多一层扩展名判据的原因：类别是粗粒度的
+ * （`sheet` 同时包含 csv / tsv，`doc` 同时包含 md 家族），而引擎只认其中一部分。
+ * @param kind - 展示类别。
+ * @param path - 文件路径（取扩展名）。
+ */
+export function officeRenderable(kind: string, path: string): boolean {
+  if (kind === 'pdf') return true
+  if (kind !== 'slide' && kind !== 'doc' && kind !== 'sheet') return false
+  const base = path.split(/[\\/]/).filter(Boolean).at(-1) ?? ''
+  const dot = base.lastIndexOf('.')
+  if (dot <= 0) return false
+  return OFFICE_RENDERABLE_EXT.has(base.slice(dot + 1).toLowerCase())
+}
+
+/**
+ * 文档首页位图（ppt / word / pdf 的缩略图与弹窗首屏）。
+ * @param path - 绝对或会话相对路径。
+ * @param sessionId - 可选会话 id（准入兜底）。
+ * @param page - 页码（1 起算）。
+ */
+export function officePageUrl(path: string, sessionId?: string | null, page = 1): string {
+  const params = new URLSearchParams({ path, page: String(page) })
+  if (typeof sessionId === 'string' && sessionId !== '') params.set('session', sessionId)
+  return `/api/chat-flow/office/page?${params.toString()}`
+}
+
+/**
+ * 整份文档转好的 PDF（弹窗内嵌 / 「在侧边栏打开」接管用）。
+ * @param path - 绝对或会话相对路径。
+ * @param sessionId - 可选会话 id。
+ */
+export function officePdfUrl(path: string, sessionId?: string | null): string {
+  const params = new URLSearchParams({ path })
+  if (typeof sessionId === 'string' && sessionId !== '') params.set('session', sessionId)
+  return `/api/chat-flow/office/pdf?${params.toString()}`
+}
+
+/**
+ * 产出物缩略图（html 成品截首屏 / pdf 与 Office 首页位图）。
+ *
+ * 单独一条路由而不是复用上面的 page：html 走的是无头浏览器截图、Office 走
+ * LibreOffice，两条链路的缓存目录与尺寸档位都不同，让 host 按扩展名分流比让
+ * 客户端先判一次类型更省一致性成本。
+ *
+ * @param path - 绝对或会话相对路径。
+ * @param sessionId - 可选会话 id。
+ */
+export function previewThumbUrl(path: string, sessionId?: string | null): string {
+  const params = new URLSearchParams({ path })
+  if (typeof sessionId === 'string' && sessionId !== '') params.set('session', sessionId)
+  return `/api/chat-flow/office/thumb?${params.toString()}`
+}
+
+/**
+ * 查一个路径能否由插件渲染（引擎在不在、扩展名认不认）。
+ *
+ * 存在的价值是**别让用户等一场注定失败的转换**：引擎缺失（旧宿主 / 非 win32）
+ * 时 LibreOffice 那条路要跑几秒才报错，先探一次就能直接给下载按钮。
+ *
+ * @param path - 绝对或会话相对路径。
+ * @param sessionId - 可选会话 id。
+ * @returns renderable / engine / scratch 诊断信息；请求失败返回 null。
+ */
+export async function probeOfficeRenderable(path: string, sessionId?: string | null): Promise<{
+  readonly renderable: boolean
+  readonly engine: boolean
+  readonly scratch?: string
+} | null> {
+  const params = new URLSearchParams({ path })
+  if (typeof sessionId === 'string' && sessionId !== '') params.set('session', sessionId)
+  try {
+    const res = await fetch(`/api/chat-flow/office/info?${params.toString()}`, {
+      cache: 'no-store',
+      headers: { accept: 'application/json' },
+    })
+    if (!res.ok) return null
+    const payload = await res.json() as { ok?: boolean; renderable?: boolean; engine?: boolean; scratch?: string }
+    if (payload.ok !== true) return null
+    return {
+      renderable: payload.renderable === true,
+      engine: payload.engine === true,
+      ...(typeof payload.scratch === 'string' ? { scratch: payload.scratch } : {}),
+    }
+  } catch {
+    return null
+  }
+}
+
 /**
  * 解析一条 generated 条目：spill 文件 → 可显示 URL 列表（data: 或 http(s)）。
  * 复用既有的 /api/chat-flow/generated-images 路由（只认 spill root 内的 .txt）。
@@ -112,6 +223,34 @@ export const KIND_LABEL: Readonly<Record<GalleryKind, string>> = {
   slide: '演示',
   sheet: '表格',
   doc: '文档',
+}
+
+/**
+ * generated（生图/生视频）条目的展示名。
+ *
+ * spill 文件名是 `<8 位哈希>-generate_image.txt` —— 那是 base64 JSON 容器的名字，
+ * 不是用户产出的名字。直接上屏会让「图片」徽标下挂一个 `.txt`，读起来就像
+ * 「这条坏了 / 文件不存在」（2026-10-06 用户点名「不存在的文件不要显示」时，
+ * 这批 .txt 名字是最刺眼的一处）。这里把后缀换成内容类型、保留哈希前缀
+ * （同一轮多图靠它区分）。
+ *
+ * 放在客户端而不是 host 折叠层：折叠态有磁盘缓存，旧会话不会重折，改名必须
+ * 在渲染时做才能覆盖历史条目。
+ *
+ * @param item - 画廊条目（只需 name / source / kind 三个字段）。
+ * @returns 展示名；非 generated 条目原样返回 item.name。
+ */
+export function displayNameOf(item: {
+  readonly name: string
+  readonly source: 'file' | 'generated'
+  readonly kind: string
+}): string {
+  if (item.source !== 'generated') return item.name
+  const base = item.name
+  const hash = /^([0-9a-f]{6,12})-/i.exec(base)?.[1] ?? base.replace(/\.[^.]*$/, '')
+  const label = item.kind === 'video' ? '生视频' : '生图'
+  const ext = item.kind === 'video' ? 'mp4' : 'png'
+  return `${hash.slice(0, 8)}-${label}.${ext}`
 }
 
 /** 字节数 → 人类可读。 */

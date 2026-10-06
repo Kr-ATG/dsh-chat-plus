@@ -29,19 +29,39 @@
 import { readFileSync, statSync } from 'node:fs'
 import { resolve, sep, extname } from 'node:path'
 import { applyScreenshot } from './shot/index.ts'
+import { admitSpillPath, spillRoots } from './spill/index.ts'
 import { applyDownloadRoutes, applyDownloadTool } from './download/index.ts'
 import { applyOpenPathRoutes } from './open-path/index.ts'
+import { applyOfficePreview } from './office/index.ts'
 import { applyTriadHost } from './triad/host.ts'
 import { applyProviderHub, providerHubServices } from './provider/index.ts'
 import { applyMailHost } from './mail/index.ts'
+import { applyToolsGate } from './tools-gate/index.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
 export { applyMailHost } from './mail/index.ts'
 export type { MailHostConfig, MailHostHandle } from './mail/index.ts'
+// 工具闸门（computer-use / browser-use 按需注入）：纯函数与分组表导出给 smoke，
+// 钉住「默认全关 → 每轮省掉那 80 个工具的 schema」这条主回归。
+export { applyToolsGate, __test as toolsGateTest, DEFAULT_GATE_GROUPS } from './tools-gate/index.ts'
+export type { GateConfig, GateGroup } from './tools-gate/index.ts'
 // 纯函数再导出：供 smoke 直接断言「CLI 英文报错翻成人话」的映射表。
 export { humanizeCliError } from './mail/cli.ts'
 // 画廊的可测面（索引准入 / raw 路径解析纯函数）：供 smoke 对拍「相对路径按会话
 // cwd 解析」这条回归 —— 它正是「产出物卡点图片 403、侧栏却正常」的根因所在。
 export { __test as galleryTest } from './triad/gallery/index.ts'
+// Office / PDF 预览的可测面：引擎解析、工作目录判据、路径准入纯函数，以及
+// 「用假 ctx 挂路由 + 真 HTTP 请求」这条端到端链路（见 scripts/smoke-host.mjs）。
+// 这三块错了都不会抛错 —— 引擎缺了只是退回下载、判据错了只是 403 —— 必须能
+// 被冒烟直接断言。
+export {
+  applyOfficePreview, officeEngineAvailable, officeCacheRoot, renderOfficePages, renderOfficePdf,
+  __test as officeTest,
+} from './office/index.ts'
+export { __test as officeAdmitTest, rememberOfficePaths } from './office/admit.ts'
+export { __test as officeScratchTest, ensureOfficeScratch, currentOfficeScratch } from './office/scratch.ts'
+// spill 准入的可测面：root 形状判据 + 路径准入纯函数（供 smoke 钉住「历史 root
+// 可读、任意路径不可读」这对往返）—— 判错的表现是「画廊里的生图格子全空」。
+export { __test as spillTest, DEFAULT_ROOT_RE, SESSION_DIR_RE, admitSpillPath, spillRoots } from './spill/index.ts'
 // 内置灵魂预设的可测面：预设是代码常量，某套被改坏或某张卡被 normalizeCard 过滤掉
 // 都不会抛错，只会让面板静默少一行。导出给 smoke 钉住 id 集合与卡片数。
 export { BUILTIN_SOUL_PRESETS, builtinPreset } from './triad/soul/presets.ts'
@@ -96,7 +116,7 @@ function parseGeneratedResult(text: string): { ok: boolean; urls: string[]; mode
   return { ok: urls.length > 0, urls, model }
 }
 
-/** 路由：读 spill 文件 → 解析提取图片 URL（仅 root 内 .txt，≤8MB）。 */
+/** 路由：读 spill 文件 → 解析提取图片 URL（仅可信 spill root 内的 .txt，≤24MB）。 */
 function handleGeneratedImages(ctx: Record<string, any>, req: any, res: any): void {
   const json = (status: number, payload: Record<string, unknown>): void => {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
@@ -106,30 +126,38 @@ function handleGeneratedImages(ctx: Record<string, any>, req: any, res: any): vo
     const url = new URL(req.url ?? '/', 'http://x')
     const file = url.searchParams.get('file') ?? ''
     const store: any = ctx.get('spillStore')
-    const root = typeof store?.root === 'string' && store.root !== '' ? store.root : undefined
-    if (root === undefined) {
-      json(404, { ok: false, error: 'spill store unavailable' })
+    const active = typeof store?.root === 'string' && store.root !== '' ? store.root : undefined
+    /*
+     * 准入：目标必须落在某个**可信 spill root** 之内。
+     *
+     * 为什么不是只认当前进程那一个 root（2026-10-06 修「画廊里的生图格子全空」）：
+     * `dsh-spill-local` 在没配置 root 时用 `mkdtempSync(join(tmpdir(), 'dsh-spill-'))`
+     * 建目录 —— **每启动一次进程就换一个新名字**。而画廊是跨会话的：它列出的生图
+     * 条目来自历史会话，那些 spill 文件躺在之前若干次启动留下的 root 里。只认
+     * 当前 root 的判据把它们全部判 403，于是 14 张生图在画廊里全成了「点开什么
+     * 都没有」的空白格子 —— 用户看到的就是「这些文件不存在」。实测 14/14 都在
+     * 磁盘上（2.2~2.7MB、内容可解析），只是不在当前 root。
+     *
+     * 判据见 src/spill/index.ts：与官方启动清理用的同一份命名形状，安全面反而
+     * 更严（多锁一层 `session-<12hex>` 目录命名 + 后缀白名单）。
+     */
+    const verdict = admitSpillPath(file, spillRoots(active))
+    if (!verdict.ok) {
+      json(403, { ok: false, error: 'forbidden', reason: verdict.reason })
       return
     }
-    const target = resolve(file)
-    // 路径穿越护栏：目标必须是 root 之内（root 自身或 root\sep 前缀）。
-    if (target !== root && !target.startsWith(root + sep)) {
-      json(403, { ok: false, error: 'forbidden' })
-      return
-    }
-    if (extname(target).toLowerCase() !== '.txt') {
-      json(403, { ok: false, error: 'forbidden' })
-      return
-    }
+    const target = verdict.path
     let size: number
     try {
       size = statSync(target).size
     } catch {
+      // 文件确实不在了（超过 30 天保留期 / 被清理）—— 这是「真不存在」，与准入失败
+      // 分开报，便于客户端把这条从画廊里剔掉而不是显示成空白格子。
       json(404, { ok: false, error: 'spill file not found' })
       return
     }
     if (size <= 0 || size > MAX_SPILL_BYTES) {
-      json(413, { ok: false, error: 'spill file too large' })
+      json(size <= 0 ? 404 : 413, { ok: false, error: size <= 0 ? 'spill file empty' : 'spill file too large' })
       return
     }
     const text = readFileSync(target, 'utf8')
@@ -157,7 +185,7 @@ function handleGeneratedImages(ctx: Record<string, any>, req: any, res: any): vo
  * 且服务销毁时 webCtx.effect 注册的路由自动回收。与 packages/api/gateway
  * 的写法一致。
  */
-export function apply(ctx: Record<string, any>, config?: { mail?: Record<string, unknown> }): void {
+export function apply(ctx: Record<string, any>, config?: { mail?: Record<string, unknown>; toolsGate?: Record<string, unknown> }): void {
   ctx.inject(['webServer'], (webCtx: any) => {
     // 生图画廊：spill 结果读取（exact 路由）。
     webCtx.effect(() => webCtx.webServer.register({
@@ -172,6 +200,24 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
     applyDownloadRoutes(webCtx)
     // 「用文件资源管理器打开」修复：官方那条被 windowsHide 吞了窗口。
     applyOpenPathRoutes(webCtx)
+    // Office / PDF 页图与 PDF 渲染（/api/chat-flow/office/*）：画廊 ppt/word 缩略图、
+    // 产出物弹窗内联预览、官方侧边栏 ppt/word 接管三处共用。挂载时顺带校正
+    // process.env.TEMP —— 官方 office-to-pdf 的 LibreOffice 转换要求 scratch 落在
+    // 带沙箱写 ACE 的目录里，否则侧边栏对 ppt/word 永远报「无法预览」（详见
+    // src/office/scratch.ts 的根因说明）。
+    //
+    // logger 也整段包住：cordis 的 ctx 是 Proxy，读未在 inject 白名单里的属性会
+    // 抛 `cannot get property "x" without inject` —— 若在 catch 里再读 logger 抛出，
+    // 会从 apply 冒出去连累整棵插件树。这里只做「尽力记一笔」。
+    try {
+      applyOfficePreview(webCtx)
+    } catch (error) {
+      try {
+        webCtx.logger?.warn?.(
+          `[dsh-chat-plus] office preview failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+        )
+      } catch { /* 拿不到 logger 时静默：不为了记日志再抛一次 */ }
+    }
   })
   // download 工具：注册进 host 工具注册表（模型可见，GUI 实时进度条）。
   // tools 服务缺失时回调不执行，其余能力不受影响（延迟注入的天然降级）。
@@ -221,4 +267,22 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
       )
     })
   })
+
+  // ── 工具闸门（computer-use / browser-use 按需注入）──────────────────────
+  // 默认全关：电脑操作 56 个 + 浏览器操作 24 个工具（实测占全部工具定义
+  // 74.7%、约 3.1 万 tok/请求）不再进入每轮请求；`/computer-use on`、
+  // `/browser-use on` 按会话打开。见 src/tools-gate/index.ts 的设计说明：
+  // 走 system-prompt/assemble 出口过滤而非 tools.restrict，因为 browser-use
+  // 的工具由 provider 注册在 agent 自己的作用域层，restrict 只过滤继承层。
+  //
+  // 这一段**不能**放进 try/catch 之外就算完：延迟注入回调里抛错会从 apply
+  // 冒出去，中断本插件后面所有 ctx.inject（triad 工作台全不挂）。模块内部
+  // 已对缺失服务逐项自查，这里再加一层兜底，任何意外都只让闸门失效。
+  try {
+    applyToolsGate(ctx as never, (config?.toolsGate ?? {}) as never)
+  } catch (error) {
+    ctx.logger?.warn?.(
+      `[dsh-chat-plus] tools gate failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+    )
+  }
 }

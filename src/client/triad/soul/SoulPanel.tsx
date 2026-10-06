@@ -42,6 +42,7 @@ import { EMPTY_IDENTITY, EMPTY_SOUL } from './api.js'
 import type { SoulCard, SoulCardsResponse, SoulPreset } from './api.js'
 import { CardsSection } from './CardsSection.js'
 import { PresetsSection } from './PresetsSection.js'
+import { SoulMarkdown } from './Markdown.js'
 import { WhaleLogo } from './WhaleLogo.js'
 import { makeSoulT, SOUL_CHAR_LIMIT, type SoulT } from './locales.js'
 import { css, ensureSoulStyles } from './styles.js'
@@ -239,8 +240,13 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
   const [dirty, setDirty] = useState(false)
   const [saveState, setSaveState] = useState<SaveFeedback>('idle')
 
-  // ── 预览 / 编辑 段控 ──
-  const [mode, setMode] = useState<'edit' | 'preview'>('edit')
+  /**
+   * 左栏预览的两种视图（2026-10-06 三区改版）：
+   *   cards = 卡片列表（灵魂的权威形态，一眼看清现在生效的是什么）
+   *   text  = 注入全文（由卡片拼出，或用户在右栏直接改的正文；跟随草稿实时重算）
+   * 默认 cards：卡片是权威，全文是它的投影。
+   */
+  const [previewTab, setPreviewTab] = useState<'cards' | 'text'>('cards')
 
   // ── 蒸馏 ──
   const [distilling, setDistilling] = useState(false)
@@ -320,15 +326,10 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
   const [cardsAvailable, setCardsAvailable] = useState(true)
   /** 「存为预设」表单要用的卡片快照；null = 表单收起。 */
   const [saveAs, setSaveAs] = useState<SoulCard[] | null>(null)
-  /**
-   * 折叠区（整段正文 / 身份字段 / 档案 / 蒸馏）**默认收起**（2026-10-05 简化）。
-   *
-   * 旧入口一个都没删，但它们都是低频路径：卡片区已经是权威形态，正文由 host
-   * 用卡片重算。默认展开时这一整块（正文编辑器 + 身份四件套 + 档案 + 注入开关
-   * + 只读身份）会把首屏全占满，用户第一眼看到的是一堆输入框而不是「我是谁」。
-   * 收起后首屏只剩卡片与预设，展开按钮在卡片区下方，需要时一点即开。
-   */
-  const [legacyOpen, setLegacyOpen] = useState(false)
+  // 说明：修改区（整段正文 / 身份字段 / 档案 / 蒸馏）**常驻展开**，2026-10-06 二轮
+  // 删掉了外层折叠按钮（用户原话「这个折叠去掉」）。它原先是默认收起的折叠区，
+  // 理由是「展开会把首屏占满」——那是它当年跨整页铺在最下面时的判断；现在它只占
+  // 右栏半屏、自己会滚，常驻才是正确默认态，也不再需要 legacyOpen 这个状态。
   /** dirty 的镜像：卡片回包要按**最新**的 dirty 决定是否覆盖正文草稿。 */
   const dirtyRef = useRef(false)
   dirtyRef.current = dirty
@@ -430,7 +431,6 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
         }
         setDraft(result.draft)
         setStats(result.stats ?? null)
-        setMode('edit')
       })
       .catch((reason: unknown) => {
         if (apiRef.current.isHostStale(reason)) { setStatus('stale'); return }
@@ -606,23 +606,6 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
             <span className={css.desc} title={t('soulDesc')}>{t('soulDesc')}</span>
           </div>
         </div>
-        {/* 四个状态胶囊收成一枚呼吸点（2026-10-05 简化）：
-            只有「有没有未保存改动」需要一眼看到，version / 时间 / 注入开关
-            合并进 title——信息没丢，只是不再和正文抢视线。 */}
-        <div className={css.headMeta}>
-          <span
-            className={dirty ? `${css.state} ${css.stateDirty}` : `${css.state} ${css.stateSaved}`}
-            title={[
-              dirty ? t('soulDirty') : t('soulUnchanged'),
-              t('soulVersion', { n: soul.version }),
-              soul.updatedAt === null ? t('soulNeverSaved') : t('soulSavedAt', { time: formatTime(soul.updatedAt) }),
-              injectOn ? t('soulInjectOn') : t('soulInjectOff'),
-            ].join(' · ')}
-          >
-            <span className={css.stateDot} aria-hidden="true" />
-            {dirty ? t('soulDirty') : t('soulUnchanged')}
-          </span>
-        </div>
       </div>
 
       {/* ── 顶部通知（淡入淡出，不用 alert） ── */}
@@ -710,14 +693,89 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
         </section>
       )}
 
-      {/* ── 双栏主体（2026-10-05 用户要求「灵魂用双栏布局」）────────────────
-          左栏 = 卡片区（灵魂的权威形态，内容会随卡片数量长），
-          右栏 = 预设区（成套人格，条数固定）+ 低频的「整段正文/身份/档案/蒸馏」。
-          两栏各自是一个 flex 列，左右各自呼吸；窄面板下由容器查询折叠成单列。
-          头部、通知、蒸馏草案是跨栏的——草案的 diff 是两列对比，塞进半栏会读不了。 */}
-      <div className={css.columns}>
-        <div className={css.colLeft}>
+      {/* ── 三区骨架（2026-10-06 用户要求「左侧预览、右侧修改、上面 1/3 预设」）──
+          上 1/3：预设区（成套人格）。套用预设是最高频的起点，放最上面意味着
+              「打开就能换一套」，不用先滚过卡片列表；横宽矮的形状改用多列网格。
+          左下：**预览**。默认给卡片列表（灵魂的权威形态：每张卡一行，种类 + 字数
+              + 开关，一眼看清现在生效的是什么），可切到「全文」看注入的整段文本
+              （跟随右侧编辑实时重算）。
+          右下：**修改**。整段正文 / 身份字段 / 档案 / 蒸馏——低频但深改的入口。
+          头部、通知、蒸馏草案仍是跨区通栏的（草案的 diff 是两列对比，塞进半栏读不了）。 */}
+      <div className={css.work}>
+        {/* host 未更新时预设区没有内容：整格隐藏并把高度全让给下面两栏，
+            否则顶部会留一块 1/3 屏的空白（「上 1/3」是给内容用的，不是给空气）。 */}
+        <div className={css.presetsTop} data-soul-zone="presets" data-empty={cardsAvailable ? undefined : '1'}>
 
+      {/* ── 预设区：默认几套 + 自定义（整体替换 / 合并应用） ── */}
+      {cardsAvailable && (
+        <PresetsSection
+          api={apiRef.current}
+          presets={presets}
+          cards={cards}
+          saveAs={saveAs}
+          onSaveAsDone={() => { setSaveAs(null) }}
+          onCards={onCards}
+          onPresets={setPresets}
+          onStale={() => { setCardsAvailable(false) }}
+          onError={message => { flash({ kind: 'err', text: tRef.current('soulPresetApplyFailed', { reason: message }) }) }}
+          t={t}
+        />
+      )}
+
+        </div>
+
+        <div className={css.stage}>
+          <div className={`${css.pane} ${css.panePreview}`} data-soul-zone="preview">
+            {/* 预览区标题栏：区名 + 卡片/全文 段控 + 保存状态呼吸点（头部那枚
+                状态点搬到这里——它描述的是「预览里的这份灵魂有没有改动」。） */}
+            <div className={css.paneHead}>
+              <span className={css.paneTitle}><SoulIcon size={14} />{t('soulZonePreview')}</span>
+              <div className={css.tabs} role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={previewTab === 'cards'}
+                  className={previewTab === 'cards' ? `${css.tab} ${css.tabActive}` : css.tab}
+                  onClick={() => { setPreviewTab('cards') }}
+                >{t('soulPreviewCardsTab')}</button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={previewTab === 'text'}
+                  className={previewTab === 'text' ? `${css.tab} ${css.tabActive}` : css.tab}
+                  onClick={() => { setPreviewTab('text') }}
+                >{t('soulPreviewTextTab')}</button>
+              </div>
+              <span
+                className={dirty ? `${css.state} ${css.stateDirty}` : `${css.state} ${css.stateSaved}`}
+                title={[
+                  dirty ? t('soulDirty') : t('soulUnchanged'),
+                  t('soulVersion', { n: soul.version }),
+                  soul.updatedAt === null ? t('soulNeverSaved') : t('soulSavedAt', { time: formatTime(soul.updatedAt) }),
+                  injectOn ? t('soulInjectOn') : t('soulInjectOff'),
+                ].join(' · ')}
+              >
+                <span className={css.stateDot} aria-hidden="true" />
+                {dirty ? t('soulDirty') : t('soulUnchanged')}
+              </span>
+            </div>
+
+      {previewTab === 'text' && (
+        <section className={css.card} data-soul-section="preview-text">
+          {draftText.trim() === ''
+            ? <span className={css.previewEmpty}>{t('soulPreviewEmpty')}</span>
+            : <SoulMarkdown text={draftText} />}
+          <div className={css.counter}>
+            <span>{t('soulPreviewRendered')}</span>
+            <span className={charCount > SOUL_CHAR_LIMIT ? css.counterOver : undefined}>
+              {t('soulCharCount', { n: charCount })}
+            </span>
+          </div>
+        </section>
+      )}
+
+      {previewTab === 'cards' && (
+        <>
       {/* ── 卡片区：灵魂的权威形态（每张卡单独开关 / 编辑 / 排序） ── */}
       {!cardsAvailable && (
         <div className={`${css.empty} ${css.stale}`} role="status" data-soul-section="cards-stale">
@@ -742,100 +800,47 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
           t={t}
         />
       )}
-
-        </div>
-        <div className={css.colRight}>
-
-      {/* ── 预设区：默认几套 + 自定义（整体替换 / 合并应用） ── */}
-      {cardsAvailable && (
-        <PresetsSection
-          api={apiRef.current}
-          presets={presets}
-          cards={cards}
-          saveAs={saveAs}
-          onSaveAsDone={() => { setSaveAs(null) }}
-          onCards={onCards}
-          onPresets={setPresets}
-          onStale={() => { setCardsAvailable(false) }}
-          onError={message => { flash({ kind: 'err', text: tRef.current('soulPresetApplyFailed', { reason: message }) }) }}
-          t={t}
-        />
+        </>
       )}
 
-        </div>
-      </div>
+          </div>
+          <div className={`${css.pane} ${css.paneEdit}`} data-soul-zone="edit">
+            <div className={css.paneHead}>
+              <span className={css.paneTitle}><SoulIcon size={14} />{t('soulZoneEdit')}</span>
+              <span className={css.paneHint} title={t('soulZoneEditHint')}>{t('soulZoneEditHint')}</span>
+            </div>
 
-      {/* ── 折叠区：整段正文 / 身份字段 / 档案 / 蒸馏（旧能力全保留） ──
-          跨两栏放在最下面：展开后它内部本身就是「正文编辑器 + 档案侧栏」的双栏，
-          塞进右栏（约 440px）会塌成一条缝——只有整页宽度才读得下。
-          默认收起，卡片才是权威形态。 */}
+      {/* ── 修改区：整段正文 / 身份字段 / 档案 / 蒸馏 ──
+          2026-10-06 二轮：外层那枚「整段正文 / 身份字段 / 档案 / 蒸馏」折叠按钮
+          删掉了（用户原话「这个折叠去掉」）——它只是一枚纯标签，点开才见到真内容，
+          等于多点一次才知道「修改」里有什么，还常占右栏顶部一整行。内容现在常驻，
+          区头已说明这里是「修改」，不需要第二层名字。
+          内部固定单列堆叠：原来那套「正文编辑器 + 300px 档案侧栏」的双栏在
+          半屏里会把主栏压到 120px，正文竖排成两个字一行。 */}
       <div className={css.legacy}>
-        <button
-          type="button"
-          className={dirty ? `${css.legacyHead} ${css.legacyHeadDirty}` : css.legacyHead}
-          aria-expanded={legacyOpen}
-          title={dirty ? t('soulDirty') : undefined}
-          onClick={() => { setLegacyOpen(open => !open) }}
-        >
-          <span className={legacyOpen ? `${css.caret} ${css.caretOpen}` : css.caret} aria-hidden="true">
-            <svg width={12} height={12} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M5.6 3.4 10.2 8l-4.6 4.6" /></svg>
-          </span>
-          {t('soulLegacySection')}
-          {/* 有未保存改动时这枚按钮变琥珀色：折叠状态下「保存」按钮藏在里面，
-              必须让入口自己会喊人，否则用户会以为改动丢了。 */}
-          {dirty && <span className={css.stateDot} aria-hidden="true" />}
-        </button>
-        <div className={legacyOpen ? `${css.legacyBody} ${css.legacyBodyOpen}` : css.legacyBody}>
-          <div className={css.legacyInner}>
-            <span className={css.cardHint}>{t('soulLegacySectionHint')}</span>
 
       {/* ── 两栏：编辑区 / 档案与开关 ── */}
       <div className={css.cols}>
         <div className={css.mainCol}>
           <section className={css.card}>
             <div className={css.cardTitle}><SoulIcon size={14} />{t('soulContentLabel')}</div>
-            <div className={css.tabs} role="tablist">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === 'edit'}
-                className={mode === 'edit' ? `${css.tab} ${css.tabActive}` : css.tab}
-                onClick={() => { setMode('edit') }}
-              >{t('soulEditorTab')}</button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === 'preview'}
-                className={mode === 'preview' ? `${css.tab} ${css.tabActive}` : css.tab}
-                onClick={() => { setMode('preview') }}
-              >{t('soulPreviewTab')}</button>
+            {/* 三区改版后这里**只做编辑**：预览搬到左栏（有「卡片 / 全文」段控），
+                右栏再留一个预览 Tab 就是同一份内容两处入口，纯噪音。 */}
+            <div className={css.field}>
+              <textarea
+                className={`${css.textarea} ${css.textareaTall}`}
+                aria-label={t('soulContentLabel')}
+                placeholder={t('soulContentPlaceholder')}
+                value={draftText}
+                onChange={event => { onText(event.currentTarget.value) }}
+              />
+              <div className={css.counter}>
+                <span className={charCount > SOUL_CHAR_LIMIT ? css.counterOver : undefined}>
+                  {t('soulCharCount', { n: charCount })}
+                </span>
+                <span>{t('soulCharLimitHint', { n: SOUL_CHAR_LIMIT })}</span>
+              </div>
             </div>
-
-            {mode === 'edit'
-              ? (
-                <div className={css.field}>
-                  <textarea
-                    className={`${css.textarea} ${css.textareaTall}`}
-                    aria-label={t('soulContentLabel')}
-                    placeholder={t('soulContentPlaceholder')}
-                    value={draftText}
-                    onChange={event => { onText(event.currentTarget.value) }}
-                  />
-                  <div className={css.counter}>
-                    <span className={charCount > SOUL_CHAR_LIMIT ? css.counterOver : undefined}>
-                      {t('soulCharCount', { n: charCount })}
-                    </span>
-                    <span>{t('soulCharLimitHint', { n: SOUL_CHAR_LIMIT })}</span>
-                  </div>
-                </div>
-              )
-              : (
-                <div className={css.preview}>
-                  {draftText.trim() === ''
-                    ? <span className={css.previewEmpty}>{t('soulPreviewEmpty')}</span>
-                    : draftText}
-                </div>
-              )}
 
             <div className={css.field}>
               <span className={css.label}>{t('soulIdentityLabel')}</span>
@@ -1108,7 +1113,8 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
           </section>
         </div>
       </div>
-          </div>
+        </div>
+      </div>
         </div>
       </div>
 
@@ -1123,8 +1129,10 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
     </>
   )
 
-  // embedded：挂在记忆工作台的 viewFull 里，父级已有滚动，这里不再套滚动容器。
-  if (embedded) return <div className={css.root}>{body}</div>
+  // embedded：挂在工作台整页里（父级 .wb-soul-scroll 是 flex 列）。此时 root 撑满
+  // 高度、三区按「上 1/3」定高分配——比例语义只有在定高语境里才成立。
+  // 非 embedded（composer 浮层）保持内容自适应 + 整页滚动。
+  if (embedded) return <div className={`${css.root} ${css.rootFill}`}>{body}</div>
   return <div className={css.scroll}><div className={css.root}>{body}</div></div>
 }
 

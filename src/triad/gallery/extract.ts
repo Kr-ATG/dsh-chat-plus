@@ -200,7 +200,7 @@ export function extractFromEventPair(
     seen.add(key)
     out.push({
       path: abs,
-      name: source === 'generated' ? (outputNameOf(abs) || 'generated.png') : outputNameOf(abs),
+      name: outputNameOf(abs),
       kind,
       source,
       time,
