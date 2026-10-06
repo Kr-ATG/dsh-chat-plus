@@ -252,22 +252,24 @@ async function handleRender(req: IncomingMessage, res: ServerResponse): Promise<
     const embeds = editedHtml === null
       ? await collectEmbeds(messages, cwd, cardContentWidth(preset.cssWidth))
       : []
-    const html = editedHtml !== null
-      ? editedHtml
-      : (await buildCardHtml({
+    const card = editedHtml !== null
+      ? null
+      : await buildCardHtml({
         messages, theme, width: preset.cssWidth, minHeight: cardMinHeight, embeds,
         title: typeof body.title === 'string' && body.title.trim() !== ''
           ? body.title.trim()
           : deriveTitle(messages[0]!.text, messages[0]!.role),
         label: typeof body.label === 'string' ? body.label : '',
-      })).html
+      })
+    const html = card !== null ? card.html : (editedHtml as string)
     const base64 = await renderPng({
       html,
       width: viewportWidth,
       height: preset.minHeight,
       aspectRatio: ratio,
       scale: preset.scale,
-      needsMermaid: editedHtml === null && html.includes('class="mermaid"'),
+      needsMermaid: card !== null ? card.needsMermaid : html.includes('class="mermaid"'),
+      needsFenceWait: card !== null ? card.hasFenceEmbed : html.includes('figure class="htmlfence"'),
     })
     const png = Buffer.from(base64, 'base64')
     const size = pngSize(png)

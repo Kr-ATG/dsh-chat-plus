@@ -281,6 +281,8 @@ export interface RenderInput {
   scale?: number
   /** 正文含 mermaid 围栏：投放引擎文件并等图画完再截。 */
   needsMermaid?: boolean
+  /** 正文含 ```html 围栏内嵌：等高度桥上报稳定后再量总高（否则截到兜底高度）。 */
+  needsFenceWait?: boolean
 }
 
 /**
@@ -329,6 +331,38 @@ async function waitMermaid(session: CdpSession): Promise<void> {
 })()`,
     true,
     MERMAID_WAIT_MS + 2000,
+  ).catch(() => null)
+}
+
+/**
+ * 等内嵌 ```html 围栏的高度桥上报落地（每个 iframe 至多等 FENCE_WAIT_MS）。
+ *
+ * srcdoc iframe 的解析与首帧上报通常在几百毫秒内完成，但模型页面里若有字体/
+ * 图片会二次上报。这里轮询「所有 figure 的行内高度都已脱离兜底值 320px 或超时」，
+ * 超时不抛：宁可截一张高度没撑准的，也不让整张截图失败。
+ */
+const FENCE_WAIT_MS = 6000
+async function waitFenceHeights(session: CdpSession): Promise<void> {
+  await evaluateJson(
+    session,
+    `(async () => {
+  var figures = Array.prototype.slice.call(document.querySelectorAll('figure.htmlfence iframe'));
+  if (figures.length === 0) return 'empty';
+  var deadline = Date.now() + ${FENCE_WAIT_MS};
+  function settled() {
+    for (var i = 0; i < figures.length; i += 1) {
+      if (figures[i].style.height === '320px') return false;
+    }
+    return true;
+  }
+  while (!settled() && Date.now() < deadline) {
+    await new Promise(function (resolve) { setTimeout(resolve, 120); });
+  }
+  await new Promise(function (resolve) { requestAnimationFrame(function () { requestAnimationFrame(resolve); }); });
+  return settled() ? 'done' : 'timeout';
+})()`,
+    true,
+    FENCE_WAIT_MS + 2000,
   ).catch(() => null)
 }
 
@@ -388,6 +422,8 @@ async function renderOnce(target: Engine, input: RenderInput): Promise<string> {
     await evaluateJson(target.session, settleJs(2500), true, 5000).catch(() => null)
     // 图表要等引擎画完再量高度，否则测到的是源码块的高度（长图会被截断）。
     if (input.needsMermaid === true) await waitMermaid(target.session)
+    // 内嵌 html 围栏同理：等高度桥上报把 figure 撑到真实高度再量总高。
+    if (input.needsFenceWait === true) await waitFenceHeights(target.session)
     let cssWidth = input.width
     let cssHeight = input.height
     const ratio = typeof input.aspectRatio === 'number' && input.aspectRatio > 0 ? input.aspectRatio : null

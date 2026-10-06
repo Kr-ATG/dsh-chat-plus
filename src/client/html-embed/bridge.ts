@@ -45,22 +45,29 @@ const BRIDGE_SOURCE = [
   '(function () {',
   '  var NS = ' + JSON.stringify(BRIDGE_TO_HOST) + ';',
   '  var HOST = ' + JSON.stringify(BRIDGE_TO_FRAME) + ';',
+  // 帧 id：由 assembleHtmlDocument 注入（截图页靠它在多条内嵌围栏里定位上报来源；
+  // 对话流单帧场景为空串，宿主侧忽略该字段）。实测无头 Chrome 里 sandbox iframe 的
+  // contentWindow 与 event.source 比对不可靠，id 是确定性的匹配键。
+  '  var FID = __DSH_FRAME_ID__;',
   '  var last = -1;',
   '  function measure() {',
   '    try {',
   '      var d = document.documentElement;',
   '      var b = document.body;',
+  '      // 只量 body 的内容高度：**不取 documentElement 的 offset/scrollHeight**——',
+  '      // html 是 overflow:hidden，它的 scroll/offsetHeight 永远 ≥ 视口高度，宿主',
+  '      // 首帧给兜底高度时这里会把兜底值原样报回去，矮内容被永久锁在兜底高度',
+  '      // （截图页 320px 兜底实测踩中）。body 高度 auto 时这两个值就是内容真高。',
   '      var h = Math.max(',
-  '        d ? d.scrollHeight : 0,',
-  '        d ? d.offsetHeight : 0,',
   '        b ? b.scrollHeight : 0,',
   '        b ? b.offsetHeight : 0',
   '      );',
+  '      if (!(h > 0) && d) h = Math.max(d.scrollHeight, d.offsetHeight);',
   '      if (!(h > 0)) return;',
   '      h = Math.ceil(h);',
   '      if (Math.abs(h - last) < 2) return;',
   '      last = h;',
-  '      parent.postMessage({ source: NS, kind: "height", height: h }, "*");',
+  '      parent.postMessage({ source: NS, kind: "height", height: h, id: FID }, "*");',
   '    } catch (e) {}',
   '  }',
   '  var queued = false;',
@@ -129,7 +136,7 @@ const BRIDGE_SOURCE = [
   '   * 由 iframe 侧在就绪后发 ready，宿主收到再回推，握手才可靠。',
   '   */',
   '  function requestTheme() {',
-  '    try { parent.postMessage({ source: NS, kind: "ready" }, "*"); } catch (e) {}',
+  '    try { parent.postMessage({ source: NS, kind: "ready", id: FID }, "*"); } catch (e) {}',
   '  }',
   '  if (document.readyState === "loading") {',
   '    addEventListener("DOMContentLoaded", function () { requestTheme(); start(); });',
@@ -180,11 +187,14 @@ const BASE_STYLE = [
  * `<base target="_blank">` 是刻意加的：opaque origin 下页面内点击链接会尝试在
  * iframe 自身导航，用户点一下就永久失去卡片内容且回不去。target=_blank 把导航
  * 交给宿主浏览器的新标签页（需要 sandbox 的 allow-popups）。
+ *
+ * @param fid 帧 id：写进 bridge 的高度/ready 上报，供多内嵌宿主（截图页）按 id
+ *   定位来源。对话流单帧传空串即可；**必须**替换占位符，否则 bridge 直接语法错。
  */
-export function assembleHtmlDocument(html: string): string {
+export function assembleHtmlDocument(html: string, fid = ''): string {
   const base = '<base target="_blank">'
   const style = '<style>' + BASE_STYLE + '</style>'
-  const script = '<script>' + BRIDGE_SOURCE + '<\/script>'
+  const script = '<script>' + BRIDGE_SOURCE.replace('__DSH_FRAME_ID__', JSON.stringify(fid)) + '<\/script>'
   const head = base + style
 
   if (/<html[\s>]/i.test(html)) {

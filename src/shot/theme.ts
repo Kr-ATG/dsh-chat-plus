@@ -300,6 +300,10 @@ body{${canvas};min-height:100vh;box-sizing:border-box;padding:${m.outer}px ${m.o
 .content figure.htmlshot{margin:1.1em 0;padding:0;border:1px solid var(--border2);border-radius:12px;overflow:hidden;box-shadow:inset 0 6px 14px -12px rgba(0,0,0,.45),0 10px 26px -18px rgba(0,0,0,.5);background:#fff}
 .content figure.htmlshot iframe{display:block;width:100%;border:0;background:#fff}
 .content figure.htmlshot figcaption{padding:7px 12px;border-top:1px solid var(--border2);font-size:12px;color:var(--fg3);letter-spacing:.01em;background:var(--card2,transparent)}
+/* 内嵌 html 围栏卡片：与对话流同款「无框内嵌」——不加描边/底色包裹，只留圆角
+   裁切；画布背景由围栏文档自带（跟随截图主题），与正文之间不留额外边界。 */
+.content figure.htmlfence{margin:1.1em 0;padding:0;border:0;border-radius:10px;overflow:hidden;background:transparent}
+.content figure.htmlfence iframe{display:block;width:100%;border:0;background:transparent}
 .md-img-alt{color:var(--fg3);font-style:italic}
 /* 图表围栏：渲染前是等宽源码块（引擎缺失时的降级形态），mermaid 画完后
    data-processed=true，切成居中的白/暗底画布，SVG 按容器宽度等比缩放。 */

@@ -172,7 +172,13 @@ export async function renderMarkdown(md: string, theme: ShotTheme): Promise<stri
       }
       if (lang !== '') {
         try {
-          return highlighter.codeToHtml(code, { lang, theme: shikiTheme })
+          const out = highlighter.codeToHtml(code, { lang, theme: shikiTheme })
+          // html 围栏打标记：card.ts 的 injectFences 靠它把 shiki 源码块整块替换成
+          // 内嵌卡片（与对话流一致，围栏就是卡片本身）。shiki 产物默认不带语言
+          // class，这里补一个；只影响截图管线，对话流的 html 围栏在进 markdown
+          // 之前就被 splitHtml 切走了，看不到这个标记。
+          if (lang.trim().toLowerCase() === 'html') return out.replace('<pre class="shiki', '<pre class="shiki language-html')
+          return out
         } catch {
           // 未知/未加载语言 → 降级为无高亮代码块
         }

@@ -11,8 +11,10 @@
  */
 import { escapeHtml, hasDiagramFence, renderMarkdown } from './markdown.ts'
 import { escapeAttr } from '../shared/sanitize-html.ts'
-import { buildCardCss, mermaidConfigJson, type ShotTheme } from './theme.ts'
+import { buildCardCss, mermaidConfigJson, baseOf, type ShotTheme } from './theme.ts'
 import { deriveTitle } from '../shared/title.ts'
+import { assembleHtmlDocument } from '../client/html-embed/bridge.ts'
+import { splitHtml } from '../client/html-embed/parse.ts'
 export { deriveTitle } from '../shared/title.ts'
 
 /** 单条待渲染消息。 */
@@ -31,6 +33,16 @@ export interface ShotEmbed {
   readonly fileUrl: string
   /** iframe 高度（CSS px，按卡片内容宽排版量出来的）。 */
   readonly height: number
+}
+
+/**
+ * 一条正文里的 ```html 围栏（与对话流同一份内容，截图里同样要「跑起来」）。
+ */
+export interface ShotHtmlFence {
+  /** 围栏正文（模型原始 HTML）。 */
+  readonly html: string
+  /** 标题（<title>/<h1> 提取，失败给兜底名），用于 figure 的 aria-label。 */
+  readonly title: string
 }
 
 /** 卡片组装参数。 */
@@ -136,6 +148,8 @@ export interface ShotCardOutput {
   html: string
   /** 正文含图表围栏：渲染器需要投放 mermaid 引擎并等待图画完。 */
   needsMermaid: boolean
+  /** 正文含 ```html 围栏内嵌：渲染器需要等高度桥上报稳定后再量总高。 */
+  hasFenceEmbed: boolean
 }
 
 /**
@@ -155,6 +169,104 @@ function figureOf(embed: ShotEmbed): string {
 
 /** 块级收尾标签（内嵌预览要插到它后面，而不是把句子劈开）。 */
 const BLOCK_END = /<\/(?:p|li|h[1-4]|blockquote|td|th|dd|dt)>/
+
+/**
+ * 一条 ```html 围栏的 figure（与对话流同款的沙箱文档，srcdoc 内联）。
+ *
+ * 与本地 HTML 内嵌（figureOf）的区别：内容不是文件而是模型正文，走
+ * assembleHtmlDocument 包成带高度桥的完整文档后 srcdoc 内联——截图页与
+ * iframe 同为 file:// 且引擎带 --allow-file-access-from-files，srcdoc 的
+ * about:srcdoc 能正常加载并回传高度。
+ *
+ * 安全：srcdoc 属性值走 escapeAttr（引号/反引号全转义）——模型正文里的 `"`
+ * 若裸着会闭合属性，而这张卡片页是在带 --disable-web-security 的无头 Chrome
+ * 里打开的，注入的事件处理器有读本地文件的能力。
+ */
+function fenceFigureOf(fence: ShotHtmlFence, index: number): string {
+  // fid 写进 bridge 上报 + figure 的 data-fid：截图页按 id 配对，不靠 contentWindow
+  // 比对（无头 Chrome 里 srcdoc iframe 的窗口引用比对实测不可靠）。
+  const fid = 'f' + index
+  const doc = assembleHtmlDocument(fence.html, fid)
+  const title = escapeAttr(fence.title)
+  return `<figure class="htmlfence" data-fid="${fid}"><iframe srcdoc="${escapeAttr(doc)}" title="${title}" scrolling="no" loading="eager" sandbox="allow-scripts allow-popups allow-forms allow-modals allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" style="height:320px"></iframe></figure>`
+}
+
+/**
+ * 把 ```html 围栏的 figure 插进正文：shiki 把 html 围栏渲染成
+ * `<pre class="shiki …" …><code>…</code></pre>`，整块替换成 figure——
+ * 与对话流一致，围栏就是卡片本身，不保留源码块。
+ *
+ * 定位用 `<pre class="shiki` + `language-html` 双特征：pre 的属性顺序由 shiki
+ * 决定（class 在前），language-html 出现在 class 里；找不到就放弃该条（宁可
+ * 少一张图，不劈句子）。
+ */
+function injectFences(body: string, fences: readonly ShotHtmlFence[]): string {
+  if (fences.length === 0) return body
+  let out = body
+  fences.forEach((fence, index) => {
+    // 顺序扫描剩余的 shiki 块，找第一个语言为 html 的（即本条围栏的落点）。
+    let at = -1
+    let cursor = 0
+    for (;;) {
+      const hit = out.indexOf('<pre class="shiki', cursor)
+      if (hit < 0) break
+      const tagEnd = out.indexOf('>', hit)
+      if (tagEnd < 0) break
+      if (out.slice(hit, tagEnd).indexOf('language-html') >= 0) { at = hit; break }
+      cursor = tagEnd + 1
+    }
+    if (at < 0) return
+    const tagEnd = out.indexOf('>', at)
+    const preEnd = out.indexOf('</pre>', tagEnd)
+    if (preEnd < 0) return
+    out = out.slice(0, at) + fenceFigureOf(fence, index) + out.slice(preEnd + '</pre>'.length)
+  })
+  return out
+}
+
+/**
+ * 截图页引导脚本：两件事。
+ *
+ *  1. 主题应答：内嵌围栏文档里的桥脚本就绪后会发 ready 要主题（与对话流同一
+ *     握手），这里按截图主题回推 dark/light——不回的话暗色截图里围栏画布永远
+ *     是白纸板。
+ *  2. 高度落地：等每个内嵌 iframe 的高度桥上报，把 figure 撑到真实高度。按桥
+ *     上报里的 fid 与 figure 的 data-fid 配对（**不**用 contentWindow 比对——
+ *     无头 Chrome 里 srcdoc iframe 的窗口引用比对实测不可靠，高度永远停在兜底）；
+ *     钳到 [40, 2400] 后写行内高度；首帧 320px 兜底，量不到就保持兜底，绝不让
+ *     整张截图失败。
+ */
+function embedBoot(theme: ShotTheme): string {
+  const dark = baseOf(theme) === 'dark'
+  return `<script>
+(function () {
+  var DARK = ${dark ? 'true' : 'false'};
+  var figures = Array.prototype.slice.call(document.querySelectorAll('figure.htmlfence'));
+  var last = {};
+  addEventListener('message', function (event) {
+    var data = event.data;
+    if (!data || typeof data !== 'object' || data.source !== 'dsh-html-card') return;
+    if (data.kind === 'ready') {
+      try { event.source.postMessage({ source: 'dsh-html-card-host', kind: 'theme', dark: DARK }, '*'); } catch (e) {}
+      return;
+    }
+    if (data.kind !== 'height') return;
+    var h = data.height;
+    if (typeof h !== 'number' || !isFinite(h) || typeof data.id !== 'string') return;
+    h = Math.max(40, Math.min(2400, Math.round(h)));
+    if (last[data.id] === h) return;
+    last[data.id] = h;
+    for (var i = 0; i < figures.length; i += 1) {
+      if (figures[i].getAttribute('data-fid') === data.id) {
+        var frame = figures[i].querySelector('iframe');
+        if (frame) frame.style.height = h + 'px';
+        break;
+      }
+    }
+  });
+})();
+</script>`
+}
 
 /**
  * 把内嵌预览插进正文：定位到那条行内代码（<code>路径</code>）后，插到它所在
@@ -206,8 +318,21 @@ export async function buildCardHtml(input: ShotCardInput): Promise<ShotCardOutpu
     ? (input.label as string).trim()
     : multi ? `${messages.length} 条消息` : (first.role === 'user' ? '提问' : 'AI 回复')
   const sections: string[] = []
+  let hasFenceEmbed = false
   for (const message of messages) {
-    const body = injectEmbeds(await bodyOf(message, theme), embeds)
+    let body = injectEmbeds(await bodyOf(message, theme), embeds)
+    // ```html 围栏与对话流同源切分（splitHtml，streaming=false：未闭合/超长一律
+    // 回退代码块，与对话流定稿态语义一致）。只有 assistant 正文走 Markdown 管线，
+    // user 的围栏不会成 pre，切了也无处替换。
+    const fences: ShotHtmlFence[] = message.role === 'assistant'
+      ? splitHtml(clamp(message.text))
+        .filter(part => part.kind === 'html' && part.pending === false)
+        .map(part => ({ html: part.spec.html, title: part.spec.title }))
+      : []
+    if (fences.length > 0) {
+      body = injectFences(body, fences)
+      hasFenceEmbed = true
+    }
     sections.push(multi
       ? `<section class="seg"><div class="seg-role">${message.role === 'user' ? '我' : 'AI'}</div>${body}</section>`
       : body)
@@ -241,6 +366,6 @@ ${sections.join('\n')}
   <span class="sign">DeepSeek Harness</span>
   <span class="right">${note}</span>
 </footer>
-</div>${needsMermaid ? `\n${mermaidBoot(theme)}` : ''}</body></html>`
-  return { html, needsMermaid }
+</div>${needsMermaid ? `\n${mermaidBoot(theme)}` : ''}${hasFenceEmbed ? `\n${embedBoot(theme)}` : ''}</body></html>`
+  return { html, needsMermaid, hasFenceEmbed }
 }
