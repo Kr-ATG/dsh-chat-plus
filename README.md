@@ -116,7 +116,7 @@ diagram 围栏放 JSON（坐标 /4 网格，节点 ≤9、边 ≤12，非法结�
 
 shape 三选一 oval / rect / diamond，pts 为完整折线点（含起终点，圆角自动倒）。size 缺省 full，紧凑版设 "size": "compact"（去副标签和图例，矮四成）。卡片右上角另有“紧 / 标 / 大”切换，看图的人可随时改比例（放大横向滚动）。视口自动贴合内容宽度，窄图不留两侧空白。
 
-**模型怎么知道这个围栏**：靠记忆注入的第三条内置通道 `DIAGRAM_INJECTION_RULE`，与「中文偏好记忆」「灵魂」同构（独立 user message、走 `agent/pre-step`、位置刻意在「项目排除 + 主注入开关」两道闸门之前、每会话只注首步）。开关在 composer 的**「内置提示词通道」**卡片里（与记忆注入分开的另一枚提示符按钮，见下条），**默认关**——它是锦上添花的呈现能力而非语言契约，不该每个会话白烧约 1KB 常驻 token。关着时模型完全不知道这个围栏存在。
+**模型怎么知道这个围栏**：靠记忆注入的内置通道 `DIAGRAM_INJECTION_RULE`，与「中文偏好记忆」「灵魂」同构（独立 user message、走 `agent/pre-step`、位置刻意在「项目排除 + 主注入开关」两道闸门之前、每会话只注首步）。开关在 composer 的**「内置提示词通道」**卡片里（与记忆注入分开的另一枚提示符按钮，见下条），**默认关**——它是锦上添花的呈现能力而非语言契约，不该每个会话白烧约 1KB 常驻 token。关着时模型完全不知道这个围栏存在。
 
 配置面：`state.diagramInjectEnabled`（面板落盘）/ `config.diagramInjectDefaultEnabled`（`cordis.patch.yml` 覆盖）。路由 `GET|POST /api/dsh-memory/diagram-inject-state`，状态随 `/inject-state` 回包顺带返回（不新开 GET 端点，避免放大 composer 的既有轮询量）。
 
@@ -182,6 +182,36 @@ diagram 是「锦上添花的一张图」，不画图任务照样完成；HTML �
 状态随 `/inject-state` 回包顺带返回（同 diagram，不新开 GET 端点）。
 
 > 与 diagram 同门控：只在 **「Seeker」视图**渲染，普通「对话」视图里原样显示成代码块。
+
+## 效率约束通道（省 token/耗时纪律）
+
+**它解决什么**：DSH agent 每个 step 全量重发上下文，token 的 98–99% 是 `cacheReadTokens`，
+单会话总成本 ≈ Σ每步上下文体积，是步数的**二次函数**。不约束时模型默认把 300+ 步全堆在
+一个会话里续命、把整段文件与命令回显灌进历史——每一条都被后续所有步重复计费。
+
+**纪律来自实测不是拍脑袋**：对 6 个 V4.1F 大会话（106–331 步、20M–146M token）做真实事件流
+重放（逐事件用真实 `usage` 差分，不假设线性），量化每条手段的收益，按梯度写成三档：
+
+| 档 | 手段 | 实测节省 |
+|---|---|---|
+| 一·结构拆分 | 长任务委派 **fresh 子代理**（`subagent`，自带轻量上下文）；跨阶段在边界收口落盘 `_tmp/` | 35–50% |
+| 二·体积压缩 | pwsh 输出先过滤（~5KB 内）；read 大文件 `offset/limit` 切片；reasoning 精炼 | ~10% |
+| 三·不必刻意 | 合并碎步 / 去重循环 / 校验节制 | ≈0 |
+
+两个反直觉结论值得常驻：**① 委派必须用 `subagent` 不用 `subagent_fork`**——fork 继承父会话
+全部历史，起点上下文就是那个大上下文，实测 −3%~16%（几乎白给甚至倒贴）；**② 去重循环省不到
+token**——命令指纹完全相同的「真重复步」每会话仅 0–6 个，绝大多数步都是必要工作，所以真正的
+大头是结构拆分，不是压缩碎步。
+
+**文本长度本身也受约束**：这段规范首步注入后进历史、每步被 cacheRead 一次，它自己就是条款二
+说的「进入历史的内容」。已从 784 字精简到 610 字（−22%），砍掉说服性数字与解释性水分——模型
+执行纪律不需要被说服，只需要知道做什么；300 步会话自身常驻成本约省 50K token。
+
+配置面：`state.efficiencyInjectEnabled`（面板落盘）/ `config.efficiencyInjectDefaultEnabled`
+（`cordis.patch.yml` 覆盖，默认 true）。路由 `GET|POST /api/dsh-memory/efficiency-inject-state`，
+状态随 `/inject-state` 回包顺带返回（同 diagram/html，不新开 GET 端点）。开关在 composer 的
+**「内置提示词通道」**卡片里，与 zh / diagram / html / soul 并列，**默认开**（约束的是 agent 的
+token/耗时行为本身，对所有会话普遍有益）。
 
 ## 内置技能：diagram-design + motion-primitives（不可删除）
 
