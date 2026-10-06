@@ -155,8 +155,14 @@ const BRIDGE_SOURCE = [
 const BASE_STYLE = [
   'html,body{margin:0;padding:0;}',
   'html{overflow:hidden;}',
+  // 背景跟主题：模型页面（尤其片段）常常不自带 body 背景，iframe 画布默认纯白，
+  // 暗色主题下等于在总结卡里贴一块白纸板。这里补一层与宿主对齐的中性底色，
+  // 暗色值与官方 --dsw-static-neutral-bluish-1000 同值（iframe 内拿不到宿主变量，
+  // 只能写死）；transition 让主题切换时底色渐变而不是硬跳。
+  // 优先级刻意最低（无 !important、插在 head 最前）：模型自己写了背景照样盖掉它。
+  'html{background:#fff;transition:background-color .25s ease;}',
   'html{color-scheme:light;}',
-  'html[data-ds-dark-theme]{color-scheme:dark;}',
+  'html[data-ds-dark-theme]{background:#16181d;color-scheme:dark;}',
 ].join('')
 
 /**
