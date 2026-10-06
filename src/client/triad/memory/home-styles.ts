@@ -94,11 +94,10 @@ const SHEET = `
   --hm-bg:var(--dsw-alias-bg-base); --hm-card:var(--dsw-alias-bg-layer-1); --hm-border:var(--dsw-alias-border-l1); --hm-ink:var(--dsw-alias-label-primary);
   --hm-sub:var(--dsw-alias-label-secondary); --hm-faint:var(--dsw-alias-label-tertiary); --hm-blue:var(--dsw-alias-state-business-primary);
   --hm-green:var(--dsw-alias-state-success-primary);
-  /* hero 装饰渐变的第二色。官方 alias 层没有紫色 token（state-* 只有
-     business/success/warn/error/idle），所以这里保留一个显式的装饰色常量：
-     它属于插画层、不属于主题色板，故意不随主题变——但命名上与本页的
-     --hm-* 主题变量区分开，避免被当成"又一个该跟随主题的色"。 */
-  --hm-deco-violet:#7C5CFC;
+  /* hero 装饰渐变的第二色。2026-10 色彩收敛：原先是显式紫 #7C5CFC（官方 alias
+     层没有紫色 token 才自建），工作台统一灰阶后装饰层也走主文字色低透明度，
+     不再引入第二个色相。 */
+  --hm-deco-violet:var(--dsw-alias-label-primary);
   position:relative; display:flex; flex-direction:column; gap:14px;
   min-height:100%; background:var(--hm-bg); border-radius:0 12px 12px 0;
   padding:18px 20px 96px; box-sizing:border-box; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain;

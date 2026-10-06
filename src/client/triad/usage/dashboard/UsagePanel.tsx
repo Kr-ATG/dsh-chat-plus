@@ -215,19 +215,15 @@ export function UsagePanel({ closing = false, onClose, anchor = null, embedded =
 
   if (embedded) {
     return (
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 24px', maxWidth: '1080px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-          <div>
-            <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: 'var(--dsw-alias-label-primary, #eee)' }}>Token 用量总览</h2>
-            <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary, #81858c)' }}>模型消耗追踪 · 每日走势 · 52 周全局热力</span>
-          </div>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 24px 20px', maxWidth: '1080px', margin: '0 auto', width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+        {/* 工具行：只留刷新（页名与说明由工作台面包屑承担，不再重复一遍标题） */}
+        <div className="wb-page-bar">
           <button
             type="button"
-            className="usm-refresh"
+            className="wb-bar-btn"
             data-spin={refreshing || undefined}
             aria-label="刷新用量数据"
             onClick={doRefresh}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '5px 12px', borderRadius: '8px', border: '1px solid var(--dsw-alias-border-l1, rgba(255,255,255,0.08))', background: 'var(--dsw-alias-bg-base, transparent)', color: 'var(--dsw-alias-label-secondary, #aaa)', cursor: 'pointer', fontSize: '12px' }}
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M21 12a9 9 0 0 1-15.9 5.7M3 12a9 9 0 0 1 15.9-5.7" />

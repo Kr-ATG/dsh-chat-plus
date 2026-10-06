@@ -384,6 +384,9 @@ const expectedStyles = [
   // 侧栏文档预览面板样式（src/client/sidebar-doc/index.tsx）。8b1db4b 引入时
   // 漏登本表，导致 smoke 一直报 unexpected extra styles —— 补录。
   'dsh-sdp-styles',
+  // 侧栏「工作台」行的分类浮层（src/client/triad/hub/row-flyout.tsx）：
+  // apply 时随 attachWorkbenchRowFlyout 注入（hover 浮层 + 滚轮切分类）。
+  'dsh-workbench-row-flyout-styles',
   ...(krEnabled ? ['dsh-kr-chat-styles'] : []),
 ]
 for (const expected of expectedStyles) {
@@ -651,17 +654,18 @@ if (!code.includes('data-dsh-anim-paused') || !code.includes('animation-play-sta
   pass('global animation throttle pauses all CSS animations when the page is hidden')
 }
 
-// 十一枚槽位：对话增强六枚（turn-process / assistant-step keyed / 截图按钮 /
-// download toolview / kr-todo-bridge / tools-gate 胶囊）+ 融合工作台五枚
+// 十二枚槽位：对话增强六枚（turn-process / assistant-step keyed / 截图按钮 /
+// download toolview / kr-todo-bridge / tools-gate 胶囊）+ 融合工作台六枚
 // （记忆 / 能力 / 邮箱三个工作台各两枚：main 页 + sidebar.panellist 菜单行，
 // 共 6；composer 两枚开关 dsh-memory-builtin-toggle / dsh-memory-inject-toggle；
-// skill toolview 一枚）。
+// skill toolview 一枚）+ 供应商设置页一枚（settings.section / provider-hub，
+// 2026-10-05 从工作台 Tab 撤回官方设置弹窗）。
 // 座位 id/order/locale 全部原样保留；原 automation-notifier 随自动化模块一起下线。
 const cell = (key) => registeredSlots.find((s) => s?.slot === 'conversation.chat.node' && s?.key === key)
-if (registeredSlots.length !== 11) {
-  fail(`expected 11 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
+if (registeredSlots.length !== 12) {
+  fail(`expected 12 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
 } else {
-  pass('registered 11 seats (6 chat-plus + 5 triad: 1 unified workbench page/row + 2 toggles + skill toolview)')
+  pass('registered 12 seats (6 chat-plus + 5 triad + 1 provider settings section)')
 }
 
 // 工具闸门卡片：挂在输入栏工具行**左端**（与记忆注入开关同一排），order 100。
@@ -789,6 +793,13 @@ if (wbPage === undefined) fail('missing unified workbench page seat main / workb
 else if (wbRow === undefined) fail('missing unified sidebar row seat sidebar.panellist / workbench')
 else if (wbRow.order !== 20) fail(`sidebar row workbench order = ${wbRow.order}, expected 20`)
 else pass('seat main / workbench + sidebar.panellist / workbench @ order 20')
+
+// 供应商设置页：官方设置弹窗的 `settings.section`，id / order / label 逐字保留
+// （2026-10-05 用户点名把供应商配置与代理放回设置里，此前一轮曾搬进工作台 Tab）。
+const supplierSection = registeredSlots.find((s) => s?.slot === 'settings.section' && s?.id === 'provider-hub')
+if (supplierSection === undefined) fail('missing provider seat settings.section / provider-hub（设置里没有供应商页）')
+else if (supplierSection.order !== 10) fail(`provider section order = ${supplierSection.order}, expected 10`)
+else pass('seat settings.section / provider-hub @ order 10（供应商配置 + 代理在设置里）')
 
 const downloadSeat = registeredSlots.find((s) => s?.slot === 'tool.call.toolview' && s?.key === 'download')
 if (downloadSeat === undefined) fail('missing keyed toolview seat tool.call.toolview / download')

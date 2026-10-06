@@ -30,17 +30,24 @@ export interface MemoryHomeProps {
 
 type SortKey = 'updated' | 'created' | 'important';
 
+/**
+ * 种类 / 分类配色（2026-10 色彩收敛）：一律主文字色的不同透明度分层，
+ * 不再一个种类一个色相——种类由文字标签与图形承担，颜色只负责层次。
+ * ink(p) = 主文字色 p% 混透明，明暗主题自动跟随。
+ */
+const ink = (p: number): string => `color-mix(in srgb,var(--dsw-alias-label-primary) ${p}%,transparent)`;
+
 const KIND_META: Record<MemoryKind, { label: string; color: string; soft: string }> = {
-  identity: { label: '身份', color: '#7C5CFC', soft: 'color-mix(in srgb,#7C5CFC 16%,transparent)' },
-  preference: { label: '偏好', color: 'var(--dsw-alias-state-business-primary)', soft: 'color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent)' },
-  fact: { label: '事实', color: '#64748B', soft: 'color-mix(in srgb,#64748B 18%,transparent)' },
-  decision: { label: '决策', color: '#E8930C', soft: 'color-mix(in srgb,#E8930C 18%,transparent)' },
-  gotcha: { label: '踩坑', color: '#EE4D6B', soft: 'color-mix(in srgb,#EE4D6B 15%,transparent)' },
-  'session-summary': { label: '会话', color: '#1FA8C9', soft: 'color-mix(in srgb,#1FA8C9 16%,transparent)' },
+  identity: { label: '身份', color: ink(88), soft: ink(14) },
+  preference: { label: '偏好', color: ink(72), soft: ink(12) },
+  fact: { label: '事实', color: ink(56), soft: ink(10) },
+  decision: { label: '决策', color: ink(80), soft: ink(13) },
+  gotcha: { label: '踩坑', color: ink(64), soft: ink(11) },
+  'session-summary': { label: '会话', color: ink(46), soft: ink(9) },
 };
 
-const CAT_COLORS = ['var(--dsw-alias-state-business-primary)', '#22A06B', '#7C5CFC', '#E8930C', '#EE4D6B', '#1FA8C9'] as const;
-const CAT_SOFT = ['color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent)', 'color-mix(in srgb,#22A06B 16%,transparent)', 'color-mix(in srgb,#7C5CFC 17%,transparent)', 'color-mix(in srgb,#E8930C 18%,transparent)', 'color-mix(in srgb,#EE4D6B 15%,transparent)', 'color-mix(in srgb,#1FA8C9 16%,transparent)'] as const;
+const CAT_COLORS = [ink(85), ink(70), ink(58), ink(46), ink(36), ink(28)] as const;
+const CAT_SOFT = [ink(14), ink(12), ink(10), ink(9), ink(8), ink(7)] as const;
 
 function entryTitle(content: string): string {
   const t = content.trim();
@@ -231,17 +238,17 @@ export function MemoryHome(props: MemoryHomeProps): JSX.Element {
             <h2 className={hm.heroTitle}>{greeting()}</h2>
             <p className={hm.heroSub}>让每一份重要的信息，都成为你记忆的一部分。</p>
             <div className={hm.heroStats}>
-              <span className={hm.heroStat}><span className={hm.heroStatIcon} style={{ color: 'var(--dsw-alias-state-business-primary)' }}><FileGlyph /></span><span><span className={hm.heroStatNum}>{total}</span><br /><span className={hm.heroStatLabel}>总记忆数</span></span></span>
-              <span className={hm.heroStat}><span className={hm.heroStatIcon} style={{ color: '#1FA8C9' }}><LinkGlyph /></span><span><span className={hm.heroStatNum}>{todayCount}</span><br /><span className={hm.heroStatLabel}>今日更新</span></span></span>
-              <span className={hm.heroStat}><span className={hm.heroStatIcon} style={{ color: '#22A06B' }}><PlusGlyph /></span><span><span className={hm.heroStatNum}>{projectCount}</span><br /><span className={hm.heroStatLabel}>覆盖项目</span></span></span>
+              <span className={hm.heroStat}><span className={hm.heroStatIcon} style={{ color: 'var(--dsw-alias-label-primary)' }}><FileGlyph /></span><span><span className={hm.heroStatNum}>{total}</span><br /><span className={hm.heroStatLabel}>总记忆数</span></span></span>
+              <span className={hm.heroStat}><span className={hm.heroStatIcon} style={{ color: 'var(--dsw-alias-label-secondary)' }}><LinkGlyph /></span><span><span className={hm.heroStatNum}>{todayCount}</span><br /><span className={hm.heroStatLabel}>今日更新</span></span></span>
+              <span className={hm.heroStat}><span className={hm.heroStatIcon} style={{ color: 'var(--dsw-alias-label-secondary)' }}><PlusGlyph /></span><span><span className={hm.heroStatNum}>{projectCount}</span><br /><span className={hm.heroStatLabel}>覆盖项目</span></span></span>
               <span className={hm.heroOk}><span className={hm.heroOkDot} />运行正常</span>
             </div>
           </section>
           <section className={hm.quicks}>
-            <button type='button' className={hm.quick} onClick={() => { nav.goAdd(); }}><span className={hm.quickIcon} style={{ background: 'color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent)', color: 'var(--dsw-alias-state-business-primary)' }}><FileGlyph /></span><span className={hm.quickTitle}>新增记忆</span><span className={hm.quickDesc}>记录重要信息，永久保存</span><span className={hm.quickArrow}>→</span></button>
-            <button type='button' className={hm.quick} onClick={() => { fileRef.current?.click(); }}><span className={hm.quickIcon} style={{ background: 'color-mix(in srgb,#22A06B 16%,transparent)', color: '#22A06B' }}><LinkGlyph /></span><span className={hm.quickTitle}>添加文件</span><span className={hm.quickDesc}>上传文档/图片，快速解析</span><span className={hm.quickArrow}>→</span></button>
-            <button type='button' className={hm.quick} onClick={() => { setLinkOpen(v => !v); }}><span className={hm.quickIcon} style={{ background: 'color-mix(in srgb,#7C5CFC 17%,transparent)', color: '#7C5CFC' }}><LinkGlyph /></span><span className={hm.quickTitle}>导入链接</span><span className={hm.quickDesc}>从 URL 获取内容</span><span className={hm.quickArrow}>→</span></button>
-            <button type='button' className={hm.quick} disabled={busyAI} onClick={() => { void runAI(); }}><span className={hm.quickIcon} style={{ background: 'color-mix(in srgb,#E8930C 18%,transparent)', color: '#E8930C' }}><SparkGlyph /></span><span className={hm.quickTitle}>{busyAI ? '整理中...' : 'AI 生成'}</span><span className={hm.quickDesc}>AI 整理去重，合并相似记忆</span><span className={hm.quickArrow}>→</span></button>
+            <button type='button' className={hm.quick} onClick={() => { nav.goAdd(); }}><span className={hm.quickIcon} style={{ background: ink(12), color: ink(82) }}><FileGlyph /></span><span className={hm.quickTitle}>新增记忆</span><span className={hm.quickDesc}>记录重要信息，永久保存</span><span className={hm.quickArrow}>→</span></button>
+            <button type='button' className={hm.quick} onClick={() => { fileRef.current?.click(); }}><span className={hm.quickIcon} style={{ background: ink(10), color: ink(68) }}><LinkGlyph /></span><span className={hm.quickTitle}>添加文件</span><span className={hm.quickDesc}>上传文档/图片，快速解析</span><span className={hm.quickArrow}>→</span></button>
+            <button type='button' className={hm.quick} onClick={() => { setLinkOpen(v => !v); }}><span className={hm.quickIcon} style={{ background: ink(9), color: ink(56) }}><LinkGlyph /></span><span className={hm.quickTitle}>导入链接</span><span className={hm.quickDesc}>从 URL 获取内容</span><span className={hm.quickArrow}>→</span></button>
+            <button type='button' className={hm.quick} disabled={busyAI} onClick={() => { void runAI(); }}><span className={hm.quickIcon} style={{ background: ink(8), color: ink(46) }}><SparkGlyph /></span><span className={hm.quickTitle}>{busyAI ? '整理中...' : 'AI 生成'}</span><span className={hm.quickDesc}>AI 整理去重，合并相似记忆</span><span className={hm.quickArrow}>→</span></button>
           </section>
           <input ref={fileRef} type='file' style={{ display: 'none' }} onChange={e => { void onPickFile(e.currentTarget.files?.[0]); e.currentTarget.value = ''; }} />
           {linkOpen && (
@@ -273,7 +280,7 @@ export function MemoryHome(props: MemoryHomeProps): JSX.Element {
               {kindTotal === 0 ? (<div className={hm.empty}>暂无记忆</div>) : (
               <div className={hm.donutWrap}>
                 <svg className={hm.donutSvg} width='112' height='112' viewBox='0 0 112 112'>
-                  <circle className='hm-track' cx='56' cy='56' r={R} fill='none' stroke='#EEF1F7' strokeWidth='13' />
+                  <circle className='hm-track' cx='56' cy='56' r={R} fill='none' stroke='var(--dsw-alias-bg-module-platform,#EEF1F7)' strokeWidth='13' />
                   {segs.map(s => (<circle key={s.kind} className='hm-seg' cx='56' cy='56' r={R} fill='none' stroke={(KIND_META[s.kind] ?? KIND_META.fact).color} strokeWidth='13' strokeLinecap='butt' strokeDasharray={s.dash + ' ' + (C - Number(s.dash)).toFixed(1)} strokeDashoffset={s.off} transform='rotate(-90 56 56)' />))}
                   <text x='56' y='54' textAnchor='middle' className={hm.donutNum}>{kindTotal}</text>
                   <text x='56' y='70' textAnchor='middle' className={hm.donutLabel}>总记忆数</text>
@@ -330,7 +337,7 @@ export function MemoryHome(props: MemoryHomeProps): JSX.Element {
             <div className={hm.trendAxis}>{(range === 7 ? trend.labels : trend.labels.filter((_, i) => i % 5 === 0 || i === trend.labels.length - 1)).map(l => (<span key={l}>{l}</span>))}</div>
           </section>
           <section className={hm.card}>
-            <div className={hm.cardHead}><span className={hm.cardTitle}>最近更新</span><span>{todayIds.length > 0 && (<button type='button' className={hm.cardLink} style={clearArmed ? { color: '#EE4D6B', fontWeight: 700 } : undefined} title='删除今天创建的全部记忆' onClick={() => { void runClearToday(); }}>{clearArmed ? '确认删除' + todayIds.length + '条？' : '清空今日'}</button>)}<button type='button' className={hm.cardLink} onClick={() => { nav.goChanges(); }}>查看更多 ›</button></span></div>
+            <div className={hm.cardHead}><span className={hm.cardTitle}>最近更新</span><span>{todayIds.length > 0 && (<button type='button' className={hm.cardLink} style={clearArmed ? { color: 'var(--dsw-alias-state-error-primary)', fontWeight: 700 } : undefined} title='删除今天创建的全部记忆' onClick={() => { void runClearToday(); }}>{clearArmed ? '确认删除' + todayIds.length + '条？' : '清空今日'}</button>)}<button type='button' className={hm.cardLink} onClick={() => { nav.goChanges(); }}>查看更多 ›</button></span></div>
             <div className={hm.rows}>
               {recentChanges.length === 0 && recent.length === 0 ? (<div className={hm.empty}>暂无更新</div>) : null}
               {(recentChanges.length > 0 ? recentChanges : recent.map(e => ({ id: e.id, summary: entryTitle(e.content), at: e.updatedAt, entryId: e.id } as unknown as ChangeView))).slice(0, 5).map(c => {

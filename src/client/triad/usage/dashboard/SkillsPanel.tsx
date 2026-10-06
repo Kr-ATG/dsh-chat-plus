@@ -283,44 +283,48 @@ function sortCategories(counts: Map<string, number>): string[] {
 
 /** ---------------------------------------------------------------- 统计卡图标（实心渐变，与设计稿一致） */
 
-/** 蓝色实心立方体（管理的技能）。 */
+/**
+ * 统计卡四枚图标：形状区分语义，颜色一律 currentColor（2026-10 色彩收敛）。
+ * 原先是蓝立方 / 绿勾 / 紫方 / 橙心四色实心，工作台统一灰阶后改为同色
+ * 不同透明度分层——立方体的三个面靠明度差保持立体感，其余靠白色细节。
+ */
 function StatCubeIcon({ size = 20 }: { size?: number }): JSX.Element {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
-      <path d="M12 3 20.4 7.4 12 11.8 3.6 7.4Z" fill="#6C92FF" />
-      <path d="M12 11.8 20.4 7.4v9.2L12 21Z" fill="#2A55F2" />
-      <path d="M12 11.8 3.6 7.4v9.2L12 21Z" fill="#174BFC" />
+      <path d="M12 3 20.4 7.4 12 11.8 3.6 7.4Z" fill="currentColor" opacity=".55" />
+      <path d="M12 11.8 20.4 7.4v9.2L12 21Z" fill="currentColor" opacity=".85" />
+      <path d="M12 11.8 3.6 7.4v9.2L12 21Z" fill="currentColor" />
       <path d="M12 3 20.4 7.4 12 11.8 3.6 7.4Z" fill="none" stroke="#FFFFFF" strokeWidth="0.9" strokeLinejoin="round" opacity=".9" />
     </svg>
   )
 }
 
-/** 绿色实心圆 + 白色对勾（全局启用）。 */
+/** 实心圆 + 白色对勾（全局启用）。 */
 function StatCheckCircleIcon({ size = 20 }: { size?: number }): JSX.Element {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
-      <circle cx="12" cy="12" r="9.4" fill="#0FC566" />
+      <circle cx="12" cy="12" r="9.4" fill="currentColor" />
       <path d="M7.9 12.3 10.7 15.1 16.2 9.2" fill="none" stroke="#FFFFFF" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
 
-/** 紫色实心圆角方块 + 白色内格（散装技能）。 */
+/** 实心圆角方块 + 白色内格（散装技能）。 */
 function StatSquareIcon({ size = 20 }: { size?: number }): JSX.Element {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
-      <rect x="4.2" y="4.2" width="15.6" height="15.6" rx="3.2" fill="#6C33F2" />
+      <rect x="4.2" y="4.2" width="15.6" height="15.6" rx="3.2" fill="currentColor" />
       <path d="M7.8 7.8h8.4v8.4H7.8Z" fill="#FFFFFF" opacity=".92" />
-      <path d="M7.8 7.8h4.2v4.2H7.8ZM12 12h4.2v4.2H12Z" fill="#6C33F2" />
+      <path d="M7.8 7.8h4.2v4.2H7.8ZM12 12h4.2v4.2H12Z" fill="currentColor" />
     </svg>
   )
 }
 
-/** 橙色实心心形 + 白色高光点（技能健康）。 */
+/** 实心心形 + 白色高光点（技能健康）。 */
 function StatHeartIcon({ size = 20 }: { size?: number }): JSX.Element {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
-      <path d="M12 20.6C7.2 17.2 3.9 14 3.9 10.2 3.9 7.3 6.2 5.2 8.8 5.2c1.4 0 2.6.6 3.2 1.6.6-1 1.8-1.6 3.2-1.6 2.6 0 4.9 2.1 4.9 5 0 3.8-3.3 7-8.1 10.4z" fill="#F4502A" />
+      <path d="M12 20.6C7.2 17.2 3.9 14 3.9 10.2 3.9 7.3 6.2 5.2 8.8 5.2c1.4 0 2.6.6 3.2 1.6.6-1 1.8-1.6 3.2-1.6 2.6 0 4.9 2.1 4.9 5 0 3.8-3.3 7-8.1 10.4z" fill="currentColor" />
       <circle cx="8.9" cy="9.3" r="1.6" fill="#FFFFFF" opacity=".95" />
     </svg>
   )
@@ -395,30 +399,31 @@ function GuideArtIcon(): JSX.Element {
   return (
     <svg width="150" height="86" viewBox="0 0 150 86" aria-hidden="true">
       <defs>
+        {/* 2026-10 色彩收敛：插画从蓝色系转中性灰（currentColor + 透明度分层） */}
         <linearGradient id="skm-guide-book" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#9DB7F7" />
-          <stop offset="1" stopColor="#6E8FF0" />
+          <stop offset="0" stopColor="currentColor" stopOpacity=".55" />
+          <stop offset="1" stopColor="currentColor" stopOpacity=".8" />
         </linearGradient>
         <linearGradient id="skm-guide-page" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stopColor="#FFFFFF" />
-          <stop offset="1" stopColor="#D9E4FF" />
+          <stop offset="1" stopColor="#DDE0E5" />
         </linearGradient>
       </defs>
       {/* 背面书页 (右) */}
-      <path d="M96 34 L141 52 L120 66 L78 50 Z" fill="url(#skm-guide-page)" stroke="#C7D6F7" strokeWidth="1" />
+      <path d="M96 34 L141 52 L120 66 L78 50 Z" fill="url(#skm-guide-page)" stroke="var(--dsw-alias-border-l2,#c7ccd4)" strokeWidth="1" />
       {/* 背面书页 (左) */}
-      <path d="M84 32 L50 52 L28 44 L64 26 Z" fill="url(#skm-guide-page)" stroke="#C7D6F7" strokeWidth="1" />
+      <path d="M84 32 L50 52 L28 44 L64 26 Z" fill="url(#skm-guide-page)" stroke="var(--dsw-alias-border-l2,#c7ccd4)" strokeWidth="1" />
       {/* 书封面底座 */}
-      <path d="M64 26 L96 34 L78 50 L50 52 Z" fill="url(#skm-guide-book)" stroke="var(--dsw-alias-state-business-primary,#5b82e5)" strokeWidth="1" />
-      <path d="M50 52 L28 44 L30 56 L52 66 Z" fill="#B7C9F5" stroke="var(--dsw-alias-state-business-primary,#5b82e5)" strokeWidth="1" />
-      <path d="M78 50 L120 66 L118 78 L76 62 Z" fill="#A9BEF1" stroke="var(--dsw-alias-state-business-primary,#5b82e5)" strokeWidth="1" />
+      <path d="M64 26 L96 34 L78 50 L50 52 Z" fill="url(#skm-guide-book)" stroke="currentColor" strokeWidth="1" />
+      <path d="M50 52 L28 44 L30 56 L52 66 Z" fill="currentColor" opacity=".5" stroke="currentColor" strokeWidth="1" />
+      <path d="M78 50 L120 66 L118 78 L76 62 Z" fill="currentColor" opacity=".38" stroke="currentColor" strokeWidth="1" />
       {/* 封面上的圆形徽章 */}
       <circle cx="73" cy="44" r="9" fill="#FFFFFF" opacity=".85" />
-      <circle cx="73" cy="44" r="5.5" fill="#6E8FF0" />
+      <circle cx="73" cy="44" r="5.5" fill="currentColor" />
       {/* 星点装饰 */}
-      <path d="M118 10c.6 2.6 1.6 3.6 4.2 4.2-2.6.6-3.6 1.6-4.2 4.2-.6-2.6-1.6-3.6-4.2-4.2 2.6-.6 3.6-1.6 4.2-4.2Z" fill="#BCCFFF" />
-      <path d="M126 26c.4 1.7 1 2.3 2.7 2.7-1.7.4-2.3 1-2.7 2.7-.4-1.7-1-2.3-2.7-2.7 1.7-.4 2.3-1 2.7-2.7Z" fill="#C9D9FF" />
-      <circle cx="111" cy="24" r="2" fill="#C9D9FF" />
+      <path d="M118 10c.6 2.6 1.6 3.6 4.2 4.2-2.6.6-3.6 1.6-4.2 4.2-.6-2.6-1.6-3.6-4.2-4.2 2.6-.6 3.6-1.6 4.2-4.2Z" fill="currentColor" opacity=".4" />
+      <path d="M126 26c.4 1.7 1 2.3 2.7 2.7-1.7.4-2.3 1-2.7 2.7-.4-1.7-1-2.3-2.7-2.7 1.7-.4 2.3-1 2.7-2.7Z" fill="currentColor" opacity=".3" />
+      <circle cx="111" cy="24" r="2" fill="currentColor" opacity=".3" />
     </svg>
   )
 }
@@ -2279,13 +2284,13 @@ const SHEET = `
 .skm-stat-icon{flex:none;width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center}
 .skm-stat-icon[data-tone='blue']{color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 13%,transparent)}
 .skm-stat-icon[data-tone='green']{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 13%,transparent)}
-.skm-stat-icon[data-tone='violet']{color:#8b5cf6;background:color-mix(in srgb,#8b5cf6 13%,transparent)}
+.skm-stat-icon[data-tone='violet']{color:var(--dsw-alias-state-info-primary);background:color-mix(in srgb,var(--dsw-alias-state-info-primary) 13%,transparent)}
 .skm-stat-icon[data-tone='orange']{color:var(--dsw-alias-state-warn-primary);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 13%,transparent)}
 /* 图标正下方的渐变光点（与图标同色，向下淡出） */
 .skm-stat-glow{flex:none;width:4px;height:11px;border-radius:99px}
 .skm-stat-glow[data-tone='blue']{background:linear-gradient(to bottom,color-mix(in srgb,var(--dsw-alias-state-business-primary) 65%,transparent),transparent)}
 .skm-stat-glow[data-tone='green']{background:linear-gradient(to bottom,color-mix(in srgb,var(--dsw-alias-state-success-primary) 60%,transparent),transparent)}
-.skm-stat-glow[data-tone='violet']{background:linear-gradient(to bottom,color-mix(in srgb,#8b5cf6 60%,transparent),transparent)}
+.skm-stat-glow[data-tone='violet']{background:linear-gradient(to bottom,color-mix(in srgb,var(--dsw-alias-state-info-primary) 60%,transparent),transparent)}
 .skm-stat-glow[data-tone='orange']{background:linear-gradient(to bottom,color-mix(in srgb,var(--dsw-alias-state-warn-primary) 60%,transparent),transparent)}
 .skm-stat-body{flex:1;min-width:0;display:flex;flex-direction:column;align-items:stretch}
 .skm-stat-label{font-size:12px;line-height:17px;color:var(--dsw-alias-label-secondary,#8f96a3)}
@@ -2293,7 +2298,7 @@ const SHEET = `
 .skm-stat-value-row{display:flex;align-items:center;gap:6px}
 .skm-stat-chevron{flex:none;margin-left:auto;color:#c3c8d3;transition:transform 160ms ease,color 160ms ease}
 .skm-stat:hover .skm-stat-chevron{color:#9aa2b3;transform:translateX(2px)}
-.skm-stat-value[data-tone='warn']{color:#b45309}
+.skm-stat-value[data-tone='warn']{color:var(--dsw-alias-label-primary,#1f2430)}
 .skm-stat-value[data-tone='pending']{color:var(--dsw-alias-label-tertiary,#81858c)}
 .skm-stat-desc{font-size:12px;line-height:17px;color:var(--dsw-alias-label-tertiary,#a5aab5);margin-top:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .skm-health-notice{flex:none;margin:8px 16px 0;box-sizing:border-box;border:1px solid #f0cf9e;border-radius:10px;background:#fdf6e3;padding:8px 12px;display:flex;flex-direction:column;gap:4px;animation:skm-form-in 180ms ease-out}
@@ -2345,7 +2350,7 @@ const SHEET = `
 .skm-banner-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .skm-banner-title{font-size:14px;font-weight:700;line-height:20px;color:#1f2937}
 .skm-banner-sub{font-size:12px;line-height:17px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.skm-banner-btn{flex:none;display:inline-flex;align-items:center;height:32px;box-sizing:border-box;border:none;border-radius:10px;background:#e8850c;color:#fff;font-size:13px;font-weight:600;line-height:18px;font-family:inherit;padding:0 14px;cursor:pointer;box-shadow:0 1px 3px rgba(232,133,12,.35);transition:background 140ms ease,transform 140ms ease,box-shadow 140ms ease}
+.skm-banner-btn{flex:none;display:inline-flex;align-items:center;height:32px;box-sizing:border-box;border:none;border-radius:10px;background:var(--dsw-alias-label-primary,#1f2430);color:var(--dsw-alias-bg-base,#fff);font-size:13px;font-weight:600;line-height:18px;font-family:inherit;padding:0 14px;cursor:pointer;box-shadow:0 1px 3px color-mix(in srgb,var(--dsw-alias-label-primary) 30%,transparent);transition:background 140ms ease,transform 140ms ease,box-shadow 140ms ease}
 .skm-banner-btn:hover{background:#d67906;box-shadow:0 2px 8px rgba(232,133,12,.4);transform:translateY(-1px)}
 .skm-banner-btn:active{transform:translateY(0) scale(.98)}
 .skm-main-scroll{flex:1;min-height:0;overflow-y:auto;padding:12px 16px 20px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-content:start;align-items:start}

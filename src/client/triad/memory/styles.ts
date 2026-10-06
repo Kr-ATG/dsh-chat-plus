@@ -71,6 +71,7 @@ export const css = {
   topStats: 'dsh-memory-top-stats',
   topStat: 'dsh-memory-top-stat',
   topStatVal: 'dsh-memory-top-stat-val',
+  topStatIcon: 'dsh-memory-top-stat-icon',
   topStatSep: 'dsh-memory-top-stat-sep',
   topClose: 'dsh-memory-top-close',
   // ── 筛选行 ──
@@ -351,6 +352,8 @@ const SHEET = `
 .dsh-memory-top-kbd{position:absolute;right:10px;top:50%;transform:translateY(-50%);pointer-events:none;padding:1px 6px;border:1px solid var(--dsw-alias-border-l3,rgba(255,255,255,.16));border-radius:6px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--m-text-3);font-size:11px;line-height:16px}
 .dsh-memory-top-stats{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:13px;line-height:20px;color:var(--m-text-2);white-space:nowrap}
 .dsh-memory-top-stat{display:inline-flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums}
+/* 统计行图标：中性二级字色（2026-10 色彩收敛，去掉内联金星/蓝灯泡） */
+.dsh-memory-top-stat-icon{display:inline-flex;align-items:center;color:var(--m-text-2)}
 .dsh-memory-top-stat .dsh-memory-top-stat-val{font-weight:600;color:var(--m-text)}
 .dsh-memory-top-stat-sep{color:var(--m-text-3);font-size:12px}
 .dsh-memory-top-close{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;border-radius:8px;padding:0;background:transparent;color:var(--m-text-3);cursor:pointer;transition:background .14s ease,color .14s ease}

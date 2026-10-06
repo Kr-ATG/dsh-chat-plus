@@ -134,22 +134,24 @@ const KIND_LABEL: Record<MemoryKind, MemoryLocaleKey> = {
   'session-summary': 'kindSession',
 }
 
-/** 分类圆点色板（按标签名哈希稳定取色；参考图：蓝/琥珀/玫红/紫/青…）。
- *  首位是主题蓝——用官方 token 而非字面量，亮/暗主题下与 chrome 一致。 */
-const DOT_COLORS = ['var(--dsw-alias-state-business-primary)', '#F5C242', '#F0366C', '#7C5CFC', '#2BA9E0', '#2AA57A', '#F59E0B', '#8B5CF6', '#22B8CF', '#F97316'] as const
+/** 主文字色 p% 混透明（2026-10 色彩收敛的数据色板基元）：
+ *  分类 / 项目 / kind 的区分改由「同色不同明度」承担，不再一物一色相。 */
+const ink = (p: number): string => `color-mix(in srgb,var(--dsw-alias-label-primary) ${p}%,transparent)`
 
-/** 项目图标色板（按项目 hash 哈希稳定取色）。 */
-const PROJ_COLORS = ['#2AA57A', '#F59E0B', 'var(--dsw-alias-state-business-primary)', '#F0366C', '#7C5CFC', '#22B8CF'] as const
+/** 分类圆点色板（按标签名哈希稳定取色；灰阶十档，明暗主题自动跟随）。 */
+const DOT_COLORS = [ink(88), ink(78), ink(68), ink(58), ink(50), ink(42), ink(35), ink(29), ink(24), ink(19)] as const
 
-/** 条目图标颜色（按 kind 着色：身份紫 / 偏好蓝 / 事实灰 / 决策琥珀 / 踩坑玫红 / 会话青）。
- *  preference 走主题 token，与记忆首页的 KIND_META 口径保持一致。 */
+/** 项目图标色板（按项目 hash 哈希稳定取色；灰阶六档）。 */
+const PROJ_COLORS = [ink(84), ink(68), ink(54), ink(42), ink(32), ink(24)] as const
+
+/** 条目图标颜色（按 kind 取灰阶档位；与记忆首页 KIND_META 同口径）。 */
 const KIND_COLORS: Record<MemoryKind, string> = {
-  identity: '#7C5CFC',
-  preference: 'var(--dsw-alias-state-business-primary)',
-  fact: '#9CA3AF',
-  decision: '#F5C242',
-  gotcha: '#F0366C',
-  'session-summary': '#2BA9E0',
+  identity: ink(88),
+  preference: ink(72),
+  fact: ink(56),
+  decision: ink(80),
+  gotcha: ink(64),
+  'session-summary': ink(46),
 }
 
 /** 字符串哈希（稳定取色）。 */
@@ -1491,7 +1493,7 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
           <div className={css.relationCard}>
             <span className={css.relationLabel}>{t('relationProject')}</span>
             <span className={css.relationMain}>
-              <span style={{ color: entry.scope === 'global' ? '#9CA3AF' : '#5B8DEF', display: 'inline-flex' }}>
+              <span style={{ color: entry.scope === 'global' ? 'var(--dsw-alias-label-tertiary)' : 'var(--dsw-alias-label-secondary)', display: 'inline-flex' }}>
                 {entry.scope === 'global' ? <GlobeIcon size={12} /> : <FolderIcon size={12} />}
               </span>
               {entry.scope === 'global' ? t('scopeGlobal') : (project?.alias ?? projectName(entry.projectHash, projects))}
@@ -1503,7 +1505,7 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
           <div className={css.relationCard}>
             <span className={css.relationLabel}>{t('relationCategory')}</span>
             <span className={css.relationMain}>
-              <span className={css.catDot} style={{ ['--dot' as string]: mainTag !== null ? DOT_COLORS[hashOf(mainTag) % DOT_COLORS.length] : '#CED2DA' }} />
+              <span className={css.catDot} style={{ ['--dot' as string]: mainTag !== null ? DOT_COLORS[hashOf(mainTag) % DOT_COLORS.length] : 'var(--dsw-alias-border-l2, #CED2DA)' }} />
               {mainTag ?? '—'}
             </span>
             <span className={css.relationSub}>
@@ -1848,7 +1850,7 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
                       <>
                         <span className={css.topStatSep}>·</span>
                         <span className={css.topStat} title={t('tabPinned')}>
-                          <span style={{ color: '#F5C242' }}>★</span>
+                          <span className={css.topStatIcon} aria-hidden="true">★</span>
                           <span className={css.topStatVal}>{summary.pinnedCount}</span>
                           {t('statPinnedShort')}
                         </span>
@@ -1858,7 +1860,7 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
                       <>
                         <span className={css.topStatSep}>·</span>
                         <span className={css.topStat} title={`${t('hintAllChanges')} ${changeCount.toLocaleString()}`}>
-                          <span style={{ color: '#5B8DEF', display: 'inline-flex' }}><LightbulbIcon size={13} /></span>
+                          <span className={css.topStatIcon}><LightbulbIcon size={13} /></span>
                           <span className={css.topStatVal}>{summary.todayChanges}</span>
                           {t('statChangesToday')}
                         </span>

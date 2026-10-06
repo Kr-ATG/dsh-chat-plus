@@ -347,11 +347,11 @@ export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate,
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px', fontSize: '11px', color: 'var(--dsw-alias-label-secondary, #aaa)' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <span style={{ width: '12px', height: '2.5px', borderRadius: '2px', background: '#3b82f6' }} />
+            <span style={{ width: '12px', height: '2.5px', borderRadius: '2px', background: 'var(--dsw-alias-label-primary, #3b82f6)' }} />
             总消耗 Tokens
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <span style={{ width: '12px', height: '2.5px', borderRadius: '2px', background: '#f59e0b' }} />
+            <span style={{ width: '12px', height: '2.5px', borderRadius: '2px', background: 'var(--dsw-alias-label-tertiary, #f59e0b)' }} />
             输出 Tokens
           </span>
         </div>
@@ -368,14 +368,14 @@ export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate,
           <defs>
             {/* 主曲线面积透明渐变 */}
             <linearGradient id="token-curve-gradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.28" />
-              <stop offset="65%" stopColor="#3b82f6" stopOpacity="0.08" />
-              <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.0" />
+              <stop offset="0%" stopColor="var(--dsw-alias-label-primary, #3b82f6)" stopOpacity="0.28" />
+              <stop offset="65%" stopColor="var(--dsw-alias-label-primary, #3b82f6)" stopOpacity="0.08" />
+              <stop offset="100%" stopColor="var(--dsw-alias-label-primary, #3b82f6)" stopOpacity="0.0" />
             </linearGradient>
 
             {/* 发光滤镜 */}
             <filter id="curve-glow" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#3b82f6" floodOpacity="0.3" />
+              <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="var(--dsw-alias-label-primary, #3b82f6)" floodOpacity="0.3" />
             </filter>
           </defs>
 
@@ -438,7 +438,7 @@ export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate,
             <path
               d={outputSpline.linePath}
               fill="none"
-              stroke="#f59e0b"
+              stroke="var(--dsw-alias-label-tertiary, #f59e0b)"
               strokeWidth="1.6"
               strokeDasharray="2 2"
               opacity="0.85"
@@ -450,7 +450,7 @@ export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate,
             <path
               d={totalSpline.linePath}
               fill="none"
-              stroke="#3b82f6"
+              stroke="var(--dsw-alias-label-primary, #3b82f6)"
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -473,7 +473,7 @@ export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate,
                 y1={topPadding}
                 x2={0}
                 y2={bottomY}
-                stroke="#3b82f6"
+                stroke="var(--dsw-alias-label-primary, #3b82f6)"
                 strokeWidth="1.2"
                 strokeDasharray="3 3"
                 opacity="0.75"
@@ -481,7 +481,7 @@ export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate,
               {/* 吸附外光晕点 */}
               <g style={{ transform: `translate(0px, ${tipPoint.y}px)`, transition: 'transform .22s cubic-bezier(.22, .61, .36, 1)' }}>
                 <circle cx={0} cy={0} r="7" fill="rgba(59, 130, 246, 0.25)" />
-                <circle cx={0} cy={0} r="4.5" fill="#3b82f6" stroke="#fff" strokeWidth="1.5" />
+                <circle cx={0} cy={0} r="4.5" fill="var(--dsw-alias-label-primary, #3b82f6)" stroke="#fff" strokeWidth="1.5" />
               </g>
             </g>
           )}
@@ -520,8 +520,8 @@ export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate,
                     cx={p.x}
                     cy={p.y}
                     r={isSelected || isCurrent ? '4' : '2.5'}
-                    fill={isSelected || isCurrent ? '#3b82f6' : 'var(--dsw-alias-bg-layer-1, #161824)'}
-                    stroke="#3b82f6"
+                    fill={isSelected || isCurrent ? 'var(--dsw-alias-label-primary, #3b82f6)' : 'var(--dsw-alias-bg-layer-1, #161824)'}
+                    stroke="var(--dsw-alias-label-primary, #3b82f6)"
                     strokeWidth="1.5"
                   />
                 )}
@@ -545,7 +545,7 @@ export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate,
                     y={bottomY + 16}
                     textAnchor="middle"
                     fontSize="10"
-                    fill={isHovered || isSelected || isCurrent ? 'var(--dsw-alias-state-business-primary, #3b82f6)' : 'var(--dsw-alias-label-tertiary, #81858c)'}
+                    fill={isHovered || isSelected || isCurrent ? 'var(--dsw-alias-state-business-primary, var(--dsw-alias-label-primary, #3b82f6))' : 'var(--dsw-alias-label-tertiary, #81858c)'}
                     fontWeight={isHovered || isSelected || isCurrent ? '600' : '400'}
                   >
                     {p.data.label}
@@ -586,7 +586,7 @@ export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate,
                 <text x="8" y="30" fontSize="11.5" fontWeight="700" fill="#60a5fa" fontVariantNumeric="tabular-nums">
                   {formatUnits(tipPoint.data.total)}
                 </text>
-                <text x="64" y="30" fontSize="9.5" fill="#f59e0b" fontVariantNumeric="tabular-nums">
+                <text x="64" y="30" fontSize="9.5" fill="var(--dsw-alias-label-tertiary, #f59e0b)" fontVariantNumeric="tabular-nums">
                   出 {formatUnits(tipPoint.data.output)}
                 </text>
               </g>
