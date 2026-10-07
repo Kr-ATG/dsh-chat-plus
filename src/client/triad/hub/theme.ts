@@ -485,13 +485,19 @@ body[data-ds-dark-theme] .wb-root {
 .wb-root .dsh-memory-top-stat-val { font-family: var(--wb2-mono); font-weight: 680; color: var(--wb2-t1); }
 /* 顶栏段控 → 左图标轨：视图 tab 竖排成 58px 轨，文字隐藏只留图标+徽标；
    项目/分类下拉保留在二级筛选行（真数据入口不丢） */
-.wb-root .dsh-memory-top-bar { display: grid !important; grid-template-columns: 58px 1fr;
-  grid-template-rows: auto auto; gap: 8px 14px; padding: 0 22px 12px !important; border-bottom: none !important; }
+/* 顶栏段控 → 左图标轨：面板改三行 grid（统计行 / 筛选行 / 内容行），
+   图标轨跨满三行通高；首页视图没有筛选行时该行 auto 塌成 0，不留空白带。
+   项目/分类下拉保留在二级筛选行（真数据入口不丢） */
+.wb-root .dsh-memory-panel { display: grid !important;
+  grid-template-columns: 58px minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 8px 14px; padding: 0 22px 22px !important; }
+.wb-root .dsh-memory-top-bar { display: contents; }
 .wb-root .dsh-memory-view-row { display: contents; }
-.wb-root .dsh-memory-view-tabs { grid-column: 1; grid-row: 1 / span 2; flex-direction: column !important; gap: 3px !important;
+.wb-root .dsh-memory-view-tabs { grid-column: 1; grid-row: 1 / span 3; flex-direction: column !important; gap: 3px !important;
   width: 58px; padding: 8px 6px !important; border-radius: var(--wb2-r-md) !important;
   background: color-mix(in srgb, var(--wb2-t1) 3%, transparent) !important;
-  border: 1px solid var(--wb2-line) !important; }
+  border: 1px solid var(--wb2-line) !important; align-self: stretch; }
 .wb-root .dsh-memory-view-tab { position: relative; width: 100%; aspect-ratio: 1; padding: 0 !important;
   justify-content: center; border-radius: var(--wb2-r-xs) !important;
   transition: all 300ms var(--wb2-ease) !important; }
@@ -503,10 +509,46 @@ body[data-ds-dark-theme] .wb-root {
 .wb-root .dsh-memory-view-tab[data-active="true"]::before { content: ""; position: absolute; left: -6px; top: 50%;
   transform: translateY(-50%); width: 3px; height: 17px; border-radius: 0 3px 3px 0;
   background: var(--wb2-accent); box-shadow: 0 0 10px var(--wb2-a3); }
-/* 统计与操作区占满剩余宽度（grid 第 1 行第 2 列），二级筛选行落第 2 行第 2 列 */
-.wb-root .dsh-memory-view-actions { grid-column: 2; grid-row: 1; min-width: 0; display: flex; align-items: center; }
+/* 统计与操作区（grid 第 1 行第 2 列），二级筛选行第 2 行第 2 列，
+   内容区（列表+详情 / 首页 / 变更等全宽视图）第 3 行第 2 列通高 */
+.wb-root .dsh-memory-view-actions { grid-column: 2; grid-row: 1; min-width: 0; display: flex; align-items: center; justify-content: flex-end; }
 .wb-root .dsh-memory-subfilter-row { grid-column: 2; grid-row: 2; min-width: 0; }
-.wb-root .dsh-memory-cols { padding-left: 22px !important; padding-right: 22px !important; }
+.wb-root .dsh-memory-cols, .wb-root .dsh-memory-view-full, .wb-root .dsh-memory-home {
+  grid-column: 2; grid-row: 3; min-height: 0; }
+.wb-root .dsh-memory-home { max-width: none !important; width: 100% !important; margin: 0 !important; }
+/* ── 记忆首页大盘换肤（MemoryHome）──
+   用户点名「不需要背景色」：hero 卡那两团模糊装饰圆删掉；分类/类型/行图标
+   的多彩（KIND_META 彩色 inline 色）统一收进强调色微底。 */
+.wb-root .hm-hero::before, .wb-root .hm-hero::after { display: none !important; }
+.wb-root .dsh-memory-home .hm-card, .wb-root .dsh-memory-home .hm-hero {
+  border-radius: var(--wb2-r-md) !important; border: 1px solid var(--wb2-line) !important;
+  background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1) 46%) !important;
+  box-shadow: var(--wb2-inset) !important; }
+.wb-root .dsh-memory-home .hm-mem-card { border-radius: var(--wb2-r-sm) !important;
+  border: 1px solid var(--wb2-line) !important; background: var(--wb2-s1) !important;
+  transition: transform 420ms var(--wb2-ease), border-color 420ms var(--wb2-ease) !important; }
+.wb-root .dsh-memory-home .hm-mem-card:hover { transform: translateY(-3px); border-color: var(--wb2-line2) !important; }
+/* 行内多彩图标（inline style 的 background）收强调色微底：
+   属性选择器提权压 inline */
+.wb-root .dsh-memory-home span[style*="background"] {
+  background: var(--wb2-a1) !important; color: var(--wb2-accent) !important; }
+.wb-root .dsh-memory-home .hm-tab.hm-tab-active { background: var(--wb2-accent) !important; color: #fff !important; }
+/* 趋势图/环图描边吃强调色（SVG stroke 走 CSS 变量） */
+.wb-root .dsh-memory-home .hm-line { stroke: var(--wb2-accent) !important; }
+.wb-root .dsh-memory-home .hm-dot { fill: var(--wb2-accent) !important; }
+/* 类型分布环：多彩分段收强调色明度五档（stroke 是 presentation attribute，CSS 可压） */
+.wb-root .dsh-memory-home .hm-seg:nth-of-type(2) { stroke: var(--wb2-accent) !important; }
+.wb-root .dsh-memory-home .hm-seg:nth-of-type(3) { stroke: var(--wb2-accent-hi) !important; }
+.wb-root .dsh-memory-home .hm-seg:nth-of-type(4) { stroke: var(--wb2-a4) !important; }
+.wb-root .dsh-memory-home .hm-seg:nth-of-type(5) { stroke: var(--wb2-a3) !important; }
+.wb-root .dsh-memory-home .hm-seg:nth-of-type(6) { stroke: var(--wb2-a2) !important; }
+.wb-root .dsh-memory-home .hm-legend-dot { background: var(--wb2-a3) !important; }
+.wb-root .dsh-memory-home .hm-legend-row:nth-of-type(1) .hm-legend-dot { background: var(--wb2-accent) !important; }
+.wb-root .dsh-memory-home .hm-legend-row:nth-of-type(2) .hm-legend-dot { background: var(--wb2-accent-hi) !important; }
+.wb-root .dsh-memory-home .hm-legend-row:nth-of-type(3) .hm-legend-dot { background: var(--wb2-a4) !important; }
+.wb-root .dsh-memory-home .hm-legend-row:nth-of-type(4) .hm-legend-dot { background: var(--wb2-a3) !important; }
+.wb-root .dsh-memory-home .hm-legend-row:nth-of-type(5) .hm-legend-dot { background: var(--wb2-a2) !important; }
+
 /* 时间河流：竖线挂在列表容器上（条目都在 .dsh-memory-card-list 里），
    日期头行（.dsh-memory-group-section）左缘落圆点 */
 .wb-root .dsh-memory-card-list { position: relative; padding-left: 20px !important; }
