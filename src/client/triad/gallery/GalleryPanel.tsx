@@ -68,8 +68,8 @@ import { getClientCtx } from '../../client-ctx.js'
 /** 类别 chips 的展示顺序（全部之后，按产出频率排）。 */
 const KIND_ORDER: readonly GalleryKind[] = ['image', 'page', 'video', 'pdf', 'slide', 'sheet', 'doc', 'audio']
 
-/** 筛选状态：null = 全部。 */
-type KindFilter = GalleryKind | null
+/** 筛选状态：当前选中的分类。 */
+type KindFilter = GalleryKind
 
 /** 视图形态：网格 / 时间轴。 */
 type ViewMode = 'grid' | 'timeline'
@@ -212,6 +212,80 @@ function PlayBadge(): JSX.Element {
       </svg>
     </span>
   )
+}
+
+/** 分类切换微图标。 */
+function KindTabIcon({ kind, size = 18 }: { readonly kind: GalleryKind; readonly size?: number }): JSX.Element {
+  const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
+  switch (kind) {
+    case 'image':
+      return (
+        <svg {...common}>
+          <rect x="3" y="3" width="18" height="18" rx="3" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <path d="M21 15l-5-5L5 21" />
+        </svg>
+      )
+    case 'page':
+      return (
+        <svg {...common}>
+          <rect x="3" y="3" width="18" height="18" rx="3" />
+          <path d="M3 9h18M9 21V9" />
+        </svg>
+      )
+    case 'video':
+      return (
+        <svg {...common}>
+          <polygon points="5 3 19 12 5 21 5 3" />
+        </svg>
+      )
+    case 'pdf':
+      return (
+        <svg {...common}>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="9" y1="15" x2="15" y2="15" />
+        </svg>
+      )
+    case 'slide':
+      return (
+        <svg {...common}>
+          <rect x="2" y="3" width="20" height="14" rx="2" />
+          <line x1="12" y1="17" x2="12" y2="21" />
+          <line x1="8" y1="21" x2="16" y2="21" />
+        </svg>
+      )
+    case 'sheet':
+      return (
+        <svg {...common}>
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
+        </svg>
+      )
+    case 'doc':
+      return (
+        <svg {...common}>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="8" y1="13" x2="16" y2="13" />
+          <line x1="8" y1="17" x2="13" y2="17" />
+        </svg>
+      )
+    case 'audio':
+      return (
+        <svg {...common}>
+          <path d="M9 18V5l12-2v13" />
+          <circle cx="6" cy="18" r="3" />
+          <circle cx="18" cy="16" r="3" />
+        </svg>
+      )
+    default:
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="9" />
+        </svg>
+      )
+  }
 }
 
 /* ── 缩略图降采样（滚动性能的关键）────────────────────────────────────── */
@@ -490,7 +564,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
   const [stale, setStale] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  const [kind, setKind] = useState<KindFilter>(null)
+  const [kind, setKind] = useState<KindFilter>('image')
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
@@ -588,6 +662,27 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
     return counts
   }, [items, sessionId])
 
+  // 首次载入后：若默认选中的 'image' 分类没有内容，而其他分类有内容，自动切到首个有内容的分类。
+  useEffect(() => {
+    if (items === null || items.length === 0) return
+    if ((kindCounts.get(kind) ?? 0) === 0) {
+      const firstAvailable = KIND_ORDER.find((entry) => (kindCounts.get(entry) ?? 0) > 0)
+      if (firstAvailable !== undefined) {
+        setKind(firstAvailable)
+      }
+    }
+  }, [items, kindCounts, kind])
+
+  /** 平板风格底部 Dock 展示的分类清单（核心常用 + 任何有产出物的类别）。 */
+  const dockKinds = useMemo(() => {
+    const withItems = KIND_ORDER.filter((entry) => (kindCounts.get(entry) ?? 0) > 0)
+    if (withItems.length >= 3) {
+      return KIND_ORDER.filter((entry) => (kindCounts.get(entry) ?? 0) > 0 || kind === entry)
+    }
+    const defaultCore: readonly GalleryKind[] = ['image', 'page', 'video', 'pdf', 'doc']
+    return KIND_ORDER.filter((entry) => (kindCounts.get(entry) ?? 0) > 0 || defaultCore.includes(entry) || kind === entry)
+  }, [kindCounts, kind])
+
   /** 搜索词里的时间表达（认出来就按时间过滤，不再按文本匹配搜索词）。 */
   const queryTimeRange = useMemo(() => parseTimeQuery(query, now), [query, now])
 
@@ -608,7 +703,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
     return base.filter((item) => {
       if (gonePaths.has(item.path)) return false
       if (sessionId !== null && item.sessionId !== sessionId) return false
-      if (kind !== null && item.kind !== kind) return false
+      if (item.kind !== kind) return false
       if (effectiveRange !== null && !inTimeRange(item.time, effectiveRange)) return false
       if (needle !== '') {
         const title = sessionById.get(item.sessionId)?.title ?? ''
@@ -627,7 +722,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
   const dayGroups = useMemo(() => groupByDay(visible, now), [visible, now])
 
   /** 切换筛选时网格重建（key 变化 → 入场动画重播，形成「换一批」的视觉反馈）。 */
-  const gridKey = `${kind ?? 'all'}|${sessionId ?? 'all'}|${query.trim().toLowerCase()}|${view}|${effectiveRange?.from ?? ''}-${effectiveRange?.to ?? ''}`
+  const gridKey = `${kind}|${sessionId ?? 'all'}|${query.trim().toLowerCase()}|${view}|${effectiveRange?.from ?? ''}-${effectiveRange?.to ?? ''}`
 
   /** 应用一个时间预设（'all' = 清除）。 */
   const applyPreset = useCallback((id: Exclude<TimePresetId, 'custom'>) => {
@@ -696,31 +791,27 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
 
   return (
     <div className="tg-root">
-      {/* 工具条 */}
+      {/* 工具条：搜索 + 时间筛选 + 视图切换 + 统计 + 刷新 */}
       <div className="tg-toolbar">
-        <div className="tg-kinds">
-          <button
-            type="button"
-            className="tg-kind"
-            data-active={kind === null ? 'true' : undefined}
-            onClick={() => { setKind(null) }}
-          >
-            全部
-            <span className="tg-kind__count">{totalCount}</span>
-          </button>
-          {KIND_ORDER.filter((entry) => (kindCounts.get(entry) ?? 0) > 0 || kind === entry).map((entry) => (
-            <button
-              key={entry}
-              type="button"
-              className="tg-kind"
-              data-active={kind === entry ? 'true' : undefined}
-              onClick={() => { setKind(kind === entry ? null : entry) }}
-            >
-              {KIND_LABEL[entry]}
-              <span className="tg-kind__count">{kindCounts.get(entry) ?? 0}</span>
-            </button>
-          ))}
-        </div>
+        <label className="tg-search">
+          <span className="tg-search__icon">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+          </span>
+          <input
+            className="tg-search__input"
+            type="search"
+            placeholder="搜文件名 / 会话 / 时间（如「昨天」「近30天」「2026-10-01」）…"
+            value={query}
+            onChange={(event) => { setQuery(event.target.value) }}
+            data-time-hit={queryTimeRange !== null ? 'true' : undefined}
+          />
+          {queryTimeRange !== null && (
+            <span className="tg-search__time-tag" title={`按时间过滤：${queryTimeRange.label}`}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+              {queryTimeRange.label}
+            </span>
+          )}
+        </label>
         {/* 时间筛选钮 + 预设弹层 */}
         <div className="tg-time" ref={popoverRef}>
           <button
@@ -782,25 +873,6 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
             </div>
           )}
         </div>
-        <label className="tg-search">
-          <span className="tg-search__icon">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
-          </span>
-          <input
-            className="tg-search__input"
-            type="search"
-            placeholder="搜文件名 / 会话 / 时间（如「昨天」「近30天」「2026-10-01」）…"
-            value={query}
-            onChange={(event) => { setQuery(event.target.value) }}
-            data-time-hit={queryTimeRange !== null ? 'true' : undefined}
-          />
-          {queryTimeRange !== null && (
-            <span className="tg-search__time-tag" title={`按时间过滤：${queryTimeRange.label}`}>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-              {queryTimeRange.label}
-            </span>
-          )}
-        </label>
         {/* 视图切换：网格 ⇄ 时间轴 */}
         <div className="tg-view" role="tablist" aria-label="视图">
           <button
@@ -998,6 +1070,33 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
           </div>
         </div>
       )}
+
+      {/* ── 平板风格底部悬浮 Dock（分类导航，更宽阔方便的触控/点击面积）── */}
+      <nav className="tg-dock" role="tablist" aria-label="内容分类导航">
+        {dockKinds.map((entry) => {
+          const count = kindCounts.get(entry) ?? 0
+          const isActive = kind === entry
+          return (
+            <button
+              key={entry}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              className="tg-dock__item tg-kind"
+              data-active={isActive ? 'true' : undefined}
+              onClick={() => { setKind(entry) }}
+              title={`${KIND_LABEL[entry]}（${count} 项）`}
+            >
+              <div className="tg-dock__icon-wrap">
+                <KindTabIcon kind={entry} size={18} />
+                {count > 0 && <span className="tg-dock__badge tg-kind__count">{count > 99 ? '99+' : count}</span>}
+              </div>
+              <span className="tg-dock__label">{KIND_LABEL[entry]}</span>
+              {isActive && <span className="tg-dock__dot" aria-hidden="true" />}
+            </button>
+          )
+        })}
+      </nav>
 
       {/* Lightbox（共享组件：画廊与产出物卡同一套预览与全屏）。
           上界守卫必须带：gonePaths 剔除条目后 visible 会缩短，旧 index 可能越界

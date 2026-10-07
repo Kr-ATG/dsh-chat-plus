@@ -254,6 +254,9 @@ export function applySidebarDocument(ctx: Record<string, any>): void {
   } catch {
     registry = undefined
   }
+  const mark = (val: string): void => {
+    if (typeof document !== 'undefined') document.documentElement.dataset.dshSdpRegistry = val
+  }
   if (registry === undefined) {
     mark('no-registry')
     return

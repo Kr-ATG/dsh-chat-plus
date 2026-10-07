@@ -215,23 +215,7 @@ export function UsagePanel({ closing = false, onClose, anchor = null, embedded =
 
   if (embedded) {
     return (
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 24px 20px', maxWidth: '1080px', margin: '0 auto', width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
-        {/* 工具行：只留刷新（页名与说明由工作台面包屑承担，不再重复一遍标题） */}
-        <div className="wb-page-bar">
-          <button
-            type="button"
-            className="wb-bar-btn"
-            data-spin={refreshing || undefined}
-            aria-label="刷新用量数据"
-            onClick={doRefresh}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M21 12a9 9 0 0 1-15.9 5.7M3 12a9 9 0 0 1 15.9-5.7" />
-              <path d="M21 3v6h-6M3 21v-6h6" />
-            </svg>
-            刷新
-          </button>
-        </div>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 20px 24px', maxWidth: '1140px', margin: '0 auto', width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
         {head}
       </div>
     )
@@ -313,31 +297,33 @@ function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChang
 
   return (
     <div className={`usm-uc ${modalStaggerClass}`}>
-      <div className="usm-uc-top">
-        <RangePicker compact preset={preset} custom={custom} onChangePreset={onChangePreset} onChangeCustom={onChangeCustom} />
-      </div>
-      <div className="usm-uc-top">
-        <ScopeFilter
-          providers={options.providers}
-          models={options.models}
-          provider={provider}
-          model={model}
-          onChangeProvider={(next) => { onChangeProvider(next); onChangeModel(null) }}
-          onChangeModel={onChangeModel}
-        />
-        {stale && (
-          <span className="usm-uc-sync" role="status" aria-live="polite">
-            <span className="usm-uc-sync-dot" />
-            后台更新中
-          </span>
-        )}
-        <span className="usm-uc-meta">共 {inRange.length} 天 · 有量 {activeDays} 天 · {modelCount.size} 个模型</span>
+      <div className="usm-uc-top" style={{ justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <RangePicker compact preset={preset} custom={custom} onChangePreset={onChangePreset} onChangeCustom={onChangeCustom} />
+          <ScopeFilter
+            providers={options.providers}
+            models={options.models}
+            provider={provider}
+            model={model}
+            onChangeProvider={(next) => { onChangeProvider(next); onChangeModel(null) }}
+            onChangeModel={onChangeModel}
+          />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {stale && (
+            <span className="usm-uc-sync" role="status" aria-live="polite">
+              <span className="usm-uc-sync-dot" />
+              后台更新中
+            </span>
+          )}
+          <span className="usm-uc-meta">共 {inRange.length} 天 · 有量 {activeDays} 天 · {modelCount.size} 个模型</span>
+        </div>
       </div>
       <div className="usm-uc-stats" role="group" aria-label={`${rangeLabel} token 消耗`} style={isMobile ? { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } : undefined}>
-        <Stat icon={tokensIcon(13)} label="合计" value={formatUnits(sum.total)} sub={`≈ ${formatExact(sum.total)}`} tone="var(--dsw-alias-state-business-primary, #4176e6)" />
-        <Stat icon={inputIcon(13)} label="输入" value={formatUnits(sum.input)} sub={`占 ${share(sum.input)}`} tone="var(--dsw-alias-state-business-primary, #4176e6)" />
-        <Stat icon={outputIcon(13)} label="输出" value={formatUnits(sum.output)} sub={`占 ${share(sum.output)}`} tone="var(--dsw-alias-state-warn-primary, #f59e0b)" />
-        <Stat icon={hitIcon(13)} label="缓存" value={formatUnits(sum.cache)} sub={`命中 ${formatHitRate(hitRate)}`} tone="var(--dsw-alias-state-success-primary, #22c55e)" />
+        <Stat icon={tokensIcon(14)} label="合计用量" value={formatUnits(sum.total)} sub={`≈ ${formatExact(sum.total)}`} tone="var(--dsw-alias-state-business-primary, #4176e6)" />
+        <Stat icon={inputIcon(14)} label="输入 Tokens" value={formatUnits(sum.input)} sub={`占 ${share(sum.input)}`} tone="#0ea5e9" />
+        <Stat icon={outputIcon(14)} label="输出 Tokens" value={formatUnits(sum.output)} sub={`占 ${share(sum.output)}`} tone="#f59e0b" />
+        <Stat icon={hitIcon(14)} label="缓存命中" value={formatUnits(sum.cache)} sub={`命中率 ${formatHitRate(hitRate)}`} tone="#10b981" />
       </div>
       <UsageTrendChart
         days={scopedAll}
@@ -374,8 +360,7 @@ function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChang
               <CloseIcon size={11} />
             </button>
           </div>
-          {/* 当日模型明细：不设 maxHeight / overflow —— 卡片高度由内容撑开，
-              在这里再嵌一层滚动条就是用户说的「卡片里凭空多出一条滚动」。 */}
+          {/* 当日模型明细：不设 maxHeight / overflow —— 卡片高度由内容撑开 */}
           <div className="usm-uc-models">
             {[...(day.models ?? [])].sort((a, b) => b.tokens - a.tokens).map(m => (
               <div key={m.model} className="usm-uc-model">
@@ -391,16 +376,16 @@ function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChang
   )
 }
 
-/** 汇总格：色点 + 标签 + 主值 + 副行。 */
+/** 汇总格：彩色指示微标 + 标签 + 主值 + 副行（精致语义点睛）。 */
 function Stat({ icon, label, value, sub, tone }: { icon: JSX.Element; label: string; value: string; sub: string; tone: string }): JSX.Element {
   return (
     <div className="usm-uc-stat">
       <span className="usm-uc-stat-head">
-        <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true" style={{ flex: 'none' }}>
-          <rect width="9" height="9" rx="2.5" fill={tone} opacity={0.9} />
+        <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true" style={{ flex: 'none' }}>
+          <rect width="8" height="8" rx="2" fill={tone} opacity={0.9} />
         </svg>
         <span className="usm-uc-label">{label}</span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', color: tone, opacity: 0.85, marginLeft: 'auto' }}>{icon}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', color: tone, opacity: 0.9, marginLeft: 'auto' }}>{icon}</span>
       </span>
       <span className="usm-uc-value">{value}</span>
       <span className="usm-uc-sub">{sub}</span>

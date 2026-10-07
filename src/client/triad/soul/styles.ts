@@ -214,6 +214,116 @@ export const css = {
 
   // ── 修改列容器（整段正文 / 身份 / 档案 / 蒸馏，常驻展开） ──
   legacy: 'dsh-soul-legacy',
+
+  // ── 角色卡形态（2026-10-07）：左列身份区 / 人格卡组 / 说明横幅 / 身份简介 ──
+  persona: 'dsh-soul-persona',
+  personaId: 'dsh-soul-persona-id',
+  personaAvatar: 'dsh-soul-persona-avatar',
+  personaAvatarImg: 'dsh-soul-persona-avatar-img',
+  personaAvatarEmpty: 'dsh-soul-persona-avatar-empty',
+  personaAvatarBusy: 'dsh-soul-persona-avatar-busy',
+  personaAvatarEdit: 'dsh-soul-persona-avatar-edit',
+  personaFields: 'dsh-soul-persona-fields',
+  deck: 'dsh-soul-deck',
+  deckHead: 'dsh-soul-deck-head',
+  deckTitle: 'dsh-soul-deck-title',
+  deckHint: 'dsh-soul-deck-hint',
+  deckGrid: 'dsh-soul-deck-grid',
+  deckCard: 'dsh-soul-deck-card',
+  deckCardOn: 'dsh-soul-deck-card-on',
+  deckCardBusy: 'dsh-soul-deck-card-busy',
+  deckCardNew: 'dsh-soul-deck-card-new',
+  deckFace: 'dsh-soul-deck-face',
+  deckFaceImg: 'dsh-soul-deck-face-img',
+  deckName: 'dsh-soul-deck-name',
+  deckDesc: 'dsh-soul-deck-desc',
+  deckTag: 'dsh-soul-deck-tag',
+  deckDelete: 'dsh-soul-deck-delete',
+  deckMeta: 'dsh-soul-deck-meta',
+  banner: 'dsh-soul-banner',
+  bannerMain: 'dsh-soul-banner-main',
+  bannerName: 'dsh-soul-banner-name',
+  bannerDesc: 'dsh-soul-banner-desc',
+  bannerBg: 'dsh-soul-banner-bg',
+  bannerEdit: 'dsh-soul-banner-edit',
+  intro: 'dsh-soul-intro',
+  introHead: 'dsh-soul-intro-head',
+  introBody: 'dsh-soul-intro-body',
+  advanced: 'dsh-soul-advanced',
+  advancedOpen: 'dsh-soul-advanced-open',
+  advancedHead: 'dsh-soul-advanced-head',
+  advancedInner: 'dsh-soul-advanced-inner',
+  advancedCaret: 'dsh-soul-advanced-caret',
+
+  // ── 我的资料（用户侧身份块，2026-10-07） ──
+  me: 'dsh-soul-me',
+  meHead: 'dsh-soul-me-head',
+  meAvatar: 'dsh-soul-me-avatar',
+  meAvatarBusy: 'dsh-soul-me-avatar-busy',
+  meBody: 'dsh-soul-me-body',
+  meGrid: 'dsh-soul-me-grid',
+  meActions: 'dsh-soul-me-actions',
+  meVar: 'dsh-soul-me-var',
+
+  // ── 2026-10-07 简明易懂 UI 新增类名 ──
+  headTools: 'dsh-soul-head-tools',
+  headInject: 'dsh-soul-head-inject',
+  headInjectDot: 'dsh-soul-head-inject-dot',
+  nav: 'dsh-soul-nav',
+  navItem: 'dsh-soul-nav-item',
+  navItemActive: 'dsh-soul-nav-item-active',
+  paneView: 'dsh-soul-pane-view',
+  heroCard: 'dsh-soul-hero-card',
+  heroCardRow: 'dsh-soul-hero-card-row',
+  heroCardAvatar: 'dsh-soul-hero-card-avatar',
+  heroCardInfo: 'dsh-soul-hero-card-info',
+  heroNameInput: 'dsh-soul-hero-name-input',
+  heroMottoRow: 'dsh-soul-hero-motto-row',
+  heroTag: 'dsh-soul-hero-tag',
+  heroDesc: 'dsh-soul-hero-desc',
+  heroActions: 'dsh-soul-hero-actions',
+  sectionHead: 'dsh-soul-section-head',
+  sectionTitle: 'dsh-soul-section-title',
+  sectionDesc: 'dsh-soul-section-desc',
+  quickGrid: 'dsh-soul-quick-grid',
+  quickCard: 'dsh-soul-quick-card',
+  quickHead: 'dsh-soul-quick-head',
+  quickIcon: 'dsh-soul-quick-icon',
+  quickName: 'dsh-soul-quick-name',
+  quickDesc: 'dsh-soul-quick-desc',
+  quickBtn: 'dsh-soul-quick-btn',
+  chipsRow: 'dsh-soul-chips-row',
+  chipBtn: 'dsh-soul-chip-btn',
+  userTip: 'dsh-soul-user-tip',
+
+  // ── 2026-10-07 简明可视化表单 ──
+  modeToggle: 'dsh-soul-mode-toggle',
+  modeBtn: 'dsh-soul-mode-btn',
+  modeBtnActive: 'dsh-soul-mode-btn-active',
+  visualGroup: 'dsh-soul-visual-group',
+  visualHead: 'dsh-soul-visual-head',
+  visualTitle: 'dsh-soul-visual-title',
+  visualDesc: 'dsh-soul-visual-desc',
+  ruleList: 'dsh-soul-rule-list',
+  ruleItem: 'dsh-soul-rule-item',
+  ruleNum: 'dsh-soul-rule-num',
+  ruleText: 'dsh-soul-rule-text',
+  ruleDel: 'dsh-soul-rule-del',
+  ruleAddRow: 'dsh-soul-rule-add-row',
+  ruleAddInput: 'dsh-soul-rule-add-input',
+  ruleAddBtn: 'dsh-soul-rule-add-btn',
+  ruleEmpty: 'dsh-soul-rule-empty',
+
+  // ── 药丸灵感栏（Tab 1 紧凑分身与风格选择） ──
+  pillBar: 'dsh-soul-pill-bar',
+  pillLabel: 'dsh-soul-pill-label',
+  pillList: 'dsh-soul-pill-list',
+  pill: 'dsh-soul-pill',
+  pillOn: 'dsh-soul-pill-on',
+  pillNew: 'dsh-soul-pill-new',
+  pillDel: 'dsh-soul-pill-del',
+  pillAvatar: 'dsh-soul-pill-avatar',
+  pillBusy: 'dsh-soul-pill-busy',
 } as const
 
 const STYLE_ID = 'dsh-triad-soul-styles'
@@ -295,13 +405,24 @@ const SHEET = `
    改版前是「鲸鱼独占一行 + 标题 + 两行说明 + 右侧四个胶囊」，头部 162px；
    现在 30px 鲸鱼与标题同行，说明压成单行省略（全文进 title），
    只有「有没有未保存改动」留成可见状态。 */
-.dsh-soul-header{display:flex;align-items:center;gap:10px;min-width:0}
+.dsh-soul-header{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
 .dsh-soul-brand{flex:1;min-width:0;display:flex;align-items:center;gap:10px}
 .dsh-soul-hero{flex:none;display:inline-flex;align-items:center;justify-content:center}
 .dsh-soul-head-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:0}
 .dsh-soul-title{display:inline-flex;align-items:center;gap:7px;font-size:14.5px;font-weight:650;line-height:21px;color:var(--s-text)}
 .dsh-soul-title svg{color:var(--s-primary)}
 .dsh-soul-desc{font-size:11.5px;line-height:16px;color:var(--s-text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-soul-head-tools{display:flex;align-items:center;gap:8px;flex-wrap:nowrap}
+.dsh-soul-head-inject{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px 0 7px;border-radius:999px;border:1px solid var(--s-border-2);background:var(--s-layer);font-size:11.5px;font-weight:500;color:var(--s-text-2);cursor:pointer;transition:border-color .18s ease,background .18s ease,color .18s ease}
+.dsh-soul-head-inject:hover{border-color:color-mix(in srgb,var(--s-primary) 40%,transparent);color:var(--s-text)}
+.dsh-soul-head-inject-dot{width:6px;height:6px;border-radius:50%;background:var(--s-ok);box-shadow:0 0 5px var(--s-ok);transition:background .2s ease,box-shadow .2s ease}
+.dsh-soul-head-inject[data-off='1'] .dsh-soul-head-inject-dot{background:var(--s-text-3);box-shadow:none}
+
+/* ── 顶部主分段导航：助手人设 / 关于我 / 进阶调优 ─────────────────── */
+.dsh-soul-nav{display:flex;align-items:center;gap:4px;padding:3px;border-radius:11px;background:var(--s-soft);border:1px solid var(--s-border);box-sizing:border-box}
+.dsh-soul-nav-item{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 12px;border:none;border-radius:8px;background:transparent;color:var(--s-text-2);font-family:inherit;font-size:12.5px;font-weight:500;cursor:pointer;transition:background .16s ease,color .16s ease,box-shadow .16s ease}
+.dsh-soul-nav-item:hover{color:var(--s-text);background:color-mix(in srgb,var(--s-hover) 80%,transparent)}
+.dsh-soul-nav-item-active,.dsh-soul-nav-item-active:hover{background:var(--s-layer);color:var(--s-primary);font-weight:600;box-shadow:0 1px 4px color-mix(in srgb,var(--s-text) 10%,transparent)}
 
 /* ── 状态胶囊 ─────────────────────────────────────────────────────── */
 .dsh-soul-chip{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:999px;font-size:11px;line-height:17px;white-space:nowrap;background:color-mix(in srgb,var(--s-text-3) 14%,transparent);color:var(--s-text-2)}
@@ -638,10 +759,238 @@ body[data-ds-dark-theme] .dsh-soul-toggle-row{--s-card-bg:var(--dsw-static-neutr
 .dsh-soul-preset-form-inner{overflow:hidden;min-height:0;display:flex;flex-direction:column;gap:9px;padding:0;visibility:hidden;transition:padding .22s ease,visibility 0s linear .22s}
 .dsh-soul-preset-form-open .dsh-soul-preset-form-inner{padding-top:10px;visibility:visible;transition:padding .22s ease,visibility 0s}
 
-/* ── focus 规范 ───────────────────────────────────────────────────── */
+/* ══ 角色卡形态（2026-10-07）══════════════════════════════════════════
+   参考稿的形态：左列「头像 + 名字 + Ta 的模型」，右上「人格卡组」（竖排卡片，
+   选中那张描边与文字转强调色），右下「说明横幅」（带背景图的横条），
+   最下面「身份简介」多行文本框。
+
+   为什么保留成可折叠的「卡片与预设」而不是删掉旧的卡片区/预设区：
+   参考稿只描述了**首页形态**，而逐张编辑注入内容、套用预设、蒸馏是真实功能。
+   把它们降级进折叠区，首屏得到参考稿的样子，功能一个不少。
+
+   选中色的取舍：参考稿是粉紫。直接用官方 business-primary（蓝）会丢掉「选中」
+   与「主色按钮」的区分度——一屏里三处同色，眼睛找不到哪张卡在生效。所以从主色
+   混一点粉得到一个**派生强调色**（--s-persona），主题切换自动跟随，不引入新色板。 */
+.dsh-soul-root{--s-persona:color-mix(in srgb,var(--s-primary) 52%,#e879a8);
+  --s-persona-soft:color-mix(in srgb,var(--s-persona) 14%,transparent);
+  --s-persona-line:color-mix(in srgb,var(--s-persona) 58%,transparent)}
+
+/* 左列 300px：要放下「名字」输入框与「Ta 的模型」那行模型名（DeepSeek V4 Flash
+   这类名字在 200px 里会被省略号吃掉，用户看不到自己用的是什么模型）。 */
+.dsh-soul-persona{display:grid;grid-template-columns:minmax(0,300px) minmax(0,1fr);gap:16px;align-items:start;min-width:0}
+
+/* ── 左列：头像 + 名字 + 模型 ───────────────────────────────────────
+   参考稿是**头像在左、字段在右**的横排（不是头像压在上面）。 */
+.dsh-soul-persona-id{display:flex;flex-direction:row;align-items:flex-start;gap:12px;min-width:0}
+.dsh-soul-persona-avatar{position:relative;align-self:flex-start;width:72px;height:72px;border-radius:50%;box-sizing:border-box;border:2px solid var(--s-border-2);background:var(--s-soft);overflow:hidden;cursor:pointer;padding:0;transition:border-color .2s ease,transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s ease}
+.dsh-soul-persona-avatar:hover{border-color:var(--s-persona-line);transform:translateY(-2px) scale(1.03);box-shadow:0 6px 20px color-mix(in srgb,var(--s-persona) 24%,transparent)}
+.dsh-soul-persona-avatar:active{transform:scale(.98)}
+.dsh-soul-persona-avatar-img{width:100%;height:100%;object-fit:cover;display:block;animation:dsh-soul-face-in .3s cubic-bezier(.2,.8,.2,1) backwards}
+@keyframes dsh-soul-face-in{from{opacity:0;transform:scale(1.06)}to{opacity:1;transform:none}}
+/* 未上传：剪影占位（一眼看出「这里可以放一张脸」，而不是一个空洞） */
+.dsh-soul-persona-avatar-empty{display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:var(--s-text-3);background:linear-gradient(160deg,color-mix(in srgb,var(--s-text-3) 16%,transparent),transparent)}
+.dsh-soul-persona-avatar-edit{position:absolute;left:0;right:0;bottom:0;padding:3px 0;font-size:10px;line-height:14px;font-weight:600;text-align:center;color:#fff;background:color-mix(in srgb,var(--s-text) 62%,transparent);opacity:0;transform:translateY(100%);transition:opacity .2s ease,transform .22s cubic-bezier(.2,.8,.2,1)}
+.dsh-soul-persona-avatar:hover .dsh-soul-persona-avatar-edit{opacity:1;transform:none}
+.dsh-soul-persona-avatar-busy{display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:var(--s-persona)}
+.dsh-soul-persona-fields{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px}
+
+/* ── 右上：人格卡组 ───────────────────────────────────────────────── */
+.dsh-soul-deck{display:flex;flex-direction:column;gap:9px;min-width:0}
+.dsh-soul-deck-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dsh-soul-deck-title{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;line-height:20px;color:var(--s-text)}
+.dsh-soul-deck-title svg{color:var(--s-persona)}
+.dsh-soul-deck-hint{flex:1;min-width:0;font-size:11px;line-height:16px;color:var(--s-text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-soul-deck-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:9px;align-content:start}
+/* 卡片：上脸下字，底部标签。静止时是中性描边，hover 微浮，选中转强调色。 */
+.dsh-soul-deck-card{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 9px 9px;box-sizing:border-box;border:1px solid var(--s-border-2);border-radius:12px;background:var(--s-layer);color:var(--s-text-2);font-family:inherit;text-align:center;cursor:pointer;transition:border-color .2s ease,background .2s ease,transform .2s cubic-bezier(.2,.8,.2,1),box-shadow .2s ease}
+.dsh-soul-deck-card:hover:not(:disabled){border-color:var(--s-persona-line);transform:translateY(-2px);box-shadow:0 6px 18px color-mix(in srgb,var(--s-text) 9%,transparent)}
+.dsh-soul-deck-card:active:not(:disabled){transform:scale(.985)}
+.dsh-soul-deck-card:disabled{cursor:default;opacity:.7}
+.dsh-soul-deck-card-on,.dsh-soul-deck-card-on:hover{border-color:var(--s-persona);background:var(--s-persona-soft);color:var(--s-persona);box-shadow:0 0 0 1px var(--s-persona-line),0 8px 22px color-mix(in srgb,var(--s-persona) 20%,transparent)}
+/* 选中卡片的一次性落位：切人格要有「确实切了」的反馈 */
+.dsh-soul-deck-card-on{animation:dsh-soul-pick .34s cubic-bezier(.2,1.2,.4,1)}
+@keyframes dsh-soul-pick{0%{transform:scale(.96)}55%{transform:scale(1.025)}100%{transform:none}}
+.dsh-soul-deck-card-busy{pointer-events:none}
+.dsh-soul-deck-card-busy::after{content:'';position:absolute;inset:0;border-radius:12px;background:color-mix(in srgb,var(--s-layer) 62%,transparent);animation:dsh-soul-pulse 1.1s ease-in-out infinite}
+.dsh-soul-deck-face{flex:none;display:flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:50%;overflow:hidden;background:var(--s-soft);color:var(--s-text-3);box-sizing:border-box;border:1.5px solid var(--s-border-2);transition:border-color .2s ease,transform .22s cubic-bezier(.2,.8,.2,1)}
+.dsh-soul-deck-card-on .dsh-soul-deck-face{border-color:var(--s-persona-line)}
+.dsh-soul-deck-card:hover .dsh-soul-deck-face{transform:scale(1.05)}
+.dsh-soul-deck-face-img{width:100%;height:100%;object-fit:cover;display:block}
+.dsh-soul-deck-name{max-width:100%;font-size:13px;font-weight:600;line-height:19px;color:var(--s-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-soul-deck-card-on .dsh-soul-deck-name{color:var(--s-persona)}
+.dsh-soul-deck-desc{max-width:100%;font-size:11.5px;line-height:17px;color:var(--s-text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-soul-deck-card-on .dsh-soul-deck-desc{color:var(--s-persona)}
+.dsh-soul-deck-tag{max-width:100%;padding:1px 7px;border:1px solid var(--s-border-2);border-radius:5px;font-size:10.5px;line-height:15px;color:var(--s-text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-soul-deck-card-on .dsh-soul-deck-tag{border-color:var(--s-persona-line);color:var(--s-persona)}
+.dsh-soul-deck-delete{position:absolute;top:4px;right:4px;width:20px;height:20px;padding:0;border:none;border-radius:6px;background:transparent;color:var(--s-text-3);font-size:13px;line-height:1;cursor:pointer;opacity:0;transition:opacity .18s ease,background .18s ease,color .18s ease}
+.dsh-soul-deck-card:hover .dsh-soul-deck-delete{opacity:1}
+.dsh-soul-deck-delete:hover{background:var(--s-err-bg);color:var(--s-err)}
+/* 新建卡：虚线描边，与真实人格卡区分开（它是动作不是人格） */
+.dsh-soul-deck-card-new{border-style:dashed;color:var(--s-text-3);justify-content:center;gap:5px;min-height:132px}
+.dsh-soul-deck-card-new:hover{border-color:var(--s-persona);color:var(--s-persona)}
+.dsh-soul-deck-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;line-height:16px;color:var(--s-text-3)}
+
+/* ── 右下：说明横幅（选中人格的一句话定位） ─────────────────────────
+   参考稿那条横条带月夜背景图。这里用**纯 CSS 画**（径向渐变当月亮 + 暗蓝底），
+   不引外部图片：卡片是离线环境也要能看的，外链图一律白板。
+   背景只在有选中人格且写了定位时出现——没内容时不铺一块装饰性空图。 */
+.dsh-soul-banner{position:relative;display:flex;align-items:center;gap:10px;min-height:56px;padding:12px 14px;box-sizing:border-box;border:1px solid var(--s-border-2);border-radius:12px;overflow:hidden;background:var(--s-layer)}
+.dsh-soul-banner-bg{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .4s ease;background:
+  radial-gradient(48px 48px at 74% 26%,color-mix(in srgb,#f4ead2 62%,transparent),transparent 70%),
+  radial-gradient(120% 160% at 78% -30%,color-mix(in srgb,#3b5a86 55%,transparent),transparent 62%),
+  linear-gradient(105deg,#16233a,#1d2c46 45%,#101a2c)}
+.dsh-soul-banner[data-art] .dsh-soul-banner-bg{opacity:.92}
+/* 树枝剪影：纯 CSS 的斜向细线，不引 SVG 也不引图 */
+.dsh-soul-banner[data-art]::after{content:'';position:absolute;inset:0;pointer-events:none;opacity:.5;
+  background:
+    linear-gradient(78deg,transparent 62%,#0b1220 62.6%,transparent 63.6%),
+    linear-gradient(102deg,transparent 74%,#0b1220 74.6%,transparent 75.6%),
+    linear-gradient(66deg,transparent 84%,#0b1220 84.5%,transparent 85.4%)}
+.dsh-soul-banner-main{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.dsh-soul-banner-name{font-size:15px;font-weight:650;line-height:22px;color:var(--s-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-soul-banner-desc{font-size:12px;line-height:18px;color:var(--s-text-2);word-break:break-word}
+.dsh-soul-banner[data-art] .dsh-soul-banner-name{color:#f6f1e6}
+.dsh-soul-banner[data-art] .dsh-soul-banner-desc{color:color-mix(in srgb,#e8e2d6 82%,transparent)}
+/* 横幅换人时的落位：内容整体淡入 + 轻微上移 */
+.dsh-soul-banner-main{animation:dsh-soul-banner-in .3s cubic-bezier(.2,.8,.2,1) backwards}
+@keyframes dsh-soul-banner-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.dsh-soul-banner-edit{position:relative;flex:none}
+/* 横幅右上那枚「一句话定位」按钮：静止时压到 40% 透明度、横幅 hover 才提满。
+   它常驻会跟横幅正文抢视线，而横幅是**读**的地方，不是操作区。 */
+.dsh-soul-banner .dsh-soul-banner-edit{opacity:.4;transition:opacity .2s ease}
+.dsh-soul-banner:hover .dsh-soul-banner-edit{opacity:1}
+
+/* ── 我的资料（用户侧身份块） ───────────────────────────────────────
+   与「Ta」那一列同规格的横排（圆形头像 + 字段），刻意**不复用** .dsh-soul-persona-id：
+   那块是「当前人格」，会随卡片切换重渲染并带动画；这块是用户自己，切换人格时
+   不该有任何视觉动静（否则每次切人格都闪一下自己的资料，读起来像被改了）。
+
+   视觉上用一个弱外框把它与人格区分开：它的主体是「你」，不是「Ta」。 */
+.dsh-soul-me{display:flex;flex-direction:column;gap:9px;padding:12px;box-sizing:border-box;border:1px solid var(--s-border);border-radius:12px;background:var(--s-soft);min-width:0}
+.dsh-soul-me-head{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.dsh-soul-me-head .dsh-soul-deck-title svg{color:var(--s-text-2)}
+.dsh-soul-me-avatar{position:relative;flex:none;width:56px;height:56px;border-radius:50%;box-sizing:border-box;border:2px solid var(--s-border-2);background:var(--s-layer);overflow:hidden;cursor:pointer;padding:0;transition:border-color .2s ease,transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s ease}
+.dsh-soul-me-avatar:hover{border-color:color-mix(in srgb,var(--s-text-2) 55%,transparent);transform:translateY(-2px) scale(1.03);box-shadow:0 6px 18px color-mix(in srgb,var(--s-text) 12%,transparent)}
+.dsh-soul-me-avatar:active{transform:scale(.98)}
+.dsh-soul-me-avatar-busy{display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:var(--s-text-2)}
+.dsh-soul-me-body{display:flex;flex-direction:row;align-items:flex-start;gap:12px;min-width:0}
+.dsh-soul-me-grid{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px}
+.dsh-soul-me .dsh-soul-textarea{min-height:76px}
+.dsh-soul-me-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* 变量提示：等宽字体 + 弱底色，一眼看出「这是要写进正文的记号」而不是装饰文字 */
+.dsh-soul-me-var{display:inline-flex;align-items:center;gap:5px;padding:1px 7px;border-radius:5px;background:var(--s-primary-chip);color:var(--s-primary);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:17px}
+
+/* ── 2026-10-07 简明易懂 UI：分标签主视口 ─────────────────────────── */
+.dsh-soul-pane-view{display:flex;flex-direction:column;gap:13px;animation:dsh-soul-rise .22s cubic-bezier(.2,.8,.2,1) backwards}
+.dsh-soul-pane-view[hidden]{display:none !important}
+
+/* ── 助手角色名片卡（Hero Card） ──────────────────────────────────── */
+.dsh-soul-hero-card{display:flex;flex-direction:column;gap:12px;padding:16px 18px;border-radius:14px;border:1px solid color-mix(in srgb,var(--s-primary) 24%,var(--s-border-2));background:linear-gradient(145deg,var(--s-layer) 0%,color-mix(in srgb,var(--s-primary) 5%,var(--s-layer)) 100%);box-shadow:0 3px 16px color-mix(in srgb,var(--s-text) 3%,transparent);box-sizing:border-box}
+.dsh-soul-hero-card-row{display:flex;align-items:center;gap:14px;min-width:0;flex-wrap:wrap}
+.dsh-soul-hero-card-avatar{position:relative;flex:none;width:64px;height:64px;border-radius:50%;border:2px solid color-mix(in srgb,var(--s-primary) 35%,var(--s-border-2));background:var(--s-soft);overflow:hidden;cursor:pointer;padding:0;box-sizing:border-box;box-shadow:0 3px 12px color-mix(in srgb,var(--s-primary) 16%,transparent);transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease}
+.dsh-soul-hero-card-avatar:hover{transform:scale(1.04);border-color:var(--s-primary);box-shadow:0 5px 18px color-mix(in srgb,var(--s-primary) 28%,transparent)}
+.dsh-soul-hero-card-info{flex:1;min-width:160px;display:flex;flex-direction:column;gap:4px}
+.dsh-soul-hero-name-input{box-sizing:border-box;height:34px;font-size:15px;font-weight:650;color:var(--s-text);background:transparent;border:1px solid transparent;border-radius:7px;padding:0 8px;margin-left:-8px;max-width:240px;transition:border-color .16s ease,background .16s ease}
+.dsh-soul-hero-name-input:hover{border-color:var(--s-border-2);background:var(--s-layer)}
+.dsh-soul-hero-name-input:focus{border-color:var(--s-primary);background:var(--s-layer);outline:none;box-shadow:0 0 0 2px var(--s-primary-soft)}
+.dsh-soul-hero-motto-row{display:flex;align-items:center;gap:8px;font-size:12px;line-height:18px;color:var(--s-text-2);flex-wrap:wrap}
+.dsh-soul-hero-tag{display:inline-flex;align-items:center;gap:3px;padding:1px 7px;border-radius:5px;background:var(--s-primary-chip);color:var(--s-primary);font-size:11px;font-weight:600;line-height:16px;border:1px solid color-mix(in srgb,var(--s-primary) 22%,transparent)}
+.dsh-soul-hero-desc{color:var(--s-text-2);cursor:pointer;padding:2px 6px;border-radius:6px;transition:background .16s ease,color .16s ease}
+.dsh-soul-hero-desc:hover{background:var(--s-hover);color:var(--s-text)}
+.dsh-soul-hero-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
+
+/* ── 优雅段落头 ───────────────────────────────────────────────────── */
+.dsh-soul-section-head{display:flex;flex-direction:column;gap:2px}
+.dsh-soul-section-title{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:650;line-height:19px;color:var(--s-text)}
+.dsh-soul-section-title svg{color:var(--s-primary)}
+.dsh-soul-section-desc{font-size:11.5px;line-height:16px;color:var(--s-text-3)}
+
+/* ── 推荐预设网格（Tab 1 快速套用） ────────────────────────────────── */
+.dsh-soul-quick-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:9px}
+.dsh-soul-quick-card{display:flex;flex-direction:column;gap:7px;padding:11px 12px;border-radius:11px;border:1px solid var(--s-border-2);background:var(--s-layer);box-sizing:border-box;transition:border-color .18s ease,transform .16s ease,box-shadow .18s ease}
+.dsh-soul-quick-card:hover{border-color:color-mix(in srgb,var(--s-primary) 42%,transparent);transform:translateY(-2px);box-shadow:0 4px 14px color-mix(in srgb,var(--s-text) 7%,transparent)}
+.dsh-soul-quick-head{display:flex;align-items:center;gap:7px;min-width:0}
+.dsh-soul-quick-icon{flex:none;width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:var(--s-primary-chip);color:var(--s-primary)}
+.dsh-soul-quick-name{flex:1;min-width:0;font-size:12.5px;font-weight:600;color:var(--s-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-soul-quick-desc{font-size:11px;line-height:16px;color:var(--s-text-3);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:32px}
+.dsh-soul-quick-btn{width:100%;height:26px;font-size:11.5px;border-radius:7px}
+
+/* ── 灵感胶囊行 ───────────────────────────────────────────────────── */
+.dsh-soul-chips-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:2px 0}
+.dsh-soul-chip-btn{display:inline-flex;align-items:center;gap:3px;height:25px;padding:0 9px;border-radius:7px;border:1px solid var(--s-border-2);background:var(--s-layer);color:var(--s-text-2);font-size:11px;font-family:inherit;cursor:pointer;transition:border-color .15s ease,background .15s ease,color .15s ease,transform .1s ease}
+.dsh-soul-chip-btn:hover{border-color:var(--s-primary);color:var(--s-primary);background:var(--s-primary-soft);transform:scale(1.02)}
+.dsh-soul-chip-btn:active{transform:scale(.97)}
+
+/* ── 药丸灵感栏（Tab 1 紧凑分身与风格选择） ── */
+.dsh-soul-pill-bar{display:flex;align-items:center;gap:10px;min-width:0;flex-wrap:wrap;padding:3px 0}
+.dsh-soul-pill-label{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--s-text-2);flex:none}
+.dsh-soul-pill-list{display:flex;align-items:center;gap:7px;flex-wrap:wrap;flex:1;min-width:0}
+.dsh-soul-pill{position:relative;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border-radius:14px;border:1px solid var(--s-border-2);background:var(--s-layer);color:var(--s-text-2);font-size:12px;font-family:inherit;cursor:pointer;transition:border-color .15s ease,background .15s ease,color .15s ease,transform .1s ease}
+.dsh-soul-pill:hover{border-color:var(--s-primary);color:var(--s-text);background:var(--s-hover);transform:translateY(-1px)}
+.dsh-soul-pill:active{transform:scale(.98)}
+.dsh-soul-pill-on,.dsh-soul-pill-on:hover{border-color:var(--s-primary);background:var(--s-primary-chip);color:var(--s-primary);font-weight:600;box-shadow:0 0 0 1px color-mix(in srgb,var(--s-primary) 35%,transparent)}
+.dsh-soul-pill-new{border-style:dashed;color:var(--s-text-3)}
+.dsh-soul-pill-new:hover{border-color:var(--s-primary);color:var(--s-primary)}
+.dsh-soul-pill-del{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:transparent;color:var(--s-text-3);font-size:12px;line-height:1;margin-left:2px;cursor:pointer;transition:all .15s ease}
+.dsh-soul-pill-del:hover{background:var(--s-err-bg);color:var(--s-err)}
+.dsh-soul-pill-avatar{width:16px;height:16px;border-radius:50%;object-fit:cover;flex:none}
+.dsh-soul-pill-busy{pointer-events:none;opacity:.7}
+
+/* ── 友好引导条 ───────────────────────────────────────────────────── */
+.dsh-soul-user-tip{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:9px;background:color-mix(in srgb,var(--s-primary) 7%,var(--s-layer));border:1px solid color-mix(in srgb,var(--s-primary) 18%,transparent);color:var(--s-text-2);font-size:11.5px;line-height:18px}
+
+/* ── 2026-10-07 可视化表单与模式切换 ───────────────────────────────── */
+.dsh-soul-mode-toggle{display:inline-flex;align-items:center;background:var(--s-soft);padding:2px;border-radius:8px;border:1px solid var(--s-border);gap:2px}
+.dsh-soul-mode-btn{border:none;background:transparent;color:var(--s-text-3);font-family:inherit;font-size:11px;font-weight:500;padding:3px 9px;border-radius:6px;cursor:pointer;transition:all .15s ease;display:inline-flex;align-items:center;gap:4px;line-height:16px}
+.dsh-soul-mode-btn:hover{color:var(--s-text)}
+.dsh-soul-mode-btn-active{background:var(--s-layer);color:var(--s-primary);font-weight:600;box-shadow:0 1px 3px color-mix(in srgb,var(--s-text) 10%,transparent)}
+.dsh-soul-visual-group{display:flex;flex-direction:column;gap:8px;padding:12px 14px;background:color-mix(in srgb,var(--s-soft) 40%,var(--s-layer));border:1px solid var(--s-border-2);border-radius:11px;transition:border-color .16s ease}
+.dsh-soul-visual-group:focus-within{border-color:color-mix(in srgb,var(--s-primary) 40%,transparent)}
+.dsh-soul-visual-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.dsh-soul-visual-title{font-size:12.5px;font-weight:650;color:var(--s-text);display:inline-flex;align-items:center;gap:6px}
+.dsh-soul-visual-desc{font-size:11px;color:var(--s-text-3)}
+.dsh-soul-rule-list{display:flex;flex-direction:column;gap:6px;margin:2px 0}
+.dsh-soul-rule-item{display:flex;align-items:center;gap:8px;padding:7px 11px;background:var(--s-layer);border:1px solid var(--s-border-2);border-radius:8px;font-size:12px;color:var(--s-text);transition:border-color .15s ease,box-shadow .15s ease}
+.dsh-soul-rule-item:hover{border-color:color-mix(in srgb,var(--s-primary) 35%,transparent);box-shadow:0 2px 8px color-mix(in srgb,var(--s-text) 4%,transparent)}
+.dsh-soul-rule-num{flex:none;font-size:10.5px;font-weight:700;color:var(--s-primary);background:var(--s-primary-chip);padding:1px 6px;border-radius:999px;min-width:14px;text-align:center}
+.dsh-soul-rule-text{flex:1;min-width:0;line-height:1.45;word-break:break-word}
+.dsh-soul-rule-del{flex:none;border:none;background:transparent;color:var(--s-text-3);font-size:12px;cursor:pointer;padding:3px 6px;border-radius:5px;line-height:1;transition:all .14s ease}
+.dsh-soul-rule-del:hover{color:var(--s-err);background:var(--s-err-bg)}
+.dsh-soul-rule-add-row{display:flex;gap:7px;align-items:center;margin-top:2px}
+.dsh-soul-rule-add-input{flex:1;min-width:0;font-size:12px}
+.dsh-soul-rule-add-btn{flex:none;height:32px;font-size:11.5px;padding:0 12px;border-radius:8px}
+.dsh-soul-rule-empty{padding:14px 10px;text-align:center;font-size:11.5px;color:var(--s-text-3);border:1px dashed var(--s-border-2);border-radius:8px;background:transparent}
+
+/* ── 身份简介（注入正文） ─────────────────────────────────────────── */
+.dsh-soul-intro{display:flex;flex-direction:column;gap:8px}
+.dsh-soul-intro-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dsh-soul-intro-body{display:flex;flex-direction:column;gap:6px}
+.dsh-soul-intro-body .dsh-soul-textarea{min-height:104px}
+
+/* ── 「卡片与预设」折叠区（旧三区整体收进这里） ───────────────────── */
+.dsh-soul-advanced{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .26s cubic-bezier(.2,.8,.2,1),opacity .22s ease}
+.dsh-soul-advanced-open{grid-template-rows:1fr;opacity:1}
+.dsh-soul-advanced-inner{overflow:hidden;min-height:0;visibility:hidden;transition:visibility 0s linear .26s}
+.dsh-soul-advanced-open .dsh-soul-advanced-inner{visibility:visible;transition:visibility 0s}
+.dsh-soul-advanced-head{display:flex;align-items:center;gap:8px;width:100%;padding:9px 12px;box-sizing:border-box;border:1px solid var(--s-border-2);border-radius:10px;background:var(--s-layer);color:var(--s-text-2);font-family:inherit;font-size:12.5px;font-weight:500;line-height:19px;cursor:pointer;text-align:left;transition:border-color .18s ease,color .18s ease,background .18s ease}
+.dsh-soul-advanced-head:hover{border-color:color-mix(in srgb,var(--s-primary) 42%,transparent);color:var(--s-text)}
+.dsh-soul-advanced-caret{flex:none;display:inline-flex;transition:transform .22s cubic-bezier(.2,.8,.2,1)}
+.dsh-soul-advanced-open .dsh-soul-advanced-caret{transform:rotate(90deg)}
+
+
 .dsh-soul-tab:focus-visible,.dsh-soul-btn:focus-visible,.dsh-soul-input:focus-visible,
 .dsh-soul-textarea:focus-visible,.dsh-soul-switch:focus-visible,
-.dsh-soul-card-row-main:focus-visible,.dsh-soul-kind-chip:focus-visible{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--s-primary) 35%,transparent)}
+.dsh-soul-card-row-main:focus-visible,.dsh-soul-kind-chip:focus-visible,
+.dsh-soul-deck-card:focus-visible,.dsh-soul-persona-avatar:focus-visible,
+.dsh-soul-advanced-head:focus-visible{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--s-primary) 35%,transparent)}
+
+/* ── 角色卡形态的窄面板降级 ─────────────────────────────────────────
+   左列 240px + 右栏是参考稿的并排形态；面板窄到 720px 时并排会把右栏压成
+   一条缝（人格卡最小 132px 一列都排不下），改成上下堆叠、左列横向排。 */
+@container soulpanel (max-width: 720px){
+  .dsh-soul-persona{grid-template-columns:minmax(0,1fr)}
+  .dsh-soul-deck-grid{grid-template-columns:repeat(auto-fill,minmax(112px,1fr))}
+}
 
 /* ── 窄面板：右下「修改」落到左下「预览」下面 ─────────────────────────
    看的是**面板自身**宽度（container-type 在 .dsh-soul-root 上），
@@ -716,11 +1065,16 @@ body[data-ds-dark-theme] .dsh-soul-toggle-row{--s-card-bg:var(--dsw-static-neutr
   .dsh-soul-skeleton-row{animation:none}
   .dsh-soul-state-dirty .dsh-soul-state-dot{animation:none}
   .dsh-soul-card-row-in,.dsh-soul-card-row-landed,.dsh-soul-preset-row-in,.dsh-soul-new-card,.dsh-soul-card-row-drop::before{animation:none}
+  .dsh-soul-deck-card-on,.dsh-soul-deck-card-busy::after,.dsh-soul-persona-avatar-img,.dsh-soul-banner-main{animation:none}
   .dsh-soul-card-row-leaving{transform:none}
   .dsh-soul-btn,.dsh-soul-profile-row,.dsh-soul-notice,.dsh-soul-input,.dsh-soul-textarea,.dsh-soul-tab,.dsh-soul-switch,.dsh-soul-switch::after,
   .dsh-soul-card-row,.dsh-soul-card-row::after,.dsh-soul-card-editor,.dsh-soul-card-editor-inner,.dsh-soul-caret,
   .dsh-soul-card-grips,.dsh-soul-card-row-actions,.dsh-soul-state,
-  .dsh-soul-preset-row,.dsh-soul-preset-actions,.dsh-soul-preset-form,.dsh-soul-preset-form-inner,.dsh-soul-kind-chip,.dsh-soul-card-kind{transition:none}
+  .dsh-soul-preset-row,.dsh-soul-preset-actions,.dsh-soul-preset-form,.dsh-soul-preset-form-inner,.dsh-soul-kind-chip,.dsh-soul-card-kind,
+  .dsh-soul-deck-card,.dsh-soul-deck-face,.dsh-soul-deck-delete,.dsh-soul-persona-avatar,.dsh-soul-persona-avatar-edit,
+  .dsh-soul-banner-bg,.dsh-soul-advanced,.dsh-soul-advanced-inner,.dsh-soul-advanced-head,.dsh-soul-advanced-caret,
+  .dsh-soul-nav-item,.dsh-soul-quick-card,.dsh-soul-chip-btn,.dsh-soul-hero-card-avatar,.dsh-soul-me-avatar,
+  .dsh-soul-mode-btn,.dsh-soul-rule-item,.dsh-soul-rule-del{transition:none}
 }
 `
 

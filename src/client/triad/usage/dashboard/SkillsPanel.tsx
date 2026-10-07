@@ -3935,12 +3935,11 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
               onRefresh={() => { mcpRefreshLive() }}
               onLogged={pushMcpLog}
             />
-          ) : (<>          {/* 统计行 */}
+          ) : (<>          {/* 统计行：纯净中性板块，移除花哨彩光与色块 */}
           <div className={css.statsRow}>
             <div className={css.stat}>
               <span className={css.statIconCol}>
-                <span className={css.statIcon} data-tone="blue"><StatCubeIcon size={20} /></span>
-                <i className={css.statGlow} data-tone="blue" aria-hidden="true" />
+                <span className={css.statIcon} data-tone="blue"><StatCubeIcon size={18} /></span>
               </span>
               <span className={css.statBody}>
                 <span className={css.statLabel}>{t('statManaged')}</span>
@@ -3952,8 +3951,7 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
             </div>
             <div className={css.stat}>
               <span className={css.statIconCol}>
-                <span className={css.statIcon} data-tone="green"><StatCheckCircleIcon size={20} /></span>
-                <i className={css.statGlow} data-tone="green" aria-hidden="true" />
+                <span className={css.statIcon} data-tone="green"><StatCheckCircleIcon size={18} /></span>
               </span>
               <span className={css.statBody}>
                 <span className={css.statLabel}>{t('statEnabled')}</span>
@@ -3965,8 +3963,7 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
             </div>
             <div className={css.stat}>
               <span className={css.statIconCol}>
-                <span className={css.statIcon} data-tone="violet"><StatSquareIcon size={20} /></span>
-                <i className={css.statGlow} data-tone="violet" aria-hidden="true" />
+                <span className={css.statIcon} data-tone="violet"><StatSquareIcon size={18} /></span>
               </span>
               <span className={css.statBody}>
                 <span className={css.statLabel}>{t('statLoose')}</span>
@@ -3978,20 +3975,18 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
             </div>
             <div className={css.stat}>
               <span className={css.statIconCol}>
-                <span className={css.statIcon} data-tone="orange"><StatHeartIcon size={20} /></span>
-                <i className={css.statGlow} data-tone="orange" aria-hidden="true" />
+                <span className={css.statIcon} data-tone="orange"><StatHeartIcon size={18} /></span>
               </span>
               <span className={css.statBody}>
                 <span className={css.statLabel}>{t('statSync')}</span>
                 <span className={css.statValueRow}>
                   <span
                     className={css.statValue}
-                    data-tone={healthView.tone === 'warn' ? 'warn' : healthView.tone === 'pending' ? 'pending' : undefined}
                     title={healthView.title === '' ? undefined : healthView.title}
                   >
                     {healthView.label}
                   </span>
-                  <IconChevronRightOutline14 className={css.statChevron} size={16} aria-hidden="true" />
+                  <IconChevronRightOutline14 className={css.statChevron} size={15} aria-hidden="true" />
                 </span>
                 <span className={css.statDesc}>{t('statSyncDesc')}</span>
               </span>

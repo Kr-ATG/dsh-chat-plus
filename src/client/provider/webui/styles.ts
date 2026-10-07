@@ -1,10 +1,17 @@
 /**
  * dsh-chat-plus — 供应商页样式注入（原 dsh-provider-hub/webui/styles）。
  *
- * 供应商设置已从官方「设置」弹窗的 `settings.section` 座位迁进**工作台**
- * 的一个 Tab（2026-10-05 融合进 dsh-chat-plus），因此这里只保留样式注入：
- * 官方「模型」设置页不再被隐藏（hideOfficialModelsNav 已删除），
- * 两处入口并存——官方模型页管内核目录，工作台供应商页管多供应商配置。
+ * 供应商设置**回到官方「设置」弹窗**的 `settings.section` 座位（2026-10-05
+ * 用户点名：把供应商配置和代理放回设置里），官方「模型」页导航项随之隐藏
+ * （两页管同一件事，并存会让用户不知道该点哪个）。
+ *
+ * 设置弹窗天生只有 800×800（官方 `.panel` 的硬规格），塞不下「左列表 + 右详情 +
+ * 底部三块 + 代理」。所以这里按 `:has(.phub-host)` 精确加宽加高——**只对供应商页
+ * 生效**，其它设置页（通用 / 插件 / 会话）维持官方 800×800 原样。
+ *
+ * 尺寸与高度上限走 `--phub-max-h` 变量（定义在弹窗上，靠继承下发）：左栏与详情
+ * 面板的限高必须按弹窗实高算，写 `100vh - 150px` 在 1080p 上会算出 930px，
+ * 比弹窗内容区还高，结果是内外两条滚动条打架。
  */
 const STYLE_ID = 'dsh-provider-hub-styles'
 let injected = false
@@ -50,11 +57,21 @@ export function injectStyles(): () => void {
 /* ── 页面骨架：窄屏纵向堆叠 / 宽屏三栏（列表 · 详情 · 模型设置） ──
    宽窄由组件用 ResizeObserver 量自身宽度后打 data-wide（媒体查询量视口，
    与容器实宽不是一回事）。 */
-.phub-host{display:flex;flex-direction:column;gap:18px}
+.phub-host{display:flex;flex-direction:column;gap:18px;animation:phub-page-in 240ms ease backwards}
+/* 弹窗放大过程中内容一直在重排，淡入让这一拍读起来是「铺开」而不是「被拉伸」。 */
+@keyframes phub-page-in{from{opacity:0}to{opacity:1}}
 .phub-host[data-wide] > div:first-child{display:flex;align-items:flex-start;gap:16px;min-width:0;width:100%}
 /* 宽屏时三个模型设置卡作为 hub 的第三列：宽度随容器走（clamp 560–900），自身可滚。
-   写死 380 太窄（下拉被挤成一小截），按容器比例给足宽度。 */
-.phub-host[data-wide] > div:first-child > .phub-blocks{flex:0 0 clamp(560px,44%,900px);width:clamp(560px,44%,900px);max-height:calc(100vh - 150px);overflow-y:auto;overflow-x:hidden;padding-right:2px;animation:phub-block-in 280ms cubic-bezier(.2,.8,.2,1) backwards}
+   写死 380 太窄（下拉被挤成一小截），按容器比例给足宽度。
+   切档（窄屏第二行 → 宽屏第三列）时播 phub-col-in：只淡入 + 轻微右移，
+   **不做宽度插值**——从 0 撑开会把卡里的下拉/输入框压扁 260ms，那种畸变比
+   布局一次到位更扎眼；重排本身由这层淡入遮住即可。 */
+.phub-host[data-wide] > div:first-child > .phub-blocks{flex:0 0 clamp(560px,44%,900px);width:clamp(560px,44%,900px);max-height:var(--phub-max-h, calc(100vh - 150px));overflow-y:auto;overflow-x:hidden;padding-right:2px;animation:phub-block-in 280ms cubic-bezier(.2,.8,.2,1) backwards,phub-col-in 240ms cubic-bezier(.22,.61,.36,1) backwards}
+@keyframes phub-col-in{from{opacity:0;transform:translateX(10px)}}
+/* 窄屏（未打 data-wide）：三块模型设置换行落到第二行，占满整行。
+   flex-basis:100% 是换行的关键——只给 flex:1 的话它会被压在同一行里，
+   详情面板被挤成一条。col-in（0 宽撑开）在窄屏无意义，这里只留错峰淡入。 */
+.phub-host:not([data-wide]) > div:first-child > .phub-blocks{flex:1 1 100%;width:100%;animation:phub-block-in 280ms cubic-bezier(.2,.8,.2,1) 60ms backwards}
 .phub-host[data-wide] > div:first-child > .phub-blocks::-webkit-scrollbar{width:8px}
 .phub-host[data-wide] > div:first-child > .phub-blocks::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l3,#c9cdd4);border-radius:4px}
 .phub-host[data-wide] > div:first-child > .phub-blocks::-webkit-scrollbar-track{background:transparent}
@@ -70,7 +87,7 @@ export function injectStyles(): () => void {
    高度上限按视口算：目录预设展开后行数可以到一百多，不限高就会把右侧详情
    与底部三块一起顶到视口外——那正是「页面看着乱」的主因。
    overflow:hidden 只收横向（过渡期间的行溢出），纵向交给内层滚动区。 */
-.phub-navwrap{overflow:hidden;transition:width 220ms cubic-bezier(.2,.8,.2,1);position:sticky;top:0;align-self:flex-start;display:flex;flex-direction:column;max-height:calc(100vh - 150px);box-sizing:border-box}
+.phub-navwrap{overflow:hidden;transition:width 220ms cubic-bezier(.2,.8,.2,1);position:sticky;top:0;align-self:flex-start;display:flex;flex-direction:column;max-height:var(--phub-max-h, calc(100vh - 150px));box-sizing:border-box}
 
 /* 右侧详情：打开/切换/关闭回占位时滑入（key 变化重播） */
 .phub-detail-in{display:flex;flex-direction:column;min-width:0;animation:phub-slide-in 220ms cubic-bezier(.2,.8,.2,1)}
@@ -120,10 +137,67 @@ export function injectStyles(): () => void {
 /* 空态占位：细虚线 + 居中说明，随页面淡入（无内容时不撑一条边框出来）。 */
 .phub-placeholder{border-style:dashed;border-color:var(--dsw-alias-border-l3,#c9cdd4);color:var(--dsw-alias-label-tertiary,#8f959e);text-align:center;align-items:center;justify-content:center;min-height:220px;padding:24px;animation:phub-block-in 260ms cubic-bezier(.2,.8,.2,1) backwards}
 
+/* ── 官方设置弹窗：尺寸过渡**常驻**（进入 / 退出两个方向都要有） ──
+   不能把 transition 写进下面那条 :has(.phub-host) 里：
+     · 进入：规则与尺寸同帧生效，浏览器把「首帧」当成初始值，不产生过渡（瞬变）；
+     · 退出：点其他页那一刻 .phub-host 卸载，规则与尺寸同帧失效，弹窗瞬间回弹
+       ——用户反馈的「点其他收回没动效」就是这个。
+   锚点取官方的 data-shortcut-modal="settings"（SettingsPanel 里写死的属性），
+   它在弹窗整个生命周期内都成立，两个方向都有过渡。尺寸没变化时不触发过渡，
+   其余设置页零影响。 */
+[role="presentation"] > [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]{
+  transition:width 220ms cubic-bezier(.22,.61,.36,1), height 220ms cubic-bezier(.22,.61,.36,1);
+}
+/* 兜底：万一官方改了那个属性名，至少在供应商页内还有过渡（退出方向会丢，但不至于全丢）。 */
+[role="presentation"] > [dialog][aria-modal="true"]:has(.phub-host){
+  transition:width 220ms cubic-bezier(.22,.61,.36,1), height 220ms cubic-bezier(.22,.61,.36,1);
+}
+/* options 内距同步过渡：供应商页把它从 24px 收成 16px，收放时不跟着跳一格。 */
+[role="presentation"] > [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"] > div:last-child > div:last-child{
+  transition:padding 220ms cubic-bezier(.22,.61,.36,1);
+}
+
+/* ── 官方设置弹窗里的尺寸适配（只对供应商页生效） ──
+   :has(.phub-host) 把规则锁死在「当前打开的是供应商 section」这一种情况：
+   通用 / 插件 / 会话页完全没有 .phub-host，一律维持官方 800×800 原规格。
+   宽度给到 min(1680px, 100vw - 48px)，高度吃掉视口（减去上下留白），因为这一页
+   本身就是「左列表 + 右详情 + 底部四块」的整页工作区。
+   高度沿用官方那条算式（2 × max(24px, --dsh-frame-overlay-top)），只把 800px
+   的上限拿掉——壳内顶部有 chrome 时留白会更大，写死 48px 会被压出滚动条。 */
+[role="presentation"] > [role="dialog"][aria-modal="true"][aria-labelledby]:has(.phub-host){
+  width:min(1680px, calc(100vw - 48px));
+  --phub-panel-h:calc(100vh - 2 * max(24px, var(--dsh-frame-overlay-top, 24px)));
+  --phub-panel-h:calc(100dvh - 2 * max(24px, var(--dsh-frame-overlay-top, 24px)));
+  height:var(--phub-panel-h);
+  /* 弹窗实高减去 header(54) 与 options 的下内距(16)，供左栏 / 详情面板限高。 */
+  --phub-max-h:calc(var(--phub-panel-h) - 54px - 16px);
+}
+/* 首次渲染起点：设置弹窗**打开时就落在供应商页**（上次停在这一页）时，dialog 是
+   这一帧新建的，没有「上一帧」可插值——官方 .panel 的 800×800 在这里靠
+   @starting-style 补成起点，过渡才会真的播出来；否则第一帧就跳到 1680。
+   切换页面进来的路径本来就有上一帧，不需要它，也不受影响。 */
+@starting-style{
+  [role="presentation"] > [role="dialog"][aria-modal="true"][aria-labelledby]:has(.phub-host){
+    width:800px;
+    height:min(800px, calc(100vh - 2 * max(24px, var(--dsh-frame-overlay-top, 24px))));
+  }
+}
+/* 官方 options 有 24px 内距：宽屏三栏本来就吃紧，这里收成 16px 并留出底距。 */
+[role="presentation"] > [role="dialog"][aria-modal="true"][aria-labelledby]:has(.phub-host) > div:last-child > div:last-child{
+  padding:0 16px 16px;
+}
+/* 设置弹窗内的纵向滚动交给 options 一列，页面本体不再自造第二条滚动条。 */
+[role="presentation"] > [role="dialog"][aria-modal="true"][aria-labelledby]:has(.phub-host) .phub-host{overflow:visible}
+
 @media (prefers-reduced-motion: reduce){
   .phub-navwrap{transition:none}
-  .phub-detail-in,.phub-block-in,.phub-placeholder,.phub-desc-in{animation:none}
+  .phub-detail-in,.phub-block-in,.phub-placeholder,.phub-desc-in,.phub-host{animation:none}
   .phub-host .dsh-webui-provider-nav-row{transition:none}
+  [role="presentation"] > [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"],
+  [role="presentation"] > [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"] > div:last-child > div:last-child,
+  [role="presentation"] > [role="dialog"][aria-modal="true"]:has(.phub-host){
+    transition:none;
+  }
 }
 `
     document.head.appendChild(tag)
@@ -133,5 +207,56 @@ export function injectStyles(): () => void {
     if (!injected) return
     document.getElementById(STYLE_ID)?.remove()
     injected = false
+  }
+}
+
+/** 官方「模型」页导航项 label（中英文），用于文本匹配隐藏。 */
+const MODEL_LABELS = new Set(['模型', 'Models'])
+
+/**
+ * 隐藏设置导航中官方「模型」项。
+ *
+ * 官方导航项没有稳定 DOM 锚点（SettingsRoot.tsx 里 nav 项是 `<button>`，
+ * 只有 React key + navLabel 文本；CSS Module 前缀每次构建都变），所以只能
+ * 按 label 文本匹配。这里的**座位归属**没变：供应商页接管了模型目录的编辑，
+ * 官方「模型」页留着就是同一件事两个入口。
+ *
+ * 匹配失败时降级为两页并存（不会报错、也不会挡住任何功能）。
+ * @returns 撤销隐藏、还原导航项的清理函数。
+ */
+export function hideOfficialModelsNav(): () => void {
+  /** 被本模块隐藏的按钮：dispose 时逐个还原，避免关闭模块后官方页永久消失。 */
+  const hidden = new Set<HTMLElement>()
+  const hide = (): void => {
+    // 设置弹窗未打开时整页没有 nav>button：直接返回，省掉逐按钮读文本。
+    const buttons = document.querySelectorAll<HTMLElement>('nav button')
+    if (buttons.length === 0) return
+    for (const btn of buttons) {
+      const label = btn.querySelector('span')?.textContent?.trim() ?? btn.textContent?.trim() ?? ''
+      if (!MODEL_LABELS.has(label)) continue
+      if (btn.style.display === 'none') continue
+      btn.style.display = 'none'
+      hidden.add(btn)
+    }
+  }
+  // 观察器挂在 body 全子树上，对话流式渲染期间每秒可触发上百次；回调只允许
+  // 排一个短延时任务，真正的查询按批合并执行（未节流版本会在每个 mutation
+  // 批次里跑一次全树 querySelectorAll + 逐按钮读文本，属性能红线）。
+  let timer: number | undefined
+  const schedule = (): void => {
+    if (timer !== undefined) return
+    timer = window.setTimeout(() => {
+      timer = undefined
+      hide()
+    }, 60)
+  }
+  hide()
+  const observer = new MutationObserver(schedule)
+  observer.observe(document.body, { childList: true, subtree: true })
+  return () => {
+    observer.disconnect()
+    if (timer !== undefined) window.clearTimeout(timer)
+    for (const btn of hidden) btn.style.removeProperty('display')
+    hidden.clear()
   }
 }

@@ -595,21 +595,26 @@ if (gateTest === undefined) {
   }
 }
 
-// 源码契约：官方「模型」设置页不再被隐藏（hideOfficialModelsNav 已删除）。
+// 源码契约：供应商配置与代理回到官方「设置」弹窗（2026-10-05 用户点名）。
+// 官方「模型」页导航项随之隐藏（两页管同一件事），供应商页注册 settings.section。
 const providerStylesSrc = stripComments(srcOf('src/client/provider/webui/styles.ts'))
-if (/hideOfficialModelsNav/.test(providerStylesSrc)) {
-  fail('官方「模型」设置页仍被隐藏：styles.ts 里不该再有 hideOfficialModelsNav')
-} else if (/display\s*=\s*'none'/.test(providerStylesSrc)) {
-  fail('styles.ts 里仍有把官方导航项 display:none 的写法')
+if (!/hideOfficialModelsNav/.test(providerStylesSrc)) {
+  fail('styles.ts 必须恢复 hideOfficialModelsNav（供应商页接管模型目录，官方「模型」页重复）')
+} else if (!/:has\(\.phub-host\)/.test(providerStylesSrc)) {
+  fail('弹窗尺寸适配必须用 :has(.phub-host) 锁定（否则通用/插件页也被改尺寸）')
 } else {
-  pass('官方「模型」设置页不再被隐藏（hideOfficialModelsNav 已删除）')
+  pass('官方「模型」页隐藏逻辑恢复 + 弹窗尺寸适配只对供应商页生效')
 }
-// 供应商页与代理页必须是工作台 Tab 的页面，不能再注册 settings 座位。
 const providerClientSrc = stripComments(srcOf('src/client/provider/index.ts'))
-if (/settings\.(section|general\.item)/.test(providerClientSrc)) {
-  fail('供应商中心仍在注册设置座位：应当只由工作台 Tab 承载')
+const supplierSectionSrc = stripComments(srcOf('src/client/provider/webui/section.tsx'))
+if (!/applySupplierSection\(ctx\)/.test(providerClientSrc)) {
+  fail('provider 入口必须调用 applySupplierSection(ctx)（设置里没有供应商页）')
+} else if (!/ctx\.slots\.inject\('settings\.section'/.test(supplierSectionSrc)) {
+  fail('供应商页必须注册 settings.section 座位')
+} else if (/settings\.general\.item/.test(providerClientSrc + supplierSectionSrc)) {
+  fail('通用设置里的独立代理卡不该回来（代理是供应商页底部的区块）')
 } else {
-  pass('供应商中心不再注册 settings.section / settings.general.item 座位')
+  pass('供应商设置页在位：settings.section / provider-hub，代理并入页面底部')
 }
 
 /* ── Office 预览（2026-10-06）：纯函数契约 + 真 HTTP 链路 ────────────────

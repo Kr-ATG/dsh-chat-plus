@@ -30,7 +30,7 @@
  */
 
 import { join } from 'node:path'
-import { readdir, readFile, unlink } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { atomicWriteJson, atomicWriteText, memoryHome, nowIso, readJson } from '../memory/engine/store.js'
 import {
   assembleInjection,
@@ -44,15 +44,26 @@ import {
 } from './cards.js'
 import { BUILTIN_SOUL_PRESETS, isBuiltinPresetId } from './presets.js'
 import {
+  applyUserVars,
+  AVATAR_BASE_ID,
+  AVATAR_USER_ID,
+  buildUserSection,
   DEFAULT_SOUL_TEMPLATE,
+  isUserEmpty,
+  isValidAvatarName,
   normalizeCard,
   normalizeCards,
   normalizeIdentity,
   normalizePreset,
+  normalizeUser,
   presetIdOf,
+  PROFILE_DESC_MAX,
+  PROFILE_TAG_MAX,
+  SOUL_MIN_PERSONA_BUDGET,
   sortCards,
   type ProfileView,
   type SoulActiveFile,
+  type SoulBaseMeta,
   type SoulCard,
   type SoulCardsFile,
   type SoulDraft,
@@ -60,10 +71,15 @@ import {
   type SoulPreset,
   type SoulPresetsFile,
   type SoulProfile,
+  type SoulUser,
   type SoulView,
 } from './types.js'
 
-/** 注入预算（字符）。与 zh 通道同口径：够写完整人设，又不至于每会话白烧上下文。 */
+/**
+ * 注入预算（字符）。与 zh 通道同口径：够写完整人设，又不至于每会话白烧上下文。
+ *
+ * 这是**人格段 + 用户段**的总预算（用户段从里面预留，见 injectionContent）。
+ */
 export const SOUL_INJECT_BUDGET = 2000
 
 /** 档案 id 白名单：只允许小写字母/数字/短横/下划线，杜绝路径穿越。 */
@@ -133,6 +149,15 @@ export class SoulStore {
   presetsFile(): string { return join(this.soulDir(), 'presets.json') }
   profilesDir(): string { return join(this.soulDir(), 'profiles') }
   profileFile(id: string): string { return join(this.profilesDir(), `${id}.json`) }
+  /** 用户自己的资料（名字 + 个人档案）。与 soul.md 分开，见 types.SoulUser 注释。 */
+  userFile(): string { return join(this.soulDir(), 'user.json') }
+  /** 头像实体目录（文件名为 `<档案 id>.<扩展名>`）。 */
+  avatarsDir(): string { return join(this.soulDir(), 'avatars') }
+  /** 头像索引：`{ "<档案 id>": "<扩展名>" }`，与实体文件同生共死。 */
+  avatarIndexFile(): string { return join(this.soulDir(), 'avatars.json') }
+  /** 主档没有 profile id，用固定占位串当头像 id（见 types.AVATAR_BASE_ID）。 */
+  avatarIdFor(profileId: string | null): string { return profileId ?? AVATAR_BASE_ID }
+  avatarFile(name: string): string { return join(this.avatarsDir(), name) }
 
   // ── 读 ──────────────────────────────────────────────────────────────
 
@@ -149,6 +174,37 @@ export class SoulStore {
     return normalizeIdentity(await readJson<unknown>(this.identityFile(), null))
   }
 
+  // ── 我的资料（用户侧，与人格完全解耦） ──────────────────────────────
+
+  /** 读用户资料（缺失/损坏 → 空）。 */
+  async readUser(): Promise<SoulUser> {
+    return normalizeUser(await readJson<unknown>(this.userFile(), null))
+  }
+
+  /**
+   * 写用户资料（整份覆盖，不做局部合并）。
+   *
+   * 面板把 name + profile 一起提交（它本来就是同一块表单），局部合并反而要处理
+   * 「只想清空档案、名字不动」与「只改名字」两种意图的区分——那需要额外的
+   * 「字段是否出现」协议，而这个表单不存在部分提交的场景。
+   */
+  async writeUser(user: SoulUser): Promise<SoulUser> {
+    const next = normalizeUser(user)
+    // 两个字段都空 = 用户清空了整块资料。此时**删文件**而不是落一份空 JSON：
+    // 「文件不存在」是注入侧「没有用户资料」的判据，留一份空对象会让判据多一条分支。
+    if (isUserEmpty(next)) {
+      try { await unlink(this.userFile()) } catch { /* 本来就没有 */ }
+      return next
+    }
+    await atomicWriteJson(this.userFile(), next)
+    return next
+  }
+
+  /** 用户头像文件名；未上传返回 null。走与人格头像同一套索引与命名。 */
+  async userAvatarName(): Promise<string | null> {
+    return this.avatarNameFor(AVATAR_USER_ID)
+  }
+
   async readActive(): Promise<SoulActiveFile> {
     const raw = await readJson<Partial<SoulActiveFile> | null>(this.activeFile(), null)
     const profileId = typeof raw?.profileId === 'string' && isValidProfileId(raw.profileId)
@@ -161,6 +217,8 @@ export class SoulStore {
         version: typeof base?.version === 'number' && Number.isFinite(base.version) ? base.version : 0,
         updatedAt: typeof base?.updatedAt === 'string' ? base.updatedAt : null,
         source: base?.source === 'distill' ? 'distill' : 'manual',
+        ...(typeof base?.desc === 'string' ? { desc: base.desc } : {}),
+        ...(typeof base?.tag === 'string' ? { tag: base.tag } : {}),
       },
     }
   }
@@ -178,6 +236,8 @@ export class SoulStore {
       version: typeof raw.version === 'number' && Number.isFinite(raw.version) ? raw.version : 1,
       updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : null,
       source: raw.source === 'distill' ? 'distill' : 'manual',
+      desc: typeof raw.desc === 'string' ? raw.desc.trim().slice(0, PROFILE_DESC_MAX) : '',
+      tag: typeof raw.tag === 'string' ? raw.tag.trim().slice(0, PROFILE_TAG_MAX) : '',
       // 老档案没有 cards 字段：这里**不**做迁移（读路径必须无副作用，
       // 面板每渲染一次就写一次盘是不可接受的）。缺省交给调用方按需迁移。
       ...(Array.isArray(raw.cards) ? { cards: normalizeCards(raw.cards) } : {}),
@@ -212,6 +272,9 @@ export class SoulStore {
    */
   async view(): Promise<SoulView> {
     const active = await this.readActive()
+    // 用户资料与「当前是哪份人格」无关，所以两个分支都要带上；读一次复用。
+    const user = await this.readUser()
+    const userAvatar = await this.userAvatarName()
     if (active.profileId !== null) {
       const profile = await this.readProfile(active.profileId)
       if (profile !== null) {
@@ -222,6 +285,11 @@ export class SoulStore {
           version: profile.version,
           updatedAt: profile.updatedAt,
           source: profile.source,
+          avatar: await this.avatarNameFor(profile.id),
+          desc: profile.desc,
+          tag: profile.tag,
+          user,
+          userAvatar,
           soulSource: profile.cards !== undefined ? 'cards' : 'soul.md',
         }
       }
@@ -237,6 +305,11 @@ export class SoulStore {
       version: active.base.version,
       updatedAt: active.base.updatedAt,
       source: active.base.source,
+      avatar: await this.avatarNameFor(null),
+      desc: active.base.desc ?? '',
+      tag: active.base.tag ?? '',
+      user,
+      userAvatar,
       // 面板据此区分「卡片装配」与「整段文本」。未落盘时也报 soul.md：
       // 此时 content 是模板，卡片层根本不存在。
       soulSource: content === null ? 'soul.md' : (await this.readCards()) !== null ? 'cards' : 'soul.md',
@@ -247,12 +320,95 @@ export class SoulStore {
   async profileViews(): Promise<ProfileView[]> {
     const active = await this.readActive()
     const profiles = await this.listProfiles()
-    return profiles.map(profile => ({
-      id: profile.id,
-      name: profile.name,
-      active: profile.id === active.profileId,
-      updatedAt: profile.updatedAt,
-    }))
+    // 头像索引一次读出来配给每份档案：N 份档案读 N 次索引文件毫无意义，
+    // 而索引缺失时全部回 null（没传过头像）正是想要的语义。
+    const avatars = await this.readAvatarIndex()
+    return profiles.map(profile => {
+      // 索引里存的是**扩展名**（见 writeAvatar），对外契约要的是**文件名**：
+      // 直接回扩展名会让面板拿到一个 "png" 当头像标识，看着像有图、实际拼不出路径。
+      const ext = avatars[profile.id]
+      return {
+        id: profile.id,
+        name: profile.name,
+        active: profile.id === active.profileId,
+        updatedAt: profile.updatedAt,
+        desc: profile.desc,
+        tag: profile.tag,
+        avatar: ext === undefined ? null : `${profile.id}.${ext}`,
+      }
+    })
+  }
+
+  // ── 档案头像（展示件：只影响面板卡片，不参与注入） ──────────────────
+
+  /** 读头像索引（缺失/损坏 → {}，不抛）。 */
+  async readAvatarIndex(): Promise<Record<string, string>> {
+    const raw = await readJson<Record<string, unknown> | null>(this.avatarIndexFile(), null)
+    if (raw === null || typeof raw !== 'object') return {}
+    const out: Record<string, string> = {}
+    for (const [id, ext] of Object.entries(raw)) {
+      // 索引里出现白名单外的值 = 手工改坏了：跳过而不是回一个会被当路径用的串。
+      if (typeof ext === 'string' && isValidAvatarName(`${id}.${ext}`)) out[id] = ext
+    }
+    return out
+  }
+
+  /** 某个「人格」（档案 id 或主档占位）的头像文件名；未设置返回 null。 */
+  async avatarNameFor(profileId: string | null): Promise<string | null> {
+    const index = await this.readAvatarIndex()
+    const ext = index[this.avatarIdFor(profileId)]
+    return ext === undefined ? null : `${this.avatarIdFor(profileId)}.${ext}`
+  }
+
+  /**
+   * 写入头像。
+   *
+   * 两个刻意的处理：
+   *  1. **换扩展名时删旧文件**（png → jpg 是同一份人格换图，不是两份图）。否则
+   *     目录里会攒下一堆永远读不到的孤儿文件，而索引只指向最后一张。
+   *  2. 索引与实体分两步写。先写实体再写索引：中途失败留下的是一个没人引用的
+   *     文件（无害），反过来则是一个指向不存在文件的索引（面板每次开都破图）。
+   */
+  async writeAvatar(profileId: string | null, ext: string, bytes: Buffer): Promise<string> {
+    const id = this.avatarIdFor(profileId)
+    if (!isValidAvatarName(`${id}.${ext}`)) throw new Error(`头像 id 非法：${id}`)
+    const name = `${id}.${ext}`
+    await mkdir(this.avatarsDir(), { recursive: true })
+    // 原子替换：先写临时文件再 rename，避免面板刷新到半张图。
+    const temp = `${this.avatarFile(name)}.${process.pid}.tmp`
+    try {
+      await writeFile(temp, bytes)
+      await rename(temp, this.avatarFile(name))
+    } catch (error) {
+      // 写一半失败别把 tmp 留在盘上（与 atomicWriteText 同一条纪律）。
+      try { await unlink(temp) } catch { /* 已被 rename 走或从不存在 */ }
+      throw error
+    }
+    const index = await this.readAvatarIndex()
+    const previous = index[id]
+    index[id] = ext
+    await atomicWriteJson(this.avatarIndexFile(), index)
+    if (previous !== undefined && previous !== ext) {
+      try { await unlink(this.avatarFile(`${id}.${previous}`)) } catch { /* 已被删或从不存在 */ }
+    }
+    return name
+  }
+
+  /**
+   * 删除头像。返回是否真的删掉了（false = 本来就没有）。
+   *
+   * 索引先删、实体后删：即使实体删除失败，用户看到的也是「头像没了」；
+   * 反过来（先删实体）则会留下一段时间的破图。
+   */
+  async removeAvatar(profileId: string | null): Promise<boolean> {
+    const id = this.avatarIdFor(profileId)
+    const index = await this.readAvatarIndex()
+    const ext = index[id]
+    if (ext === undefined) return false
+    delete index[id]
+    await atomicWriteJson(this.avatarIndexFile(), index)
+    try { await unlink(this.avatarFile(`${id}.${ext}`)) } catch { /* 从不存在 */ }
+    return true
   }
 
   // ── 卡片（schema v2 权威层） ────────────────────────────────────────
@@ -466,9 +622,24 @@ export class SoulStore {
    * 准则三张对应卡的内容刷成新字段值。不区分这两种情况的话，「改一下名字」会把
    * 用户攒的自定义卡全部拍平成「自定义」小节。
    */
-  async writeBase(content: string, identity: SoulIdentity, source: 'manual' | 'distill'): Promise<SoulView> {
+  async writeBase(
+    content: string,
+    identity: SoulIdentity,
+    source: 'manual' | 'distill',
+    cardMeta?: { desc?: string; tag?: string },
+  ): Promise<SoulView> {
     const active = await this.readActive()
-    const meta = { version: active.base.version + 1, updatedAt: nowIso(), source }
+    // 展示件缺省沿用现值：面板「只改正文」时不该把用户写好的卡片说明清空
+    // （与 writeProfile 的 name/desc/tag 同一条取舍）。
+    const desc = cardMeta?.desc !== undefined ? cardMeta.desc.trim().slice(0, PROFILE_DESC_MAX) : (active.base.desc ?? '')
+    const tag = cardMeta?.tag !== undefined ? cardMeta.tag.trim().slice(0, PROFILE_TAG_MAX) : (active.base.tag ?? '')
+    const meta = {
+      version: active.base.version + 1,
+      updatedAt: nowIso(),
+      source,
+      ...(desc === '' ? {} : { desc }),
+      ...(tag === '' ? {} : { tag }),
+    }
     // 先按传入的正文/字段算卡片，再由卡片**拼回** soul.md：
     //   - 卡片是权威层，soul.md 是它的全文投影（任务口径）。若这里保留用户原文，
     //     同一个灵魂会有两份文本（原文含 `# 标题`，卡片装配含段标题），面板「全文
@@ -488,8 +659,33 @@ export class SoulStore {
       version: meta.version,
       updatedAt: meta.updatedAt,
       source: meta.source,
+      avatar: await this.avatarNameFor(active.profileId),
+      desc,
+      tag,
+      user: await this.readUser(),
+      userAvatar: await this.userAvatarName(),
       soulSource: 'cards',
     }
+  }
+
+  /**
+   * 只改主档的角色卡展示件（不动正文、不动卡片、不 bump 版本）。
+   *
+   * 为什么要单开一条路径而不是复用 writeBase：writeBase 会重算卡片与 soul.md
+   * 并把版本号 +1。改一句卡片定位属于纯展示编辑，让它顺带重写人设正文等于
+   * 「调个标签却动了注入内容」——用户无从预期。
+   */
+  async setBaseCardMeta(meta: { desc?: string; tag?: string }): Promise<SoulView> {
+    const active = await this.readActive()
+    const desc = meta.desc !== undefined ? meta.desc.trim().slice(0, PROFILE_DESC_MAX) : (active.base.desc ?? '')
+    const tag = meta.tag !== undefined ? meta.tag.trim().slice(0, PROFILE_TAG_MAX) : (active.base.tag ?? '')
+    // 空串 = 清掉这个字段（而不是留一个空串在盘上）：active.json 是给人看的，
+    // 一个 `"desc": ""` 会让人分不清「没设过」和「设成了空」。
+    const base: SoulBaseMeta = { version: active.base.version, updatedAt: active.base.updatedAt, source: active.base.source }
+    if (desc !== '') base.desc = desc
+    if (tag !== '') base.tag = tag
+    await atomicWriteJson(this.activeFile(), { profileId: active.profileId, base })
+    return this.view()
   }
 
   /**
@@ -519,6 +715,7 @@ export class SoulStore {
     source: 'manual' | 'distill',
     name?: string,
     cards?: SoulCard[],
+    meta?: { desc?: string; tag?: string },
   ): Promise<SoulProfile> {
     const existing = await this.readProfile(id)
     // 名字优先级：显式 name > 已存在档案的名字 > 身份里的名字 > id。
@@ -544,6 +741,10 @@ export class SoulStore {
       updatedAt: nowIso(),
       source,
       cards: nextCards,
+      // 副标题/小标签是纯展示件：缺省沿用档案里已有的值，避免「只改正文」把
+      // 用户写好的卡片说明清空（与 name 的取舍同一条理由）。
+      desc: meta?.desc !== undefined ? meta.desc.trim().slice(0, PROFILE_DESC_MAX) : (existing?.desc ?? ''),
+      tag: meta?.tag !== undefined ? meta.tag.trim().slice(0, PROFILE_TAG_MAX) : (existing?.tag ?? ''),
     }
     await atomicWriteJson(this.profileFile(id), profile)
     return profile
@@ -567,6 +768,9 @@ export class SoulStore {
     } catch {
       existed = false
     }
+    // 头像跟着档案一起删：档案没了、头像还在目录里，就是一个永远读不到的孤儿
+    // （面板不会再渲染它，索引却仍指向它）。失败不抛——档案已删是主结果。
+    try { await this.removeAvatar(id) } catch { /* 头像删除失败不影响档案删除 */ }
     const active = await this.readActive()
     if (active.profileId === id) {
       await atomicWriteJson(this.activeFile(), { profileId: null, base: active.base })
@@ -595,6 +799,8 @@ export class SoulStore {
    */
   async applyDraft(draft: SoulDraft): Promise<SoulView> {
     const active = await this.readActive()
+    // 草案是「新的默认人格」：展示件跟着清掉（沿用旧主档的说明会变成
+    // 「蒸馏出来的新人格挂着上一份人设的定位」），头像同理不继承。
     const meta = { version: active.base.version + 1, updatedAt: nowIso(), source: 'distill' as const }
     await atomicWriteText(this.soulFile(), draft.content)
     await atomicWriteJson(this.identityFile(), draft.identity)
@@ -610,6 +816,12 @@ export class SoulStore {
       version: meta.version,
       updatedAt: meta.updatedAt,
       source: 'distill',
+      avatar: await this.avatarNameFor(null),
+      desc: '',
+      tag: '',
+      // 蒸馏换的是「agent 人设」，用户自己的资料不该被它动（包括头像）。
+      user: await this.readUser(),
+      userAvatar: await this.userAvatarName(),
       soulSource: 'cards',
     }
   }
@@ -624,10 +836,28 @@ export class SoulStore {
    * 空消息。**不回落默认模板**——模板是面板的编辑起点，不是用户的人设；
    * 把模板当人设注入等于每个用户都被塞一份我们编的准则。
    * 卡片全禁用（或全是空正文）时装配结果同样是 ''，通道静默跳过。
+   *
+   * 2026-10-07 起两件事在这里发生（顺序不能换）：
+   *   1. **变量替换**：卡片正文里的 `{{userName}}` / `{{userProfile}}` 换成用户
+   *      资料的真值。必须发生在装配**之后**（按段替换整段文本），理由见下。
+   *   2. **追加用户段**：`## 用户` + 称呼 + 档案，让人格段里的「你」有具体所指。
+   *
+   * 为什么替换放在装配后而不是逐卡替换：预算按**装配后的真实长度**算才对。若先替换
+   * 再装配，用户档案越长、装配文本越短，超预算时被丢掉的卡片会随用户资料的填写
+   * 情况而变化——同一份人设因为「用户改了自己的档案」而少注入一张卡，无法解释。
    */
   async injectionContent(): Promise<string> {
     const cards = await this.cards()
-    const text = assembleInjection(cards, SOUL_INJECT_BUDGET).trim()
-    return text === '' ? '' : text
+    const user = await this.readUser()
+    // 用户段先算出来，它要占的预算从人格预算里**预留**掉：否则一段 800 字的用户
+    // 档案会把人格段挤出 2000 字预算（人格才是这个通道的主体，不能被补充说明挤没）。
+    const userSection = buildUserSection(user)
+    const personaBudget = Math.max(
+      SOUL_MIN_PERSONA_BUDGET,
+      SOUL_INJECT_BUDGET - (userSection === '' ? 0 : userSection.length + 2),
+    )
+    const persona = applyUserVars(assembleInjection(cards, personaBudget), user).trim()
+    const sections = [persona, userSection].filter(section => section !== '')
+    return sections.join('\n\n')
   }
 }

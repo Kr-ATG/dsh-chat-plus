@@ -24,6 +24,34 @@ export interface SoulIdentity {
   principles: string[]
 }
 
+/**
+ * 「我的资料」——面板上关于**用户自己**的那份身份描述（host SoulUser 镜像）。
+ *
+ * 与灵魂（agent 人设）分开存：soul 描述「你是谁、怎么说话」（属于模型），
+ * user 描述「我是谁」（属于用户，不随人格切换）。
+ */
+export interface SoulUser {
+  /** 用户希望被怎么称呼。空串 = 未设置（此时 {{userName}} 保持字面量）。 */
+  name: string
+  /** 个人档案：职业、习惯、在意的事、想要什么帮助。 */
+  profile: string
+}
+
+/** 空用户资料（面板初始态）。 */
+export const EMPTY_SOUL_USER: SoulUser = { name: '', profile: '' }
+
+/** 用户资料字段上限（与 host 一致，用于面板字数提示与输入限制）。 */
+export const USER_NAME_MAX = 40
+export const USER_PROFILE_MAX = 2000
+
+/**
+ * 用户头像的保留 id（host AVATAR_USER_ID 镜像）。
+ *
+ * 头像是同一套端点，用这一个 id 表达「用户的那张」。它与档案 id 空间重叠，但 host
+ * 建档案时拒掉 `base` / `user` 两个保留字，所以索引里 key 为 `user` 的只可能是用户头像。
+ */
+export const AVATAR_USER_ID = 'user'
+
 /** 灵魂视图（host SoulView 镜像）。 */
 export interface SoulView {
   /** soul.md 正文（用户可编辑的 markdown 人设）。 */
@@ -36,6 +64,21 @@ export interface SoulView {
   updatedAt: string | null
   /** 内容来源：手动编辑 / 蒸馏草案采用。 */
   source: 'manual' | 'distill'
+  /**
+   * 当前人格的头像文件名；null = 未上传。
+   *
+   * 面板左列那枚头像跟着**当前生效人格**走（切换档案后立刻换脸），所以它由 host
+   * 在视图里给，而不是让 client 从 profiles 里反查——同一份状态维护两遍必然漂移。
+   */
+  avatar: string | null
+  /** 当前人格的卡片副标题（主档存在 active.json，档案存在档案 JSON 里）。 */
+  desc: string
+  /** 当前人格的卡片小标签。 */
+  tag: string
+  /** 用户自己的资料（与当前是哪份人格无关，随视图一起回避免二次往返）。 */
+  user: SoulUser
+  /** 用户头像文件名；null = 未上传。 */
+  userAvatar: string | null
 }
 
 /** 灵魂草案（蒸馏产物，未落盘）。 */
@@ -53,6 +96,12 @@ export interface ProfileView {
   /** 是否当前激活。 */
   active: boolean
   updatedAt: string | null
+  /** 卡片副标题：一句定位（如「均衡的助手」）。空串 = 未设置。 */
+  desc: string
+  /** 卡片底部小标签（如 MOOD / 沉思）。空串 = 未设置。 */
+  tag: string
+  /** 头像文件名；null = 未上传。取图走 avatarUrl()。 */
+  avatar: string | null
 }
 
 /** GET /soul 回包。 */
@@ -109,6 +158,15 @@ export interface SoulPatch {
    * 故以此方式表达，待 host 支持后自动生效。
    */
   remove?: boolean
+  /**
+   * 角色卡副标题：一句定位（如「均衡的助手」）。
+   *
+   * 与 name 同类的契约外可选扩展（2026-10-07）：缺省时 host 沿用档案里已有的值，
+   * 所以面板只在用户真的改过它时才带上来——否则「只改正文」会顺手把卡片说明清空。
+   */
+  desc?: string
+  /** 角色卡底部小标签（如 MOOD / 沉思）。语义同 desc。 */
+  tag?: string
 }
 
 /**
@@ -226,6 +284,25 @@ export interface SoulApi {
   /** 切换激活档案；null = 回到主档 soul.md。 */
   activateProfile: (profileId: string | null) => Promise<SoulWriteResponse>
 
+  // ── 我的资料（用户侧身份，与人格解耦） ──
+  /** 读用户资料 + 头像。 */
+  loadUser: () => Promise<{ user: SoulUser; avatar: string | null }>
+  /** 写用户资料（整份覆盖：空串 = 清掉该字段）。 */
+  saveUser: (user: SoulUser) => Promise<{ ok: boolean; user: SoulUser; avatar: string | null }>
+
+  // ── 档案头像（展示件：只影响面板卡片，不参与注入） ──
+  /**
+   * 头像图片的 URL（直接塞进 <img src>）。
+   *
+   * 带 cache-busting 参数：换头像后路径不变，浏览器会拿缓存里的旧脸；面板换图后
+   * 用新的 bust 值重取即可（bust 由调用方给，通常是上传成功的时间戳）。
+   */
+  avatarUrl: (profileId: string | null, bust?: string | number) => string
+  /** 上传/替换头像。dataUrl 必须是 data:image/*;base64 形式。 */
+  uploadAvatar: (profileId: string | null, dataUrl: string) => Promise<{ ok: boolean; avatar: string | null }>
+  /** 删除头像（幂等：本来就没有也回 ok）。 */
+  removeAvatar: (profileId: string | null) => Promise<{ ok: boolean; avatar: string | null }>
+
   // ── 卡片（灵魂的权威形态） ──
   /** 读取卡片列表。 */
   loadCards: () => Promise<SoulCardsResponse>
@@ -267,6 +344,7 @@ export const EMPTY_IDENTITY: SoulIdentity = { name: '', role: '', tone: '', lang
 /** 空灵魂（面板初始态；host 不可达时不显示假数据）。 */
 export const EMPTY_SOUL: SoulView = {
   content: '', identity: EMPTY_IDENTITY, profileId: null, version: 0, updatedAt: null, source: 'manual',
+  avatar: null, desc: '', tag: '', user: EMPTY_SOUL_USER, userAvatar: null,
 }
 
 /** 取字符串字段（非字符串一律空串，不把 undefined 渲染进 UI）。 */
@@ -289,6 +367,12 @@ function normalizeIdentity(raw: unknown): SoulIdentity {
   }
 }
 
+/** 规范化用户资料（缺字段补空串）。 */
+function normalizeUser(raw: unknown): SoulUser {
+  const src = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
+  return { name: str(src.name), profile: str(src.profile) }
+}
+
 /** 规范化灵魂视图。 */
 function normalizeSoul(raw: unknown): SoulView {
   const src = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
@@ -300,6 +384,12 @@ function normalizeSoul(raw: unknown): SoulView {
     version: typeof src.version === 'number' && Number.isFinite(src.version) ? src.version : 0,
     updatedAt: typeof src.updatedAt === 'string' && src.updatedAt !== '' ? src.updatedAt : null,
     source: src.source === 'distill' ? 'distill' : 'manual',
+    avatar: typeof src.avatar === 'string' && src.avatar !== '' ? src.avatar : null,
+    desc: str(src.desc),
+    tag: str(src.tag),
+    // 旧 host 不回这两个字段：退化成空资料 + 无头像（面板照常渲染，只是那块空着）。
+    user: normalizeUser(src.user),
+    userAvatar: typeof src.userAvatar === 'string' && src.userAvatar !== '' ? src.userAvatar : null,
   }
 }
 
@@ -312,6 +402,11 @@ function normalizeProfile(raw: unknown, index: number): ProfileView {
     name: typeof src.name === 'string' && src.name !== '' ? src.name : id,
     active: src.active === true,
     updatedAt: typeof src.updatedAt === 'string' && src.updatedAt !== '' ? src.updatedAt : null,
+    // desc / tag / avatar 是 2026-10-07 新增的展示字段：旧 host 不回，一律退化成
+    // 空/未上传（卡片照样渲染，只是没有副标题与脸）。
+    desc: str(src.desc),
+    tag: str(src.tag),
+    avatar: typeof src.avatar === 'string' && src.avatar !== '' ? src.avatar : null,
   }
 }
 
@@ -514,6 +609,39 @@ export function createSoulApi(): SoulApi {
     } satisfies SoulPatch)),
     removeProfile: async (profileId) => toSnapshot(await sendJson('', { profileId, remove: true })),
     activateProfile: async (profileId) => toSnapshot(await sendJson('', { activate: profileId ?? '' })),
+
+    // 头像：GET 直接给 <img src> 用（不经 fetch），上传/删除走 POST。
+    // 主档（profileId === null）不传参数，host 缺省即主档占位 id。
+    avatarUrl: (profileId, bust) => {
+      const query = new URLSearchParams()
+      if (profileId !== null && profileId !== '') query.set('profileId', profileId)
+      // bust 只影响缓存：换图后路径不变，不加它浏览器会一直显示旧脸。
+      if (bust !== undefined) query.set('v', String(bust))
+      const suffix = query.toString()
+      return `${API_BASE}/avatar${suffix === '' ? '' : `?${suffix}`}`
+    },
+    loadUser: async () => {
+      const body = await getJson('/user')
+      return {
+        user: normalizeUser(body.user),
+        avatar: typeof body.avatar === 'string' && body.avatar !== '' ? body.avatar : null,
+      }
+    },
+    saveUser: async (user) => {
+      const body = await sendJson('/user', user)
+      return {
+        ok: body.ok !== false,
+        user: normalizeUser(body.user),
+        avatar: typeof body.avatar === 'string' && body.avatar !== '' ? body.avatar : null,
+      }
+    },    uploadAvatar: async (profileId, dataUrl) => {
+      const body = await sendJson('/avatar', { ...(profileId === null ? {} : { profileId }), dataUrl })
+      return { ok: body.ok !== false, avatar: typeof body.avatar === 'string' && body.avatar !== '' ? body.avatar : null }
+    },
+    removeAvatar: async (profileId) => {
+      const body = await sendJson('/avatar/remove', profileId === null ? {} : { profileId })
+      return { ok: body.ok !== false, avatar: null }
+    },
 
     loadCards: async () => toCards(await getJson('/cards')),
     // 卡片写入是「一次请求里可混合增删序」的：面板做一次拖拽排序 + 一次开关，

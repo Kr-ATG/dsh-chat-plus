@@ -30,6 +30,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { WorkbenchTab } from './WorkbenchPanel.js'
 import { DSH_WHALE_PATH, DSH_WHALE_VIEWBOX } from '../brand/whale-path.js'
+import { getService } from '../../client-ctx.js'
 
 /** 侧栏行内的标记属性（图标组件渲染，委托监听据此认行）。 */
 export const WORKBENCH_ROW_MARK = 'data-workbench-row'
@@ -69,6 +70,26 @@ export function readWorkbenchTab(): WorkbenchTab {
 export function writeWorkbenchTab(tab: WorkbenchTab): void {
   try { localStorage.setItem(WORKBENCH_TAB_STORE, tab) } catch { /* 忽略写入失败 */ }
   window.dispatchEvent(new CustomEvent<WorkbenchTab>(WORKBENCH_TAB_EVENT, { detail: tab }))
+}
+
+/** 打开工作台并切换到指定分类（若已在工作台则原地切页）。 */
+export function openWorkbench(tab?: WorkbenchTab): void {
+  if (tab !== undefined) {
+    writeWorkbenchTab(tab)
+  }
+  try {
+    const layout = getService<{ selectPanel?: (id: string | null) => void }>('layout')
+    if (layout !== undefined && typeof layout.selectPanel === 'function') {
+      layout.selectPanel('workbench')
+      return
+    }
+  } catch { /* 忽略读取错误 */ }
+  try {
+    const btn = document.querySelector(`[${WORKBENCH_ROW_MARK}]`)?.closest('button') as HTMLButtonElement | null
+    if (btn !== null) {
+      btn.click()
+    }
+  } catch { /* 忽略点击错误 */ }
 }
 
 /** 滚轮步进：循环取下一个/上一个分类。 */
@@ -301,7 +322,10 @@ function Flyout({ top, left, current, onEnter, onLeave }: {
           role="menuitem"
           className="wbf-item"
           data-active={meta.id === current || undefined}
-          onClick={() => { writeWorkbenchTab(meta.id) }}
+          onClick={() => {
+            onLeave()
+            openWorkbench(meta.id)
+          }}
         >
           <WorkbenchTabIcon tab={meta.id} />
           <span className="wbf-item-main">

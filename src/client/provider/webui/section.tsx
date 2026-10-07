@@ -1,37 +1,43 @@
 /**
- * dsh-chat-plus — 「供应商」工作台页面（原 dsh-provider-hub 的独立设置页，
- * 2026-10-05 融合进 dsh-chat-plus 并迁进工作台 Tab）。
+ * dsh-chat-plus — 「供应商」设置页（原 dsh-provider-hub 的独立设置页）。
+ *
+ * **座位回到官方「设置」弹窗**的 `settings.section`（2026-10-05 用户点名：
+ * 「还是把供应商配置和代理放在设置里面吧」）。此前一轮曾把整页搬进工作台
+ * 一个 Tab，现按用户要求撤回——工作台不再有「供应商」Tab，设置导航里也没有
+ * 官方「模型」页（hideOfficialModelsNav 恢复），两页管同一件事只会让用户
+ * 不知道该点哪个。
  *
  * 左导航（ChatProviderList：已配置/目录预设/添加自定义）+ 右详情
  * （ChatProviderDetail：API Key、Base URL、协议、模型列表 + 获取可用模型 +
- * 🔍 检测推理等级）。底部含辅助视觉（含自动降级开关）/ 生图 / 生视频三块。
+ * 🔍 检测推理等级）。底部含辅助视觉（含自动降级开关）/ 生图 / 生视频三块，
+ * 以及**网络代理**全宽区块（总开关 + 地址 + 连通性自检 + 生效范围）。
  *
- * 与旧「设置 → 供应商」整页的差别只有两处：
- *   1. 座位从 `settings.section` 换成工作台 Tab（由 WorkbenchPanel 渲染，
- *      `embedded` 形态：不自己画头部、不自己撑满 main）；
- *   2. 官方「模型」设置页**不再被隐藏**（原 hideOfficialModelsNav 已删除）。
+ * 官方设置弹窗天生 800×800，这一页按 `:has(.phub-host)` 精确加宽加高（见
+ * webui/styles.ts），其它设置页维持官方原规格。
  *
  * 推理检测走本插件新版 `/api/detect-capability`：默认先测 max，网关拒绝且
  * 错误里带合法值表时直接按表填入并自动落盘（含 OpenAI 系 off:'none'）。
  * createElement 风格（不转 JSX，由 esbuild 处理）。
  */
-import { createElement as h, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { createElement as h, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+// Type-only：拉入 shell 的 SlotMap 合并声明（settings.section 整页槽）。
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { ChatProviderList } from './chat/ChatProviderList.tsx'
 import { ChatProviderDetail } from './chat/ChatProviderDetail.tsx'
 import type { ChatProviderMode, ChatProviderTarget } from './chat/ChatProviderDetail.tsx'
 import { ModelsSettingsStore, deriveKeyRef } from './chat/store.ts'
 import type { ModelsSettingsState, ProviderRow } from './chat/store.ts'
-import { injectStyles } from './styles.ts'
+import { injectStyles, hideOfficialModelsNav } from './styles.ts'
 import { VisionModelBlock } from './vision/VisionModelBlock.tsx'
 import { ImageModelBlock } from './image/ImageModelBlock.tsx'
 import { VideoModelBlock } from './video/VideoModelBlock.tsx'
 import { createLegacyApi } from './api-adapter.ts'
 import { ProxyPanel } from '../panel/proxy-panel.tsx'
-import { getClientCtx, getService } from '../../client-ctx.js'
+import { getService } from '../../client-ctx.js'
 
-/** 供应商页需要的依赖（工作台面板构造后经 props 传入）。 */
+/** 供应商页需要的依赖（由 settings.section 的 inject 面提供）。 */
 export interface SupplierInjected {
   controller: ModelsSettingsStore
   api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>
@@ -40,9 +46,8 @@ export interface SupplierInjected {
 /**
  * 构造供应商页依赖（wire 面 + 快照 store + 三处远程事件订阅）。
  *
- * 必须在 React 里用 `useMemo` 调一次：旧实现挂在 `ctx.effect` 上随插件
- * 生命周期建 store，现在页面随 Tab 切换挂载/卸载，store 跟着页面走，
- * 订阅由调用方的 useEffect 负责回收。
+ * 由 {@link applySupplierSection} 在插件 apply 时调一次，store 随插件生命周期
+ * 存活——页面只是渲染它，切走再切回来不重建（重建会丢掉已加载的供应商目录）。
  * @param ctx - client root context。
  * @returns 依赖对象与订阅清理函数。
  */
@@ -132,9 +137,13 @@ const CUSTOM_TARGET: ChatProviderTarget = {
 /** 左导航固定宽度（宽度滑动过渡由 .phub-navwrap 的 transition 承担）。 */
 const NAV_WIDTH = 232
 
-/* 两栏布局：左栏 flex-start（它自己 sticky 且限高），右栏 stretch 撑满。 */
+/* 两栏布局：左栏 flex-start（它自己 sticky 且限高），右栏 stretch 撑满。
+   flexWrap 常开：窄屏时底部三块靠换行落到第二行（全宽），宽屏时成为第三列。
+   这样 .phub-blocks 的 DOM 位置**始终在 hub 内部**——原先按 wide 在「hub 内」
+   与「hub 后」两处渲染，切档时 React 会卸载重建整棵模型卡子树（重新拉一次
+   模型目录），观感上就是「放大时第三列啪地插进来」。 */
 const hubLayoutStyle: Record<string, string | number> = {
-  display: 'flex', alignItems: 'flex-start', gap: 16, minWidth: 0, width: '100%',
+  display: 'flex', alignItems: 'flex-start', gap: 16, minWidth: 0, width: '100%', flexWrap: 'wrap',
 }
 
 const detailColStyle: Record<string, string | number> = {
@@ -142,10 +151,13 @@ const detailColStyle: Record<string, string | number> = {
 }
 
 /* 详情面板：规格由 .phub-panel 承担（与底部三块的 .phub-block 同一套 token），
-   这里只补 flex 让它填满左栏高度。 */
+   这里只补 flex 让它填满左栏高度。
+   限高走 --phub-max-h（弹窗加高后由 styles.ts 定义在 dialog 上、继承下来）：
+   写死 100vh-150px 在 1080p 上算出 930px，比弹窗内容区还高，结果是内外两条
+   滚动条打架；取不到变量时回落到同一算式，老宿主不会因此没有限高。 */
 const detailPanelStyle: Record<string, string | number> = {
   display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0, flex: 1,
-  maxHeight: 'calc(100vh - 150px)', overflowY: 'auto', overflowX: 'hidden',
+  maxHeight: 'var(--phub-max-h, calc(100vh - 150px))', overflowY: 'auto', overflowX: 'hidden',
 }
 
 /* 右侧面板工具条：关闭按钮右对齐一行（不占视觉噪音）。 */
@@ -168,24 +180,53 @@ const placeholderStyle: Record<string, string | number> = {
 }
 
 /**
- * 渲染「供应商」工作台页面（embedded 形态）。
+ * 渲染「供应商」设置页（settings.section 座位）。
  *
- * `ctx` 缺省时从 window 全局取（工作台面板不持有 ctx，见 client-ctx.ts）。
- * 依赖建好前先渲染一个轻量骨架，避免闪一次空白。
- * @param props - client root context（可选）。
+ * 依赖由 `applySupplierSection` 经 slot 的 `inject` 面传进来（store 是插件级
+ * 单例，不随页面挂卸重建）；缺依赖时渲染 null，不炸整个设置弹窗。
+ * @param props - settings.section 注入的依赖。
  * @returns 供应商页面。
  */
-export function SupplierSection(props: { ctx?: ClientContext } = {}): unknown {
-  // ctx 来源：props 显式传入 → 插件入口登记的根 ctx（client-ctx.ts）。
-  // 工作台面板不持有 ctx，走后者；读不到就渲染 null（不炸整页）。
-  const ctx = props.ctx ?? (getClientCtx() as unknown as ClientContext | null) ?? undefined
-  const built = useMemo(() => (ctx === undefined ? undefined : createSupplierInjected(ctx)), [ctx])
+export function SupplierSection(props: Partial<SupplierInjected> = {}): unknown {
+  const { controller, api } = props
   useEffect(() => {
     injectStyles()
   }, [])
-  useEffect(() => () => { built?.dispose() }, [built])
-  if (built === undefined) return null
-  return h(Loaded, { injected: built.injected })
+  if (controller === undefined || api === undefined) return null
+  return h(Loaded, { injected: { controller, api } })
+}
+
+/**
+ * 注册「供应商」设置页，并隐藏官方「模型」页导航项。
+ *
+ * 座位参数（id `provider-hub` / order 10 / label「供应商」）与迁进工作台之前
+ * **逐字一致**，老用户升级零迁移。
+ * @param ctx - client root context。
+ */
+export function applySupplierSection(ctx: ClientContext): void {
+  ctx.effect(() => {
+    const removeStyles = injectStyles()
+    const stopHide = hideOfficialModelsNav()
+    return () => { removeStyles(); stopHide() }
+  }, 'dsh-chat-plus: supplier styles + hide official models')
+
+  ctx.effect(() => {
+    const built = createSupplierInjected(ctx)
+    const injected = (): SupplierInjected => built.injected
+    const unregister = ctx.slots.inject('settings.section', () =>
+      ctx.slots.register({
+        name: 'settings.section',
+        id: 'provider-hub',
+        order: 10,
+        label: '供应商',
+        inject: injected,
+      }, SupplierSection),
+    )
+    return () => {
+      try { (unregister as unknown as () => void)?.() } catch { /* 已被级联移除 */ }
+      built.dispose()
+    }
+  }, 'dsh-chat-plus: supplier settings section')
 }
 
 /** 三栏布局的宽度阈值（px）：低于它底部三块回到上下堆叠。 */
@@ -197,21 +238,36 @@ function Loaded({ injected }: { injected: SupplierInjected }): unknown {
   /*
    * 宽屏三栏 / 窄屏堆叠。
    *
-   * 用 ResizeObserver 量容器实宽而不是媒体查询：工作台主区宽度取决于侧边栏
-   * 折叠、窗口大小与右侧栏，媒体查询量的是视口，与容器宽度不是一回事——
-   * 窗口 1600 但侧栏展开时容器只有 900，媒体查询会误判成宽屏。
-   * 观察自己（.phub-host）而不是窗口，才是「这个页面有没有地方并排」的真答案。
+   * 用 ResizeObserver 量容器实宽而不是媒体查询：容器宽度取决于侧边栏折叠、
+   * 窗口大小与设置弹窗自身宽度，媒体查询量的是视口，与容器宽度不是一回事。
+   * 观察自己（.phub-host）才是「这个页面有没有地方并排」的真答案。
+   *
+   * 读数**去抖 150ms**：设置弹窗从 800 撑到 1680 的那 220ms 里容器宽度每帧都在
+   * 变，跨过 1280 阈值时如果立刻切档，第三列会在动画中途「啪」地插进来——正是
+   * 用户反馈的「放大时过渡不自然」。去抖后只在宽度稳定下来才重新判定，切档发生
+   * 在弹窗展开结束之后，配合 .phub-blocks 的 phub-col-in（0 → 目标宽）读起来
+   * 是内容被推开，而不是被瞬移。
    */
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [wide, setWide] = useState(false)
   useEffect(() => {
     const el = hostRef.current
     if (el === null || typeof ResizeObserver === 'undefined') return undefined
-    const read = (): void => { setWide(el.getBoundingClientRect().width >= WIDE_LAYOUT_PX) }
-    read()
-    const observer = new ResizeObserver(read)
+    let timer: number | undefined
+    const apply = (): void => {
+      const next = el.getBoundingClientRect().width >= WIDE_LAYOUT_PX
+      setWide((current) => (current === next ? current : next))
+    }
+    apply()
+    const observer = new ResizeObserver(() => {
+      if (timer !== undefined) window.clearTimeout(timer)
+      timer = window.setTimeout(() => { timer = undefined; apply() }, 150)
+    })
     observer.observe(el)
-    return () => { observer.disconnect() }
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer)
+      observer.disconnect()
+    }
   }, [])
   const [selected, setSelected] = useState<string | undefined>(undefined)
   const [addingCustom, setAddingCustom] = useState(false)
@@ -282,11 +338,10 @@ function Loaded({ injected }: { injected: SupplierInjected }): unknown {
       h('div', { key: 'detail', style: detailColStyle }, [
         h('div', { key: 'panel', className: hasDetail ? 'phub-panel' : 'phub-panel phub-placeholder', style: detailPanelStyle }, panelBody),
       ]),
-      // 宽屏：三块模型设置并到右列，与「左列表 + 右详情」组成三栏。
-      wide ? blocks : null,
+      // 三块模型设置：宽屏成为第三列，窄屏被 flexWrap 挤到第二行（全宽）。
+      // 两种形态共用同一份 DOM，切档不重建子树。
+      blocks,
     ]),
-    // 窄屏：维持上下堆叠（原样）。
-    wide ? null : blocks,
     proxyBlock,
   ])
 }

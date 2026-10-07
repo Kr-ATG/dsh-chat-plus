@@ -739,7 +739,7 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   else pass('buildPlainTimeline is deterministic')
 }
 
-// ── 工作台第六 / 第七 Tab（供应商 / 代理）：源码形状契约 ──────────────────
+// ── 供应商 / 代理回到官方「设置」弹窗（2026-10-05 用户点名） ──────────────
 {
   const { readFileSync: readSrc2 } = await import('node:fs')
   const { resolve: resolveSrc2 } = await import('node:path')
@@ -754,25 +754,88 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   const chatDetail = stripSrc(readSrcOf('src/client/provider/webui/chat/ChatProviderDetail.tsx'))
   const chatList = stripSrc(readSrcOf('src/client/provider/webui/chat/ChatProviderList.tsx'))
 
-  // 1) 两个新 Tab 在册（类型 + 渲染 + 按钮）
-  if (!/'provider'/.test(wb)) {
-    fail('WorkbenchTab 联合类型必须含 provider（工作台第六 Tab）')
-  } else if (!/<SupplierSection \/>/.test(wb)) {
-    fail('WorkbenchPanel 必须渲染 SupplierSection（供应商 Tab 页本体）')
-  } else if (!/>\s*供应商\s*</.test(wb)) {
-    fail('工作台 Tab 栏必须有「供应商」按钮')
-  } else if (/ProxyPanel|'proxy'/.test(wb)) {
-    fail('代理不该是独立 Tab（用户 2026-10-05 点名：不需要一个单独分类，应并入供应商页底部）')
-  } else if (!/h\(ProxyPanel/.test(supplierSrc)) {
-    fail('供应商页必须渲染 ProxyPanel（代理不是独立 Tab，也不是右列卡片）')
+  // 1) 工作台不再有「供应商」Tab（用户要求撤回设置里，两处并存会让入口重复）
+  if (/'provider'/.test(wb) || /SupplierSection/.test(wb)) {
+    fail('工作台不该再有「供应商」Tab（供应商配置与代理已回到设置弹窗）')
+  } else if (/>\s*供应商\s*</.test(wb)) {
+    fail('工作台 Tab 栏不该再有「供应商」按钮')
+  } else if (/ProxyPanel/.test(wb)) {
+    fail('工作台不该渲染 ProxyPanel（代理在供应商设置页底部）')
+  } else {
+    pass('工作台已无「供应商」Tab / 代理区块（整块回到设置）')
+  }
+  // 2) 供应商设置页在册：settings.section / id provider-hub / order 10 / label「供应商」
+  if (!/ctx\.slots\.inject\('settings\.section'/.test(supplierSrc)) {
+    fail('供应商页必须注册 settings.section 座位（这是它回到设置弹窗的唯一入口）')
+  } else if (!/id: 'provider-hub'/.test(supplierSrc) || !/order: 10/.test(supplierSrc)) {
+    fail('供应商 section 的 id / order 必须逐字保留（provider-hub / 10），用户升级零迁移')
+  } else if (!/label: '供应商'/.test(supplierSrc)) {
+    fail('供应商 section 的导航文案必须是「供应商」')
+  } else if (!/applySupplierSection\(ctx\)/.test(providerEntry)) {
+    fail('provider 入口必须调用 applySupplierSection(ctx)（只定义不调用 = 设置里没有这一页）')
+  } else {
+    pass('供应商设置页在位：settings.section / provider-hub / order 10 / label「供应商」')
+  }
+  // 3) 官方「模型」页重新隐藏（两页管同一件事）
+  if (!/hideOfficialModelsNav/.test(providerStyles)) {
+    fail('styles.ts 必须恢复 hideOfficialModelsNav（官方「模型」页与供应商页重复）')
+  } else if (!/hideOfficialModelsNav\(\)/.test(supplierSrc)) {
+    fail('供应商页必须真的调用 hideOfficialModelsNav()（只导出不调用 = 官方模型页仍在）')
+  } else {
+    pass('官方「模型」页恢复隐藏（hideOfficialModelsNav 导出 + 调用都在）')
+  }
+  // 4) 设置弹窗尺寸适配只对供应商页生效（:has 锁定，其余设置页维持官方 800×800）
+  if (!/:has\(\.phub-host\)/.test(providerStyles)) {
+    fail('弹窗加宽必须用 :has(.phub-host) 锁定（否则通用/插件页也被改尺寸）')
+  } else if (!/--phub-max-h/.test(providerStyles) || !/var\(--phub-max-h/.test(providerStyles)) {
+    fail('限高必须走 --phub-max-h 变量（写死 100vh-150px 会比弹窗内容区还高，内外滚动条打架）')
+  } else if (!/var\(--phub-max-h/.test(supplierSrc)) {
+    fail('详情面板限高必须取 --phub-max-h（否则设置弹窗里比容器还高）')
+  } else if (!/transition:width 220ms/.test(providerStyles)) {
+    fail('弹窗加宽加高要有过渡（用户偏好：UI 改动必须带动效）')
+  } else if (!/\[data-shortcut-modal="settings"\]\{\s*transition:width 220ms/.test(providerStyles)) {
+    fail('尺寸过渡必须挂在 data-shortcut-modal="settings" 的常驻规则上（写在 :has(.phub-host) 里退出方向会随页面卸载同帧失效）')
+  } else if (!/prefers-reduced-motion[\s\S]*has\(\.phub-host\)/.test(providerStyles)) {
+    fail('弹窗尺寸过渡必须尊重 prefers-reduced-motion')
+  } else {
+    pass('弹窗尺寸适配：:has(.phub-host) 锁定 + --phub-max-h 限高 + 双向过渡 + reduced-motion 兜底')
+  }
+  // 5) 代理仍在供应商页底部全宽区块（不在右列 .phub-blocks 里）
+  //    blocks 定义块 = 从 `className: 'phub-blocks'` 到它自己的 `])` 收尾。
+  const blocksBlock = supplierSrc.split("className: 'phub-blocks'")[1]?.split('])')[0] ?? ''
+  if (!/h\(ProxyPanel/.test(supplierSrc)) {
+    fail('供应商页必须渲染 ProxyPanel（代理不是独立页，跟在供应商配置下方）')
   } else if (!/phub-proxy/.test(supplierSrc) || !/className: 'phub-proxy phub-block-in'/.test(supplierSrc)) {
     fail('代理必须挂在 .phub-proxy 全宽区块里（用户 2026-10-05 点名：放这两个卡片的下方）')
-  } else if (/h\(ProxyPanel/.test(supplierSrc.split("className: 'phub-blocks'")[1]?.split('])\n')[0] ?? '')) {
+  } else if (/ProxyPanel/.test(blocksBlock)) {
     fail('代理不能塞进右列 .phub-blocks（那里只放辅助视觉 / 生图 / 生视频三张卡）')
   } else {
-    pass('工作台第六 Tab「供应商」在位；代理是全宽底部区块（无独立 Tab、不占右列）')
+    pass('代理仍是供应商页底部的全宽区块（不占右列）')
   }
-  // 右列三个模型卡必须够宽：写死 380 会把下拉挤成一小截（用户点名「右侧的拉宽」）。
+  // 5b) 三块模型卡在窄屏走 flexWrap 换行（同一份 DOM 两种形态）：
+  //     宽屏是第三列、窄屏落到第二行。此前按 wide 在两处渲染，切档会重建子树。
+  //     stylesSrc 定义在下面（第 6 条），这里用局部别名先取一份。
+  const stylesForWrap = stripSrc(readSrcOf('src/client/provider/webui/styles.ts'))
+  if (!/flexWrap: 'wrap'/.test(supplierSrc)) {
+    fail('hub 布局必须常开 flexWrap（三块模型卡靠换行落到第二行，切档不重建子树）')
+  } else if (!/\.phub-host:not\(\[data-wide\]\)[^{]*\.phub-blocks\{flex:1 1 100%/.test(stylesForWrap)) {
+    fail('窄屏时三块模型卡必须 flex-basis:100% 换行占满整行')
+  } else {
+    pass('三块模型卡窄屏换行 / 宽屏第三列，共用同一份 DOM（切档不重建）')
+  }
+  // 5c) 过渡自然度：弹窗尺寸过渡常驻（进入/退出两个方向）+ 首次渲染起点 + 切档去抖
+  if (!/@starting-style/.test(stylesForWrap)) {
+    fail('弹窗打开时直接落在供应商页的场景需要 @starting-style 补起点（否则首帧就跳到 1680，无过渡）')
+  } else if (!/ResizeObserver\(\(\) => \{/.test(supplierSrc) || !/setTimeout\(\(\) => \{ timer = undefined; apply\(\) \}, 150\)/.test(supplierSrc)) {
+    fail('三栏判定必须去抖（弹窗展开途中跨过阈值立刻切档 = 第三列啪地插进来，用户反馈「放大时过渡不自然」）')
+  } else if (!/phub-col-in/.test(stylesForWrap) || !/@keyframes phub-col-in/.test(stylesForWrap)) {
+    fail('第三列切档必须有 phub-col-in（淡入 + 位移；不做宽度插值，避免卡内控件被压扁）')
+  } else if (!/@keyframes phub-col-in\{from\{opacity:0;transform:translateX/.test(stylesForWrap)) {
+    fail('phub-col-in 必须是纯淡入位移，不能从 0 宽/0 flex-basis 插值（下拉与输入框会被压扁 260ms）')
+  } else {
+    pass('过渡自然度：@starting-style 起点 + 切档去抖 150ms + 第三列 phub-col-in 淡入位移')
+  }
+  // 6) 右列三个模型卡必须够宽：写死 380 会把下拉挤成一小截（用户点名「右侧的拉宽」）。
   const stylesSrc = stripSrc(readSrcOf('src/client/provider/webui/styles.ts'))
   if (!/phub-blocks\{flex:0 0 clamp\(560px/.test(stylesSrc)) {
     fail('右列模型卡宽度必须 ≥560px 起（写死 380 时下拉只剩一小截）')
@@ -800,21 +863,7 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     pass('「N 家走代理」按真实生效数（排除失效条目）+ 失效条目可一键清理')
   }
 
-  // 2) 供应商页 / 代理页不能再注册设置座位（搬进工作台后设置页不该有它们）
-  if (/settings\.section|settings\.general\.item/.test(providerEntry + supplierSrc + proxySrc)) {
-    fail('供应商中心仍在注册 settings.section / settings.general.item 座位：应当只由工作台承载')
-  } else {
-    pass('供应商页 / 代理页不再占用设置座位（只挂工作台 Tab）')
-  }
-
-  // 3) 官方「模型」设置页不再被隐藏
-  if (/hideOfficialModelsNav/.test(providerStyles) || /display\s*=\s*'none'/.test(providerStyles)) {
-    fail('官方「模型」设置页仍被隐藏：styles.ts 里不该再有 hideOfficialModelsNav / display:none')
-  } else {
-    pass('官方「模型」设置页恢复显示（hideOfficialModelsNav 已删除）')
-  }
-
-  // 4) 代理开关与选择都在代理页：总开关 + 模式分段 + 逐供应商开关
+  // 4) 代理开关与选择都在代理区块：总开关 + 模式分段 + 逐供应商开关
   if (!/role="switch"/.test(proxySrc) || !/aria-label="网络代理开关"/.test(proxySrc)) {
     fail('代理区块缺少总开关（role=switch + aria-label）')
   } else if (!/saveProxy\(\{ mode: 'all' \}|'全局'/.test(proxySrc) || !/仅选中/.test(proxySrc)) {

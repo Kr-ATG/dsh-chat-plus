@@ -48,6 +48,28 @@ export interface SoulView {
   /** 来源：manual=用户手写/面板保存；distill=由记忆库蒸馏草案应用而来。 */
   source: 'manual' | 'distill'
   /**
+   * 当前人格的头像文件名（不含目录）；null = 未上传。
+   *
+   * 与 ProfileView.avatar 同一套命名（主档用 AVATAR_BASE_ID 占位）。放在视图里是
+   * 因为面板左列那枚头像必须跟着「当前生效人格」走：档案切换后头像要立刻换，
+   * 让 client 自己从 profiles 里反查当前项等于把同一份状态维护两遍。
+   */
+  avatar: string | null
+  /** 当前人格的卡片副标题（主档存在 active.json 的 base 里，档案存在档案里）。 */
+  desc: string
+  /** 当前人格的卡片小标签。 */
+  tag: string
+  /**
+   * 用户自己的资料 + 头像（2026-10-07）。
+   *
+   * 跟着 GET /soul 一起回，而不是另开一个读端点：面板首屏同时要渲染「Ta 是谁」与
+   * 「我是谁」两块，拆两个端点就是两次往返 + 两份 loading 状态。写入仍然独立
+   * （POST /soul/user）——改自己的名字不该 bump 人格版本号、重算卡片。
+   */
+  user: SoulUser
+  /** 用户头像文件名；null = 未上传。与人格头像同一套命名（id 固定为 'user'）。 */
+  userAvatar: string | null
+  /**
    * 视图来源层（schema v2 新增，纯诊断口径）：
    *   'cards'    = content 由卡片装配得出（cards.json 存在，权威层是卡片）
    *   'soul.md'  = content 直接来自 soul.md（尚未迁移出卡片的旧库）
@@ -74,7 +96,15 @@ export interface SoulDraft {
   cards?: SoulCard[]
 }
 
-/** 档案列表项（profiles[]）。 */
+/**
+ * 档案列表项（profiles[]）。
+ *
+ * desc / tag / avatar 三件套是「角色卡」形态的展示字段（2026-10-07 新增）：
+ * 面板把档案从一行列表改成竖排卡片，卡片上要有「一句定位 + 一个小标签 + 一张脸」。
+ * 三者都**只影响展示**，不参与注入——人设内容仍然只由卡片（cards）装配。
+ * 为什么放进 ProfileView 而不是让 client 自己拼：卡片要在列表里就画出完整形态，
+ * 逐份再发一次 GET /soul 拿详情会让首屏变成 N+1 次请求。
+ */
 export interface ProfileView {
   id: string
   /** 显示名（取 identity.name，未设置时回落 id）。 */
@@ -82,6 +112,17 @@ export interface ProfileView {
   /** 是否为当前激活档案。 */
   active: boolean
   updatedAt: string | null
+  /** 卡片副标题：一句定位（如「均衡的助手」）。空串 = 未设置。 */
+  desc: string
+  /** 卡片底部小标签（如 MOOD / 沉思）。空串 = 未设置。 */
+  tag: string
+  /**
+   * 头像文件名（不含目录）；null = 未上传。
+   *
+   * 刻意存**文件名**而不是 data URL：头像是二进制、要经 GET /soul/avatar 单独取，
+   * 塞进 profiles 列表会让每次 GET /soul 都背着几 MB 的 base64。
+   */
+  avatar: string | null
 }
 
 /** 落盘的档案完整结构（profiles/<id>.json）。 */
@@ -93,6 +134,10 @@ export interface SoulProfile {
   version: number
   updatedAt: string | null
   source: 'manual' | 'distill'
+  /** 卡片副标题（见 ProfileView.desc）。 */
+  desc: string
+  /** 卡片小标签（见 ProfileView.tag）。 */
+  tag: string
   /**
    * 档案层的卡片快照（schema v2 新增，可缺省）。
    *
@@ -104,11 +149,161 @@ export interface SoulProfile {
   cards?: SoulCard[]
 }
 
+// ── 我的资料（用户侧身份，2026-10-07） ────────────────────────────────
+
+/**
+ * 「我的资料」——面板上那份**关于用户自己**的身份描述。
+ *
+ * 为什么它必须与灵魂（agent 人设）分开存：soul.md / cards 描述的是「你是谁、怎么说话」，
+ * 属于模型；用户自己的名字与档案描述的是「我是谁」，属于用户。两者混在一份文件里，
+ * 换 agent 人格就会把用户自己的名字一起换掉（而用户的名字不随人格变）。
+ *
+ * 变量替换（`{{userName}}` / `{{userProfile}}`）在注入时做，见 store.injectionContent：
+ * 用户在 soul 正文里写「{{userName}}的个人助手」，注入的是真名字，而不是字面量。
+ */
+export interface SoulUser {
+  /** 用户希望被怎么称呼。空串 = 未设置（此时变量替换保留字面量）。 */
+  name: string
+  /** 个人档案：一段自由文本（职业、习惯、在意的事、想要什么帮助）。 */
+  profile: string
+}
+
+/** 「我的资料」字段上限（展示与注入都要有界）。 */
+export const USER_NAME_MAX = 40
+export const USER_PROFILE_MAX = 2000
+
+/** 空用户资料（缺字段兜底）。 */
+export const EMPTY_SOUL_USER: SoulUser = { name: '', profile: '' }
+
+/**
+ * 注入用变量名（**对外契约**：用户在 soul 正文里写的就是这两个词）。
+ *
+ * 放常量而不是散在字符串里：注入替换与面板提示文案必须同源，两处各写一份必然漂移
+ * （面板提示 `{{userName}}`、注入替换 `{{user_name}}`，用户写了没生效却查不出原因）。
+ */
+export const USER_NAME_VAR = 'userName'
+export const USER_PROFILE_VAR = 'userProfile'
+
+/**
+ * 在任意文本里替换用户变量。
+ *
+ * 三条刻意的规则：
+ *  1. **只替换已设置的变量**。用户名没填时 `{{userName}}` 原样保留——替换成空串会
+ *     把「{{userName}}的个人助手」变成「的个人助手」，读起来是坏句子，用户也看不出
+ *     是哪里没配。
+ *  2. 大小写不敏感（`{{username}}` 也认）。用户不会记得大小写。
+ *  3. 不做递归替换：值里再写变量不会被二次展开（避免自引用把注入撑爆）。
+ */
+export function applyUserVars(text: string, user: SoulUser): string {
+  if (text === '') return text
+  let out = text
+  if (user.name !== '') {
+    out = out.replace(new RegExp(`\\{\\{\\s*${USER_NAME_VAR}\\s*\\}\\}`, 'gi'), user.name)
+  }
+  if (user.profile !== '') {
+    out = out.replace(new RegExp(`\\{\\{\\s*${USER_PROFILE_VAR}\\s*\\}\\}`, 'gi'), user.profile)
+  }
+  return out
+}
+
+/** 容错归一化用户资料（HTTP body / 磁盘 JSON 共用）。 */
+export function normalizeUser(value: unknown): SoulUser {
+  if (value === null || typeof value !== 'object') return { ...EMPTY_SOUL_USER }
+  const raw = value as Record<string, unknown>
+  return {
+    name: typeof raw.name === 'string' ? raw.name.trim().slice(0, USER_NAME_MAX) : '',
+    profile: typeof raw.profile === 'string' ? raw.profile.trim().slice(0, USER_PROFILE_MAX) : '',
+  }
+}
+
+/** 用户资料是否为空（决定注入侧要不要追加「用户是谁」那一段）。 */
+export function isUserEmpty(user: SoulUser): boolean {
+  return user.name === '' && user.profile === ''
+}
+
+/**
+ * 主档（默认层）的头像 id。
+ *
+ * 主档没有 profile id（active.profileId === null），而头像是按「主体」存的，
+ * 所以给它一个固定占位串——它照样受 AVATAR_NAME_RE 约束，不搞第二套命名规则。
+ */
+export const AVATAR_BASE_ID = 'base'
+
+/** 用户头像的保留 id。 */
+export const AVATAR_USER_ID = 'user'
+
+/**
+ * 档案 id 的保留字。
+ *
+ * 为什么需要：头像索引是一个扁平 map，同时装着「各人格的头像」「主档的头像」
+ * 「用户的头像」，而 key 就是档案 id（主档与用户各用 AVATAR_BASE_ID /
+ * AVATAR_USER_ID 占位）。若允许用户建出一份 id 恰好是 `base` / `user` 的档案，
+ * 换用户头像就会顺手把那份人格的脸也换掉——同一个 key 被两个主体争用。
+ *
+ * 判据只在**新建/重命名**时生效（router 拒掉这两个 id），读盘路径不拦：万一磁盘上
+ * 已经存在（手工改的文件），读得出来比读不出来重要，撞名的实际后果只是一张脸画错。
+ */
+export const RESERVED_PROFILE_IDS: readonly string[] = [AVATAR_BASE_ID, AVATAR_USER_ID]
+
+/** 该档案 id 是否属于保留字（新建档案时用）。 */
+export function isReservedProfileId(id: string): boolean {
+  return RESERVED_PROFILE_IDS.includes(id)
+}
+
+/**
+ * 用户资料在注入文本里的段标题。
+ *
+ * 刻意**不是** SoulCardKind 之一：用户资料不是「人格卡片」，它是另一份主体
+ * （用户自己），且不随人格切换。混进卡片体系会让它被预设替换掉、被组装顺序
+ * 影响——那是错的语义。
+ */
+export const USER_SECTION_TITLE = '用户'
+
+/** 用户档案在注入里的独立预算（字符）：它是补充说明，不该把人格契约挤没。 */
+export const USER_INJECT_BUDGET = 800
+
+/**
+ * 人格段在「用户段占位」之后的最低预算。
+ *
+ * 用户档案写满 800 字时，2000 - 800 = 1200 仍然够放下完整人设；这条下限只为防
+ * 「用户档案异常长 → 人格被丢光」这种本末倒置（人格才是这个通道的主体）。
+ */
+export const SOUL_MIN_PERSONA_BUDGET = 900
+
+/**
+ * 用户资料 → 注入段（纯函数，host 注入与面板预览共用同一条规则）。
+ *
+ * 空资料返回 ''（通道不追加空段）。档案按 USER_INJECT_BUDGET 截断并显式标注被截，
+ * 而不是静默丢掉后半段——用户写了 2000 字却只生效 800 字，看不到任何提示会是
+ * 最难查的那类问题。
+ */
+export function buildUserSection(user: SoulUser): string {
+  if (isUserEmpty(user)) return ''
+  const lines: string[] = [`## ${USER_SECTION_TITLE}`]
+  if (user.name !== '') lines.push(`- 称呼：${user.name}`)
+  if (user.profile !== '') {
+    const capped = user.profile.length > USER_INJECT_BUDGET
+      ? `${user.profile.slice(0, USER_INJECT_BUDGET)}…（档案过长已截断）`
+      : user.profile
+    lines.push(`- 档案：${capped}`)
+  }
+  return lines.join('\n')
+}
+
 /** 默认层的版本元信息（存在 active.json 的 base 字段里，避免为它单开一个文件）。 */
 export interface SoulBaseMeta {
   version: number
   updatedAt: string | null
   source: 'manual' | 'distill'
+  /**
+   * 主档的角色卡展示件（2026-10-07）。
+   *
+   * 为什么放这里而不是新开一个文件：主档没有 profile JSON，而 active.json 的 base
+   * 本来就是「默认层的元信息」——展示件也是默认层的元信息。新开文件要多一套读写
+   * 与迁移，收益为零。可选（老 active.json 没有这两个字段）。
+   */
+  desc?: string
+  tag?: string
 }
 
 /** active.json：当前激活档案 + 默认层元信息。 */
@@ -301,6 +496,53 @@ export const CARD_TITLE_MAX = 40
 export const CARD_BODY_MAX = 1200
 export const PRESET_NAME_MAX = 40
 export const PRESET_DESC_MAX = 120
+/** 档案卡片副标题 / 小标签的上限（展示件，短才像标签）。 */
+export const PROFILE_DESC_MAX = 60
+export const PROFILE_TAG_MAX = 12
+
+// ── 档案头像（角色卡形态的展示件，2026-10-07） ──────────────────────────
+
+/**
+ * 头像允许的 MIME 白名单。
+ *
+ * 为什么是**封闭集合**而不是 `image/*`：头像文件会由 GET /soul/avatar 原样回给
+ * 浏览器，Content-Type 直接取这里的值。放行 image/svg+xml 等于让上传的 SVG 在
+ * 同源下执行脚本（SVG 可以带 <script>），那是一条真实的 XSS 路径；gif 留在里面
+ * 是因为它只是位图，最多动起来。
+ */
+export const AVATAR_MIME_EXT: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+}
+
+/** 头像原始字节上限（解码后）。2MB 足够一张 1024² 的头像，也挡得住误传的原图。 */
+export const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+
+/** 头像文件名白名单：`<档案 id>.<扩展名>`，两边都封闭，杜绝路径穿越。 */
+const AVATAR_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}\.(png|jpg|webp|gif)$/
+
+/** 校验头像文件名（HTTP 参数直接当文件名用，必须先过这道闸）。 */
+export function isValidAvatarName(name: string): boolean {
+  return AVATAR_NAME_RE.test(name)
+}
+
+/** 由 MIME 反查扩展名；不在白名单返回 null（调用方据此回 400）。 */
+export function avatarExtOf(mime: string): string | null {
+  const normalized = mime.trim().toLowerCase().split(';')[0]!.trim()
+  return Object.prototype.hasOwnProperty.call(AVATAR_MIME_EXT, normalized) ? AVATAR_MIME_EXT[normalized]! : null
+}
+
+/** 由扩展名反查回 MIME（GET /soul/avatar 出响应头用）。 */
+export function avatarMimeOf(name: string): string {
+  const ext = name.slice(name.lastIndexOf('.') + 1)
+  for (const [mime, known] of Object.entries(AVATAR_MIME_EXT)) {
+    if (known === ext) return mime
+  }
+  // 白名单外的名字进不来（isValidAvatarName 先拦），这里只是不抛错的兜底。
+  return 'application/octet-stream'
+}
 
 /** 稳定卡片 id：c_<sha1(kind+title).slice(0,12)>（同 kind 同标题 = 同一张卡）。 */
 export function cardIdOf(kind: SoulCardKind, title: string): string {

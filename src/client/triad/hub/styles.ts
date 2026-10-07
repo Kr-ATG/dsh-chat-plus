@@ -31,98 +31,23 @@ const SHEET = `
   overflow: hidden;
   position: relative;
 
-  /* ── 中性灰 accent：整棵工作台子树的强调色统一换色 ──
-     浅色 #3f444c / 深色 #5a6069：两枚都满足「白字 ≥4.5:1」与
-     「灰底上主文字色图标可见」，所以子页面里所有「蓝底白字 / 蓝字 /
-     蓝描边」的旧写法换色后在两套主题下都自动成立，无需逐处反色。 */
-  --wb-accent: #3f444c;
-  --dsw-alias-state-business-primary: var(--wb-accent);
-  --dsw-alias-button-info-hover: color-mix(in srgb, var(--wb-accent) 84%, #000);
-  --dsw-alias-state-warn-primary: var(--wb-accent);
-  --dsw-alias-state-success-primary: var(--wb-accent);
-  --dsw-alias-state-info-primary: var(--wb-accent);
+  /* ── 现代产品级色彩体系：DeepSeek 品牌蓝与清晰语义色彩 ── */
+  --wb-accent: var(--dsw-alias-state-business-primary, #3b82f6);
+  --wb-surface-bg: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.035));
+  --wb-surface-border: var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.08));
+  --wb-surface-radius: 12px;
+  --wb-surface-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
-body[data-ds-dark-theme] .wb-root { --wb-accent: #5a6069; }
-
-.wb-header {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  height: 46px;
-  padding: 0 18px;
-  background: transparent;
-  border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.08));
-  z-index: 10;
+body[data-ds-dark-theme] .wb-root {
+  --wb-accent: #4d82f3;
+  --wb-surface-bg: rgba(255, 255, 255, 0.03);
+  --wb-surface-border: rgba(255, 255, 255, 0.07);
 }
 
-/* ── 面包屑页头：工作台 / 分类（分类导航在侧栏行上，页内不放切换器） ── */
-.wb-crumb {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  user-select: none;
-}
-.wb-crumb-root {
-  flex: none;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-secondary, #9ca3af);
-  letter-spacing: -0.01em;
-}
-.wb-crumb-sep {
-  flex: none;
-  font-size: 12px;
-  color: var(--dsw-alias-label-tertiary, #7c828c);
-}
-.wb-crumb-icon {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  color: var(--dsw-alias-label-primary, #eee);
-}
-.wb-crumb-current {
-  flex: none;
-  font-size: 13.5px;
-  font-weight: 650;
-  color: var(--dsw-alias-label-primary, #eee);
-  letter-spacing: -0.01em;
-}
-.wb-crumb-desc {
-  min-width: 0;
-  font-size: 11.5px;
-  color: var(--dsw-alias-label-tertiary, #7c828c);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.wb-header-right {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.wb-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary, #999);
-  cursor: pointer;
-  transition: all 120ms ease;
-}
-
-.wb-icon-btn:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
-  color: var(--dsw-alias-label-primary, #eee);
-}
+/* ── 旧顶部 tab 栏（.wb-header / .wb-tabs / .wb-tab-btn）已于 2026-10
+   二次改版整条移除，导航改悬浮 Dock（./Dock.tsx + theme.ts）。
+   kr-chat-controller 的 header:not(.wb-header) 排除选择器仍保留字面量，
+   匹配不到时自然落空，不影响其官方头部识别逻辑。 ── */
 
 .wb-body {
   flex: 1;
@@ -143,7 +68,7 @@ body[data-ds-dark-theme] .wb-root { --wb-accent: #5a6069; }
   to { opacity: 1; transform: none; }
 }
 
-/* ── 「灵魂」页整页滚动容器（面板根自带内距，这里只滚动不叠 padding） ── */
+/* ── 「灵魂」页整页滚动容器 ── */
 .wb-soul-scroll {
   flex: 1;
   min-height: 0;
@@ -153,60 +78,290 @@ body[data-ds-dark-theme] .wb-root { --wb-accent: #5a6069; }
   flex-direction: column;
 }
 
-/* ── 页内功能工具条几何归一 ─────────────────────────────────────────
-   各页自带的功能条（邮件：地址/搜索/写信；画廊：搜索/筛选/视图；
-   技能：SKILL-MCP 切换；记忆：视图分段+统计）共享同一套内距与分隔线，
-   并去掉与面包屑重复的品牌字 / 标题 / 关闭钮——功能一个不少，
-   但六个页面的「第二行」看起来是同一件事。 */
+/* ── 统一工作台所有页面的工具条与次级导航（Toolbar & Subheader Archetype） ──────
+   让邮件顶栏、画廊工具条、技能标题行、记忆视图行在视觉上高度一致，
+   成为统一的「页面二级控制条」，不再每进一页面对不同的突兀布局。 */
 .wb-body .dsh-mail-topbar,
-.wb-body .tg-toolbar {
-  padding: 8px 18px;
+.wb-body .tg-toolbar,
+.wb-body .skm-topbar,
+.wb-body .dsh-memory-top-bar,
+.wb-body .wb-page-bar {
+  flex: none;
+  min-height: 44px;
+  padding: 8px 20px;
   background: transparent;
-  border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.14));
+  border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.12));
+  box-sizing: border-box;
 }
 .wb-body .dsh-mail-brand,
-.wb-body .dsh-mail-close { display: none; }
+.wb-body .dsh-mail-close { display: none !important; }
 .wb-body > div > .psh-head {
-  padding: 8px 18px;
+  padding: 8px 20px;
   background: transparent;
+  border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.12));
 }
-.wb-body > div > .psh-head > .psh-title { display: none; }
-.wb-body .dsh-memory-top-bar {
-  padding: 8px 18px;
-  background: transparent;
+.wb-body > div > .psh-head > .psh-title { display: none !important; }
+
+/* ── 统一搜索框控件（Search Inputs） ─────────────────────────────── */
+.wb-root .skm-search-box,
+.wb-root .tg-search__input,
+.wb-root .dsh-memory-top-input,
+.wb-root .dsh-mail-top-input {
+  height: 32px !important;
+  border-radius: 8px !important;
+  border: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.18)) !important;
+  background: var(--dsw-alias-bg-layer-2, rgba(255,255,255,.04)) !important;
+  color: var(--dsw-alias-label-primary, #eee) !important;
+  font-size: 12.5px !important;
+  transition: border-color 140ms ease, box-shadow 140ms ease !important;
 }
-/* 用量嵌入页的工具行（刷新钮右对齐） */
-.wb-page-bar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 10px 0 0;
+.wb-root .skm-search-box:focus-within,
+.wb-root .tg-search__input:focus,
+.wb-root .dsh-memory-top-input:focus,
+.wb-root .dsh-mail-top-input:focus {
+  border-color: var(--wb-accent) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--wb-accent) 25%, transparent) !important;
 }
-.wb-bar-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 12px;
-  border-radius: 8px;
-  border: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.18));
-  background: transparent;
-  color: var(--dsw-alias-label-secondary, #aaa);
-  font-size: 12px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 140ms ease, color 140ms ease, transform 120ms ease;
+
+/* ── 统一分段胶囊按钮（Segmented Controls & Tabs） ─────────────────── */
+.wb-root .skm-kind-tab,
+.wb-root .skm-status-seg-btn,
+.wb-root .usm-range-btn,
+.wb-root .dsh-memory-view-tab,
+.wb-root .dsh-soul-nav-item {
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  transition: all 130ms ease !important;
 }
-.wb-bar-btn:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.1));
-  color: var(--dsw-alias-label-primary, #eee);
-  transform: translateY(-1px);
+.wb-root .skm-kind-tab[data-active],
+.wb-root .skm-status-seg-btn[data-active],
+.wb-root .usm-range-btn[data-active],
+.wb-root .dsh-memory-view-tab[data-active="true"],
+.wb-root .dsh-soul-nav-item-active {
+  background: var(--wb-accent) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2) !important;
 }
-.wb-bar-btn:active { transform: translateY(0) scale(.97); }
-.wb-bar-btn[data-spin] svg { animation: wb-spin 900ms linear infinite; }
-@keyframes wb-spin { to { transform: rotate(360deg); } }
+
+/* ── 善用卡片，拒绝碎乱：统一板块卡片质感（Unified Surface System） ──
+   所有页面的主要容器表面采用统一的边框、圆角、背景与内边距，
+   不再零碎散落，形成清晰沉静的板块感。 */
+.wb-root .skm-skill-card,
+.wb-root .skm-mcp-list-card,
+.wb-root .skm-mcp-rec-card,
+.wb-root .skm-mcp-info-card,
+.wb-root .usm-uc-card,
+.wb-root .dsh-soul-hero-card,
+.wb-root .dsh-soul-card,
+.wb-root .dsh-memory-entry-card,
+.wb-root .tg-card {
+  border-radius: var(--wb-surface-radius, 12px) !important;
+  border: 1px solid var(--wb-surface-border) !important;
+  background: var(--wb-surface-bg) !important;
+  box-shadow: var(--wb-surface-shadow) !important;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease !important;
+}
+.wb-root .skm-skill-card:hover,
+.wb-root .skm-mcp-list-card:hover,
+.wb-root .skm-mcp-rec-card:hover,
+.wb-root .usm-uc-card:hover,
+.wb-root .tg-card:hover {
+  border-color: color-mix(in srgb, var(--wb-accent) 45%, var(--wb-surface-border)) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* ── 彻底消除杂乱颜色与刺眼发光（Calm Monochrome System） ───────────
+   用户核心诉求：「不需要各种颜色搭配这样看起来更加凌乱」
+   全面移除彩虹色、发光小光柱、刺眼黄色横幅，收敛为高雅纯净的灰阶系统。 */
+/* 1. 技能面板发光彻底消除 */
+.wb-root .skm-stat-glow { display: none !important; }
+/* 2. 统计卡图标：精致半透明彩色微底 + 饱和高辨识度图标 */
+.wb-root .skm-stat-icon {
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 10px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: transform 140ms ease !important;
+}
+.wb-root .skm-stat:hover .skm-stat-icon {
+  transform: scale(1.05) !important;
+}
+.wb-root .skm-stat-icon[data-tone='blue'] {
+  color: #3b82f6 !important;
+  background: rgba(59, 130, 246, 0.12) !important;
+}
+.wb-root .skm-stat-icon[data-tone='green'] {
+  color: #22c55e !important;
+  background: rgba(34, 197, 94, 0.12) !important;
+}
+.wb-root .skm-stat-icon[data-tone='violet'] {
+  color: #8b5cf6 !important;
+  background: rgba(139, 92, 246, 0.12) !important;
+}
+.wb-root .skm-stat-icon[data-tone='orange'] {
+  color: #f59e0b !important;
+  background: rgba(245, 158, 11, 0.12) !important;
+}
+
+/* 3. 统计卡主体：规范为整齐板块 */
+.wb-root .skm-stats-row {
+  gap: 12px !important;
+  padding: 12px 20px 0 !important;
+}
+.wb-root .skm-stat {
+  border-radius: var(--wb-surface-radius, 12px) !important;
+  border: 1px solid var(--wb-surface-border) !important;
+  background: var(--wb-surface-bg) !important;
+  box-shadow: var(--wb-surface-shadow) !important;
+  padding: 12px 14px !important;
+  gap: 10px !important;
+}
+.wb-root .skm-stat:hover {
+  border-color: color-mix(in srgb, var(--wb-accent) 40%, var(--wb-surface-border)) !important;
+  transform: translateY(-1px) !important;
+}
+.wb-root .skm-stat-desc {
+  margin-top: 4px !important;
+  font-size: 11px !important;
+  color: var(--dsw-alias-label-tertiary, #81858c) !important;
+}
+
+/* 4. 消除黄色横幅与警示框：转为优雅温润的次级卡片 */
+.wb-root .skm-banner,
+.wb-root .skm-health-notice {
+  border: 1px solid var(--wb-surface-border) !important;
+  background: var(--wb-surface-bg) !important;
+  border-radius: var(--wb-surface-radius, 12px) !important;
+  box-shadow: none !important;
+}
+.wb-root .skm-banner-title,
+.wb-root .skm-health-notice-title {
+  color: var(--dsw-alias-label-primary, #eee) !important;
+}
+.wb-root .skm-banner-sub,
+.wb-root .skm-health-notice li {
+  color: var(--dsw-alias-label-secondary, #aaa) !important;
+}
+.wb-root .skm-banner-icon {
+  border-color: var(--wb-accent) !important;
+  color: var(--wb-accent) !important;
+}
+
+/* 5. 用量统计卡：统一板块质感 */
+.wb-root .usm-uc-stat {
+  border-radius: 10px !important;
+  border: 1px solid var(--wb-surface-border) !important;
+  background: var(--wb-surface-bg) !important;
+  padding: 8px 12px !important;
+}
+
+/* 6. 彩色标签与徽标降噪（Pills, Tags, Badges） */
+.wb-root .skm-tag-source,
+.wb-root .skm-tag-scope,
+.wb-root .skm-tag-builtin,
+.wb-root .skm-skill-badge,
+.wb-root .skm-cat-chip,
+.wb-root .skm-bundle-cat-tag,
+.wb-root .tg-dock__badge,
+.wb-root .tg-kind__count,
+.wb-root .dsh-soul-chip {
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent) !important;
+  border-color: var(--wb-surface-border) !important;
+  color: var(--dsw-alias-label-secondary, #bbb) !important;
+}
+.wb-root .skm-cat-chip[data-active],
+.wb-root .skm-bundle-cat-tag[data-active] {
+  background: var(--wb-accent) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+}
+
+/* ── 用量嵌入页板块容器（响应式大盘，摆脱狭隘弹窗感） ─────────────── */
+.wb-root .usm-uc {
+  padding: 14px 20px 20px !important;
+  gap: 12px !important;
+  max-width: 1120px !important;
+  width: 100% !important;
+  margin: 0 auto !important;
+  box-sizing: border-box !important;
+}
+.wb-root .usm-uc-stats {
+  gap: 10px !important;
+}
+
+/* ── 画廊、邮件与记忆首页板块收敛（Coherent Surfaces） ─────────────── */
+.wb-root .tg-dock {
+  background: var(--dsw-alias-bg-layer-2, rgba(22, 24, 31, 0.88)) !important;
+  border: 1px solid var(--wb-surface-border) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28) !important;
+}
+.wb-root .tg-dock__item[data-active="true"] {
+  color: var(--dsw-alias-label-primary, #eee) !important;
+}
+.wb-root .tg-dock__item[data-active="true"] .tg-dock__icon-wrap {
+  background: var(--wb-accent) !important;
+  color: #fff !important;
+}
+.wb-root .dsh-mail-row-active,
+.wb-root .dsh-mail-row:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.04)) !important;
+}
+.wb-root .dsh-mail-dot {
+  background: var(--wb-accent) !important;
+}
+.wb-root .dsh-memory-home .hm-card,
+.wb-root .dsh-memory-home .hm-hero,
+.wb-root .dsh-memory-home .hm-mem-card {
+  border-radius: var(--wb-surface-radius, 12px) !important;
+  border: 1px solid var(--wb-surface-border) !important;
+  background: var(--wb-surface-bg) !important;
+  box-shadow: var(--wb-surface-shadow) !important;
+}
+
+/* ── 各页面主内容区几何规范（统一 1140px 居中大盘与内边距节奏） ─────────────
+   消除「点开这页是这个宽度、点开那页又跳成另一种布局」的生硬割裂感，
+   让用量、能力、画廊、灵魂全部收拢为标准的板块大盘。 */
+.wb-root .dsh-soul-root {
+  max-width: 1140px !important;
+  width: 100% !important;
+  margin: 0 auto !important;
+  padding: 16px 20px 24px !important;
+  box-sizing: border-box !important;
+}
+
+.wb-root .skm-main-wrap,
+.wb-root .skm-body {
+  max-width: 1140px !important;
+  width: 100% !important;
+  margin: 0 auto !important;
+  box-sizing: border-box !important;
+}
+
+.wb-root .tg-toolbar {
+  max-width: 1140px !important;
+  width: 100% !important;
+  margin: 0 auto !important;
+  box-sizing: border-box !important;
+}
+
+.wb-root .tg-body {
+  max-width: 1140px !important;
+  width: 100% !important;
+  margin: 0 auto !important;
+  padding: 16px 20px 24px !important;
+  box-sizing: border-box !important;
+}
+
+.wb-root .dsh-memory-home {
+  max-width: 1140px !important;
+  width: 100% !important;
+  margin: 0 auto !important;
+  box-sizing: border-box !important;
+}
 
 /* ── 换色后的个别反色修正 ───────────────────────────────────────────
    记忆面板的开关圆点取 --m-card-bg（恒白），深色主题下轨道换成主文字色

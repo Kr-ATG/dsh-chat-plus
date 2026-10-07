@@ -15,7 +15,10 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { ensureWorkbenchStyles } from './styles.js'
+import { ensureWorkbenchTheme } from './theme.js'
+import { WorkbenchDock } from './Dock.js'
 import { MemoryPanel } from '../memory/Panel.js'
 import { SkillsPanel } from '../usage/dashboard/SkillsPanel.js'
 import { UsagePanel } from '../usage/dashboard/UsagePanel.js'
@@ -27,9 +30,9 @@ import { createMailApi } from '../mail/api.js'
 import { PopoverShell } from '../popover-shell.js'
 import {
   readWorkbenchTab,
+  writeWorkbenchTab,
   WORKBENCH_TAB_EVENT,
   WORKBENCH_TABS,
-  WorkbenchTabIcon,
 } from './row-flyout.js'
 
 export type WorkbenchTab = 'soul' | 'memory' | 'skills' | 'usage' | 'gallery' | 'mail'
@@ -37,10 +40,10 @@ export type WorkbenchTab = 'soul' | 'memory' | 'skills' | 'usage' | 'gallery' | 
 /**
  * 默认 Tab。
  *
- * 2026-10 导航改版：分类切换器从页面顶部**整条移除**，搬到侧栏「工作台」行
- * （hover 浮层 + 滚轮直切，见 ./row-flyout.tsx）。页面顶部只留一行面包屑
- * 说明身在何处，六个页面各自成为一个完整板块，不再像「某个 tab 的内容」。
- * 当前分类仍写 localStorage（与侧栏行共用同一把键），重开工作台回到上次那页。
+ * 2026-10 导航二次改版：分类切换器是页面顶部的**悬浮胶囊 Dock**（./Dock.tsx），
+ * 侧栏「工作台」行的 hover 浮层 / 滚轮直切（./row-flyout.tsx）与其经事件互通。
+ * 六个页面各自成为一个完整板块，不再像「某个 tab 的内容」。
+ * 当前分类仍写 localStorage（三处共用同一把键），重开工作台回到上次那页。
  */
 export const DEFAULT_TAB: WorkbenchTab = 'soul'
 
@@ -61,8 +64,28 @@ export function WorkbenchGridIcon({ size = 15 }: { size?: number }): JSX.Element
   )
 }
 
+/**
+ * 灵魂页页头（效果图的 Editorial Split 头部）。
+ *
+ * 纯展示：SoulPanel 自带的小头部在 theme.ts 里被隐藏，这里给整页一个
+ * 与效果图一致的巨型标题 + 一句定位说明。不接任何状态——保存/蒸馏等
+ * 动作仍在 SoulPanel 内，页头只承担「身在何处」的版面语义。
+ */
+function SoulPageHead(): JSX.Element {
+  return (
+    <header className="wb2-head wb2-rise" style={{ '--d': '0ms' } as CSSProperties}>
+      <div className="wb2-head-l">
+        <span className="wb2-eyebrow"><i />Identity Contract</span>
+        <h1 className="wb2-title">灵魂 <em>/ 我是谁</em></h1>
+        <p className="wb2-sub">跨会话恒定的身份契约层。卡片是权威，正文是投影；逐项调走卡片，整段改写收进修改区。</p>
+      </div>
+    </header>
+  )
+}
+
 export function WorkbenchPanel({ onClose, initialTab = DEFAULT_TAB }: WorkbenchPanelProps): JSX.Element {
   ensureWorkbenchStyles()
+  ensureWorkbenchTheme()
 
   const [activeTab, setActiveTab] = useState<WorkbenchTab>(() => {
     // 与侧栏行共用同一把 localStorage 键：滚轮切到的分类在这里原样回填。
@@ -86,7 +109,10 @@ export function WorkbenchPanel({ onClose, initialTab = DEFAULT_TAB }: WorkbenchP
   // useEffect 依赖随渲染重发请求，记忆面板历史上打过一分钟 498 次的请求风暴。
   const soulApi = useMemo(() => createSoulApi(), [])
 
-  const meta = WORKBENCH_TABS.find((t) => t.id === activeTab) ?? WORKBENCH_TABS[0]
+  const handleSelectTab = (tab: WorkbenchTab): void => {
+    setActiveTab(tab)
+    writeWorkbenchTab(tab)
+  }
 
   return (
     <PopoverShell
@@ -94,36 +120,15 @@ export function WorkbenchPanel({ onClose, initialTab = DEFAULT_TAB }: WorkbenchP
       ariaLabel="工作台"
     >
       <div className="wb-root">
-        {/* 页头：面包屑一行说明身在何处（分类导航在侧栏行上，页内不再放切换器） */}
-        <div className="wb-header">
-          <div className="wb-crumb">
-            <span className="wb-crumb-root">工作台</span>
-            <span className="wb-crumb-sep" aria-hidden="true">/</span>
-            <span className="wb-crumb-icon"><WorkbenchTabIcon tab={activeTab} size={13} /></span>
-            <span className="wb-crumb-current">{meta.label}</span>
-            <span className="wb-crumb-desc">{meta.desc}</span>
-          </div>
-
-          <div className="wb-header-right">
-            <button
-              type="button"
-              className="wb-icon-btn"
-              title="关闭并切回会话"
-              aria-label="关闭"
-              onClick={onClose}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 6L6 18M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
+        {/* 悬浮胶囊 Dock：分类切换 + 关闭（2026-10 全新设计，取代顶部 tab 栏） */}
+        <WorkbenchDock active={activeTab} onSelect={handleSelectTab} onClose={onClose} />
 
         {/* 主体内容视图（按分类切换；key 随分类变化，重播 .wb-body > * 的入场动效） */}
         <div className="wb-body">
           {/* 灵魂：身份契约层独占一页。整页宽度给卡片区与预设区。 */}
           {activeTab === 'soul' && (
             <div key="soul" className="wb-soul-scroll">
+              <SoulPageHead />
               <SoulPanel api={soulApi} embedded />
             </div>
           )}

@@ -28,11 +28,15 @@ export {
   SoulHostStaleError,
   EMPTY_IDENTITY,
   EMPTY_SOUL,
+  EMPTY_SOUL_USER,
+  USER_NAME_MAX,
+  USER_PROFILE_MAX,
 } from './api.js'
 export type {
   SoulApi,
   SoulView,
   SoulIdentity,
+  SoulUser,
   SoulDraft,
   ProfileView,
   SoulPatch,
