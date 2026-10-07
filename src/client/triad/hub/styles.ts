@@ -293,19 +293,8 @@ body[data-ds-dark-theme] .wb-root {
   gap: 10px !important;
 }
 
-/* ── 画廊、邮件与记忆首页板块收敛（Coherent Surfaces） ─────────────── */
-.wb-root .tg-dock {
-  background: var(--dsw-alias-bg-layer-2, rgba(22, 24, 31, 0.88)) !important;
-  border: 1px solid var(--wb-surface-border) !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28) !important;
-}
-.wb-root .tg-dock__item[data-active="true"] {
-  color: var(--dsw-alias-label-primary, #eee) !important;
-}
-.wb-root .tg-dock__item[data-active="true"] .tg-dock__icon-wrap {
-  background: var(--wb-accent) !important;
-  color: #fff !important;
-}
+/* ── 画廊、邮件与记忆首页板块收敛（Coherent Surfaces） ───────────────
+   （画廊类别 Dock 的外观与位置已移交 theme.ts 的 wb2 规则，此处不再接管） ── */
 .wb-root .dsh-mail-row-active,
 .wb-root .dsh-mail-row:hover {
   background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.04)) !important;

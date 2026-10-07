@@ -696,6 +696,9 @@ body[data-ds-dark-theme] .dsh-soul-toggle-row{--s-card-bg:var(--dsw-static-neutr
 .dsh-soul-card-row-drop::before{content:'';position:absolute;left:8px;right:8px;top:-3px;height:2px;border-radius:2px;background:var(--s-primary);animation:dsh-soul-drop-in .18s ease}
 @keyframes dsh-soul-drop-in{from{opacity:0;transform:scaleX(.6)}to{opacity:1;transform:scaleX(1)}}
 .dsh-soul-card-row-head{display:flex;align-items:center;gap:8px;padding:7px 9px;min-width:0}
+/* 正文摘要默认隐藏：行式宿主（composer 浮层）不重复正文；工作台磁贴形态由
+   hub/theme.ts 在 .wb-root 里打开成两行截断（2026-10 深空改版）。 */
+.dsh-soul-card-body-excerpt{display:none}
 .dsh-soul-card-grips{flex:none;display:inline-flex;align-items:center;gap:1px;opacity:0;transition:opacity .18s ease}
 .dsh-soul-card-row:hover .dsh-soul-card-grips,.dsh-soul-card-row-open .dsh-soul-card-grips{opacity:1}
 .dsh-soul-card-grips .dsh-soul-btn-icon{width:24px;height:24px;border-radius:7px}

@@ -113,6 +113,7 @@ function dayLabel(date: string): string {
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
 
 import { UsageTrendChart } from './UsageTrendChart'
+import { UsageHero } from './UsageHero'
 
 export interface UsagePanelProps {
   closing?: boolean
@@ -210,13 +211,24 @@ export function UsagePanel({ closing = false, onClose, anchor = null, embedded =
       onSelectDay={setSelectedDay}
       isMobile={isMobile}
       stale={stale}
+      embedded={embedded}
     />
   })()
 
   if (embedded) {
     return (
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 20px 24px', maxWidth: '1140px', margin: '0 auto', width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
-        {head}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', width: '100%', boxSizing: 'border-box' }}>
+        {/* 效果图第 4 页页头：英雄区之上的定位说明 */}
+        <header className="wb2-head wb2-rise">
+          <div className="wb2-head-l">
+            <span className="wb2-eyebrow"><i />Token Telemetry</span>
+            <h1 className="wb2-title">用量 <em>/ 烧了多少</em></h1>
+            <p className="wb2-sub">范围胶囊只作用于消耗汇总；热力带恒为全量 52 周，是横跨历史的总览。</p>
+          </div>
+        </header>
+        <div style={{ padding: '0 22px 26px', maxWidth: 1400, margin: '0 auto', boxSizing: 'border-box' }}>
+          {head}
+        </div>
       </div>
     )
   }
@@ -252,7 +264,7 @@ export function UsagePanel({ closing = false, onClose, anchor = null, embedded =
 }
 
 /** 卡片主体：查询行 + 汇总四格 + 热力图 + 当日明细。 */
-function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChangeCustom, provider, model, onChangeProvider, onChangeModel, metric, onMetric, mode, onMode, selectedDay, onSelectDay, isMobile, stale }: {
+function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChangeCustom, provider, model, onChangeProvider, onChangeModel, metric, onMetric, mode, onMode, selectedDay, onSelectDay, isMobile, stale, embedded }: {
   days: UsageDay[]
   range: DateRange
   rangeLabel: string
@@ -272,6 +284,7 @@ function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChang
   onSelectDay: (date: string | null) => void
   isMobile: boolean
   stale: boolean
+  embedded: boolean
 }): JSX.Element {
   const inRange = filterDays(days, range)
   // 下拉选项来自「范围 ∩ 全量」：范围决定看哪几天，选项本身要能选到该范围内
@@ -319,12 +332,28 @@ function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChang
           <span className="usm-uc-meta">共 {inRange.length} 天 · 有量 {activeDays} 天 · {modelCount.size} 个模型</span>
         </div>
       </div>
+      {/* 工作台嵌入形态：效果图英雄区（大数 + 指标卡 + 仪表）取代旧四格小汇总；
+          compact 小卡片保持旧四格（空间不够放英雄区）。 */}
+      {embedded && (
+        <UsageHero
+          days={days}
+          scoped={scoped}
+          range={range}
+          sum={sum}
+          hitRate={hitRate}
+          activeDays={activeDays}
+          modelCount={modelCount.size}
+        />
+      )}
+      {!embedded && (
       <div className="usm-uc-stats" role="group" aria-label={`${rangeLabel} token 消耗`} style={isMobile ? { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } : undefined}>
         <Stat icon={tokensIcon(14)} label="合计用量" value={formatUnits(sum.total)} sub={`≈ ${formatExact(sum.total)}`} tone="var(--dsw-alias-state-business-primary, #4176e6)" />
         <Stat icon={inputIcon(14)} label="输入 Tokens" value={formatUnits(sum.input)} sub={`占 ${share(sum.input)}`} tone="#0ea5e9" />
         <Stat icon={outputIcon(14)} label="输出 Tokens" value={formatUnits(sum.output)} sub={`占 ${share(sum.output)}`} tone="#f59e0b" />
         <Stat icon={hitIcon(14)} label="缓存命中" value={formatUnits(sum.cache)} sub={`命中率 ${formatHitRate(hitRate)}`} tone="#10b981" />
       </div>
+      )}
+      {!embedded && (
       <UsageTrendChart
         days={scopedAll}
         range={range}
@@ -333,6 +362,7 @@ function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChang
         selectedDate={selectedDay}
         onSelectDate={onSelectDay}
       />
+      )}
       <div className="usm-uc-card">
         <ActivityGrid
           days={scopedAll}

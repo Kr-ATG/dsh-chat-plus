@@ -41,6 +41,7 @@ import type {
 import { EMPTY_IDENTITY, EMPTY_SOUL } from './api.js'
 import type { SoulCard, SoulCardsResponse, SoulPreset } from './api.js'
 import { CardsSection } from './CardsSection.js'
+import { SoulPersonaCard } from './PersonaCard.js'
 import { PresetsSection } from './PresetsSection.js'
 import { SoulMarkdown } from './Markdown.js'
 import { WhaleLogo } from './WhaleLogo.js'
@@ -595,7 +596,15 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
 
   const body = (
     <>
-      {/* ── 头部：会动的 DSH 鲸鱼在最上面，下面是「灵魂」标题与状态胶囊 ── */}
+      {/* ── 人格核心卡（效果图 Editorial Split 左列）：大鲸鱼 + 名字 + 定位 + 铭牌 ── */}
+      <SoulPersonaCard
+        soul={soul}
+        cardsOn={cards.filter(card => card.enabled).length}
+        cardsTotal={cards.length}
+      />
+
+      {/* ── 头部：会动的 DSH 鲸鱼在最上面，下面是「灵魂」标题与状态胶囊 ──
+          （工作台内由 theme.ts 隐藏：核心卡已承担门面；composer 浮层里仍显示） ── */}
       <div className={css.header}>
         <div className={css.brand}>
           <span className={css.hero} aria-label={t('soulWhaleLabel')} role="img">
@@ -817,6 +826,8 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
           区头已说明这里是「修改」，不需要第二层名字。
           内部固定单列堆叠：原来那套「正文编辑器 + 300px 档案侧栏」的双栏在
           半屏里会把主栏压到 120px，正文竖排成两个字一行。 */}
+      <details className="dsh-soul-legacy-details">
+        <summary>深改 · 整段正文 / 身份 / 档案 / 蒸馏</summary>
       <div className={css.legacy}>
 
       {/* ── 两栏：编辑区 / 档案与开关 ── */}
@@ -1114,6 +1125,7 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
         </div>
       </div>
         </div>
+      </details>
       </div>
         </div>
       </div>

@@ -65,19 +65,28 @@ export function WorkbenchGridIcon({ size = 15 }: { size?: number }): JSX.Element
 }
 
 /**
- * 灵魂页页头（效果图的 Editorial Split 头部）。
- *
- * 纯展示：SoulPanel 自带的小头部在 theme.ts 里被隐藏，这里给整页一个
- * 与效果图一致的巨型标题 + 一句定位说明。不接任何状态——保存/蒸馏等
- * 动作仍在 SoulPanel 内，页头只承担「身在何处」的版面语义。
+ * 分类页页头（效果图每页的 eyebrow + 巨型标题 + 一句定位）。
+ * 纯展示：eyebrow / 标题 / 副句按分类取，不接状态。
  */
-function SoulPageHead(): JSX.Element {
+const PAGE_HEADS: ReadonlyArray<{ id: WorkbenchTab; eyebrow: string; title: string; sub: string; tail: string }> = [
+  { id: 'soul', eyebrow: 'Identity Contract', title: '灵魂', sub: '跨会话恒定的身份契约层。卡片是权威，正文是投影；逐项调走卡片，整段改写收进深改区。', tail: '我是谁' },
+  { id: 'memory', eyebrow: 'Memory Stream', title: '记忆', sub: '按时间成河，按重要度分层。左侧图标轨切视图，选中条目右侧滑出详情抽屉。', tail: '记住什么' },
+  { id: 'skills', eyebrow: 'Capability Matrix', title: '能力', sub: '技能包与 MCP 服务统一编目。左列是包（可归入、可重命名），右列是服务（带实时状态）。', tail: '会什么' },
+  { id: 'usage', eyebrow: 'Token Telemetry', title: '用量', sub: '范围胶囊只作用于消耗汇总；热力带恒为全量 52 周，是横跨历史的总览。', tail: '烧了多少' },
+  { id: 'gallery', eyebrow: 'Output Gallery', title: '画廊', sub: '所有对话产出的图片、网页、演示、文档一站看全。', tail: '产出过什么' },
+  { id: 'mail', eyebrow: 'Agent Mail', title: '邮件', sub: '代理三栏工作台。HTML 正文一律走沙箱 iframe；写操作点一下就执行。', tail: '收件与回信' },
+]
+
+function PageHead({ tab }: { tab: WorkbenchTab }): JSX.Element | null {
+  const head = PAGE_HEADS.find(item => item.id === tab)
+  // 用量页头在 UsagePanel 嵌入分支内（与英雄区同一组件树）
+  if (head === undefined || tab === 'usage') return null
   return (
-    <header className="wb2-head wb2-rise" style={{ '--d': '0ms' } as CSSProperties}>
+    <header className="wb2-head wb2-rise">
       <div className="wb2-head-l">
-        <span className="wb2-eyebrow"><i />Identity Contract</span>
-        <h1 className="wb2-title">灵魂 <em>/ 我是谁</em></h1>
-        <p className="wb2-sub">跨会话恒定的身份契约层。卡片是权威，正文是投影；逐项调走卡片，整段改写收进修改区。</p>
+        <span className="wb2-eyebrow"><i />{head.eyebrow}</span>
+        <h1 className="wb2-title">{head.title} <em>/ {head.tail}</em></h1>
+        <p className="wb2-sub">{head.sub}</p>
       </div>
     </header>
   )
@@ -128,18 +137,24 @@ export function WorkbenchPanel({ onClose, initialTab = DEFAULT_TAB }: WorkbenchP
           {/* 灵魂：身份契约层独占一页。整页宽度给卡片区与预设区。 */}
           {activeTab === 'soul' && (
             <div key="soul" className="wb-soul-scroll">
-              <SoulPageHead />
+              <PageHead tab="soul" />
               <SoulPanel api={soulApi} embedded />
             </div>
           )}
 
           {/* 记忆：完整三栏工作台（列表 / 详情 / 导航），一个能力都不少。 */}
           {activeTab === 'memory' && (
-            <MemoryPanel key="memory" {...memoryApi} onClose={onClose} embedded />
+            <div key="memory" className="wb2-page-wrap">
+              <PageHead tab="memory" />
+              <MemoryPanel {...memoryApi} onClose={onClose} embedded />
+            </div>
           )}
 
           {activeTab === 'skills' && (
-            <SkillsPanel key="skills" onClose={onClose} embedded />
+            <div key="skills" className="wb2-page-wrap">
+              <PageHead tab="skills" />
+              <SkillsPanel onClose={onClose} embedded />
+            </div>
           )}
 
           {activeTab === 'usage' && (
@@ -147,11 +162,17 @@ export function WorkbenchPanel({ onClose, initialTab = DEFAULT_TAB }: WorkbenchP
           )}
 
           {activeTab === 'gallery' && (
-            <GalleryPanel key="gallery" onClose={onClose} />
+            <div key="gallery" className="wb2-page-wrap">
+              <PageHead tab="gallery" />
+              <GalleryPanel onClose={onClose} />
+            </div>
           )}
 
           {activeTab === 'mail' && (
-            <MailPanel key="mail" api={mailApi} onClose={onClose} embedded />
+            <div key="mail" className="wb2-page-wrap">
+              <PageHead tab="mail" />
+              <MailPanel api={mailApi} onClose={onClose} embedded />
+            </div>
           )}
 
         </div>

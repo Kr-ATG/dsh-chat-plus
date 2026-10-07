@@ -435,6 +435,11 @@ export function CardsSection(props: CardsSectionProps): JSX.Element {
                 </span>
               </div>
 
+              {/* 正文摘要两行：磁贴形态下让每张卡「看得见内容」而不只是一行标题。
+                  默认 display:none（行式宿主不重复正文），工作台主题（hub/theme.ts）
+                  在 .wb-root 里把它打开成两行截断。 */}
+              <span className="dsh-soul-card-body-excerpt" aria-hidden="true">{body}</span>
+
               {/* 展开的编辑区：max-height 过渡（高度动画只能用高度属性表达） */}
               <div className={open ? `${css.cardEditor} ${css.cardEditorOpen}` : css.cardEditor}>
                 <div className={css.cardEditorInner}>
