@@ -181,7 +181,9 @@ export function PresetsSection(props: PresetsSectionProps): JSX.Element {
             </span>
             <span className={css.presetMain}>
               <span className={css.presetName}>
-                {preset.name}
+                {/* 名字包一层真实节点：裸文本节点是匿名 flex 项，CSS 选不到它，
+                    在窄卡里会自己在行内折行（实测「严谨分析师」在「师」前断成两行）。 */}
+                <span className={css.presetNameText}>{preset.name}</span>
                 {preset.builtin
                   ? <span className={`${css.badge} ${css.badgeOn}`}>{t('soulPresetBuiltin')}</span>
                   : <span className={css.badge}>{t('soulPresetCustom')}</span>}

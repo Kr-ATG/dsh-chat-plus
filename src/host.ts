@@ -33,11 +33,23 @@ import { admitSpillPath, spillRoots } from './spill/index.ts'
 import { applyDownloadRoutes, applyDownloadTool } from './download/index.ts'
 import { applyOpenPathRoutes } from './open-path/index.ts'
 import { applyOfficePreview } from './office/index.ts'
+import { applyFontRoutes } from './fonts/index.ts'
 import { applyTriadHost } from './triad/host.ts'
 import { applyProviderHub, providerHubServices } from './provider/index.ts'
+import { applyOpencodeFingerprint } from './provider/modules/opencode-free-fingerprint.ts'
+// OpenCode Zen 免费层指纹的可测面：session id 派生、命中判据、请求改写纯函数。
+// 这三块错了都不会抛错——只会让 exo-free 静默回到 403，或者更糟：把别的厂商
+// 请求也改写掉。所以导出给 smoke 直接断言（见 scripts/smoke-host.mjs）。
+export {
+  sessionIdFor as opencodeSessionIdFor,
+  needsFingerprint as opencodeNeedsFingerprint,
+  applyFingerprint as opencodeApplyFingerprint,
+  __test as opencodeFingerprintTest,
+} from './provider/modules/opencode-free-fingerprint.ts'
 import { applyMailHost } from './mail/index.ts'
 import { applyToolsGate } from './tools-gate/index.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
+export { applyFontRoutes, FONT_ROUTE } from './fonts/index.ts'
 export { applyMailHost } from './mail/index.ts'
 export type { MailHostConfig, MailHostHandle } from './mail/index.ts'
 // 工具闸门（computer-use / browser-use 按需注入）：纯函数与分组表导出给 smoke，
@@ -196,6 +208,10 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
     // 对话截图：常驻无头浏览器渲染 + render/save/reveal/image/diagnose
     // （prefix 路由；applyScreenshot 内部自己挂 effect 与回收）。
     applyScreenshot(webCtx)
+    // 界面字体资产（/api/chat-flow/fonts/*）：把随包的霞鹜新致宋 woff2
+    // 与许可原文吐给浏览器。字体不内联进 client 产物——4.15MB 的资产若内联，
+    // 从不切字体的用户也要白下载一次。
+    applyFontRoutes(webCtx)
     // 下载工具的实时进度路由（GET /api/chat-flow/download/progress）。
     applyDownloadRoutes(webCtx)
     // 「用文件资源管理器打开」修复：官方那条被 windowsHide 吞了窗口。
@@ -254,6 +270,22 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
       applyProviderHub(providerCtx)
     },
   )
+
+  // ── OpenCode Zen 免费层指纹（纯出站改写，零服务依赖）────────────────────
+  // 为什么**不**放进上面的 providerHubServices 延迟注入：那 8 个服务里含
+  // webServer，headless / tui 这类没有 web 服务的 profile 会让整个回调不执行，
+  // 于是 exo-free 在这些 profile 里照样 403。本模块只用 ctx.effect + logger，
+  // 所以直接挂——任何 profile 都能拿到。
+  //
+  // 包装的是 globalThis.fetch，属进程级副作用：模块内部走 ctx.effect 注册
+  // 卸载，插件被禁用/重载时自动还原，不给下一个实例留一层指向旧闭包的包装。
+  try {
+    applyOpencodeFingerprint(ctx as never)
+  } catch (error) {
+    ctx.logger?.warn?.(
+      `[dsh-chat-plus] opencode fingerprint failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+    )
+  }
 
   // ── 邮箱工作台（Agent Mail）────────────────────────────────────────────
   // 与三个工作台并列的独立能力：模型工具（mail_*）+ /api/dsh-mail/* 路由 +

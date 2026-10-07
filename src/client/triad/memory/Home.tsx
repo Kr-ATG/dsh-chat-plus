@@ -5,9 +5,10 @@
  * 数据全部来自既有 host 接口（list/tags/summary/changes），无伪造指标；
  * 新增/文件走 Panel 新增表单预填，链接/AI 直调 remember / consolidate。
  */
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeView, MemoryApi, MemoryEntryView, MemoryKind, MemorySummaryResponse, ProjectView } from './api.js';
 import { ensureHomeStyles, hm } from './home-styles.js';
+import { readViewedIds, VIEWED_EVENT } from './Notify.js';
 
 export interface HomeNav {
   goAll: (opts?: { tag?: string; scope?: string; q?: string }) => void;
@@ -165,7 +166,31 @@ export function MemoryHome(props: MemoryHomeProps): JSX.Element {
     return keys.map(k => ({ kind: k, count: counts.get(k) ?? 0 })).filter(r => r.count > 0);
   }, [entries]);
   const kindTotal = kindDist.reduce((a, b) => a + b.count, 0);
-  const recent = useMemo(() => [...entries].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 5), [entries]);
+  /**
+   * 最近浏览：**真的浏览历史**（点开过哪些条目），不是「最近更新」。
+   *
+   * 曾经这里直接拿 entries 按 updatedAt 排——那和右栏「最近更新」是同一份数据，
+   * 两块卡长得一模一样，用户看到的是「同一个列表出现两次」。「浏览」的语义只能
+   * 由本机记录给出：记 id 顺序（最近点开的在前），再用 entries 反查内容。
+   * 记录读写都在 localStorage，刷新/重开面板都还在。
+   */
+  const [viewedIds, setViewedIds] = useState<readonly string[]>(() => readViewedIds());
+  useEffect(() => {
+    const onViewed = (): void => { setViewedIds(readViewedIds()); };
+    window.addEventListener(VIEWED_EVENT, onViewed);
+    return () => { window.removeEventListener(VIEWED_EVENT, onViewed); };
+  }, []);
+  const recent = useMemo(() => {
+    const byId = new Map(entries.map(e => [e.id, e]));
+    const seen: MemoryEntryView[] = [];
+    for (const id of viewedIds) {
+      const entry = byId.get(id);
+      // 条目可能已被删/废弃：查不到就跳过，不留空洞
+      if (entry !== undefined) seen.push(entry);
+      if (seen.length >= 5) break;
+    }
+    return seen;
+  }, [entries, viewedIds]);
   const recentChanges = useMemo(() => [...changes].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5), [changes]);
   const trend = useMemo(() => bucketTrend(changes, range), [changes, range]);
   const tp = useMemo(() => trendPath(trend.values, 268, 118, 10), [trend]);

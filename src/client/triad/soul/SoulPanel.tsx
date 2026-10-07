@@ -601,6 +601,15 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
         soul={soul}
         cardsOn={cards.filter(card => card.enabled).length}
         cardsTotal={cards.length}
+        /* 卡面状态位（v12 / 字数 / 注入开关）：这些值原先散在右侧三张卡里，
+           核心卡作为门面一眼看不到「现在用的是哪一版、超没超限、注没注入」。
+           数据全从已有 state 取，不新增请求。 */
+        version={soul.version}
+        charCount={charCount}
+        charLimit={SOUL_CHAR_LIMIT}
+        injectOn={injectOn}
+        injectKnown={injectKnown}
+        dirty={dirty}
       />
 
       {/* ── 头部：会动的 DSH 鲸鱼在最上面，下面是「灵魂」标题与状态胶囊 ──

@@ -27,6 +27,16 @@ export interface SoulPersonaCardProps {
   /** 已启用卡片数 / 卡片总数（右列 Bento 的统计，铭牌第四行用）。 */
   cardsOn: number
   cardsTotal: number
+  /** 当前灵魂版本号（卡面状态位）。 */
+  version: number
+  /** 正文字数 / 注入上限（卡面状态位，超限标红）。 */
+  charCount: number
+  charLimit: number
+  /** 灵魂注入开关当前态 + 是否读到过（读不到时不装作知道）。 */
+  injectOn: boolean
+  injectKnown: boolean
+  /** 有未保存改动（卡面状态点转琥珀并脉冲）。 */
+  dirty: boolean
 }
 
 /** 取正文第一条「非空且非 markdown 标题/列表符号」的行当一句话定位。 */
@@ -42,9 +52,10 @@ function firstMeaningfulLine(content: string): string {
   return ''
 }
 
-export function SoulPersonaCard({ soul, cardsOn, cardsTotal }: SoulPersonaCardProps): JSX.Element {
+export function SoulPersonaCard({ soul, cardsOn, cardsTotal, version, charCount, charLimit, injectOn, injectKnown, dirty }: SoulPersonaCardProps): JSX.Element {
   const identity = soul.identity
   const quote = firstMeaningfulLine(soul.content) || identity.tone
+  const over = charCount > charLimit
   const plates: ReadonlyArray<readonly [string, string]> = [
     ['语气', identity.tone === '' ? '—' : identity.tone],
     ['语言', identity.language === '' ? '—' : identity.language],
@@ -52,11 +63,26 @@ export function SoulPersonaCard({ soul, cardsOn, cardsTotal }: SoulPersonaCardPr
     ['卡片', cardsTotal === 0 ? '—' : `${String(cardsOn)} / ${String(cardsTotal)} 启用中`],
   ]
   return (
-    <aside className="wb2-persona wb2-rise" style={{ '--d': '60ms' } as CSSProperties}>
+    <aside className="wb2-persona wb2-card-hero wb2-rise" style={{ '--d': '60ms' } as CSSProperties}>
       <WhaleLogo size={96} />
       <h2 className="wb2-persona-name">{identity.name === '' ? '未命名' : identity.name}</h2>
       <p className="wb2-persona-role">{identity.role === '' ? '尚未填写角色' : identity.role}</p>
       <p className="wb2-persona-quote">{quote === '' ? '还没有写人设正文，去右列卡片或深改区落第一笔。' : quote}</p>
+      {/* 状态位：版本 / 字数 / 注入开关 / 未保存点。原先这四个值散在右侧三张卡
+          里，作为门面的核心卡看不到——现在一眼读全。 */}
+      <div className="wb2-persona-badges">
+        <span className="wb2-persona-badge">v{version}</span>
+        <span className="wb2-persona-badge" data-over={over ? '1' : undefined}
+          title={over ? `已超注入上限 ${String(charLimit)} 字，超出部分会被截断` : undefined}>
+          {charCount} / {charLimit} 字
+        </span>
+        <span className="wb2-persona-badge" data-off={injectKnown && !injectOn ? '1' : undefined}>
+          {injectKnown ? (injectOn ? '注入：开' : '注入：关') : '注入：读取失败'}
+        </span>
+        <span className={`wb2-persona-badge ${dirty ? 'wb2-persona-dirty' : 'wb2-persona-clean'}`}>
+          {dirty ? '有未保存的修改' : '没有改动'}
+        </span>
+      </div>
       <div className="wb2-persona-plates">
         {plates.map(([key, value]) => (
           <div className="wb2-persona-plate" key={key}>

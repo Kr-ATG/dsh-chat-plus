@@ -387,6 +387,13 @@ const expectedStyles = [
   // 侧栏「工作台」行的分类浮层（src/client/triad/hub/row-flyout.tsx）：
   // apply 时随 attachWorkbenchRowFlyout 注入（hover 浮层 + 滚轮切分类）。
   'dsh-workbench-row-flyout-styles',
+  // 侧栏横滑分类条（src/client/triad/hub/strip.tsx，2026-10 v4 导航定稿）：
+  // 替换官方「工作台」菜单行的视觉，宽栏出六格、rail 让位还原官方图标列。
+  'dsh-workbench-strip-styles',
+  // 界面字体覆盖（src/client/ui-font/font.ts）：把 --dsw-font-family /
+  // --ds-font-family-code 改写成所选字体。必须在 apply 阶段就注入（不等 React），
+  // 否则首帧会先按系统字体渲染、再闪成所选字体。
+  'dsh-chat-plus-ui-font',
   ...(krEnabled ? ['dsh-kr-chat-styles'] : []),
 ]
 for (const expected of expectedStyles) {
@@ -662,10 +669,10 @@ if (!code.includes('data-dsh-anim-paused') || !code.includes('animation-play-sta
 // 2026-10-05 从工作台 Tab 撤回官方设置弹窗）。
 // 座位 id/order/locale 全部原样保留；原 automation-notifier 随自动化模块一起下线。
 const cell = (key) => registeredSlots.find((s) => s?.slot === 'conversation.chat.node' && s?.key === key)
-if (registeredSlots.length !== 12) {
-  fail(`expected 12 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
+if (registeredSlots.length !== 13) {
+  fail(`expected 13 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
 } else {
-  pass('registered 12 seats (6 chat-plus + 5 triad + 1 provider settings section)')
+  pass('registered 13 seats (6 chat-plus + 5 triad + 1 provider settings section + 1 ui-font general row)')
 }
 
 // 工具闸门卡片：挂在输入栏工具行**左端**（与记忆注入开关同一排），order 100。
@@ -1949,6 +1956,40 @@ if (krEnabled) {
   }
 }
 
+// ── 工作台导航：侧栏横滑条替换官方菜单行（2026-10 v4 定稿）───────────────
+//
+// 这组断言盯的是**入口不丢**：条挂不上时官方行必须还在（降级），rail 折叠态
+// 条让位、官方图标列照常可用。三者任何一条破了，用户都会「找不到工作台入口」。
+{
+  const reasons = []
+  const stripSrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/strip.tsx'), 'utf8')
+  const seatSrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/seat.ts'), 'utf8')
+  const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/WorkbenchPanel.tsx'), 'utf8')
+
+  // 条必须真的挂在座位里，且六类都来自 WORKBENCH_TABS（不另起一份真相）
+  if (!/attachWorkbenchStrip/.test(seatSrc)) reasons.push('横滑条没有挂进工作台座位')
+  if (!/WORKBENCH_TABS\.map/.test(stripSrc)) reasons.push('横滑条必须遍历 WORKBENCH_TABS 渲染六格')
+  if (!/openWorkbench/.test(stripSrc)) reasons.push('横滑条点击必须走 openWorkbench（复用官方 selectPanel）')
+  if (!/WORKBENCH_TAB_EVENT/.test(stripSrc)) reasons.push('横滑条选中态必须订阅广播事件（避免两份状态）')
+  // 降级：官方行只在宽栏隐藏，rail 必须还原
+  if (!/syncOfficialRow\(false\)/.test(stripSrc)) reasons.push('卸载/rail 时必须还原官方行（入口不丢）')
+  if (!/onWide/.test(stripSrc)) reasons.push('条必须把「是否真的渲染出内容」回传，供官方行显隐决策')
+  if (!/useRail/.test(stripSrc)) reasons.push('条必须观察侧栏折叠态（rail 下让位）')
+  // 页内不得再有任何分类切换器
+  if (/WorkbenchDock|wb2-dock/.test(panelSrc)) reasons.push('页内分类切换器（Dock）必须已删除')
+  if (existsSync(resolve(ROOT, 'src/client/triad/hub/Dock.tsx'))) reasons.push('Dock.tsx 应已删除')
+  // ⌘1–6 直切要在页内实现（侧栏条自己不吃键盘）
+  if (!/metaKey \|\| event\.ctrlKey/.test(panelSrc) || !/WORKBENCH_TABS\[index\]/.test(panelSrc)) {
+    reasons.push('⌘1–6 直切分类必须在工作台页内实现')
+  }
+
+  if (reasons.length > 0) {
+    fail('工作台横滑导航契约：' + reasons.join('；'))
+  } else {
+    pass('工作台横滑条：六类复用 WORKBENCH_TABS + 官方行宽栏隐藏/rail 还原 + 页内无切换器 + ⌘1–6 直切')
+  }
+}
+
 // ── 对话内 HTML 卡片（```html 围栏 → 沙箱 iframe）───────────────────────
 //
 // 这组断言盯的是「静默失效」：围栏不命中只会显示成代码块，沙箱写错只会变成
@@ -2118,6 +2159,99 @@ if (krEnabled) {
     pass('HTML 卡片：围栏切分精确（大小写/未闭合/超长/空内容各自回退）+ 标题提取')
     pass('HTML 卡片：流式期未闭合围栏 → 预渲染占位卡（pending 翻转同 key，不闪）')
     pass('HTML 卡片：沙箱只给 allow-scripts + 高度上报三重校验 + base target=_blank')
+  }
+}
+
+/* ── 界面字体：选项表 / 覆盖 CSS / 座位（纯逻辑，全部可断言）─────────────
+ *
+ * 这四条错了都不会报错，只会静默显示成错的字体：
+ *   ① 默认档不是微软雅黑 → 用户没选过却被换了字体；
+ *   ② 字体栈漏掉通用回退链 → 缺字时掉成浏览器默认衬线（中文尤其明显）；
+ *   ③ webfont 档的 URL 不指向 host 路由 → 404，浏览器静默回退；
+ *   ④ 覆盖 CSS 不写 html 选择器 → 压不过官方 :root，改了没反应。
+ */
+{
+  const fontTest = mod.uiFontTest
+  if (fontTest === undefined) {
+    fail('ui-font 纯逻辑测试面（uiFontTest）未导出')
+  } else {
+    const { FONT_OPTIONS, DEFAULT_FONT_ID, fontOptionOf, fontOverrideCss, fontFileUrl } = fontTest
+    const reasons = []
+
+    // ① 默认档必须是微软雅黑（用户点开设置看到的初始值）。
+    if (DEFAULT_FONT_ID !== 'system') reasons.push(`默认档应为 system，实得 ${DEFAULT_FONT_ID}`)
+    const system = FONT_OPTIONS.find(o => o.id === 'system')
+    if (system === undefined) reasons.push('缺少 system 档（微软雅黑）')
+    else if (!/Microsoft YaHei/.test(system.body)) reasons.push('system 档必须显式写 Microsoft YaHei')
+    else if (system.webfont !== undefined) reasons.push('system 档不该带 webfont（默认档必须零下载）')
+
+    // 下拉框恰好两个选项，且第二项是霞鹜新致宋。
+    if (FONT_OPTIONS.length !== 2) reasons.push(`下拉框应恰好 2 个选项，实得 ${FONT_OPTIONS.length}`)
+    const lx = FONT_OPTIONS.find(o => o.id === 'lxgw-neozhisong')
+    if (lx === undefined) reasons.push('缺少 lxgw-neozhisong 档')
+    else {
+      if (lx.label !== '霞鹜新致宋') reasons.push(`档位标签应为「霞鹜新致宋」，实得 ${lx.label}`)
+      if (lx.webfont === undefined) reasons.push('lxgw 档必须声明 webfont（否则永远拿不到真字体）')
+      else if (!/@font-face/.test(fontOverrideCss(lx))) reasons.push('lxgw 档的覆盖 CSS 必须带 @font-face')
+      else if (!fontFileUrl(lx.webfont.file).startsWith('/api/chat-flow/fonts/')) {
+        reasons.push(`webfont URL 必须指向 host 路由，实得 ${fontFileUrl(lx.webfont.file)}`)
+      }
+    }
+
+    // ② 每一档的正文字体栈都必须带通用回退（缺字不掉成衬线）。
+    for (const option of FONT_OPTIONS) {
+      if (!/sans-serif\s*$/.test(option.body.trim())) reasons.push(`${option.id} 的正文字体栈未以 sans-serif 收尾`)
+      if (!option.code.includes('monospace') && !/Consolas|Menlo|SF Mono/.test(option.code)) {
+        reasons.push(`${option.id} 的代码字体栈缺少等宽字体`)
+      }
+    }
+
+    // ③ 覆盖 CSS 必须用 `html:root`（压过官方 :root）且同时给两个变量。
+    //
+    // 特异性实算：官方把变量声明在 `:root`（伪类，(0,1,0)）；`html` 只有
+    // (0,0,1) —— **更低**，会被官方原值压过，表现为「字体加载成功、变量却没变」。
+    // 实机踩过一次，必须钉死。
+    const css = fontOverrideCss(FONT_OPTIONS[0])
+    if (!/^html:root\{/.test(css)) {
+      reasons.push('覆盖 CSS 必须用 html:root（html 特异性 (0,0,1) 低于官方 :root 的 (0,1,0)，会被压过）')
+    }
+    if (!css.includes('--dsw-font-family')) reasons.push('覆盖 CSS 缺少 --dsw-font-family（全站正文字体）')
+    if (!css.includes('--ds-font-family-code')) reasons.push('覆盖 CSS 缺少 --ds-font-family-code（代码块字体）')
+
+    // ④ 未知 id 必须回落默认档（localStorage 脏值不该白屏或换字体）。
+    if (fontOptionOf('nope').id !== DEFAULT_FONT_ID) reasons.push('未知 id 未回落默认档')
+    if (fontOptionOf(null).id !== DEFAULT_FONT_ID) reasons.push('null 未回落默认档')
+
+    if (reasons.length > 0) fail('界面字体契约：' + reasons.join('；'))
+    else pass('界面字体：默认微软雅黑 + 两档下拉 + 通用回退齐备 + 覆盖变量正确')
+
+    // 设置行座位：官方「通用」页的 settings.general.item，order 排在官方两行之后。
+    const fontRow = registeredSlots.find(s => s?.slot === 'settings.general.item' && s?.id === 'ui-font')
+    if (fontRow === undefined) {
+      fail(`missing ui-font settings row (settings.general.item / ui-font)，实得 ${JSON.stringify(registeredSlots.filter(s => s?.slot === 'settings.general.item'))}`)
+    } else if (fontRow.order !== 12) {
+      // 官方 appearance=10 / font-size=11，本行必须排在它们之后（同列堆叠）。
+      fail(`ui-font 行 order 应为 12（官方外观 10 / 字号 11 之后），实得 ${fontRow.order}`)
+    } else {
+      pass('ui-font 设置行座位：settings.general.item / order 12（排在官方外观与字号之后）')
+    }
+
+    // 字体覆盖必须**同步**应用（不能等 React 挂载）：apply 路径上就写 <style>。
+    // 断言实现形状：index.ts 里 applyStoredFont 必须在 ctx.effect 的同步段调用。
+    const fontIndexSrc = readFileSync(resolve(ROOT, 'src/client/ui-font/index.ts'), 'utf8')
+    if (!/initFont\(\)/.test(fontIndexSrc) || !/applyStoredFont\(\)/.test(fontIndexSrc)) {
+      fail('ui-font 入口必须同步调用 initFont() + applyStoredFont()（否则首帧会闪一下系统字体）')
+    } else if (!/settings\.general\.item/.test(fontIndexSrc)) {
+      fail('ui-font 入口必须注册 settings.general.item 座位')
+    } else {
+      pass('ui-font 在 apply 阶段同步应用（首帧即所选字体）+ 注册通用设置行')
+    }
+
+    // 失败必须可见：切换中/失败都要有状态文案，静默等待会被当成「点了没反应」。
+    const rowSrc = readFileSync(resolve(ROOT, 'src/client/ui-font/Row.tsx'), 'utf8')
+    if (!/加载失败/.test(rowSrc)) fail('字体加载失败必须给出可见提示（否则用户只会觉得字体坏了）')
+    else if (!/加载中/.test(rowSrc)) fail('4.2MB 字体下载期间必须显示「加载中」（否则像是卡死）')
+    else pass('字体状态可见：加载中 / 加载失败提示齐备')
   }
 }
 

@@ -53,7 +53,7 @@ import { makeT, type MemoryLocaleKey, type MemoryT } from './locales.js'
 import { modalStaggerClass } from '../triad-modal-animation.js'
 import { ConfirmDialog } from './ConfirmDialog.js'
 import { PshBody, PopoverShell } from '../popover-shell.js'
-import { markReadIds, readIds } from './Notify.js'
+import { markReadIds, markViewed, readIds } from './Notify.js'
 
 /**
  * 面板视图（左栏导航决定）。
@@ -1141,7 +1141,12 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
     if (detail === null && filtered.length === 0 && selectedId !== null) setSelectedId(null)
   }, [detail, filtered, tab, selectedId])
   const closeForms = (): void => { setEditing(null); setMoving(null); setAdding(false) }
-  const selectEntry = (entry: MemoryEntryView): void => { closeForms(); setSelectedId(entry.id) }
+  const selectEntry = (entry: MemoryEntryView): void => {
+    closeForms()
+    setSelectedId(entry.id)
+    // 记一次浏览：首页「最近浏览」卡的数据源（与「最近更新」区分开）
+    markViewed(entry.id)
+  }
 
   // ── 一键删除今日记忆 ──────────────────────────────────────────────────
 
@@ -1246,7 +1251,14 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
       if (prefill?.tags !== undefined) setAddTags(prefill.tags)
       setAdding(true); setEditing(null); setMoving(null); setTab('all'); exitSelecting()
     },
-    pickEntry: (id: string): void => { setSelectedId(id); setTab('all'); closeForms(); exitSelecting() },
+    pickEntry: (id: string): void => {
+      setSelectedId(id)
+      setTab('all')
+      closeForms()
+      exitSelecting()
+      // 首页点条目同样算一次浏览（首页卡片自己也是入口）
+      markViewed(id)
+    },
   }
   /** 变更导航计数：优先全量 changeCount，旧 host 无该字段时回落 todayChanges。 */
   const changeCount = summary?.changeCount ?? summary?.todayChanges ?? 0
@@ -1752,7 +1764,8 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
     if (filtered.length === 0) return <div />
     return renderEmpty(
       tab === 'trash' ? t('trashEmpty') : t('selectHint'),
-      tab === 'trash' ? t('consolidateHint') : undefined,
+      // 回收站的副句说清保留期（30 天后自动清）：用户要知道「不捞就没了」。
+      tab === 'trash' ? t('trashRetention') : undefined,
     )
   }
 
@@ -1924,6 +1937,9 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
                 >
                   <option value="all">{t('filterAllProjects')} ({summary?.entryCount ?? 0})</option>
                   <option value="global">{t('scopeGlobal')} ({summary?.globalCount ?? 0})</option>
+                  {/* 空态：一个项目都没有时明确说「还没有项目记忆」，
+                      而不是留一个只有「全部/全局」两项、看起来像加载失败的下拉 */}
+                  {projects.length === 0 && <option value="" disabled>{t('noProjects')}</option>}
                   {projects.map(project => (
                     <option key={project.hash} value={`project:${project.hash}`}>
                       {project.alias ?? project.path.split(/[\\/]/).filter(Boolean).at(-1) ?? project.hash} ({project.entryCount})
@@ -1962,7 +1978,7 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
                 >
                   {t('tabAll')}
                 </button>
-                {visibleCats.slice(0, 8).map(cat => (
+                {visibleCats.slice(0, catExpanded ? 8 : 5).map(cat => (
                   <button
                     key={cat.tag}
                     type="button"
@@ -1975,6 +1991,19 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
                     <span style={{ opacity: 0.65, fontSize: 11 }}>{cat.count}</span>
                   </button>
                 ))}
+                {/* 「更多分类」：默认只露 5 个，点开看全（再点收起）。
+                    只在真有第 6 个以上分类时出现——分类本来就少时给一个
+                    点了没反应的按钮是噪音。 */}
+                {allTags.length > 5 && (
+                  <button
+                    type="button"
+                    className={css.pill}
+                    aria-expanded={catExpanded}
+                    onClick={() => { setCatExpanded((value) => !value) }}
+                  >
+                    {catExpanded ? t('catLess') : t('navMoreCategories')}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -2029,14 +2058,17 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
                       <div className={css.listHead}>
                         <span className={css.listHeadText}>{t('listCount', { n: filtered.length })}</span>
                         <span className={css.spacer} />
+                        {/* 排序：图标 + 文字标签（效果图「排序：最新」）。
+                            纯图标在数据密集的工具条里读不出当前口径。 */}
                         <button
                           type="button"
                           className={css.listSort}
-                          aria-label={t('sortNewest')}
+                          aria-label={sortDir === 'new' ? t('sortNewest') : t('sortOldest')}
                           title={sortDir === 'new' ? t('sortNewest') : t('sortOldest')}
                           onClick={() => { setSortDir(dir => (dir === 'new' ? 'old' : 'new')) }}
                         >
                           <SortArrowsIcon size={13} />
+                          <span>{sortDir === 'new' ? t('sortNewest') : t('sortOldest')}</span>
                         </button>
                         <Tooltip label={t('deleteTodayHint')} side="top" delayMs={500}>
                           <button

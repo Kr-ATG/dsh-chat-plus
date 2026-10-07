@@ -266,8 +266,6 @@ body[data-ds-dark-theme] .wb-root {
 .wb-root .skm-skill-badge,
 .wb-root .skm-cat-chip,
 .wb-root .skm-bundle-cat-tag,
-.wb-root .tg-dock__badge,
-.wb-root .tg-kind__count,
 .wb-root .dsh-soul-chip {
   background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent) !important;
   border-color: var(--wb-surface-border) !important;

@@ -269,8 +269,12 @@ export const zh = {
   navProjects: '项目',
   navCategories: '分类',
   navMoreCategories: '更多分类',
+  /** 「更多分类」展开后的收起文案（同一枚按钮的两种状态）。 */
+  catLess: '收起分类',
   navAllProjects: '全部项目',
   trashEmpty: '回收站还没有内容',
+  /** 回收站保留期说明（空态副句）。 */
+  trashRetention: '删除的记忆在这里保留 30 天，到期自动清理。',
   listCount: '共 {n} 条记忆',
   searchPlaceholderApp: '搜索记忆内容、项目、标签…',
   sortNewest: '排序: 最新',
@@ -571,8 +575,10 @@ export const en = {
   navProjects: 'Projects',
   navCategories: 'Categories',
   navMoreCategories: 'More categories',
+  catLess: 'Fewer categories',
   navAllProjects: 'All projects',
   trashEmpty: 'Trash is empty',
+  trashRetention: 'Deleted memories stay here for 30 days, then are cleaned up automatically.',
   listCount: '{n} memories',
   searchPlaceholderApp: 'Search content, projects, tags…',
   sortNewest: 'Sort: newest',

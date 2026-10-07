@@ -1006,15 +1006,23 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
 
   const hubSrc = strip(srcOf('src/client/triad/hub/WorkbenchPanel.tsx'))
+  const flyoutSrc = strip(srcOf('src/client/triad/hub/row-flyout.tsx'))
   const panelSrc = strip(srcOf('src/client/triad/gallery/GalleryPanel.tsx'))
   const lbSrc = strip(srcOf('src/client/triad/gallery/media-lightbox.tsx'))
   const apiSrc = strip(srcOf('src/client/triad/gallery/api.ts'))
 
   if (!/'memory' \| 'skills' \| 'usage' \| 'gallery' \| 'mail'/.test(hubSrc)) {
     fail('WorkbenchTab 联合类型必须含 gallery（工作台第五 Tab）')
-  } else if (!/<GalleryPanel key="gallery" onClose=\{onClose\} \/>/.test(hubSrc)) {
+  } else if (!/<GalleryPanel[\s>]/.test(hubSrc)) {
+    // 断言放宽到「渲染了 GalleryPanel」：key 后来移到了外层包裹 div
+    // （`<div key="gallery">` 包 PageHead + GalleryPanel），原先钉死
+    // `key="gallery"` 在组件上的写法就永远匹配不到了——而功能本身是好的。
+    // 判据要钉「有没有渲染这个页本体」，不该钉 key 挂在谁身上。
     fail('WorkbenchPanel 必须渲染 GalleryPanel（画廊 Tab 页本体）')
-  } else if (!/>\s*画廊\s*</.test(hubSrc) && !/画廊</.test(hubSrc)) {
+  } else if (!/WORKBENCH_TABS[\s\S]{0,900}?id:\s*'gallery'[\s\S]{0,200}?label:\s*'画廊'/.test(flyoutSrc)) {
+    // 分类切换器已从页面内 tab 栏改为顶部悬浮胶囊 Dock，按钮文案的表在
+    // row-flyout.tsx 的 WORKBENCH_TABS 里（WorkbenchPanel 只留页面头）。
+    // 原断言在 hubSrc 里找「画廊<」自然永远匹配不到——钉错了文件。
     fail('工作台 Tab 栏必须有「画廊」按钮')
   } else {
     pass('工作台第五 Tab「画廊」接入在位（类型 + 渲染 + 按钮）')

@@ -1780,6 +1780,10 @@ const css = {
   // 同步状态健康检查
   healthNotice: 'skm-health-notice',
   healthNoticeTitle: 'skm-health-notice-title',
+  // 工具栏：来源筛选段控（2026-10 v4 补齐效果图缺口；视图切换复用既有的
+  // viewToggle / viewBtn 样式族，skillGridList 上面已有，不重复声明）
+  sourceSeg: 'skm-source-seg',
+  sourceSegBtn: 'skm-source-seg-btn',
   skillFiles: 'skm-skill-files',
   skillFile: 'skm-skill-file',
   skillPreview: 'skm-skill-preview',
@@ -2320,6 +2324,15 @@ const SHEET = `
 .skm-tool-button:active{transform:scale(.97)}
 .skm-tool-button:disabled{opacity:.5;cursor:default}
 .skm-toolbar-spacer{flex:1 1 12px}
+/* 来源筛选段控（全部 / 技能包 / 散装）：与 skm-view-toggle 同一套几何语言 */
+.skm-source-seg{flex:none;display:inline-flex;align-items:center;gap:2px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.12));border-radius:10px;background:var(--dsw-alias-bg-base,#fff);padding:3px}
+.skm-source-seg-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 11px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-caption,#adb2b8);font-family:inherit;font-size:12.5px;line-height:18px;white-space:nowrap;cursor:pointer;transition:background 140ms ease,color 140ms ease,transform 140ms ease}
+.skm-source-seg-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.04));color:var(--dsw-alias-label-secondary,#61666b)}
+.skm-source-seg-btn[data-active]{background:var(--dsw-alias-bg-module-platform,#eef0f2);color:var(--dsw-alias-label-primary,#0f1115);font-weight:600}
+.skm-source-seg-btn:active{transform:scale(.96)}
+/* 列表视图：技能卡从网格改为单列横排（图标在左、信息铺满） */
+.skm-skill-grid-list{display:flex;flex-direction:column;gap:8px}
+.skm-skill-grid-list > *{width:100%}
 .skm-bulk-overlay{position:fixed;inset:0;z-index:995;border:none;background:transparent;cursor:default;padding:0}
 .skm-preset-pill{position:relative;flex:none;display:inline-flex;align-items:center;gap:6px;height:36px;box-sizing:border-box;border:1px solid #c9d6f5;border-radius:10px;background:#eef3fd;color:#3b62d6;padding:0 10px;font-family:inherit;font-size:13px;line-height:18px;cursor:pointer;transition:border-color 140ms ease,background 140ms ease,transform 140ms ease}
 .skm-preset-pill:active{transform:scale(.97)}
@@ -2786,6 +2799,32 @@ function SearchIcon(): JSX.Element {
   )
 }
 
+/** 网格视图图标（工具栏视图切换）。 */
+function GridIcon({ size = 14 }: { size?: number }): JSX.Element {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" />
+      <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
+      <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" />
+      <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
+    </svg>
+  )
+}
+
+/** 列表视图图标（工具栏视图切换）。 */
+function ListIcon({ size = 14 }: { size?: number }): JSX.Element {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="8" y1="6" x2="21" y2="6" />
+      <line x1="8" y1="12" x2="21" y2="12" />
+      <line x1="8" y1="18" x2="21" y2="18" />
+      <line x1="3.5" y1="6" x2="3.51" y2="6" />
+      <line x1="3.5" y1="12" x2="3.51" y2="12" />
+      <line x1="3.5" y1="18" x2="3.51" y2="18" />
+    </svg>
+  )
+}
+
 function TagIcon(): JSX.Element {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -2869,7 +2908,7 @@ function SkillCard({ skill, bundleId, bundleName, enabled, lockedReason, scopeLa
   /** 网格序号：入场错峰动画延时。 */
   index: number
   onToggle: (skill: SkillInfo, enabled: boolean) => void
-  onView: (skill: SkillInfo) => void
+  onView: (skill: SkillInfo, file?: string) => void
   onAssign?: (skill: SkillInfo) => void
   onRemove?: (skill: SkillInfo) => void
   onDelete?: (skill: SkillInfo) => void
@@ -2918,6 +2957,9 @@ function SkillCard({ skill, bundleId, bundleName, enabled, lockedReason, scopeLa
 
   const toggleLabel = lockedReason ?? (enabled ? skillT('disableSkill') : skillT('enableSkill'))
   const fileMeta = typeof skill.fileCount === 'number' ? skill.fileCount : files.length
+  /** 卡片内文件树展开态（效果图「展开技能文件」；有文件才给入口）。 */
+  const [filesOpen, setFilesOpen] = useState(false)
+  const canExpand = files.length > 0
   return (
     <li
       className={css.skillCard}
@@ -2962,9 +3004,44 @@ function SkillCard({ skill, bundleId, bundleName, enabled, lockedReason, scopeLa
         {!enabled && <span className={`${css.tag} ${css.tagStatus}`}>{skillT('skillOffTag')}</span>}
         <span className={css.skillMeta}>{skillT('fileCount', { n: fileMeta })}</span>
       </div>
+      {/* 展开技能文件：卡内文件树（只读，点文件名进查看器）。默认收起，
+          只对有文件的技能给入口——空文件列表展开出一条空轨道毫无意义。 */}
+      {filesOpen && canExpand && (
+        <ul className={css.skillFiles}>
+          {files.map((file) => (
+            <li key={file}>
+              <button
+                type="button"
+                className={css.skillFile}
+                data-main={file === 'SKILL.md' ? 'true' : undefined}
+                title={file}
+                onClick={() => { onView(skill, file) }}
+              >
+                <IconCodeOutline16 size={12} aria-hidden="true" />
+                {file}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <div className={css.skillCardFoot}>
         <span className={css.skillFootLabel}>{skillT('toolsLabel')}</span>
         <div className={css.skillCardActions}>
+          {canExpand && (
+            <Tooltip label={skillT('expandSkillFiles')} side="bottom" delayMs={500}>
+              <button
+                type="button"
+                className={css.skillFootIcon}
+                data-open={filesOpen ? 'true' : undefined}
+                aria-expanded={filesOpen}
+                aria-label={skillT('expandSkillFiles')}
+                title={skillT('expandSkillFiles')}
+                onClick={() => { setFilesOpen((value) => !value) }}
+              >
+                <IconChevronDownOutline14 size={14} aria-hidden="true" />
+              </button>
+            </Tooltip>
+          )}
           <Tooltip label={skillT('copySkillName')} side="bottom" delayMs={500}>
             <button
               type="button"
@@ -3109,7 +3186,7 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
   const [query, setQuery] = useState('')
   const [sourceFilter, setSourceFilter] = useState<'all' | 'bundles' | 'loose'>('all')
   const [sortAsc, setSortAsc] = useState(true)
-  const [viewMode] = useState<'grid' | 'list'>('grid')
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   /** 左栏分类 / 筛选：启用状态 + Agent 预设（分类切换由左栏「Agent 预设分类」驱动）。 */
   const [statusFilter, setStatusFilter] = useState<'all' | 'on' | 'off'>('all')
   /** 技能包分类筛选：null = 不筛；分类名或 UNCATEGORIZED = 只看该类。 */
@@ -3415,9 +3492,14 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
     }
   }
 
-  const openViewer = (skill: SkillInfo): void => {
-    setViewer({ skill, file: 'SKILL.md', loading: true })
-    void loadViewerContent(skill.name, 'SKILL.md')
+  /**
+   * 打开技能文件查看器。
+   * @param skill - 目标技能。
+   * @param file - 首屏文件；缺省 SKILL.md（点技能名进查看器的老路径）。
+   */
+  const openViewer = (skill: SkillInfo, file = 'SKILL.md'): void => {
+    setViewer({ skill, file, loading: true })
+    void loadViewerContent(skill.name, file)
   }
 
   /** 切字号档位（夹到合法区间）。 */
@@ -4060,6 +4142,48 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
                   </div>
                 </>
               )}
+            </div>
+            {/* 来源筛选：全部 / 技能包 / 散装技能（效果图工具栏三段 chip）。
+                与左栏「Agent 预设分类」不同层：这里筛的是技能来源形态。 */}
+            <div className={css.sourceSeg} role="group" aria-label={t('filterAll')}>
+              {([['all', t('filterAll')], ['bundles', t('filterBundles')], ['loose', t('filterLoose')]] as const)
+                .map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={css.sourceSegBtn}
+                    data-active={sourceFilter === value || undefined}
+                    aria-pressed={sourceFilter === value}
+                    onClick={() => { setSourceFilter(value) }}
+                  >
+                    {label}
+                  </button>
+                ))}
+            </div>
+            {/* 视图切换：网格 / 列表（复用既有 .skm-view-toggle 样式族） */}
+            <div className={css.viewToggle} role="group" aria-label={t('viewGrid')}>
+              <button
+                type="button"
+                className={css.viewBtn}
+                data-active={viewMode === 'grid' || undefined}
+                aria-pressed={viewMode === 'grid'}
+                aria-label={t('viewGrid')}
+                title={t('viewGrid')}
+                onClick={() => { setViewMode('grid') }}
+              >
+                <GridIcon size={14} />
+              </button>
+              <button
+                type="button"
+                className={css.viewBtn}
+                data-active={viewMode === 'list' || undefined}
+                aria-pressed={viewMode === 'list'}
+                aria-label={t('viewList')}
+                title={t('viewList')}
+                onClick={() => { setViewMode('list') }}
+              >
+                <ListIcon size={14} />
+              </button>
             </div>
             <span className={css.toolbarSpacer} />
             <button

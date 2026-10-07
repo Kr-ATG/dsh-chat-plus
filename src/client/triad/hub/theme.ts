@@ -62,11 +62,13 @@ const SHEET = `
   --wb2-r-lg: 20px; --wb2-r-md: 15px; --wb2-r-sm: 10px; --wb2-r-xs: 8px;
   --wb2-mono: "SF Mono","Cascadia Mono","JetBrains Mono",ui-monospace,Consolas,monospace;
 
-  /* 官方 token 重映射：子面板几百处 var() 一次性换肤 */
-  --dsw-alias-bg-base: color-mix(in srgb, var(--dsw-alias-label-primary, #111) 2%, var(--dsw-alias-bg-module-platform, #fff));
-  --dsw-alias-bg-layer-1: color-mix(in srgb, var(--dsw-alias-label-primary, #111) 5%, transparent);
-  --dsw-alias-bg-layer-2: color-mix(in srgb, var(--dsw-alias-label-primary, #111) 4%, transparent);
-  --dsw-alias-bg-layer-3: color-mix(in srgb, var(--dsw-alias-label-primary, #111) 8%, transparent);
+  /* 官方 token 重映射：子面板几百处 var() 一次性换肤。
+     **底色/层底不在这里重映射**（2026-10 修正）：原先浅色分支把 bg-base 混成
+     「主文字色 2% + module-platform(#f5f6f7)」≈ #F0F1F2 —— 一层灰，把官方
+     纸白底压成灰面，用户看到的就是「页面背景不跟主题」（#EFF1F1 就是这个混算
+     出来的值，源码里搜不到字面量）。现在这四档**原样继承官方 token**：
+     浅色=官方纸白/官方层底，深色=官方深底；暗色分支另有显式覆写（见下）。
+     其余档位（描边/交互底/填充）本就是半透明发丝线，明暗两态都成立，保持重映射。 */
   --dsw-alias-border-l1: color-mix(in srgb, var(--dsw-alias-label-primary, #111) 9%, transparent);
   --dsw-alias-border-l2: color-mix(in srgb, var(--dsw-alias-label-primary, #111) 15%, transparent);
   --dsw-alias-border-l3: color-mix(in srgb, var(--dsw-alias-label-primary, #111) 24%, transparent);
@@ -122,7 +124,21 @@ body[data-ds-dark-theme] .wb-root {
 }
 /* 工作台根：纯色底。用户点名「不需要背景色」——不铺任何氛围光/径向渐变，
    层次只靠表面三阶（--wb2-s1/s2/s3）与发丝线表达。 */
-.wb-root { background: var(--wb2-bg); color: var(--wb2-t1); }
+.wb-root { background: var(--wb2-bg); color: var(--wb2-t1); isolation: isolate; }
+
+/* ── 全局细节（v4 打磨）：选区 / 焦点环 / 滚动条 ─────────────────────
+   三条都限定在 .wb-root 内，不改官方会话区与侧栏的观感。 */
+.wb-root ::selection { background: var(--wb2-a3); color: #fff; }
+/* 键盘可达性：焦点环只在键盘导航时出现（:focus-visible），鼠标点击不画环 */
+.wb-root :focus-visible { outline: 2px solid var(--wb2-accent); outline-offset: 2px; border-radius: 6px; }
+/* 滚动条：细、圆、hover 才亮；与官方深空底同族 */
+.wb-root *::-webkit-scrollbar { width: 10px; height: 10px; }
+.wb-root *::-webkit-scrollbar-thumb { background: var(--wb2-line2); border-radius: 99px;
+  border: 2px solid transparent; background-clip: content-box; }
+.wb-root *::-webkit-scrollbar-thumb:hover { background: var(--wb2-line3);
+  border: 2px solid transparent; background-clip: content-box; }
+.wb-root *::-webkit-scrollbar-track { background: transparent; }
+.wb-root * { scrollbar-width: thin; scrollbar-color: var(--wb2-line2) transparent; }
 
 /* ══════════ 2 · 共享组件（.wb2-*） ══════════ */
 /* 页头：左巨型标题 / 右操作条，不对称 */
@@ -137,10 +153,11 @@ body[data-ds-dark-theme] .wb-root {
 .wb2-eyebrow i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; font-style: normal;
   animation: wb2-blip 2s var(--wb2-ease-soft) infinite; }
 @keyframes wb2-blip { 0%,100% { opacity:.4; transform:scale(.8); } 50% { opacity:1; transform:scale(1.25); } }
-.wb2-title { margin: 0; font-size: 28px; font-weight: 680; letter-spacing: -.028em; line-height: 1.12; color: var(--wb2-t1); }
-.wb2-title em { font-style: normal; color: var(--wb2-t3); font-weight: 400; }
+/* v4：标题提到 30px、字距收紧，与效果图的「巨型标题」一致 */
+.wb2-title { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.028em; line-height: 1.1; color: var(--wb2-t1); }
+.wb2-title em { font-style: normal; color: var(--wb2-t3); font-weight: 400; font-size: 15px; }
 .wb2-sub { margin: 6px 0 0; font-size: 12.5px; color: var(--wb2-t3); max-width: 58ch; }
-.wb2-head-r { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wb2-head-r { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 
 /* 双层卡：外壳发丝线 + 内核 inset 高光（效果图的「玻璃板嵌金属托盘」） */
 .wb2-bezel { background: color-mix(in srgb, var(--wb2-t1) 3%, transparent); border: 1px solid var(--wb2-line);
@@ -153,6 +170,34 @@ body[data-ds-dark-theme] .wb-root {
   position: relative; overflow: hidden;
   transition: transform 420ms var(--wb2-ease), border-color 420ms var(--wb2-ease), box-shadow 420ms var(--wb2-ease); }
 .wb2-card:hover { transform: translateY(-2px); border-color: var(--wb2-line2); box-shadow: var(--wb2-drop); }
+
+/* 重点卡（v4）：1px 渐变描边流光 + 右上径向光晕。
+   position:relative 必须有——hero 类会被加在 grid 项（.wb2-persona）上，
+   没有定位上下文时 ::before 会逃到 .wb-root 去铺满整页。
+   isolation:isolate 把伪元素的层叠收在本卡内；::after 用 z-index:-1 落在
+   本卡背景之上、内容之下（负 z-index 在隔离上下文里的正确层级）。 */
+.wb2-card-hero { position: relative; isolation: isolate; }
+.wb2-card-hero::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px;
+  background: linear-gradient(135deg, var(--wb2-a4), transparent 32%, transparent 68%, var(--wb2-a3));
+  background-size: 220% 220%;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  pointer-events: none; animation: wb2-borderflow 5s linear infinite; }
+@keyframes wb2-borderflow {
+  0% { background-position: 0% 0%; } 50% { background-position: 100% 100%; } 100% { background-position: 0% 0%; } }
+.wb2-card-hero::after { content: ""; position: absolute; top: -70px; right: -50px; width: 230px; height: 170px;
+  border-radius: 50%; background: radial-gradient(circle, var(--wb2-a2), transparent 68%);
+  filter: blur(22px); pointer-events: none; z-index: -1; }
+
+/* 胶片颗粒（v4）：只铺工作台这一页，不碰侧栏与会话区。
+   absolute 而非 fixed —— .wb-root 自己就是定位上下文且 overflow:hidden，
+   inset:0 正好等于本页可视区；fixed 会一路盖到侧栏和对话上（越界）。
+   isolation:isolate 把颗粒收在本页的层叠上下文里：页内浮层（下拉/时间弹层）
+   可能被它压住，但 4% 不透明度下看不出，且 pointer-events:none 不吃点击；
+   真正需要盖在最上的弹窗是 portal 到 body 的，不受本页上下文影响。 */
+.wb-root { isolation: isolate; }
+.wb-root::after { content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none; opacity: .04;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E"); }
 
 /* 胶囊 chip */
 .wb2-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px;
@@ -248,43 +293,10 @@ body[data-ds-dark-theme] .wb-root {
   to { opacity: 1; transform: none; filter: blur(0); }
 }
 
-/* ══════════ 3 · 悬浮 Dock 导航 ══════════ */
-.wb2-dock-wrap { position: sticky; top: 0; z-index: 30; display: flex; justify-content: center;
-  padding: 12px 16px 10px; pointer-events: none;
-  background: linear-gradient(var(--wb2-bg) 62%, transparent); }
-.wb2-dock { pointer-events: auto; display: flex; align-items: center; gap: 3px; padding: 5px; border-radius: 999px;
-  background: color-mix(in srgb, var(--wb2-s2) 78%, transparent);
-  border: 1px solid var(--wb2-line2);
-  backdrop-filter: blur(22px) saturate(160%); -webkit-backdrop-filter: blur(22px) saturate(160%);
-  box-shadow: var(--wb2-inset), var(--dsw-shadow-lv3, 0 14px 44px rgba(0,0,0,.3));
-  animation: wb2-dock-in 620ms var(--wb2-ease) both; }
-@keyframes wb2-dock-in { from { opacity: 0; transform: translateY(-16px) scale(.94); } to { opacity: 1; transform: none; } }
-.wb2-dock-brand { display: flex; align-items: center; gap: 7px; padding: 0 12px 0 9px; margin-right: 3px;
-  border-right: 1px solid var(--wb2-line); height: 26px; }
-.wb2-dock-brand svg { width: 18px; height: 13px; color: var(--wb2-t1); }
-.wb2-dock-brand b { font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--wb2-t1); }
-.wb2-dock-btn { position: relative; display: flex; align-items: center; gap: 6px; padding: 7px 13px;
-  border: none; border-radius: 999px; background: transparent; color: var(--wb2-t3);
-  font-family: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap;
-  transition: color 240ms var(--wb2-ease), background 240ms var(--wb2-ease), transform 240ms var(--wb2-ease); }
-.wb2-dock-btn svg { width: 14px; height: 14px; flex: none; transition: transform 340ms var(--wb2-ease); }
-.wb2-dock-btn:hover { color: var(--wb2-t2); background: color-mix(in srgb, var(--wb2-t1) 6%, transparent); }
-.wb2-dock-btn:hover svg { transform: translateY(-1px) scale(1.08); }
-.wb2-dock-btn:active { transform: scale(.96); }
-.wb2-dock-btn[data-on] { color: #fff; background: linear-gradient(180deg, var(--wb2-accent-hi), var(--wb2-accent));
-  box-shadow: 0 3px 14px var(--wb2-a3), inset 0 1px 0 rgba(255,255,255,.26); }
-.wb2-dock-btn[data-on]::after { content: ""; position: absolute; inset: -3px; border-radius: 999px;
-  border: 1px solid var(--wb2-a3); animation: wb2-halo 2.6s var(--wb2-ease-soft) infinite; }
-@keyframes wb2-halo { 0%,100% { opacity:.3; transform: scale(1); } 50% { opacity:.8; transform: scale(1.035); } }
-.wb2-dock-close { margin-left: 4px; width: 30px; height: 30px; padding: 0; border-radius: 999px;
-  border: 1px solid var(--wb2-line); background: color-mix(in srgb, var(--wb2-t1) 3%, transparent);
-  color: var(--wb2-t3); cursor: pointer; display: flex; align-items: center; justify-content: center;
-  transition: all 260ms var(--wb2-ease); }
-.wb2-dock-close:hover { color: var(--dsw-alias-state-error-primary, #F2685C);
-  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #F2685C) 40%, transparent);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #F2685C) 10%, transparent);
-  transform: rotate(90deg); }
-.wb2-dock-close svg { width: 13px; height: 13px; }
+/* ══════════ 3 · 页内导航已移除（2026-10 v4） ══════════
+   悬浮胶囊 Dock（.wb2-dock-*）整块删除：分类切换只在侧栏那一行横滑条上
+   （./strip.tsx），页内不再有任何切换器。Dock 的样式与组件一并清掉，
+   不留在表里当死代码。 */
 
 /* ══════════ 4 · 灵魂页重排：Editorial Split ══════════
    旧三区（上预设 / 左预览 / 右修改）→ 左人格核心 / 右卡片 Bento + 预设轨
@@ -297,6 +309,13 @@ body[data-ds-dark-theme] .wb-root {
   display: grid !important;
   grid-template-columns: minmax(280px, .8fr) 1.5fr;
   gap: 16px; align-items: start;
+  /* 行高按内容走，不被压缩（2026-10 实测修）：
+     root 高度受面板约束时，隐式 auto 行会被压到比内容矮（实测第 3 行 372px
+     而预览块内容要 423px），而 align-items:start 让块不跟着压缩 ——
+     块溢出 35px，正好压住下一行的预设区（「+ 新增卡片 / 存为预设」被盖住）。
+     grid-auto-rows:min-content 让每行至少容纳自己的内容，多出来的高度交给
+     外层 .wb-soul-scroll 滚动，块与块之间不再重叠。 */
+  grid-auto-rows: min-content;
   max-width: none !important; width: 100% !important; padding: 0 22px 26px !important;
 }
 @media (max-width: 1020px) { .wb-root .dsh-soul-root { grid-template-columns: 1fr; } }
@@ -305,6 +324,11 @@ body[data-ds-dark-theme] .wb-root {
 .wb-root .dsh-soul-header { display: none !important; }
 .wb2-persona {
   grid-column: 1; grid-row: 1 / span 5;
+  /* 填满左列整高 + 内容垂直居中（2026-10 实测修）：
+     原先只有 align-items:start，卡片高 449px 而左列有 830px，
+     下方 380px 全空 —— 就是用户说的「留这么大空白」。
+     现在卡片铺满列高、内容居中，长卡读起来是刻意的呼吸感而不是漏排。 */
+  align-self: stretch; justify-content: center;
   display: flex; flex-direction: column; align-items: center; text-align: center;
   padding: 28px 22px 24px; border: 1px solid var(--wb2-line); border-radius: var(--wb2-r-lg);
   background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1) 52%);
@@ -314,6 +338,24 @@ body[data-ds-dark-theme] .wb-root {
 .wb2-persona-name { margin: 0 0 3px; font-size: 26px; font-weight: 680; letter-spacing: -.024em; color: var(--wb2-t1); }
 .wb2-persona-role { margin: 0 0 14px; font-size: 12.5px; font-weight: 500; color: var(--wb2-accent); }
 .wb2-persona-quote { margin: 0 0 18px; font-size: 12px; color: var(--wb2-t3); line-height: 1.72; max-width: 34ch; }
+/* 核心卡状态位（v12 / 字数 / 注入开关 / 未保存点）：四个真值一眼读全 */
+.wb2-persona-badges { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin: 0 0 16px; }
+.wb2-persona-badge { padding: 2px 8px; border-radius: 999px; font-size: 10.5px; line-height: 16px;
+  background: color-mix(in srgb, var(--wb2-t1) 5%, transparent); border: 1px solid var(--wb2-line);
+  color: var(--wb2-t3); white-space: nowrap; font-variant-numeric: tabular-nums;
+  transition: all 320ms var(--wb2-ease); }
+.wb2-persona-badge[data-over='1'] { color: var(--dsw-alias-state-error-primary, #F2685C);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #F2685C) 42%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #F2685C) 10%, transparent); }
+.wb2-persona-badge[data-off='1'] { color: var(--wb2-t4); border-style: dashed; }
+/* 未保存点：琥珀脉冲 / 已保存静息绿（与页头呼吸点同一套语言） */
+.wb2-persona-dirty { color: var(--dsw-alias-state-warn-primary, #F5B544);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #F5B544) 42%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #F5B544) 10%, transparent);
+  animation: wb2-badge-blip 1.6s var(--wb2-ease-soft) infinite; }
+@keyframes wb2-badge-blip { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+.wb2-persona-clean { color: var(--dsw-alias-state-success-primary, #3DD68C);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary, #3DD68C) 34%, transparent); }
 .wb2-persona-plates { display: flex; flex-direction: column; gap: 1px; width: 100%;
   border-radius: var(--wb2-r-sm); overflow: hidden; border: 1px solid var(--wb2-line); background: var(--wb2-line); }
 .wb2-persona-plate { display: flex; align-items: baseline; gap: 10px; padding: 8px 12px;
@@ -327,8 +369,13 @@ body[data-ds-dark-theme] .wb-root {
 .wb-root .dsh-soul-notice { grid-column: 2; grid-row: 1; }
 .wb-root .dsh-soul-draft { grid-column: 2; grid-row: 2; }
 .wb-root .dsh-soul-work, .wb-root .dsh-soul-stage { display: contents; }
-.wb-root .dsh-soul-pane-preview { grid-column: 2; grid-row: 3; }
-.wb-root .dsh-soul-presets-top { grid-column: 2; grid-row: 4; }
+/* 预设区与卡片区**不能互相压**（2026-10 实测修）：
+   预设轨 208px 高 + 卡片区 423px，而网格给第 3 行的空间只有 372px ——
+   实测两块的 y 区间重叠 35px，「+ 新增卡片 / 存为预设」那行被预设区盖住。
+   修法：两块都允许在自己的格里收缩（min-height:0），并各自内部滚动。
+   网格行高由内容决定（auto），不再让某一块溢出到邻居的格子里。 */
+.wb-root .dsh-soul-pane-preview { grid-column: 2; grid-row: 3; min-height: 0; }
+.wb-root .dsh-soul-presets-top { grid-column: 2; grid-row: 4; min-height: 0; }
 .wb-root .dsh-soul-pane-edit { grid-column: 2; grid-row: 5; }
 @media (max-width: 1020px) {
   .wb2-persona, .wb-root .dsh-soul-notice, .wb-root .dsh-soul-draft,
@@ -339,30 +386,66 @@ body[data-ds-dark-theme] .wb-root {
 .wb-root .dsh-soul-presets-top[data-empty="1"] { display: none; }
 .wb-root .dsh-soul-presets-top .dsh-soul-card { background: transparent !important; border: none !important;
   box-shadow: none !important; padding: 0 !important; }
+/* 预设轨：纵向卡片，按钮换行落到卡片底部。
+   2026-10 实测修（截图 + DOM 量测）：上一版把它做成 186px 宽的横排卡，
+   而卡内是「图标 + 文字 + 两个 68px 按钮」——186px 塞不下，
+   .dsh-soul-preset-main 被挤成 0px 宽，标题「工程搭档」竖排成一列字，
+   整卡高 166px 还横向溢出（scrollWidth 1555 > 容器 822）。
+   现在：行内只放「图标 + 文字」，动作区 flex-basis:100% 独占一行靠右。
+   注意：本表是模板字符串，注释里不能出现反引号（会提前闭合字符串）。 */
 .wb-root .dsh-soul-preset-list { display: flex !important; gap: 9px; overflow-x: auto; padding: 3px 2px 8px; }
-.wb-root .dsh-soul-preset-row { flex: none !important; width: 186px; padding: 11px 12px !important;
+.wb-root .dsh-soul-preset-row { flex: none !important; width: 236px; padding: 11px 12px !important;
+  flex-direction: row !important; flex-wrap: wrap !important; align-items: flex-start !important;
+  align-content: flex-start !important;
   border-radius: var(--wb2-r-sm) !important; border: 1px solid var(--wb2-line) !important;
   background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1)) !important;
   position: relative; overflow: hidden; transition: all 380ms var(--wb2-ease) !important; }
+/* main 用 flex-basis:0 而非 auto（关键）：basis:auto 时它按**文字内容宽度**
+   参与换行判定，于是「工程搭档」(4 字) 一行放得下、「严谨分析师」(5 字) 就被挤到
+   第二行 —— 实测相邻卡片文字错位 33px（689 vs 722）。basis:0 + min-width:0
+   让它纯粹吃剩余空间，永远跟图标同一行，卡片之间不再参差。 */
+.wb-root .dsh-soul-preset-row .dsh-soul-preset-main { flex: 1 1 0% !important; min-width: 0 !important; }
+/* 名称行固定单行不换行（见 PresetsSection 的 presetNameText 包裹节点）：
+   200px 卡里「严谨分析师」会被截成「严谨分...」，加宽到 236px 后完整显示；
+   仍保留省略号兜底，保证超长自定义预设名不会把卡撑破。 */
+.wb-root .dsh-soul-preset-row .dsh-soul-preset-name {
+  min-width: 0; flex-wrap: nowrap !important; overflow: hidden; white-space: nowrap !important; }
+.wb-root .dsh-soul-preset-row .dsh-soul-preset-name-text {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-root .dsh-soul-preset-row .dsh-soul-preset-name > span { flex: none; }
+.wb-root .dsh-soul-preset-row .dsh-soul-preset-actions {
+  flex: 1 0 100% !important; margin-top: 8px; justify-content: flex-start !important;
+  opacity: 1 !important; flex-wrap: nowrap !important; }
 .wb-root .dsh-soul-preset-row::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
   background: linear-gradient(90deg, var(--wb2-accent), var(--wb2-accent-hi));
   transform: scaleX(0); transform-origin: left; transition: transform 420ms var(--wb2-ease); }
 .wb-root .dsh-soul-preset-row:hover { transform: translateY(-3px); border-color: var(--wb2-line2) !important;
   box-shadow: var(--wb2-drop) !important; }
 .wb-root .dsh-soul-preset-row:hover::after { transform: scaleX(1); }
-/* 卡片区改 Bento：卡片行变网格磁贴 */
+/* 卡片区改 Bento：卡片行变磁贴。
+   预览区外层那张 .dsh-soul-card 只当容器用，去掉它自己的壳，避免双层描边。 */
 .wb-root .dsh-soul-pane-preview .dsh-soul-card { background: transparent !important; border: none !important;
   box-shadow: none !important; padding: 0 !important; }
-.wb-root .dsh-soul-card-list { display: grid !important; grid-template-columns: repeat(6, 1fr); gap: 11px; }
-.wb-root .dsh-soul-card-row { grid-column: span 2; padding: 13px 14px !important; border-radius: var(--wb2-r-md) !important;
+/* 用网格自适应列数（2026-10 修）：原先写死 repeat(6,1fr) + 每卡 span 2 = 恒定 3 列，
+   4 张卡时第二行只放 1 张、右侧空出两格 —— 用户看到的就是「灵魂右侧留这么大空白」。
+   改成 auto-fill + minmax(320px,1fr)：**列数随容器宽度自适应**，卡片只占自己那一格，
+   不会被拉伸到整行（flex 的 1 1 320px 在 1440px 宽下每行只放得下一张，
+   实测每张被撑到 1439px、4 张各占一行 —— 从「右边空」变成「卡片超宽」，同样不对）。 */
+.wb-root .dsh-soul-card-list {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 11px; }
+.wb-root .dsh-soul-card-row { flex: 1 1 320px; min-width: 0;
+  padding: 13px 14px !important; border-radius: var(--wb2-r-md) !important;
   border: 1px solid var(--wb2-line) !important;
   background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1) 46%) !important;
   transition: transform 420ms var(--wb2-ease), border-color 420ms var(--wb2-ease), box-shadow 420ms var(--wb2-ease) !important; }
 .wb-root .dsh-soul-card-row:hover { transform: translateY(-2px); border-color: var(--wb2-line2) !important;
   box-shadow: var(--wb2-drop) !important; }
+/* 窄屏：卡片改单列（flex 的 basis 已能自适应，这里只把最小宽度压掉，
+   保证极窄下也是一列一张、不出现「挤成两列但每张都很窄」的观感） */
 @media (max-width: 900px) {
-  .wb-root .dsh-soul-card-list { grid-template-columns: repeat(2, 1fr); }
-  .wb-root .dsh-soul-card-row { grid-column: span 1; }
+  .wb-root .dsh-soul-card-row { flex-basis: 100%; }
 }
 /* 卡片种类图标：统一强调色微底（单色纪律，不吃 kind 彩） */
 .wb-root .dsh-soul-card-kind { background: var(--wb2-a1) !important; border: 1px solid var(--wb2-a3) !important;
@@ -483,28 +566,38 @@ body[data-ds-dark-theme] .wb-root {
   background: color-mix(in srgb, var(--wb2-t1) 4%, transparent) !important;
   border: 1px solid var(--wb2-line) !important; }
 .wb-root .dsh-memory-top-stat-val { font-family: var(--wb2-mono); font-weight: 680; color: var(--wb2-t1); }
-/* 顶栏段控 → 左图标轨：视图 tab 竖排成 58px 轨，文字隐藏只留图标+徽标；
-   项目/分类下拉保留在二级筛选行（真数据入口不丢） */
-/* 顶栏段控 → 左图标轨：面板改三行 grid（统计行 / 筛选行 / 内容行），
-   图标轨跨满三行通高；首页视图没有筛选行时该行 auto 塌成 0，不留空白带。
-   项目/分类下拉保留在二级筛选行（真数据入口不丢） */
+/* 顶栏段控 → 左侧栏导航列表：面板改三行 grid（统计行 / 筛选行 / 内容行），
+   导航列跨满三行通高；首页视图没有筛选行时该行 auto 塌成 0，不留空白带。
+   项目/分类下拉保留在二级筛选行（真数据入口不丢）。 */
+
+/* ── 记忆：左栏导航列表（2026-10 修正）──
+   曾经把它压成 58px 图标轨、文字 display:none、计数徽标绝对定位压到图标右上角——
+   结果是一列「图标+数字」糊在一起的方块，认不出是哪个视图（用户原话：
+   「记忆这个边栏我能看出来什么？」）。省下的宽度换来整栏失去可读性，不值。
+   现在恢复成常规侧栏列表：图标 + 文字 + 右对齐计数。
+   面板仍是三行 grid，只把第 1 列从 58px 放宽到 172px。 */
 .wb-root .dsh-memory-panel { display: grid !important;
-  grid-template-columns: 58px minmax(0, 1fr);
+  grid-template-columns: 172px minmax(0, 1fr);
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 8px 14px; padding: 0 22px 22px !important; }
 .wb-root .dsh-memory-top-bar { display: contents; }
 .wb-root .dsh-memory-view-row { display: contents; }
-.wb-root .dsh-memory-view-tabs { grid-column: 1; grid-row: 1 / span 3; flex-direction: column !important; gap: 3px !important;
-  width: 58px; padding: 8px 6px !important; border-radius: var(--wb2-r-md) !important;
+.wb-root .dsh-memory-view-tabs { grid-column: 1; grid-row: 1 / span 3; flex-direction: column !important; gap: 2px !important;
+  width: 172px; padding: 8px !important; border-radius: var(--wb2-r-md) !important;
   background: color-mix(in srgb, var(--wb2-t1) 3%, transparent) !important;
   border: 1px solid var(--wb2-line) !important; align-self: stretch; }
-.wb-root .dsh-memory-view-tab { position: relative; width: 100%; aspect-ratio: 1; padding: 0 !important;
-  justify-content: center; border-radius: var(--wb2-r-xs) !important;
+/* 单个视图行：图标 + 文字一行，计数靠右（不再绝对定位、不再压图标） */
+.wb-root .dsh-memory-view-tab { position: relative; width: 100%; aspect-ratio: auto !important;
+  padding: 7px 9px !important; justify-content: flex-start !important;
+  gap: 8px !important; border-radius: var(--wb2-r-xs) !important;
   transition: all 300ms var(--wb2-ease) !important; }
-.wb-root .dsh-memory-view-tab > span:not(.dsh-memory-nav-icon) { display: none; }
+.wb-root .dsh-memory-view-tab > span:not(.dsh-memory-nav-icon) {
+  display: inline-block !important; min-width: 0; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
 .wb-root .dsh-memory-view-tab .dsh-memory-nav-count,
 .wb-root .dsh-memory-view-tab .dsh-memory-nav-count-inline {
-  display: inline-flex !important; position: absolute; top: 2px; right: 1px; }
+  display: inline-flex !important; position: static !important; margin-left: auto !important;
+  flex: none; font-size: 11px; }
 .wb-root .dsh-memory-view-tab[data-active="true"] { background: var(--wb2-a1) !important; color: var(--wb2-accent) !important; }
 .wb-root .dsh-memory-view-tab[data-active="true"]::before { content: ""; position: absolute; left: -6px; top: 50%;
   transform: translateY(-50%); width: 3px; height: 17px; border-radius: 0 3px 3px 0;
@@ -516,6 +609,19 @@ body[data-ds-dark-theme] .wb-root {
 .wb-root .dsh-memory-cols, .wb-root .dsh-memory-view-full, .wb-root .dsh-memory-home {
   grid-column: 2; grid-row: 3; min-height: 0; }
 .wb-root .dsh-memory-home { max-width: none !important; width: 100% !important; margin: 0 !important; }
+/* 窄屏降级：172px 侧栏 + 正文双栏在小屏挤不下，导航改横排一行（保持可读，
+   不退化成图标轨——那条路已经证明认不出来是什么）。 */
+@media (max-width: 900px) {
+  .wb-root .dsh-memory-panel { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto !important; }
+  .wb-root .dsh-memory-view-tabs { grid-column: 1 !important; grid-row: 1 !important; width: 100% !important;
+    flex-direction: row !important; flex-wrap: wrap; align-self: auto; }
+  .wb-root .dsh-memory-view-tab { width: auto; }
+  .wb-root .dsh-memory-view-tab[data-active="true"]::before { display: none; }
+  .wb-root .dsh-memory-view-actions { grid-column: 1; grid-row: 2; }
+  .wb-root .dsh-memory-subfilter-row { grid-column: 1; grid-row: 3; }
+  .wb-root .dsh-memory-cols, .wb-root .dsh-memory-view-full, .wb-root .dsh-memory-home {
+    grid-column: 1; grid-row: auto; }
+}
 /* ── 记忆首页大盘换肤（MemoryHome）──
    用户点名「不需要背景色」：hero 卡那两团模糊装饰圆删掉；分类/类型/行图标
    的多彩（KIND_META 彩色 inline 色）统一收进强调色微底。 */
@@ -589,14 +695,18 @@ body[data-ds-dark-theme] .wb-root {
 .wb-root .skm-mcp-list > li:hover { transform: translateY(-3px); border-color: var(--wb2-line2) !important;
   box-shadow: var(--wb2-drop) !important; }
 
-/* ── 画廊：网格改瀑布流 + 类别 Dock 从底部悬浮改工具条下横排 chips ── */
+/* ── 画廊：网格改瀑布流 + 类别筛选进工具条 ── */
 .wb-root .tg-root { display: flex; flex-direction: column; }
 .wb-root .tg-toolbar { order: 0; }
-.wb-root .tg-dock { order: 1; position: static; transform: none; align-self: flex-start;
-  flex-direction: row; align-items: center;
-  margin: 10px 22px 0; padding: 0; background: transparent; border: none; box-shadow: none;
-  backdrop-filter: none; -webkit-backdrop-filter: none; gap: 6px; max-width: none; overflow: visible; }
-.wb-root .tg-body { order: 2; }
+/* 类别筛选：**工具条内的最后一段**（刷新钮之后，用户 2026-10 要求）。
+   不再是底部悬浮 Dock，也不再靠 order 单独占一行——它就是工具条里的一个
+   flex 子项，跟着工具条一起换行。 */
+.wb-root .tg-dock { position: static !important; transform: none !important;
+  flex: 0 1 auto; flex-wrap: wrap; flex-direction: row; align-items: center;
+  margin: 0 0 0 2px; padding: 0; background: transparent; border: none; box-shadow: none;
+  backdrop-filter: none; -webkit-backdrop-filter: none; gap: 6px;
+  max-width: none; overflow: visible; animation: none; }
+.wb-root .tg-body { order: 1; }
 .wb-root .tg-grid { display: block !important; column-count: 4; column-gap: 11px; }
 @media (max-width: 1240px) { .wb-root .tg-grid { column-count: 3; } }
 @media (max-width: 880px) { .wb-root .tg-grid { column-count: 2; } }
@@ -604,19 +714,45 @@ body[data-ds-dark-theme] .wb-root {
   transition: all 440ms var(--wb2-ease) !important; }
 .wb-root .tg-card:hover { transform: translateY(-4px) !important; border-color: var(--wb2-line2) !important;
   box-shadow: var(--wb2-drop) !important; }
-.wb-root .tg-card__kind-dot { top: 9px !important; left: 9px !important; right: auto !important; bottom: auto !important;
+/* v4：缩略图 hover 缓推（放大在图上、不外溢）+ 类别徽标下滑浮现 */
+.wb-root .tg-card__thumb { overflow: hidden; }
+.wb-root .tg-card__img { transition: transform 620ms var(--wb2-ease) !important; }
+.wb-root .tg-card:hover .tg-card__img { transform: scale(1.045); }
+.wb-root .tg-card__kind-dot { transform: translateY(-4px); opacity: .82;
+  transition: transform 420ms var(--wb2-ease), opacity 420ms var(--wb2-ease) !important; }
+.wb-root .tg-card:hover .tg-card__kind-dot { transform: translateY(0); opacity: 1; }
+/* 类型标签：挪到缩略图**右上角**（用户 2026-10 要求）。
+   左下角原本是「图片/网页」这类标签，和左上角常见的播放/勾选徽标挤在同一侧；
+   右上角是缩略图里最空的角，且与右下角的时长/大小信息形成对角，读起来更稳。 */
+.wb-root .tg-card__kind-dot { top: 9px !important; right: 9px !important; left: auto !important; bottom: auto !important;
   padding: 2.5px 8px !important; border-radius: 999px !important;
   background: color-mix(in srgb, var(--wb2-bg) 74%, transparent) !important;
   border: 1px solid var(--wb2-line2) !important; backdrop-filter: blur(9px);
   font-size: 9.5px !important; font-weight: 600; color: var(--wb2-t2) !important; }
-.wb-root .tg-dock__item { flex-direction: row; align-items: center; gap: 6px;
-  border-radius: 999px !important; padding: 5px 12px !important;
-  border: 1px solid var(--wb2-line) !important; background: color-mix(in srgb, var(--wb2-t1) 4%, transparent) !important;
-  transition: all 280ms var(--wb2-ease) !important; }
-.wb-root .tg-dock__item[data-active="true"] { background: var(--wb2-a1) !important;
-  border-color: var(--wb2-a3) !important; color: var(--wb2-accent) !important; }
-.wb-root .tg-dock__item[data-active="true"] .tg-dock__icon-wrap { background: transparent !important;
-  color: var(--wb2-accent) !important; box-shadow: none !important; }
+/* 类别筛选 chip（2026-10 简化定稿）：**一枚素净的胶囊**——
+   图标 + 文字 + 数字，仅此三样。去掉的东西：图标盒（圆角方底 + 描边 + 阴影）、
+   悬浮在角上的计数徽标、选中态的小圆点。原先一枚 chip 里叠四层装饰，
+   扫视时反而读不出「这是哪一类、有几项」。
+   选中态只靠底色 + 文字色区分，不再给图标单独上色块。 */
+.wb-root .tg-dock__item { flex-direction: row; align-items: center; gap: 5px;
+  border-radius: 999px !important; padding: 4px 10px !important;
+  border: 1px solid transparent !important; background: transparent !important;
+  color: var(--wb2-t3) !important;
+  transition: background 280ms var(--wb2-ease), color 280ms var(--wb2-ease) !important; }
+.wb-root .tg-dock__item:hover { background: color-mix(in srgb, var(--wb2-t1) 6%, transparent) !important;
+  color: var(--wb2-t1) !important; transform: none !important; }
+.wb-root .tg-dock__item:active { transform: scale(.97) !important; }
+.wb-root .tg-dock__item svg { flex: none; }
+.wb-root .tg-dock__label { font-size: 12px !important; line-height: 18px !important; font-weight: 500 !important; }
+/* 计数：不再是悬浮角标，就是文字后面一个淡淡的数字 */
+.wb-root .tg-dock__num { font-size: 11px !important; line-height: 18px !important;
+  color: var(--wb2-t4) !important; font-variant-numeric: tabular-nums;
+  transition: color 280ms var(--wb2-ease) !important; }
+/* 选中：极淡底 + 主文字色，与工具条其它控件的选中语言一致 */
+.wb-root .tg-dock__item[data-active="true"] { background: color-mix(in srgb, var(--wb2-t1) 9%, transparent) !important;
+  border-color: var(--wb2-line) !important; color: var(--wb2-t1) !important; }
+.wb-root .tg-dock__item[data-active="true"] .tg-dock__label { font-weight: 600 !important; }
+.wb-root .tg-dock__item[data-active="true"] .tg-dock__num { color: var(--wb2-t2) !important; }
 
 /* ── 邮件：左栏图标轨 + 会话行左蓝旗 + 阅读区抽屉卡 ── */
 .wb-root .dsh-mail-sidebar { width: 58px !important; min-width: 58px !important; flex: none !important;
@@ -688,10 +824,12 @@ body[data-ds-dark-theme] .wb-root {
 /* 记忆开关圆点反色修正（暗色下白点落白轨） */
 .wb-root .dsh-memory-switch[aria-checked='true']::after { background: var(--wb2-bg); }
 
-/* 动效一票否决 */
+/* 动效一票否决（Dock 已删，选择器同步清理，不留死类名） */
 @media (prefers-reduced-motion: reduce) {
-  .wb2-rise, .wb2-dock, .wb2-dock-btn[data-on]::after, .wb2-eyebrow i, .wb2-dot-ok { animation: none !important; }
-  .wb2-card, .wb2-btn, .wb2-ibtn, .wb2-dock-btn, .wb2-sw, .wb2-sw::after { transition: none !important; }
+  .wb2-rise, .wb2-eyebrow i, .wb2-dot-ok, .wb2-card-hero::before,
+  .wb2-persona-dirty, .wb2-us-spark-line, .wb2-us-gauge-arc, .wb2-us-pie circle { animation: none !important; }
+  .wb2-card, .wb2-btn, .wb2-ibtn, .wb2-sw, .wb2-sw::after, .wb2-persona-badge,
+  .wb2-us-bar i, .wb2-us-rank-bar i { transition: none !important; }
 }
 `
 

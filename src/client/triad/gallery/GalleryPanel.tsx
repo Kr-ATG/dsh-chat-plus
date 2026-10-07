@@ -403,7 +403,7 @@ function GeneratedThumb({ path, alt, thumbClass = 'tg-card__thumb', onUnresolvab
   return (
     <div ref={holderRef} className={thumbClass}>
       <img className="tg-card__img" src={first} alt={alt} loading="lazy" decoding="async" data-loaded="true" draggable={false} onLoad={(event) => { shrinkThumbToDisplaySize(event.currentTarget) }} />
-      {urls.length > 1 && <span className="tg-card__kind-dot">{urls.length} 张</span>}
+      {urls.length > 1 && <span className="tg-card__count">{urls.length} 张</span>}
     </div>
   )
 }
@@ -827,6 +827,10 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
             </span>
           )}
         </label>
+        {/* 右侧工具组：时间 / 视图 / 分类 / 数量 / 刷新。
+            整组 margin-left:auto 贴右，且**作为一个整体换行**（justify-content:flex-end）——
+            窄屏折行时仍贴右，不会散到左边去。 */}
+        <div className="tg-tools">
         {/* 时间筛选钮 + 预设弹层 */}
         <div className="tg-time" ref={popoverRef}>
           <button
@@ -917,6 +921,32 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
             </svg>
           </button>
         </div>
+        {/* 类别筛选（图片 / 网页 / PDF / 音频…）：**分类在前、数量与刷新在后**
+            （用户 2026-10 要求）。
+            形态简化：只有「图标 + 文字 + 数字」，不再叠图标盒、悬浮角标、选中圆点
+            三层装饰——一枚 chip 里塞四个视觉元素，扫视时反而认不出主信息。 */}
+        <nav className="tg-dock" role="tablist" aria-label="内容分类导航">
+          {dockKinds.map((entry) => {
+            const count = kindCounts.get(entry) ?? 0
+            const isActive = kind === entry
+            return (
+              <button
+                key={entry}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                className="tg-dock__item tg-kind"
+                data-active={isActive ? 'true' : undefined}
+                onClick={() => { setKind(entry) }}
+                title={`${KIND_LABEL[entry]}（${count} 项）`}
+              >
+                <KindTabIcon kind={entry} size={14} />
+                <span className="tg-dock__label">{KIND_LABEL[entry]}</span>
+                {count > 0 && <span className="tg-dock__num">{count > 99 ? '99+' : count}</span>}
+              </button>
+            )
+          })}
+        </nav>
         <span className="tg-count">
           {visible.length === totalCount ? `${totalCount} 项` : `${visible.length} / ${totalCount} 项`}
         </span>
@@ -934,6 +964,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
             <path d="M21 3v6h-6" />
           </svg>
         </button>
+        </div>
       </div>
 
       {/* stale 提示（后台正在完整重扫） */}
@@ -1118,32 +1149,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
         </div>
       )}
 
-      {/* ── 平板风格底部悬浮 Dock（分类导航，更宽阔方便的触控/点击面积）── */}
-      <nav className="tg-dock" role="tablist" aria-label="内容分类导航">
-        {dockKinds.map((entry) => {
-          const count = kindCounts.get(entry) ?? 0
-          const isActive = kind === entry
-          return (
-            <button
-              key={entry}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              className="tg-dock__item tg-kind"
-              data-active={isActive ? 'true' : undefined}
-              onClick={() => { setKind(entry) }}
-              title={`${KIND_LABEL[entry]}（${count} 项）`}
-            >
-              <div className="tg-dock__icon-wrap">
-                <KindTabIcon kind={entry} size={18} />
-                {count > 0 && <span className="tg-dock__badge tg-kind__count">{count > 99 ? '99+' : count}</span>}
-              </div>
-              <span className="tg-dock__label">{KIND_LABEL[entry]}</span>
-              {isActive && <span className="tg-dock__dot" aria-hidden="true" />}
-            </button>
-          )
-        })}
-      </nav>
+      {/* 类别筛选已上移到工具条（刷新钮之后），此处不再重复渲染 */}
 
       {/* Lightbox（共享组件：画廊与产出物卡同一套预览与全屏）。
           上界守卫必须带：gonePaths 剔除条目后 visible 会缩短，旧 index 可能越界

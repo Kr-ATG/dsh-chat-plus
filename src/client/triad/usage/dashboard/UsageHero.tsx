@@ -93,7 +93,7 @@ export function UsageHero({ days, scoped, range, sum, hitRate, activeDays, model
   return (
     <>
       <div className="wb2-us-hero">
-        <div className="wb2-bezel wb2-rise" style={{ '--d': '80ms' } as CSSProperties}>
+        <div className="wb2-bezel wb2-card-hero wb2-rise" style={{ '--d': '80ms' } as CSSProperties}>
           <div className="wb2-core wb2-us-main">
             <span className="wb2-lbl">区间合计消耗</span>
             <div className="wb2-us-big">{formatUnits(sum.total)}</div>

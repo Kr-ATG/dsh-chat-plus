@@ -382,7 +382,9 @@ const SHEET = `
 /* ── 中栏列表头部 ─────────────────────────────────────────────────── */
 .dsh-memory-list-head{flex:none;display:flex;align-items:center;gap:6px;padding:8px 14px 8px 16px;flex-wrap:wrap}
 .dsh-memory-list-head-text{font-size:13px;line-height:20px;color:var(--m-text-2);font-variant-numeric:tabular-nums}
-.dsh-memory-list-sort{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;border-radius:8px;background:transparent;color:var(--m-text-3);cursor:pointer;transition:background .14s ease,color .14s ease,transform .14s ease}
+/* 排序钮：图标 + 文字标签（2026-10 补文字口径）。宽度自适应、不再定死 28px，
+   否则「排序: 最新」会被裁成半个字。 */
+.dsh-memory-list-sort{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;height:28px;padding:0 9px;border:none;border-radius:8px;background:transparent;color:var(--m-text-3);font-family:inherit;font-size:12px;line-height:16px;white-space:nowrap;cursor:pointer;transition:background .14s ease,color .14s ease,transform .14s ease}
 .dsh-memory-list-sort:hover{background:var(--m-hover);color:var(--m-text)}
 .dsh-memory-list-sort:active{transform:scale(.92)}
 .dsh-memory-proj-context{flex:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:2px 14px 10px 16px;border-bottom:1px solid var(--m-border)}

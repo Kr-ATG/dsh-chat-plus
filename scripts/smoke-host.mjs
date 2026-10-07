@@ -24,7 +24,7 @@
  * Usage: node scripts/smoke-host.mjs
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -195,15 +195,16 @@ for (const expected of ['download', 'generate_image', 'generate_video']) {
 if (!effectRan) fail('deferred webServer callback never ran')
 else pass('deferred webServer callback executed')
 
-// 6 条：本插件 6 条（generated-images / open-path / tools-gate 三条 exact +
-// screenshot / download / office 三条 prefix）+ 融合的 dsh-provider-hub 5 条
+// 7 条：本插件 7 条（generated-images / open-path / tools-gate 三条 exact +
+// screenshot / download / office / fonts 四条 prefix）+ 融合的 dsh-provider-hub 5 条
 // （/api/dsh-proxy、/api/model-capabilities、/api/provider-hub-keys 三条 prefix +
 // /api/dsh-prompt-optimize 与 /stop 两条 exact）。
 // open-path 是「用文件资源管理器打开」改道用的（windowsHide 会吞掉 Explorer）。
 // office 是 2026-10-06 新增：ppt/word/pdf 的页图与 PDF 渲染（画廊缩略图、
 // 产出物弹窗内联预览、官方侧边栏接管三处共用）。
-if (registered.length !== 6) {
-  fail(`expected exactly 6 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
+// fonts 是「界面字体」的资产路由（霞鹜新致宋 woff2 不内联进 client 产物）。
+if (registered.length !== 7) {
+  fail(`expected exactly 7 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
 } else {
   const exacts = registered.filter(spec => spec?.kind === 'exact')
   const prefix = registered.filter(spec => spec?.kind === 'prefix')
@@ -234,6 +235,12 @@ if (registered.length !== 6) {
   } else {
     pass('registered /api/chat-flow/office (kind=prefix, info/page/pdf/thumb)')
   }
+  const fonts = prefix.find(spec => spec?.path === '/api/chat-flow/fonts')
+  if (fonts === undefined) {
+    fail(`missing font asset route (prefix /api/chat-flow/fonts): ${JSON.stringify(prefix)}`)
+  } else {
+    pass('registered /api/chat-flow/fonts (kind=prefix, woff2 + license)')
+  }
   for (const spec of registered) {
     if (typeof spec?.handler !== 'function') fail(`route handler is not a function: ${spec?.path}`)
   }
@@ -241,6 +248,92 @@ if (registered.length !== 6) {
   const disposer = effectDisposer
   if (typeof disposer === 'function') pass('routes return disposers (unregisterable)')
   else fail('route registration did not return an unregister disposer')
+}
+
+/* ── 界面字体：资产必须真的随包存在 + 路由真的吐得出来 ────────────────────
+ *
+ * 这块的失效方式全是静默的：资产没进包 → 用户切到霞鹜新致宋后浏览器拿 404，
+ * 页面**不会报错**，只是悄悄回退系统字体，看起来像「功能没生效」；路由把任意
+ * 文件名也放行 → 变成任意文件读。所以既要断言文件在位，也要真发请求。
+ */
+{
+  const FONT_DIR = resolve(ROOT, 'assets', 'fonts')
+  const woff2 = resolve(FONT_DIR, 'lxgw-neozhisong.woff2')
+  const license = resolve(FONT_DIR, 'IPA-Font-License-1.0.md')
+  if (!existsSync(woff2)) {
+    fail(`字体资产缺失：${woff2}（切到霞鹜新致宋会静默回退系统字体）`)
+  } else {
+    const size = statSync(woff2).size
+    // 全字集约 4.2MB；明显偏小说明是子集或文件被截断（掉字同样不报错）。
+    if (size < 3 * 1024 * 1024) fail(`字体资产偏小（${(size / 1024 / 1024).toFixed(2)} MB），可能被截断或误换成子集`)
+    else pass(`字体资产在位（${(size / 1024 / 1024).toFixed(2)} MB 全字集 woff2）`)
+  }
+  if (!existsSync(license)) fail(`字体许可文件缺失：${license}（IPA 协议要求随字体一并分发）`)
+  else pass('字体许可原文随包分发（IPA Font License 1.0）')
+
+  // 产物必须**不**内联字体：4.15MB 的 base64 会让所有用户白下载 5.5MB。
+  const clientBundle = readFileSync(resolve(ROOT, 'lib/client.js'), 'utf8')
+  if (clientBundle.includes('data:font/woff2;base64,')) {
+    fail('client 产物内联了字体 base64（每个用户都要白下载，必须走 host 路由）')
+  } else {
+    pass('client 产物未内联字体（默认档零下载，按需拉取）')
+  }
+
+  // 真链路：起 http 服务挂路由，验证命中 / 未知名 / HEAD。
+  const http = await import('node:http')
+  const fontRegs = []
+  const fontWebCtx = {
+    logger: { warn: () => {}, error: () => {}, info: () => {}, debug: () => {} },
+    effect(fn) { const d = fn(); return typeof d === 'function' ? d : () => {} },
+    webServer: { register(spec) { fontRegs.push(spec); return () => {} } },
+  }
+  mod.applyFontRoutes(fontWebCtx)
+  const fontRoute = fontRegs.find(spec => spec?.path === '/api/chat-flow/fonts')
+  if (fontRoute === undefined) {
+    fail('applyFontRoutes 未注册 /api/chat-flow/fonts')
+  } else {
+    const server = http.createServer((req, res) => fontRoute.handler(req, res))
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = server.address().port
+    const request = (method, path) => new Promise((resolve) => {
+      const req = http.request({ host: '127.0.0.1', port, path, method }, (res) => {
+        const chunks = []
+        res.on('data', (c) => chunks.push(c))
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }))
+      })
+      req.on('error', () => resolve({ status: 0, headers: {}, body: Buffer.alloc(0) }))
+      req.end()
+    })
+    try {
+      const hit = await request('GET', '/api/chat-flow/fonts/lxgw-neozhisong.woff2')
+      // woff2 的魔数：'wOF2'。断言真实字体字节而不是只看 200 —— 200 空体同样
+      // 会让浏览器静默回退，是最难发现的那种坏法。
+      const magic = hit.body.subarray(0, 4).toString('latin1')
+      if (hit.status !== 200) fail(`字体路由应 200，实得 ${hit.status}`)
+      else if (hit.headers['content-type'] !== 'font/woff2') fail(`字体 content-type 应为 font/woff2，实得 ${hit.headers['content-type']}`)
+      else if (magic !== 'wOF2') fail(`字体响应不是 woff2（魔数 ${JSON.stringify(magic)}）`)
+      else if (Number(hit.headers['content-length']) !== hit.body.length) fail('字体 content-length 与实际字节数不符')
+      else if (!/immutable/.test(String(hit.headers['cache-control']))) fail(`字体应带 immutable 缓存头，实得 ${hit.headers['cache-control']}`)
+      else pass(`字体路由端到端可用（${hit.body.length} 字节 woff2 + immutable 缓存）`)
+
+      const licenseHit = await request('GET', '/api/chat-flow/fonts/IPA-Font-License-1.0.md')
+      if (licenseHit.status !== 200) fail(`许可文件应 200，实得 ${licenseHit.status}`)
+      else pass('许可文件可经路由取到（前端可链接）')
+
+      const head = await request('HEAD', '/api/chat-flow/fonts/lxgw-neozhisong.woff2')
+      if (head.status !== 200 || head.body.length !== 0) fail(`HEAD 应 200 且无体，实得 ${head.status}/${head.body.length}`)
+      else pass('HEAD 请求回 200 无体（浏览器探测不白传 4MB）')
+
+      // 未知文件名必须 404 —— 这条路由族**不能**变成任意文件读。
+      for (const bad of ['/api/chat-flow/fonts/../../../etc/passwd', '/api/chat-flow/fonts/secret.txt', '/api/chat-flow/fonts/']) {
+        const res = await request('GET', bad)
+        if (res.status !== 404) fail(`未知名应 404（防任意文件读），${bad} 实得 ${res.status}`)
+      }
+      pass('未知/穿越文件名一律 404（不回落成任意文件读）')
+    } finally {
+      await new Promise(resolve => server.close(resolve))
+    }
+  }
 }
 
 // ── 数据安全与注入面（读源码断言，锁住这轮修掉的 P0/P1）──────────────────
@@ -341,6 +434,134 @@ for (const ns of ['network-proxy', 'model-capabilities', 'web-search-anysearch']
 }
 if (providerNamespaces.length >= 3) {
   pass(`provider hub settings namespaces preserved: ${providerNamespaces.join(', ')}`)
+}
+
+/* ── OpenCode Zen 免费层指纹（2026-10-07 加 exo-free 时新增）─────────────
+ *
+ * 上游按客户端指纹放行免费层，判据错了**不抛错**，只是静默回到
+ * 403 FreeTierError（用户看到「模型配好了但一发就报错」）。而命中判据写宽了
+ * 更危险：会把别的厂商请求也改写掉。所以三块纯函数都要正反例钉住。
+ */
+{
+  const fp = mod.opencodeFingerprintTest
+  const sessionIdFor = mod.opencodeSessionIdFor
+  const needsFingerprint = mod.opencodeNeedsFingerprint
+  const applyFingerprint = mod.opencodeApplyFingerprint
+
+  if (typeof fp !== 'object' || fp === null) {
+    fail('opencode 指纹可测面未导出（host 半身必须 re-export __test）')
+  } else {
+    // ① 官方 UA 与工具四件套的字面量：改错任一个上游就 403/426。
+    if (fp.OPENCODE_USER_AGENT !== 'opencode/1.18.31') {
+      fail(`指纹 UA 必须是实测放行的 opencode/1.18.31，实得 ${fp.OPENCODE_USER_AGENT}`)
+    } else if (fp.ZEN_API_PREFIX !== 'https://opencode.ai/zen/v1/') {
+      fail(`指纹只应命中 zen 前缀，实得 ${fp.ZEN_API_PREFIX}`)
+    } else if (!['bash', 'glob', 'grep', 'read'].every(n => fp.FINGERPRINT_TOOLS.includes(n))) {
+      fail(`指纹工具集缺项：${JSON.stringify(fp.FINGERPRINT_TOOLS)}`)
+    } else if (!fp.FINGERPRINT_MODELS.includes('exo-free')) {
+      fail(`exo-free 必须在指纹白名单里，实得 ${JSON.stringify(fp.FINGERPRINT_MODELS)}`)
+    } else if (fp.FINGERPRINT_MODELS.includes('muse-spark-1.3-contributor-free')) {
+      // 回归钉子：该模型走 /responses，注入指纹会从 403 变成 400
+      // ModelProtocolUnsupported（实测）——白名单里绝不能顺手加它。
+      fail('muse-spark-1.3-contributor-free 不能进指纹白名单（它走 /responses，注入指纹反而 400）')
+    } else {
+      pass(`opencode 指纹常量正确（UA ${fp.OPENCODE_USER_AGENT} / 四件套 ${fp.FINGERPRINT_TOOLS.join('+')}）`)
+    }
+
+    // ② 命中判据：只有 zen 前缀 + 白名单模型才动手，别的厂商一律透传。
+    const cases = [
+      ['zen + exo-free', 'https://opencode.ai/zen/v1/chat/completions', 'exo-free', true],
+      ['zen + 非白名单模型', 'https://opencode.ai/zen/v1/chat/completions', 'space-bunny-free', false],
+      ['zen + responses 模型', 'https://opencode.ai/zen/v1/responses', 'muse-spark-1.3-contributor-free', false],
+      ['别家同路径（伪造前缀）', 'https://evil.example/opencode.ai/zen/v1/chat/completions', 'exo-free', false],
+      ['别家域名', 'https://api.deepseek.com/v1/chat/completions', 'exo-free', false],
+      ['非 zen 的 opencode 路径', 'https://opencode.ai/api/chat', 'exo-free', false],
+    ]
+    const bad = []
+    for (const [label, url, model, want] of cases) {
+      const got = needsFingerprint(url, { model })
+      if (got !== want) bad.push(`${label}: 期望 ${want}，实得 ${got}`)
+    }
+    if (bad.length > 0) fail(`opencode 指纹命中判据错误：${bad.join('；')}`)
+    else pass('opencode 指纹命中判据：仅 zen 前缀 + 白名单模型（6 组正反例）')
+
+    // ③ session id 形态必须与官方 ses_ 一致（12 hex + 14 base62）。
+    const sid = sessionIdFor('seeker\u0000hello')
+    if (!/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/.test(sid)) {
+      fail(`session id 形态不符官方 ses_ 规格：${sid}`)
+    } else if (sessionIdFor('seeker\u0000hello') !== sid) {
+      fail('同一 seed 必须派生出同一个 session id（否则每轮都换会话、前缀缓存全废）')
+    } else if (sessionIdFor('seeker\u0000other') === sid) {
+      fail('不同 seed 必须派生出不同 session id')
+    } else {
+      pass(`session id 形态与稳定性正确（${sid}）`)
+    }
+
+    // ④ 请求改写：补 header / 补四件套 / 强制 stream；调用方工具不被顶掉。
+    const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }
+    const body = {
+      model: 'exo-free',
+      stream: false,
+      messages: [
+        { role: 'system', content: 'You are Seeker.' },
+        { role: 'user', content: 'hi' },
+      ],
+      tools: [{ type: 'function', function: { name: 'pwsh', description: 'p', parameters: { type: 'object', properties: {} } } }],
+    }
+    const out = applyFingerprint(init, body)
+    const outHeaders = new Headers(out.headers)
+    const outBody = JSON.parse(String(out.body))
+    const names = outBody.tools.map(t => t.function.name)
+    if (outHeaders.get('user-agent') !== 'opencode/1.18.31') {
+      fail(`改写后 UA 应为官方标识，实得 ${outHeaders.get('user-agent')}`)
+    } else if (!/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/.test(outHeaders.get('x-opencode-session') ?? '')) {
+      fail(`改写后缺合法 x-opencode-session：${outHeaders.get('x-opencode-session')}`)
+    } else if (outBody.stream !== true) {
+      fail('免费层要求 stream:true，改写后必须强制打开')
+    } else if (!['pwsh', 'bash', 'glob', 'grep', 'read'].every(n => names.includes(n))) {
+      fail(`改写后工具集不完整（调用方工具须保留 + 四件套须补齐）：${JSON.stringify(names)}`)
+    } else if (names.filter(n => n === 'bash').length !== 1 || names.filter(n => n === 'read').length !== 1) {
+      // 上游对重复工具名直接 400（实测 "Tool names must be unique."）。
+      fail(`四件套不得重复注入：${JSON.stringify(names)}`)
+    } else if (outBody.tool_choice === 'none') {
+      fail('调用方本来就有工具时不能把 tool_choice 设成 none（会关掉正常会话的工具选择）')
+    } else {
+      pass(`请求改写正确（保留 pwsh + 补齐四件套且不重复，共 ${names.length} 个工具）`)
+    }
+
+    // ⑤ 无工具的纯聊天：decoy 必须禁止被选中（tool_choice=none）。
+    const bare = applyFingerprint({ method: 'POST', headers: {} }, {
+      model: 'exo-free', messages: [{ role: 'user', content: 'hi' }],
+    })
+    const bareBody = JSON.parse(String(bare.body))
+    if (bareBody.tool_choice !== 'none') {
+      fail(`调用方无工具时必须 tool_choice=none（否则 decoy 会被真选中），实得 ${bareBody.tool_choice}`)
+    } else if (!bareBody.tools.every(t => t.function.name !== 'pwsh')) {
+      fail('纯聊天请求不该出现调用方没有的工具')
+    } else {
+      pass('无工具请求：注入 decoy 并锁 tool_choice=none（decoy 不可被选中）')
+    }
+
+    // ⑥ 会话 seed 取会话头部两段，历史变长也不变（否则每轮换 session）。
+    const seedA = fp.seedOf({
+      messages: [
+        { role: 'system', content: 'SYS' },
+        { role: 'user', content: 'first' },
+        { role: 'assistant', content: 'reply' },
+      ],
+    })
+    const seedB = fp.seedOf({
+      messages: [
+        { role: 'system', content: 'SYS' },
+        { role: 'user', content: 'first' },
+        { role: 'assistant', content: 'reply' },
+        { role: 'user', content: 'second' },
+        { role: 'assistant', content: 'reply2' },
+      ],
+    })
+    if (seedA !== seedB) fail('会话 seed 必须只取系统提示 + 首条 user（历史增长不能改变 session）')
+    else pass('会话 seed 只取会话头部，历史增长不换 session（前缀缓存可命中）')
+  }
 }
 
 // ── 工具闸门：默认全关 + `/指令` 按会话打开 ──────────────────────────────

@@ -206,6 +206,7 @@ export const css = {
   presetIconBuiltin: 'dsh-soul-preset-icon-builtin',
   presetMain: 'dsh-soul-preset-main',
   presetName: 'dsh-soul-preset-name',
+  presetNameText: 'dsh-soul-preset-name-text',
   presetDesc: 'dsh-soul-preset-desc',
   presetActions: 'dsh-soul-preset-actions',
   presetForm: 'dsh-soul-preset-form',
@@ -742,6 +743,8 @@ body[data-ds-dark-theme] .dsh-soul-toggle-row{--s-card-bg:var(--dsw-static-neutr
 .dsh-soul-preset-icon-builtin{background:var(--s-primary-chip);color:var(--s-primary)}
 .dsh-soul-preset-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
 .dsh-soul-preset-name{display:flex;align-items:center;gap:6px;min-width:0;font-size:12.5px;font-weight:600;line-height:19px;color:var(--s-text);flex-wrap:wrap}
+/* 名字本体：单行省略，不参与折行（徽标/chip 才允许换到第二行） */
+.dsh-soul-preset-name-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-soul-preset-desc{font-size:11px;line-height:16px;color:var(--s-text-3);word-break:break-word}
 .dsh-soul-preset-actions{flex:none;display:inline-flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:flex-end;opacity:.42;transition:opacity .2s ease}
 .dsh-soul-preset-row:hover .dsh-soul-preset-actions{opacity:1}

@@ -45,6 +45,7 @@ import { applyTriadClient } from './triad/index.ts'
 import { applyProviderClient } from './provider/index.ts'
 import { applyToolsGateClient } from './tools-gate/index.tsx'
 import { applySidebarDocument } from './sidebar-doc/index.tsx'
+import { applyUiFont } from './ui-font/index.js'
 import { buildActivityGrid, activityColor, ACTIVITY_COLUMNS } from './triad/usage/dashboard/ActivityGrid.js'
 import { setClientCtx } from './client-ctx.ts'
 
@@ -153,6 +154,13 @@ export function apply(ctx: ClientContext): void {
   // 登记根上下文：右栏「打开工作区预览」与正文文件提及都靠它读跨插件服务
   // （ctx.get('sidebarRight') / ctx.get('sessions')），见 client-ctx.ts。
   setClientCtx(ctx as unknown as { get?(name: string): any })
+  // ── 界面字体（最早应用）──────────────────────────────────────────────
+  // 用户选中的字体必须**先于**其它一切挂载生效：它只改两个根 CSS 变量
+  // （--dsw-font-family / --ds-font-family-code，官方 body 与 markdown 全部
+  // 字号 token 都从它们派生）。放在最前面是为了让首帧就用上所选字体，
+  // 少一次「先用系统字体、再闪成所选字体」的跳变。
+  guarded(ctx, 'ui font', () => { applyUiFont(ctx) })
+
   // 样式：工具聚合（dts__）、思考/流卡（dtt__）两枚 + 截图面板（tsh__）独立
   // <style>，幂等注入。
   guarded(ctx, 'tool-summary styles', injectToolSummaryStyles)
@@ -334,3 +342,11 @@ export { gateIconForRow, decorateGateMenuRows, GATE_ICON_ATTR, GATE_ICON_COMMAND
  */
 export { splitHtml, looksLikeHtmlFence } from './html-embed/parse.ts'
 export { assembleHtmlDocument, BRIDGE_TO_HOST, BRIDGE_TO_FRAME, MAX_FRAME_HEIGHT, MIN_FRAME_HEIGHT } from './html-embed/bridge.ts'
+/**
+ * 界面字体：选项表与覆盖 CSS 的纯逻辑，供 smoke 直接钉住。
+ *
+ * 这三条错了都不会报错：默认档写错就静默换了用户的字体；字体栈漏掉通用回退
+ * 会在缺字时掉成浏览器默认衬线；webfont 路径写错则「加载失败」只能靠肉眼发现。
+ */
+export { FONT_OPTIONS, DEFAULT_FONT_ID, fontOptionOf, fontOverrideCss, fontFileUrl } from './ui-font/index.js'
+export { uiFontTest } from './ui-font/index.js'

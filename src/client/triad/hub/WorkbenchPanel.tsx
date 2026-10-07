@@ -15,10 +15,8 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import type { CSSProperties } from 'react'
 import { ensureWorkbenchStyles } from './styles.js'
 import { ensureWorkbenchTheme } from './theme.js'
-import { WorkbenchDock } from './Dock.js'
 import { MemoryPanel } from '../memory/Panel.js'
 import { SkillsPanel } from '../usage/dashboard/SkillsPanel.js'
 import { UsagePanel } from '../usage/dashboard/UsagePanel.js'
@@ -40,10 +38,10 @@ export type WorkbenchTab = 'soul' | 'memory' | 'skills' | 'usage' | 'gallery' | 
 /**
  * 默认 Tab。
  *
- * 2026-10 导航二次改版：分类切换器是页面顶部的**悬浮胶囊 Dock**（./Dock.tsx），
- * 侧栏「工作台」行的 hover 浮层 / 滚轮直切（./row-flyout.tsx）与其经事件互通。
- * 六个页面各自成为一个完整板块，不再像「某个 tab 的内容」。
- * 当前分类仍写 localStorage（三处共用同一把键），重开工作台回到上次那页。
+ * 2026-10 v4 导航定稿：分类切换**只在侧栏那一行横滑条上**（./strip.tsx），
+ * 页内不再有任何切换器——原先的悬浮胶囊 Dock 与更早的顶部 tab 栏都已删除。
+ * 六个页面各自成为完整板块，页头只表达「我是谁」。
+ * 当前分类写 localStorage（侧栏条与页面共用同一把键），重开工作台回到上次那页。
  */
 export const DEFAULT_TAB: WorkbenchTab = 'soul'
 
@@ -118,10 +116,26 @@ export function WorkbenchPanel({ onClose, initialTab = DEFAULT_TAB }: WorkbenchP
   // useEffect 依赖随渲染重发请求，记忆面板历史上打过一分钟 498 次的请求风暴。
   const soulApi = useMemo(() => createSoulApi(), [])
 
-  const handleSelectTab = (tab: WorkbenchTab): void => {
-    setActiveTab(tab)
-    writeWorkbenchTab(tab)
-  }
+  /**
+   * ⌘1–6 / Ctrl+1–6 直切分类（与侧栏横滑条的提示一致）。
+   *
+   * 只在工作台页挂载期间生效（本组件就是那一页），不进全局快捷键表——它是
+   * 页内导航，离开工作台按这组键不该有任何反应。输入框内不劫持。
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) return
+      const index = Number.parseInt(event.key, 10) - 1
+      if (!Number.isInteger(index) || index < 0 || index >= WORKBENCH_TABS.length) return
+      const target = event.target
+      if (target instanceof HTMLElement
+        && (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+      event.preventDefault()
+      writeWorkbenchTab(WORKBENCH_TABS[index].id)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('keydown', onKey) }
+  }, [])
 
   return (
     <PopoverShell
@@ -129,8 +143,7 @@ export function WorkbenchPanel({ onClose, initialTab = DEFAULT_TAB }: WorkbenchP
       ariaLabel="工作台"
     >
       <div className="wb-root">
-        {/* 悬浮胶囊 Dock：分类切换 + 关闭（2026-10 全新设计，取代顶部 tab 栏） */}
-        <WorkbenchDock active={activeTab} onSelect={handleSelectTab} onClose={onClose} />
+        {/* 分类切换在侧栏横滑条上（./strip.tsx），页内不再放切换器 */}
 
         {/* 主体内容视图（按分类切换；key 随分类变化，重播 .wb-body > * 的入场动效） */}
         <div className="wb-body">

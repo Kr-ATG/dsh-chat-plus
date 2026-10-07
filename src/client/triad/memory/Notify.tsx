@@ -48,3 +48,47 @@ export function markReadIds(ids: readonly string[]): void {
   for (const id of ids) next.add(id)
   writeIds(next)
 }
+
+/* ── 浏览历史（首页「最近浏览」卡的数据源）──────────────────────────────
+ * 为什么单独记一份：首页原先的「最近浏览」直接复用 entries 的 updatedAt 排序，
+ * 与右栏「最近更新」同源同形，等于同一份列表出现两次。真正的「浏览」只能由
+ * 本机记录给出——用户点开过哪条，就记哪条，与「谁最近被改过」无关。
+ */
+
+/** localStorage key（浏览过的条目 id，最近在前）。 */
+const VIEWED_KEY = 'dsh-memory:viewed'
+
+/** 浏览历史长度上限（只服务首页 5 格，留一倍余量）。 */
+const VIEWED_CAP = 40
+
+/** 浏览历史变化广播（同页多处订阅时保持同步）。 */
+export const VIEWED_EVENT = 'dsh-memory-viewed'
+
+/** 读浏览历史（最近点开的在前）。 */
+export function readViewedIds(): readonly string[] {
+  try {
+    const raw = localStorage.getItem(VIEWED_KEY)
+    if (raw === null) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((value): value is string => typeof value === 'string')
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 记一次浏览（点开某条记忆）。
+ *
+ * 已存在则提到最前（去重），超上限截断。写成功后广播事件，让首页卡片即时刷新。
+ */
+export function markViewed(id: string): void {
+  if (id === '') return
+  try {
+    const next = [id, ...readViewedIds().filter(value => value !== id)].slice(0, VIEWED_CAP)
+    localStorage.setItem(VIEWED_KEY, JSON.stringify(next))
+    window.dispatchEvent(new CustomEvent(VIEWED_EVENT))
+  } catch {
+    // localStorage 不可用（隐私模式等）时静默降级：首页回落空态，不影响主流程
+  }
+}

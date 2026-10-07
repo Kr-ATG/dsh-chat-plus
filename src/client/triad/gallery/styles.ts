@@ -16,33 +16,39 @@ const STYLE_ID = 'dsh-triad-gallery-styles'
 const SHEET = `
 .tg-root{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;position:relative}
 
+/* ── 工具条右侧工具组（时间 / 视图 / 分类 / 数量 / 刷新）────────────
+   整组 margin-left:auto 贴右；组内自带 flex-wrap + justify-content:flex-end，
+   窄屏折行时后续行也贴右（原先各元素散在工具条里，折行后会被甩到左边）。
+   顺序即 DOM 顺序：分类在前、数量与刷新在后（用户 2026-10 要求）。 */
+.tg-tools{flex:none;display:flex;align-items:center;justify-content:flex-end;
+  gap:10px;flex-wrap:wrap;margin-left:auto;min-width:0}
+
 /* ── 工具条：搜索 + 时间筛选 + 视图切换 + 数量 + 刷新 ───────────── */
 .tg-toolbar{flex:none;display:flex;align-items:center;gap:10px;padding:8px 18px;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.12));background:transparent;flex-wrap:wrap}
 
-/* ── 平板风格底部悬浮 Dock（分类导航）─────────────────────────────── */
-.tg-dock{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:30;display:inline-flex;align-items:flex-end;gap:6px;padding:6px 12px;border-radius:22px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff)) 82%,transparent);backdrop-filter:blur(18px) saturate(180%);-webkit-backdrop-filter:blur(18px) saturate(180%);border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.2));box-shadow:0 12px 36px color-mix(in srgb,var(--dsw-alias-label-primary,#000) 16%,transparent),0 2px 8px rgba(0,0,0,.06);max-width:calc(100% - 24px);overflow-x:auto;scrollbar-width:none;animation:tg-dock-in 280ms cubic-bezier(.2,.8,.2,1)}
-.tg-dock::-webkit-scrollbar{display:none}
-@keyframes tg-dock-in{from{opacity:0;transform:translateX(-50%) translateY(14px) scale(.95)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
-
-.tg-dock__item,.tg-kind{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:48px;padding:4px 8px 3px;border-radius:14px;border:none;background:transparent;color:var(--dsw-alias-label-secondary,#6b7280);cursor:pointer;user-select:none;outline:none;font-family:inherit;transition:transform 180ms cubic-bezier(.2,.8,.2,1),color 150ms ease}
-.tg-dock__item:hover,.tg-kind:hover{transform:translateY(-4px) scale(1.08);color:var(--dsw-alias-label-primary,#111827)}
-.tg-dock__item:active,.tg-kind:active{transform:translateY(-1px) scale(.96)}
+/* ── 类别筛选 chips（2026-10 简化：图标 + 文字 + 数字，仅此三样）─────
+   基础形态就是一枚素胶囊；工作台作用域（hub/theme.ts）再覆写配色。
+   简化时一并删掉了三个已不再渲染的装饰层：图标盒（圆角方底 + 描边）、
+   悬浮计数角标、选中态圆点；它们的样式与 reduced-motion 引用都已清理干净。
+   也删掉了原「底部悬浮 Dock」的绝对定位（absolute / bottom / 50% / 毛玻璃底 /
+   阴影 / 入场动画）——它现在就是工具条里的一个普通 flex 子项。 */
+.tg-dock{display:inline-flex;align-items:center;flex-wrap:wrap;gap:6px}
+.tg-dock__item,.tg-kind{display:inline-flex;align-items:center;justify-content:center;gap:5px;
+  padding:4px 10px;border-radius:999px;border:none;background:transparent;
+  color:var(--dsw-alias-label-secondary,#6b7280);cursor:pointer;user-select:none;outline:none;
+  font-family:inherit;font-size:12px;line-height:18px;
+  transition:background 280ms cubic-bezier(.32,.72,0,1),color 280ms cubic-bezier(.32,.72,0,1)}
+.tg-dock__item:hover,.tg-kind:hover{color:var(--dsw-alias-label-primary,#111827)}
+.tg-dock__item:active,.tg-kind:active{transform:scale(.97)}
 .tg-dock__item:focus-visible,.tg-kind:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b82f6);outline-offset:2px}
 
-.tg-dock__icon-wrap{position:relative;width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-module-platform,color-mix(in srgb,var(--dsw-alias-label-primary,#000) 5%,transparent));border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.12));color:inherit;transition:background 160ms ease,border-color 160ms ease,box-shadow 160ms ease,color 160ms ease}
-.tg-dock__item:hover .tg-dock__icon-wrap,.tg-kind:hover .tg-dock__icon-wrap{background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,var(--dsw-alias-label-primary,#000) 8%,transparent));border-color:var(--dsw-alias-border-l2,rgba(127,127,127,.24))}
-
-.tg-dock__item[data-active="true"],.tg-kind[data-active="true"]{color:var(--dsw-alias-state-business-primary,#3b82f6)}
-.tg-dock__item[data-active="true"] .tg-dock__icon-wrap,.tg-kind[data-active="true"] .tg-dock__icon-wrap{background:var(--dsw-alias-state-business-primary,#3b82f6);color:#fff;border-color:transparent;box-shadow:0 4px 14px color-mix(in srgb,var(--dsw-alias-state-business-primary,#3b82f6) 40%,transparent)}
+.tg-dock__item[data-active="true"],.tg-kind[data-active="true"]{color:var(--dsw-alias-label-primary,#111827);font-weight:600}
 
 .tg-dock__label{font-size:11px;line-height:14px;font-weight:500;white-space:nowrap;letter-spacing:.01em}
 .tg-dock__item[data-active="true"] .tg-dock__label,.tg-kind[data-active="true"] .tg-dock__label{font-weight:600}
-
-.tg-dock__badge,.tg-kind__count{position:absolute;top:-4px;right:-6px;display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:8px;font-size:9.5px;font-weight:700;line-height:16px;font-variant-numeric:tabular-nums;color:#fff;background:var(--dsw-alias-state-business-primary,#3b82f6);box-shadow:0 2px 4px rgba(0,0,0,.2);border:1.5px solid var(--dsw-alias-bg-layer-1,#fff)}
-.tg-dock__item[data-active="true"] .tg-dock__badge,.tg-kind[data-active="true"] .tg-kind__count{background:#fff;color:var(--dsw-alias-state-business-primary,#3b82f6);border-color:var(--dsw-alias-state-business-primary,#3b82f6)}
-
-.tg-dock__dot{width:4px;height:4px;border-radius:50%;background:var(--dsw-alias-state-business-primary,#3b82f6);margin-top:-1px;animation:tg-dock-dot-pop 200ms cubic-bezier(.2,1.5,.4,1)}
-@keyframes tg-dock-dot-pop{from{transform:scale(0)}to{transform:scale(1)}}
+/* 计数：文字后面的一个淡数字（2026-10 简化：原先是悬浮在图标盒角上的徽标，
+   叠了四层装饰；现在就是行内一个 tabular-nums 数字）。 */
+.tg-dock__num{font-size:10.5px;line-height:14px;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary,#888)}
 
 .tg-search{position:relative;flex:1;min-width:140px;max-width:400px;margin-left:0}
 .tg-search__icon{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--dsw-alias-label-tertiary,#888);pointer-events:none;display:flex}
@@ -82,8 +88,13 @@ const SHEET = `
 .tg-card:hover .tg-card__icon{transform:scale(1.08);color:var(--dsw-alias-label-secondary,#6b7280)}
 /* 不用 backdrop-filter：时间轴 80+ 徽标各建 backdrop root，滚动时整页重采样掉帧；
    实底半透明 + 细边在缩略图上观感等价。 */
-.tg-card__kind-dot{position:absolute;top:8px;left:8px;display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:9px;font-size:10px;font-weight:600;letter-spacing:.02em;color:#fff;background:rgba(15,17,23,.76);border:1px solid rgba(255,255,255,.16);opacity:0;transform:translateY(-3px);transition:opacity 180ms ease,transform 180ms ease;pointer-events:none}
+.tg-card__kind-dot{position:absolute;top:8px;right:8px;display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:9px;font-size:10px;font-weight:600;letter-spacing:.02em;color:#fff;background:rgba(15,17,23,.76);border:1px solid rgba(255,255,255,.16);opacity:0;transform:translateY(-3px);transition:opacity 180ms ease,transform 180ms ease;pointer-events:none}
 .tg-card:hover .tg-card__kind-dot{opacity:1;transform:translateY(0)}
+/* 「N 张」计数徽标：留在**左上角**（类型标签已挪到右上角，两者不再撞车）。
+   计数是「这张卡里有几张」的量词，属于附加信息；类型才是主信息，占右上主位。 */
+.tg-card__count{position:absolute;top:8px;left:8px;display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:9px;font-size:10px;font-weight:600;letter-spacing:.02em;color:#fff;background:rgba(15,17,23,.76);border:1px solid rgba(255,255,255,.16);opacity:0;transform:translateY(-3px);transition:opacity 180ms ease,transform 180ms ease;pointer-events:none}
+.tg-card:hover .tg-card__count{opacity:1;transform:translateY(0)}
+.tg-card--tile .tg-card__count{opacity:1;transform:none;top:6px;left:6px;height:16px;font-size:9.5px}
 .tg-card__meta{display:flex;flex-direction:column;gap:2px;padding:8px 10px 10px;min-width:0}
 .tg-card__name{font-size:12px;font-weight:500;line-height:16px;color:var(--dsw-alias-label-primary,#111827);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tg-card__sub{font-size:10.5px;line-height:14px;color:var(--dsw-alias-label-tertiary,#888);display:flex;align-items:center;gap:6px;min-width:0}
@@ -115,7 +126,9 @@ const SHEET = `
 @keyframes tg-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
 
 /* ── 时间筛选钮 + 预设弹层 ──────────────────────────────────────── */
-.tg-time{position:relative;display:flex;align-items:center;margin-left:auto;flex:none}
+/* 注意：这里**不再**用 margin-left:auto —— 贴右已由外层 .tg-tools 承担；
+   留在组内会把时间钮之后的分类/数量/刷新推到组外，顺序就散了。 */
+.tg-time{position:relative;display:flex;align-items:center;flex:none}
 .tg-time__btn{display:inline-flex;align-items:center;justify-content:center;height:28px;width:auto;padding:0 9px;gap:6px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-secondary,#6b7280);cursor:pointer;transition:color 140ms ease,background 140ms ease,border-color 140ms ease}
 .tg-time__btn:hover{color:var(--dsw-alias-label-primary,#111827);background:var(--dsw-alias-bg-layer-2,color-mix(in srgb,var(--dsw-alias-label-primary,#000) 5%,transparent))}
 .tg-time__btn[data-active="true"]{color:var(--dsw-alias-state-business-primary,#3b82f6);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3b82f6) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3b82f6) 24%,transparent);font-weight:600}
@@ -188,7 +201,7 @@ const SHEET = `
 .tg-tile__thumb .tg-card__icon svg{width:30px;height:30px}
 .tg-tile__thumb .tg-card__play svg{width:32px;height:32px}
 /* 方格里类别徽标常显（不 hover 也要知道是啥类型） */
-.tg-card--tile .tg-card__kind-dot{opacity:1;transform:none;top:6px;left:6px;height:16px;font-size:9.5px}
+.tg-card--tile .tg-card__kind-dot{opacity:1;transform:none;top:6px;right:6px;height:16px;font-size:9.5px}
 /* 文件名常驻缩略图下方（不 hover 也看得见） */
 .tg-tile__meta{display:flex;flex-direction:column;gap:1px;padding:6px 2px 2px;min-width:0}
 .tg-tile__name{font-size:11px;font-weight:500;line-height:15px;color:var(--dsw-alias-label-primary,#eee);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -260,7 +273,7 @@ const SHEET = `
 .tg-lb__loading svg{animation:tg-spin 900ms linear infinite}
 
 @media (prefers-reduced-motion:reduce){
-  .tg-card,.tg-skel,.tg-empty,.tg-stale,.tg-lb,.tg-lb__stage,.tg-lb__img,.tg-lb__meta,.tg-lb__hint,.tg-session-bar,.tg-dock,.tg-dock__dot{animation:none!important}
+  .tg-card,.tg-skel,.tg-empty,.tg-stale,.tg-lb,.tg-lb__stage,.tg-lb__img,.tg-lb__meta,.tg-lb__hint,.tg-session-bar,.tg-dock{animation:none!important}
   .tg-card,.tg-card:hover,.tg-icon-btn,.tg-lb__close,.tg-lb__fullbtn,.tg-lb__btn,.tg-lb__nav,.tg-kind,.tg-dock__item,.tg-card__img,.tg-card__icon,.tg-card__kind-dot{transition:none!important}
   .tg-lb[data-full="true"] .tg-lb__stage{animation:none!important}
   .tg-skel__thumb::after,.tg-skel__line::after{animation:none!important}

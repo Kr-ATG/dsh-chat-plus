@@ -625,14 +625,24 @@ HTTP 实测 `/media` 索引含该图片、`/raw` 相对与绝对路径均返回 
 工作台现为 **6 个分类**：**灵魂** · 记忆 · 能力 · 用量 · 画廊 · 邮件。
 供应商与代理**不在工作台**——见「供应商中心」一节。
 
-**2026-10 全新设计（深空指挥舱）**：导航不再是页面顶部 tab 栏，而是悬浮在内容之上的
-**玻璃胶囊 Dock**（`hub/Dock.tsx`：选中项光晕呼吸 + 滚轮直切分类，与侧栏「工作台」行的
-hover 浮层 / 滚轮直切共用同一事件通道与 localStorage 键）。视觉语言收敛在 `hub/theme.ts`：
+**2026-10 导航定稿（用户三轮收敛）**：分类切换**只在侧栏那一行**——原先的单个「工作台」
+菜单行换成一条**纯文字分类条**（`hub/strip.tsx`），页内不再有任何切换器（顶部 tab 栏与
+悬浮胶囊 Dock 都已删除）。三轮反馈依次收敛为：① 分类改成侧栏一行可滚动；② 去掉卡片壳 /
+说明文字 / 底部提示；③ 去掉背景色、按钮颜色与前置图标——最终形态就是六个纯文字，
+选中项靠文字提亮 + 底部 2px 短线（`currentColor`，不引入第二色相）。
+**入口永不丢**：官方 `sidebar.panellist` 那一行照旧注册（selectPanel 语义归官方），只在
+本条宽栏渲染成功后才打 `data-wb-row-hidden` 隐藏它；rail 折叠态本条让位、官方图标列照常可用；
+本条挂不上时隐藏属性不打，那一行照常显示。
+
+视觉语言收敛在 `hub/theme.ts`：
 在 `.wb-root` 作用域把官方 `--dsw-alias-*` token 重映射成深空色阶（暗 = OLED 深底、
 亮 = 纸白底，**主题同步零 JS**——官方切主题只改 body 属性，本表两套分支自动换），六个子面板
 几百处 `var()` 引用一次性换肤；装饰色收进强调色的明度五档（用户二审反馈「色条花里胡哨」），
 语义色只留状态点与危险操作；动效全纯 CSS（入场级联 / hover 浮起 / 光晕），
 `prefers-reduced-motion` 一票否决。
+**底色不重映射**（2026-10 修正）：`--dsw-alias-bg-base` / `bg-layer-1~3` 原样继承官方 token
+——曾经把 bg-base 混成「主文字色 2% + module-platform」≈ `#F0F1F2`，浅色主题下整页发灰
+（用户报「背景色没跟主题」）。
 
 「灵魂」页重排为 **Editorial Split**（只靠类名重排，SoulPanel 的 JSX 与状态机不动）：
 
@@ -1002,16 +1012,16 @@ service 图上是一等公民。只调它的 API 会让两插件之间形成隐�
 
 侧边栏多个入口（记忆 / 能力 / 用量 / 邮箱）合并为**一枚「工作台」菜单行**
 （`sidebar.panellist` id=`workbench` @ order 20），页面本体在官方 `main` 槽位渲染
-（`src/client/triad/hub/`：`seat.ts` 注册 + `WorkbenchPanel.tsx` 容器 + `Dock.tsx` 悬浮导航 +
-`theme.ts` 主题 token 层 + `styles.ts` 收敛层 + `row-flyout.tsx` 侧栏行二级导航）。
+（`src/client/triad/hub/`：`seat.ts` 注册 + `WorkbenchPanel.tsx` 容器 + `strip.tsx` 侧栏
+分类条 + `theme.ts` 主题 token 层 + `styles.ts` 收敛层）。
 
 容器内六分类（灵魂 / 记忆 / 能力 / 用量 / **画廊** / 邮件），选中态存 `localStorage`
-（`dsh-workbench-active-tab`）跨会话保持。2026-10 二次改版后导航是页面顶部的**悬浮胶囊
-Dock**（`Dock.tsx`，sticky 吸顶在本面板滚动区内）：刻意**不用裸 `header` 与 `role="tablist"`
-之外的官方头部形态**（`nav[data-workbench-nav]` 且在 `.wb-root` 内），KR 对话的 Tab 注入器
-（`kr-chat-controller.tsx`）同步加防御：绝不把「对话 / 轨迹」按钮注进工作台内部导航。
-旧 `.wb-header` 顶栏规则已删，kr-chat-controller 的 `header:not(.wb-header)` 排除选择器
-匹配不到时自然落空，不影响其官方头部识别。
+（`dsh-workbench-active-tab`）跨会话保持。2026-10 导航定稿后，分类切换**只在侧栏那一行
+纯文字分类条上**（`strip.tsx`），页内无任何切换器。分类条的宿主是手工插进官方侧栏的裸节点
+（插在 `[data-slot="sidebar.workspaces"]` 之前），官方 React 不认识它，因此用
+`MutationObserver` 盯父节点补位 + 1.5s 低频兜底——与 `sidebar-nav.tsx` 同款策略。
+KR 对话的 Tab 注入器（`kr-chat-controller.tsx`）仍按 `.wb-root` 排除工作台内部，
+不把「对话 / 轨迹」按钮注进去。
 
 **嵌入形态**：`MailPanel` 新增 `embedded` prop——在工作台内不再套 `PopoverShell`
 浮层壳，直接铺满 Tab 页；记忆面板整版重设计为暗色系大盘卡片流（`memory/Panel.tsx` +
@@ -1785,7 +1795,7 @@ src/
     └── triad/                       — 原 dsh-triad 工作台 client 半身（整体搬迁）
         ├── index.ts                 — applyTriadClient（五模块各 try/catch）
         ├── panel-seat.tsx           — 工作台页座位注册器（官方 main 页 + sidebar.panellist 菜单行）
-        ├── hub/                     — 六合一工作台容器（Dock 悬浮导航 / theme 主题 token 层 / row-flyout 侧栏行二级导航）
+        ├── hub/                     — 六合一工作台容器（strip 侧栏纯文字分类条 / theme 主题 token 层 / row-flyout 分类数据与广播）
         ├── memory/                  — 记忆工作台页 + composer 两枚注入开关（记忆注入 / 内置提示词通道，纯 fetch）
         ├── brand/                   — 品牌图形常量（官方鲸鱼 path，host/client 共享的纯数据）
         ├── soul/                    — 记忆第四层「灵魂」面板：我的资料（名字/档案/头像 + 变量）+ Editorial Split（左人格核心 / 右卡片 Bento + 预设轨 + 深改区）+ 蒸馏草案 diff（工作台独立分类，默认分类）
