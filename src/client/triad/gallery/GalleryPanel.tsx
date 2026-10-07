@@ -509,6 +509,21 @@ interface CardProps {
   readonly compact?: boolean
 }
 
+/**
+ * 缩略图半身：generated 走 GeneratedThumb、file 走 FileThumb，与 GalleryCard
+ * 同一套解析口径。Coverflow 焦点卡复用它——轮播里的图和网格里的图必须同源，
+ * 否则会出现「轮播能看到、网格里读不到」的鬼条目。
+ */
+const GalleryCardThumb = ({ item, now, onUnresolvable }: {
+  readonly item: GalleryItem
+  readonly now: number
+  readonly onUnresolvable?: (path: string) => void
+}): JSX.Element => (
+  item.source === 'generated'
+    ? <GeneratedThumb path={item.path} alt={displayNameOf(item)} thumbClass="tg-card__thumb" onUnresolvable={onUnresolvable} />
+    : <FileThumb item={item} now={now} thumbClass="tg-card__thumb" onUnresolvable={onUnresolvable} />
+)
+
 const GalleryCard = ({ item, index, sessionTitle, now, onOpen, onUnresolvable, compact = false }: CardProps): JSX.Element => {
   // generated 条目的原始名是 spill 容器的 .txt 文件名，上屏前换成内容类型名。
   const shownName = displayNameOf(item)
@@ -981,6 +996,38 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
       )}
 
       {/* 主体 */}
+      {/* ── Coverflow 焦点轮播（2026-10 深空改版，效果图第 5 页顶部）──
+           取当前可见列表前 5 条做 3D 焦点舞台：中间那张放大正对，两侧旋转退后。
+           数据是真条目，点击任意一张 = 打开该条 Lightbox（与网格同一入口）。
+           条目不足 3 条不渲染（轮播没有意义），时间轴视图也不渲染。 */}
+      {view === 'grid' && items !== null && error === null && visible.length >= 3 && (
+        <div className="wb2-cover" aria-label="焦点产出轮播">
+          <div className="wb2-cover-track">
+            {visible.slice(0, 5).map((item, index) => {
+              const pos = index === 2 ? 'c' : index < 2 ? 'p' : 'n'
+              const dist = Math.abs(index - 2)
+              return (
+                <button
+                  key={item.path + '|' + item.sessionId}
+                  type="button"
+                  className="wb2-cv"
+                  data-c={pos === 'c' ? '1' : undefined}
+                  data-p={pos === 'p' ? String(dist) : undefined}
+                  data-n={pos === 'n' ? String(dist) : undefined}
+                  onClick={() => { openItem(item) }}
+                  title={displayNameOf(item)}
+                >
+                  <GalleryCardThumb item={item} now={now} onUnresolvable={hideUnresolvable} />
+                  <span className="wb2-cv-meta">
+                    <span className="wb2-cv-n">{displayNameOf(item)}</span>
+                    <span className="wb2-cv-s">{KIND_LABEL[item.kind]} · {formatRelativeTime(item.time, now)}</span>
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
       {error !== null && items === null ? (
         <div className="tg-empty">
           <span className="tg-empty__icon">

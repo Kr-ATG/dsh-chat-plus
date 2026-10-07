@@ -22,7 +22,7 @@
 
 import type { CSSProperties } from 'react'
 import type { UsageDay } from './aggregate.js'
-import { filterDays, type DateRange } from './range.js'
+import { filterDays, toDayStr, type DateRange } from './range.js'
 import { formatUnits, formatHitRate } from './format.js'
 
 export interface UsageHeroProps {
@@ -37,10 +37,17 @@ export interface UsageHeroProps {
   modelCount: number
 }
 
-/** 等长前移一段的环比区间。 */
+/** 等长前移一段的环比区间。DateRange 的 start/end 是 YYYY-MM-DD 字符串，
+ *  不是 Date——这里必须自己解析，直接调 .getTime() 会在运行时炸掉整页。 */
 function prevRangeOf(range: DateRange): DateRange {
-  const span = range.end.getTime() - range.start.getTime() + 86400000
-  return { start: new Date(range.start.getTime() - span), end: new Date(range.start.getTime() - 86400000) }
+  const startMs = new Date(`${range.start}T00:00:00`).getTime()
+  const endMs = new Date(`${range.end}T00:00:00`).getTime()
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return range
+  const span = endMs - startMs + 86400000
+  return {
+    start: toDayStr(new Date(startMs - span)),
+    end: toDayStr(new Date(startMs - 86400000)),
+  }
 }
 
 /** 折线点：按日期升序，x 等分、y 按最大 tokens 归一（留 8% 顶部余量）。 */

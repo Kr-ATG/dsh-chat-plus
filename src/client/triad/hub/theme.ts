@@ -120,16 +120,9 @@ body[data-ds-dark-theme] .wb-root {
   --dsw-shadow-lv2: 0 8px 26px rgba(0,0,0,.5);
   --dsw-shadow-lv3: 0 14px 44px rgba(0,0,0,.6);
 }
-/* 工作台根：吃掉页面底色，铺一层极淡的氛围光（暗色才显形） */
+/* 工作台根：纯色底。用户点名「不需要背景色」——不铺任何氛围光/径向渐变，
+   层次只靠表面三阶（--wb2-s1/s2/s3）与发丝线表达。 */
 .wb-root { background: var(--wb2-bg); color: var(--wb2-t1); }
-.wb-root::before {
-  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
-  background:
-    radial-gradient(820px 520px at -8% -14%, var(--wb2-a1), transparent 66%),
-    radial-gradient(700px 460px at 108% 112%, color-mix(in srgb, var(--dsw-alias-state-success-primary, #3DD68C) 6%, transparent), transparent 66%);
-  opacity: .9;
-}
-.wb-root > * { position: relative; z-index: 1; }
 
 /* ══════════ 2 · 共享组件（.wb2-*） ══════════ */
 /* 页头：左巨型标题 / 右操作条，不对称 */
@@ -314,8 +307,7 @@ body[data-ds-dark-theme] .wb-root {
   grid-column: 1; grid-row: 1 / span 5;
   display: flex; flex-direction: column; align-items: center; text-align: center;
   padding: 28px 22px 24px; border: 1px solid var(--wb2-line); border-radius: var(--wb2-r-lg);
-  background: radial-gradient(ellipse 130% 78% at 50% -8%, var(--wb2-a1), transparent 62%),
-              linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1) 52%);
+  background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1) 52%);
   box-shadow: var(--wb2-inset), var(--wb2-drop);
 }
 .wb2-persona .dsh-soul-whale { width: 104px !important; height: 78px !important; margin-bottom: 14px; }
@@ -407,8 +399,7 @@ body[data-ds-dark-theme] .wb-root {
 @media (max-width: 1180px) { .wb2-us-hero { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 640px) { .wb2-us-hero { grid-template-columns: 1fr; } }
 .wb2-us-main { padding: 20px 22px; position: relative; overflow: hidden;
-  background: radial-gradient(ellipse 118% 130% at 0% 0%, var(--wb2-a1), transparent 58%),
-              linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1) 54%); }
+  background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1) 54%); }
 .wb2-us-big { font-size: 44px; font-weight: 700; letter-spacing: -.042em; line-height: 1.1; color: var(--wb2-t1);
   font-variant-numeric: tabular-nums; font-family: var(--wb2-mono); margin: 6px 0 6px;
   text-shadow: 0 0 34px var(--wb2-a3); }
@@ -492,13 +483,40 @@ body[data-ds-dark-theme] .wb-root {
   background: color-mix(in srgb, var(--wb2-t1) 4%, transparent) !important;
   border: 1px solid var(--wb2-line) !important; }
 .wb-root .dsh-memory-top-stat-val { font-family: var(--wb2-mono); font-weight: 680; color: var(--wb2-t1); }
-/* 时间分组 → 河流日标：左缘圆点 + 纵向发丝线 */
+/* 顶栏段控 → 左图标轨：视图 tab 竖排成 58px 轨，文字隐藏只留图标+徽标；
+   项目/分类下拉保留在二级筛选行（真数据入口不丢） */
+.wb-root .dsh-memory-top-bar { display: grid !important; grid-template-columns: 58px 1fr;
+  grid-template-rows: auto auto; gap: 8px 14px; padding: 0 22px 12px !important; border-bottom: none !important; }
+.wb-root .dsh-memory-view-row { display: contents; }
+.wb-root .dsh-memory-view-tabs { grid-column: 1; grid-row: 1 / span 2; flex-direction: column !important; gap: 3px !important;
+  width: 58px; padding: 8px 6px !important; border-radius: var(--wb2-r-md) !important;
+  background: color-mix(in srgb, var(--wb2-t1) 3%, transparent) !important;
+  border: 1px solid var(--wb2-line) !important; }
+.wb-root .dsh-memory-view-tab { position: relative; width: 100%; aspect-ratio: 1; padding: 0 !important;
+  justify-content: center; border-radius: var(--wb2-r-xs) !important;
+  transition: all 300ms var(--wb2-ease) !important; }
+.wb-root .dsh-memory-view-tab > span:not(.dsh-memory-nav-icon) { display: none; }
+.wb-root .dsh-memory-view-tab .dsh-memory-nav-count,
+.wb-root .dsh-memory-view-tab .dsh-memory-nav-count-inline {
+  display: inline-flex !important; position: absolute; top: 2px; right: 1px; }
+.wb-root .dsh-memory-view-tab[data-active="true"] { background: var(--wb2-a1) !important; color: var(--wb2-accent) !important; }
+.wb-root .dsh-memory-view-tab[data-active="true"]::before { content: ""; position: absolute; left: -6px; top: 50%;
+  transform: translateY(-50%); width: 3px; height: 17px; border-radius: 0 3px 3px 0;
+  background: var(--wb2-accent); box-shadow: 0 0 10px var(--wb2-a3); }
+/* 统计与操作区占满剩余宽度（grid 第 1 行第 2 列），二级筛选行落第 2 行第 2 列 */
+.wb-root .dsh-memory-view-actions { grid-column: 2; grid-row: 1; min-width: 0; display: flex; align-items: center; }
+.wb-root .dsh-memory-subfilter-row { grid-column: 2; grid-row: 2; min-width: 0; }
+.wb-root .dsh-memory-cols { padding-left: 22px !important; padding-right: 22px !important; }
+/* 时间河流：竖线挂在列表容器上（条目都在 .dsh-memory-card-list 里），
+   日期头行（.dsh-memory-group-section）左缘落圆点 */
+.wb-root .dsh-memory-card-list { position: relative; padding-left: 20px !important; }
+.wb-root .dsh-memory-card-list::before { content: ""; position: absolute; left: 5px; top: 6px; bottom: 6px;
+  width: 1px; background: linear-gradient(180deg, transparent, var(--wb2-line2) 8%, var(--wb2-line2) 92%, transparent); }
 .wb-root .dsh-memory-group-section { position: relative; padding-left: 18px !important; }
-.wb-root .dsh-memory-group-section::before { content: ""; position: absolute; left: 0; top: 8px;
-  width: 9px; height: 9px; border-radius: 50%; background: var(--wb2-bg); border: 2px solid var(--wb2-t4); }
-.wb-root .dsh-memory-group-section::after { content: ""; position: absolute; left: 4px; top: 22px; bottom: -6px;
-  width: 1px; background: var(--wb2-line2); }
-.wb-root .dsh-memory-group-section:last-child::after { display: none; }
+.wb-root .dsh-memory-group-section::before { content: ""; position: absolute; left: -15px; top: 12px;
+  width: 9px; height: 9px; border-radius: 50%; background: var(--wb2-bg); border: 2px solid var(--wb2-t4);
+  transition: all 340ms var(--wb2-ease); }
+.wb-root .dsh-memory-group-section:hover::before { border-color: var(--wb2-accent); box-shadow: 0 0 0 4px var(--wb2-a1); }
 /* 条目卡 → 紧凑行：选中描边 + hover 右移 */
 .wb-root .dsh-memory-entry-card { padding: 9px 11px !important; border-radius: var(--wb2-r-sm) !important;
   transition: all 300ms var(--wb2-ease) !important; }
@@ -509,7 +527,7 @@ body[data-ds-dark-theme] .wb-root {
   border: 1px solid var(--wb2-line) !important; overflow: hidden;
   background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1) 46%) !important;
   box-shadow: var(--wb2-inset), var(--wb2-drop) !important; }
-.wb-root .dsh-memory-detail-head { background: radial-gradient(ellipse 100% 130% at 100% 0%, var(--wb2-a1), transparent 62%) !important; }
+.wb-root .dsh-memory-detail-head { background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1)) !important; }
 /* 顶栏搜索胶囊化 */
 .wb-root .dsh-memory-top-input, .wb-root .dsh-mail-top-input { border-radius: 999px !important; }
 
@@ -580,7 +598,34 @@ body[data-ds-dark-theme] .wb-root {
 .wb-root .dsh-mail-detail-col { border-radius: var(--wb2-r-lg) !important; border: 1px solid var(--wb2-line) !important;
   overflow: hidden; background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1) 46%) !important;
   box-shadow: var(--wb2-inset), var(--wb2-drop) !important; }
-.wb-root .dsh-mail-detail-head { background: radial-gradient(ellipse 92% 140% at 100% 0%, var(--wb2-a1), transparent 60%) !important; }
+.wb-root .dsh-mail-detail-head { background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1)) !important; }
+
+/* ── 画廊 Coverflow 焦点轮播（效果图第 5 页顶部） ──
+   数据是真条目（visible 前 5 条），位移/旋转/景深全 CSS transform；
+   点击侧卡 = 打开该条 Lightbox（GalleryPanel 里接 onOpen）。 */
+.wb2-cover { position: relative; height: 240px; margin: 0 22px 14px; perspective: 1200px; overflow: hidden;
+  border-radius: var(--wb2-r-lg); border: 1px solid var(--wb2-line); background: color-mix(in srgb, var(--wb2-t1) 3%, transparent); }
+.wb2-cover-track { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  transform-style: preserve-3d; }
+.wb2-cv { position: absolute; width: 288px; height: 186px; border-radius: var(--wb2-r-md); overflow: hidden;
+  border: 1px solid var(--wb2-line2); background: var(--wb2-s1); cursor: pointer; padding: 0;
+  box-shadow: 0 22px 56px color-mix(in srgb, var(--wb2-t1) 30%, transparent);
+  transition: all 720ms var(--wb2-ease); }
+.wb2-cv .tg-card__thumb { position: absolute; inset: 0; width: 100%; height: 100%; }
+.wb2-cv .tg-card__img { width: 100%; height: 100%; object-fit: cover; }
+.wb2-cv-meta { position: absolute; left: 0; right: 0; bottom: 0; padding: 24px 12px 10px; text-align: left;
+  display: flex; flex-direction: column; gap: 2px;
+  background: linear-gradient(transparent, color-mix(in srgb, var(--wb2-bg) 94%, transparent)); }
+.wb2-cv-n { display: block; font-size: 11.5px; font-weight: 600; color: var(--wb2-t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb2-cv-s { display: block; font-size: 9.5px; color: var(--wb2-t3); }
+.wb2-cv[data-c="1"] { transform: translateX(0) scale(1.055); z-index: 5;
+  border-color: var(--wb2-a3); box-shadow: 0 26px 66px color-mix(in srgb, var(--wb2-t1) 40%, transparent), 0 0 46px var(--wb2-a2); }
+.wb2-cv[data-p="1"] { transform: translateX(-268px) scale(.85) rotateY(20deg); z-index: 3; opacity: .52; filter: saturate(.62); }
+.wb2-cv[data-p="2"] { transform: translateX(-478px) scale(.72) rotateY(28deg); z-index: 1; opacity: .24; filter: saturate(.4) blur(1px); }
+.wb2-cv[data-n="1"] { transform: translateX(268px) scale(.85) rotateY(-20deg); z-index: 3; opacity: .52; filter: saturate(.62); }
+.wb2-cv[data-n="2"] { transform: translateX(478px) scale(.72) rotateY(-28deg); z-index: 1; opacity: .24; filter: saturate(.4) blur(1px); }
+.wb2-cv:hover { z-index: 9; opacity: 1; filter: none; }
+@media (max-width: 900px) { .wb2-cover { display: none; } }
 
 /* ══════════ 7 · 子面板杂项换肤（单色纪律收尾） ══════════ */
 /* soul 的 --s-card-bg 取 static token（恒白），暗色下卡片会亮成白板；
