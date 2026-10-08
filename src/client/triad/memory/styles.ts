@@ -703,16 +703,21 @@ body[data-ds-dark-theme] .dsh-memory-inject-card{background:var(--dsw-static-neu
    决定（SwitchRow 内联写入，不数 nth-child——卡片里插一行就会错位）；收起时
    不设延迟、立即淡出，否则会看到内容赖着不走。记忆卡同样吃这套（共用 inject-row）。 */
 .dsh-memory-inject-card .dsh-memory-inject-row,
+.dsh-memory-inject-card .dsh-memory-inject-group,
 .dsh-memory-inject-card .dsh-memory-inject-foot{
   opacity:0;transform:translateY(4px);
   transition:opacity .18s ease,transform .22s cubic-bezier(.2,.8,.2,1),background .15s ease}
 .dsh-memory-inject-card-on .dsh-memory-inject-row,
+.dsh-memory-inject-card-on .dsh-memory-inject-group,
 .dsh-memory-inject-card-on .dsh-memory-inject-foot{opacity:1;transform:none}
 .dsh-memory-inject-card-on .dsh-memory-inject-row{transition-delay:calc(var(--row-i,0) * 18ms)}
+/* 组标题比它下面那一行早一拍（80ms vs 行自己的 --row-i 档位），先见标题再见内容，
+   与卡片里其余各组的阅读顺序一致。 */
+.dsh-memory-inject-card-on .dsh-memory-inject-group{transition-delay:80ms}
 .dsh-memory-inject-card-on .dsh-memory-inject-foot{transition-delay:110ms}
 @media (prefers-reduced-motion:reduce){.dsh-memory-inject-card,.dsh-memory-inject-card-on{transition:none}
-  .dsh-memory-inject-card .dsh-memory-inject-row,.dsh-memory-inject-card .dsh-memory-inject-foot{opacity:1;transform:none;transition:none}
-  .dsh-memory-inject-card-on .dsh-memory-inject-row,.dsh-memory-inject-card-on .dsh-memory-inject-foot{transition-delay:0ms}}
+  .dsh-memory-inject-card .dsh-memory-inject-row,.dsh-memory-inject-card .dsh-memory-inject-group,.dsh-memory-inject-card .dsh-memory-inject-foot{opacity:1;transform:none;transition:none}
+  .dsh-memory-inject-card-on .dsh-memory-inject-row,.dsh-memory-inject-card-on .dsh-memory-inject-group,.dsh-memory-inject-card-on .dsh-memory-inject-foot{transition-delay:0ms}}
 .dsh-memory-switch:focus-visible,.dsh-memory-toggle:focus-visible{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 35%,transparent)}
 
 /* ── 窄屏适配 ─────────────────────────────────────────────────────── */

@@ -900,6 +900,38 @@ function buildCss(): string {
 .dtt__card--step { border: none !important; }
 body[data-ds-dark-theme] .dtt__card--reply { box-shadow: 0 12px 32px rgba(0,0,0,.55) !important; border-color: rgba(255,255,255,.10) !important; }
 
+/* ══ 总结卡外观开关（框 + 阴影，见 reply-card-chrome.ts）════════════════════
+   开关在 composer 的「内置提示词通道」卡里；关掉时 body 挂 data-dsh-reply-plain，
+   这里把那道 1px 发丝描边与投影一起让掉，卡片退成一片纯正文。
+
+   三条细节，都不是随手写的：
+
+   1. **只让颜色、不让宽度**（border-color: transparent 而不是 border: none）。
+      边框占位保持 1px，正文一个字都不会位移——否则开关一拨，整段回答跟着抖
+      一下，比没有开关更难受。
+   2. **transition 写在卡片上**（下面那条 .dtt__card--reply 规则）：框与影是
+      渐变掉的，不是「啪」一下换脸。颜色与阴影都能插值，所以这两道属性可以
+      安心走过渡。
+   3. 特异性并列 + 位置在后：与上面那条深色主题规则同为「属性选择器 + 类」，
+      靠书写顺序取胜，深色主题下关掉同样彻底。
+
+   ⚠ transition 用的是**简写**（会重置该属性上的一切过渡）。将来若在基类
+   .dtt__card（约 76 行，卡片入场动画所在处）上再加 transition，务必把这条
+   改成逗号追加而不是让它被覆盖——否则框影渐变会静默消失，只剩跳变。 */
+.dtt__card--reply {
+  transition: border-color .28s ease, box-shadow .28s ease;
+}
+
+body[data-dsh-reply-plain] .dtt__card--reply {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* 减少动态效果：直接换，不做渐变。 */
+@media (prefers-reduced-motion: reduce) {
+  .dtt__card--reply { transition: none; }
+}
+
 /* ══ 会话头部视图标签（KR对话 / 对话 / 轨迹）排版 ═══════════════════════
    0.1.5-rc.2 的 header 实测是 display:grid、两行共 77px：
      header

@@ -614,6 +614,133 @@ if (krEnabled) {
   }
 }
 
+// ── 总结卡外观开关（框 + 阴影）────────────────────────────────────────────
+//
+// 用户要求：Seeker 对话流总结卡的框与阴影要做成开关，开关放在 composer 那枚
+// 「内置提示词通道」按钮（PromptIcon）的卡片里。
+//
+// 这套东西错了**一声不响**：属性名写歪、CSS 选择器写歪、或者特异性被上面那条
+// 深色主题规则压住，开关拨下去界面毫无反应——没有异常、没有日志。所以三件事
+// 都要断言：行为（属性真的挂/摘）、CSS（关掉时框影真的让掉）、接线（开关真在
+// 那张卡里且能拨动）。
+{
+  const styleSrc = readFileSync(resolve(ROOT, 'src/client/styles.ts'), 'utf8')
+  const toggleSrc = readFileSync(resolve(ROOT, 'src/client/triad/memory/Toggle.tsx'), 'utf8')
+  const entrySrc = readFileSync(resolve(ROOT, 'src/client/index.ts'), 'utf8')
+  // 注释里会提到这些选择器（当初为什么这么写的说明），比对前先把注释剥掉。
+  const bareStyle = styleSrc.replace(/\/\*[\s\S]*?\*\//g, ' ')
+  const bareToggle = toggleSrc.replace(/\/\*[\s\S]*?\*\//g, ' ')
+
+  // 1) 行为级：拨一下，body 属性真的挂上 / 摘掉。
+  if (typeof mod.setReplyCardChromeEnabled !== 'function' || typeof mod.REPLY_PLAIN_ATTR !== 'string') {
+    fail('缺少 setReplyCardChromeEnabled / REPLY_PLAIN_ATTR 导出（开关状态不可断言）')
+  } else {
+    const attr = mod.REPLY_PLAIN_ATTR
+    const has = () => sandbox.document.body.getAttribute(attr) !== null
+    mod.installReplyCardChrome()
+    // 默认必须是「有框有影」：当前观感是用户认可的成熟形态，升级不该改变它。
+    if (has()) {
+      fail('默认应为有框有影（body 不该带 data-dsh-reply-plain）')
+    } else {
+      mod.setReplyCardChromeEnabled(false)
+      const offOk = has()
+      mod.setReplyCardChromeEnabled(true)
+      const onOk = !has()
+      if (!offOk) fail('关掉开关后 body 未挂 data-dsh-reply-plain（CSS 不会生效，界面毫无反应）')
+      else if (!onOk) fail('重新打开开关后 data-dsh-reply-plain 未摘掉（框影回不来）')
+      else pass('总结卡外观开关：关→body 挂 data-dsh-reply-plain，开→摘掉（默认开）')
+    }
+    // 订阅通知：卡片里的开关靠它刷新，不通知则 UI 与真实状态脱节。
+    let notified = 0
+    const unsub = mod.subscribeReplyCardChrome(() => { notified += 1 })
+    mod.setReplyCardChromeEnabled(false)
+    mod.setReplyCardChromeEnabled(true)
+    unsub()
+    if (notified !== 2) fail(`订阅者应收到 2 次通知（实得 ${notified}）`)
+    else pass('总结卡外观开关：变化会通知订阅者（开关 UI 能跟随）')
+  }
+
+  // 2) CSS：关掉时描边与投影都要让掉，且**保留边框宽度**（否则正文会位移）。
+  const plainAt = bareStyle.indexOf('body[data-dsh-reply-plain]')
+  if (plainAt < 0) {
+    fail('styles.ts 缺少 body[data-dsh-reply-plain] .dtt__card--reply 规则（关掉开关不会有任何视觉变化）')
+  } else {
+    const rule = bareStyle.slice(plainAt, bareStyle.indexOf('}', plainAt) + 1)
+    if (!/border-color:\s*transparent/.test(rule)) {
+      fail('关掉时必须用 border-color:transparent 让掉描边（用 border:none 会让正文位移 1px）')
+    } else if (!/box-shadow:\s*none/.test(rule)) {
+      fail('关掉时必须让掉 box-shadow')
+    } else if (/\bborder\s*:\s*none/.test(rule)) {
+      fail('关掉时不得写 border:none —— 边框占位消失会让正文横向位移')
+    } else {
+      pass('总结卡外观开关：关掉时描边转透明 + 投影归零，且保留 1px 占位不位移')
+    }
+    // 深色主题那条规则在它之前，靠书写顺序取胜：顺序反了深色下关不干净。
+    const darkAt = bareStyle.indexOf('body[data-ds-dark-theme] .dtt__card--reply')
+    if (darkAt < 0) fail('样式里找不到深色主题的总结卡规则（本断言的前提已失效，需复核）')
+    else if (darkAt > plainAt) fail('data-dsh-reply-plain 规则必须写在深色主题规则之后（否则深色下框影让不掉）')
+    else pass('总结卡外观开关：规则顺序正确（深色主题下同样让得掉）')
+    // 过渡：颜色与阴影都要能插值，切换才是渐变而不是跳变。
+    if (!/\.dtt__card--reply\s*\{[^}]*transition:[^}]*border-color/.test(bareStyle)) {
+      fail('总结卡缺少 border-color/box-shadow 的 transition（切换会「啪」一下跳变，不是渐变）')
+    } else {
+      pass('总结卡外观开关：框影切换走过渡（渐变掉，不是跳变）')
+    }
+  }
+
+  // 3) 接线：开关真的在那张卡里，且走的是本地状态而不是注入通道。
+  //
+  // 「这一行是不是 SwitchRow」用**结构**判，不用字符窗口：`<SwitchRow[\s\S]{0,260}`
+  // 那种写法只要有人在这行上方补两句注释就误报（本仓刚踩过），而它测的东西跟
+  // 注释长度毫无关系。改成「从 replyChromeLabel 往前找最近的 <SwitchRow、
+  // 往后找最近的 />，且这段里不能再出现另一个 <SwitchRow」。
+  const labelAt = bareToggle.indexOf('replyChromeLabel')
+  const rowStart = labelAt < 0 ? -1 : bareToggle.lastIndexOf('<SwitchRow', labelAt)
+  const rowEnd = labelAt < 0 ? -1 : bareToggle.indexOf('/>', labelAt)
+  const inOneRow = rowStart >= 0 && rowEnd > rowStart
+    && !bareToggle.slice(rowStart, rowEnd).includes('<SwitchRow', 1)
+  const rowText = inOneRow ? bareToggle.slice(rowStart, rowEnd) : ''
+  if (!/BuiltinToggle/.test(bareToggle)) {
+    fail('Toggle.tsx 里找不到 BuiltinToggle（前置条件变了，需复核本断言）')
+  } else if (!/setReplyCardChromeEnabled\s*\(/.test(bareToggle)) {
+    fail('「内置提示词通道」卡里没有接上总结卡外观开关（用户点不到）')
+  } else if (!inOneRow) {
+    fail('总结卡外观开关必须渲染成一行独立的 SwitchRow（与同卡其余行同款）')
+  } else if (!/on=\{chromeOn\}/.test(rowText)) {
+    fail('那一行 SwitchRow 的 on 必须接本地状态 chromeOn（接错则开关显示与真实不一致）')
+  } else if (!/setReplyCardChromeEnabled\(!chromeOn\)/.test(rowText)) {
+    fail('那一行 SwitchRow 的 onToggle 必须写本地状态（不得误接 host 的 pushChannel）')
+  } else if (!/busy=\{false\}/.test(rowText)) {
+    fail('那一行的 busy 必须是 false（它写 localStorage，没有网络往返，不该被别的通道连坐变灰）')
+  } else {
+    pass('总结卡外观开关：接在「内置提示词通道」卡里，一行独立 SwitchRow + 本地状态')
+  }
+  // 按钮开态只按五条注入通道算：把这行显示偏好算进去，会让「通道全关、只想要
+  // 无框卡片」的按钮显示成开着的入口。
+  //
+  // 按行抓取再逐项比对，不用 `^...$` 正则：`$` 不带 m 标志时只认字符串末尾，
+  // 那种断言会永远为假（本仓踩过同类坑）。
+  const anyOnLine = bareToggle.split('\n').find(line => line.includes('const anyOn ='))
+  const anyOnBody = anyOnLine === undefined ? '' : anyOnLine.slice(anyOnLine.indexOf('=') + 1).trim()
+  if (anyOnBody !== 'zhOn || diagramOn || htmlOn || soulOn || teamOn') {
+    fail(`按钮开态 anyOn 必须只由五条注入通道决定（实得「${anyOnBody}」）`)
+  } else {
+    pass('总结卡外观开关：按钮开态只按五条注入通道算（显示偏好不冒充能力入口）')
+  }
+  // 新增这一行后，卡片整体不该被误当成「第六条注入通道」——组标题必须存在。
+  if (!/displayGroupTitle/.test(bareToggle) || !/displayGroupTitle/.test(readFileSync(resolve(ROOT, 'src/client/triad/memory/locales.ts'), 'utf8'))) {
+    fail('总结卡外观开关必须用「展示」组标题与五条注入通道隔开（否则会被读成一条注入能力）')
+  } else {
+    pass('总结卡外观开关：有独立组标题，与五条注入通道分区')
+  }
+  // 初始化必须在 apply 阶段跑（挂晚了会先画一遍带框卡片再闪成纯正文）。
+  if (!/installReplyCardChrome/.test(entrySrc.replace(/\/\*[\s\S]*?\*\//g, ' '))) {
+    fail('client/index.ts 的 apply 未调用 installReplyCardChrome（刷新后开关不生效）')
+  } else {
+    pass('总结卡外观开关：在 apply 阶段初始化（首帧即正确形态，不闪）')
+  }
+}
+
 // 用时读数已从对话流那张「Seeker 正在…」活动卡上撤掉：卡片只讲「正在做什么」，
 // 每秒跳一格的时长留在这里只会跟动作名抢主角。
 if (krEnabled) {
@@ -1736,6 +1863,103 @@ if (krEnabled) {
     fail('样式表不该再留 .kr-ask-opt 规则（组件已不渲染候选项，只显示选中的答案）')
   } else {
     pass('提问与回答卡：挂在思考卡下方 + 折叠窗解除 + 单层过渡 + 只显示答案 + 解析层 + 开关在位')
+  }
+}
+
+/*
+ * ── 字号轴：两张对话流内联卡必须跟随官方「设置 → 字号」 ────────────────────
+ *
+ * 用户要求（2026-10-09）：「seeker 的思考过程、提问需要跟随官方设置里的字号大小」。
+ *
+ * 官方把正文字号发布成 body 上的行内变量 --dsh-content-font-size（10..22，
+ * 默认 14），派生 --dsh-content-font-delta，官方自己的组件一律读这条轴。这两张
+ * 卡贴在对话流里、与正文同列，硬编码字号的结果是「正文调到 20px，卡片还停在
+ * 12.5px」—— 同一条消息里两种字级。
+ *
+ * 六条一起钉（前两条是回退闸门，其余钉住"改全了"）：
+ *  1. 档位变量声明在两张卡的根类上，且都从 --dsh-content-font-size 派生；
+ *  2. **默认档逐像素还原**改造前的硬编码值（12.5 / 13 / 12 / 11.5 / 11）。
+ *     这五行的括号与数字就是契约本身，按整行文本精确比对 —— 偏移改一位，
+ *     用户不改设置也会看到字号变了；
+ *  3. 卡片命名空间里不许再出现裸 px 的 font-size（将来新增元素也拦得住）；
+ *  4. 思考视口的行高必须从当前字级算（写死会在放大档与真实行高脱钩，视口按
+ *     旧行高算 max-height，卡片要么被撑破要么显示不全）；
+ *  5. 标题行图标跟着 --dsh-content-font-delta 放大；
+ *  6. 与字级联动的行高 / 尺寸也得跟：.kr-ask-row__tag 的行高、.kr-ask-dots 的
+ *     3px 三点写死过一版，字号轴推到 22px 时前者行距小于字高（挤字）、后者
+ *     相对缩成看不见的芝麻（等待态的唯一动效线索丢了）。
+ */
+if (krEnabled) {
+  const axisSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/styles.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+  const axisReasons = []
+
+  // 1 + 2：档位变量的整行文本比对（后缀 → 下限 / 基线 / 偏移 / 期望解析值）
+  const EXPECT_AXIS = [
+    ['body', '11px', '14px', '1.5px', 12.5],
+    ['title', '12px', '14px', '1px', 13],
+    ['12', '11px', '14px', '2px', 12],
+    ['11-5', '10.5px', '14px', '2.5px', 11.5],
+    ['11', '10px', '14px', '3px', 11],
+  ]
+  const axisBlock = /\.kr-card--reasoning,\s*\.kr-card--ask\s*\{([^}]*)\}/.exec(axisSrc)
+  if (axisBlock === null) {
+    axisReasons.push('缺「字号轴」档位变量声明块（.kr-card--reasoning, .kr-card--ask 上声明 --kr-fs-*）')
+  } else {
+    for (const [suffix, floor, base, offset, resolved] of EXPECT_AXIS) {
+      const line = '--kr-fs-' + suffix + ': max(' + floor
+        + ', calc(var(--dsh-content-font-size, ' + base + ') - ' + offset + '));'
+      if (!axisBlock[1].includes(line)) {
+        axisReasons.push('--kr-fs-' + suffix + ' 必须是「' + line + '」（默认档须解析成 ' + String(resolved) + 'px）')
+      }
+      if (Number.parseFloat(floor) >= resolved) {
+        axisReasons.push('--kr-fs-' + suffix + ' 的下限 ' + floor + ' 不该 ≥ 默认档 ' + String(resolved) + 'px')
+      }
+    }
+  }
+
+  // 3：卡片命名空间里不许再有裸 px 的 font-size
+  const nakedFonts = []
+  for (const block of axisSrc.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selector = block[1].trim().replace(/\s+/g, ' ')
+    if (!/kr-reasoning|kr-ask|kr-card--reasoning|kr-card--ask/.test(selector)) continue
+    const hit = /font-size:\s*[\d.]+px/.exec(block[2])
+    if (hit !== null) nakedFonts.push(selector + ' → ' + hit[0])
+  }
+  if (nakedFonts.length > 0) {
+    axisReasons.push('思考卡 / 问答卡命名空间里还有写死 px 的 font-size（应引用 --kr-fs-* 档位）：'
+      + nakedFonts.join('；'))
+  }
+
+  // 4：思考视口行高从字级算
+  const lineVar = /--kr-reasoning-line:\s*([^;]+);/.exec(axisSrc)
+  if (lineVar === null || !lineVar[1].includes('var(--kr-fs-body')) {
+    axisReasons.push('--kr-reasoning-line 必须从当前字级算出（var(--kr-fs-body) × 行高系数），不能写死 px')
+  }
+
+  // 5：标题行图标跟着 delta 放大（字号 22 时 16px 图标配 20.5px 正文会缩一号）
+  if (!/\.kr-card--reasoning \.kr-card__icon,\s*\.kr-card--ask \.kr-card__icon\s*\{[^}]*calc\(18px \+ var\(--dsh-content-font-delta/.test(axisSrc)) {
+    axisReasons.push('两张卡的标题图标尺寸必须跟随 --dsh-content-font-delta')
+  }
+
+  // 6：与字级联动的行高 / 尺寸也得跟
+  const tagBlock = /\.kr-ask-row__tag\s*\{([^}]*)\}/.exec(axisSrc)
+  if (tagBlock === null || /line-height:\s*\d+(\.\d+)?px/.test(tagBlock[1])
+    || !tagBlock[1].includes('--dsh-content-font-delta')) {
+    axisReasons.push('.kr-ask-row__tag 的行高不得写死 px（字号 20.5px 时行距小于字高会挤字），应随 --kr-fs-11 缩放')
+  }
+  const dotsBlock = /\.kr-ask-dots > i\s*\{([^}]*)\}/.exec(axisSrc)
+  if (dotsBlock === null || /(width|height):\s*3px/.test(dotsBlock[1])
+    || !dotsBlock[1].includes('--dsh-content-font-delta')) {
+    axisReasons.push('.kr-ask-dots 的三点不得写死 3px（放大档下会相对缩成看不见的芝麻），应随 --kr-fs-11-5 缩放')
+  }
+
+  if (axisReasons.length > 0) {
+    fail('字号轴跟随回退：' + axisReasons.join('；'))
+  } else {
+    pass('字号轴：思考卡 / 问答卡字号·行高·图标全部跟随官方「设置 → 字号」'
+      + '（默认档逐像素还原 12.5/13/12/11.5/11，无写死 px）')
   }
 }
 

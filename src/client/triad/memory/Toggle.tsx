@@ -10,6 +10,11 @@
  *    团队协作。五条硬编码在插件内、无卸载入口（回包恒带 builtin），全局单值，不做会话级，
  *    也不受记忆注入的任何一道闸门约束——语言契约与人设必须跨会话恒定，否则同一用户
  *    会得到互相矛盾的回答语言。
+ *    卡尾另有一行**总结卡外框**：它不是注入通道，一个字都不进 prompt，只管 Seeker
+ *    对话流里那张总结卡要不要框和阴影（纯显示偏好，存 localStorage，见
+ *    ../../reply-card-chrome.ts）。它与上面五条刻意用一枚小组标题隔开——混在同一列
+ *    里会让人以为「总结卡外框」也是往提示词里塞东西，而这正是本仓反复踩过的
+ *    「两种不同的东西挤一张卡」的坑。因此按钮的开态只按**五条通道**算，不含它。
  *
  * 两张卡曾经挤在一张里（「注入与记忆」）：那是把「提示词注入」与「记忆注入」两种
  * 不同的事塞给一个按钮，标题总有一半对不上，读者也要在无关的行之间来回跳。
@@ -24,11 +29,16 @@
  */
 
 import type { CSSProperties } from 'react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { InjectStateView, MemoryApi } from './api.js'
 import { BrainIcon } from './Panel.tsx'
+import {
+  replyCardChromeEnabled,
+  setReplyCardChromeEnabled,
+  subscribeReplyCardChrome,
+} from '../../reply-card-chrome.js'
 import { css, ensureStyles } from './styles.js'
 
 /** 完整 props：composer 插槽 standardProps 的 sessionId + 注入 API 面 + locale。 */
@@ -415,8 +425,17 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
   const htmlOn = state.htmlEnabled === true
   const soulOn = state.soulEnabled !== false
   const teamOn = state.teamEnabled === true
+  /*
+   * 总结卡外框：纯显示偏好，不走 host，状态在 localStorage（见 reply-card-chrome）。
+   *
+   * 用 useSyncExternalStore 而不是 useState：它必须与**别的浏览器窗口**里拨动的
+   * 同一个开关保持一致（storage 事件会唤醒订阅），而 useState 只能看见本组件的
+   * 那次点击。
+   */
+  const chromeOn = useSyncExternalStore(subscribeReplyCardChrome, replyCardChromeEnabled, replyCardChromeEnabled)
   // 按钮状态取「五条里有没有开的」——全关才算关，半开按开显示（它是能力入口，
-  // 不是记忆那种一刀切的开关）。
+  // 不是记忆那种一刀切的开关）。**不含总结卡外框**：那一行不是注入通道，
+  // 把它算进来会让「五条通道全关、只想要无框卡片」的按钮显示成开着的入口。
   const anyOn = zhOn || diagramOn || htmlOn || soulOn || teamOn
   const button = (
     <ToggleButton
@@ -485,6 +504,25 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
           label={t('teamInjectLabel')}
           hint={t('teamInjectHint')}
           onToggle={() => { pushChannel('teamEnabled', !teamOn) }}
+        />
+        {/* 展示设置组：与上面五条注入通道**不是一类东西**，所以另起一枚组标题隔开。
+            不隔开的话，读者会以为「总结卡外框」也是往提示词里塞内容的能力，
+            而它其实只管一张卡片长什么样。 */}
+        <div className={css.injectGroup}>
+          <span className={css.injectGroupTitle}>{t('displayGroupTitle')}</span>
+        </div>
+        <SwitchRow
+          index={5}
+          lead
+          on={chromeOn}
+          // busy 恒为 false：这一行写的是 localStorage（同步落盘 + 刷 body 属性），
+          // 没有网络往返，不存在"正在保存"的中间态。上面五行要等 host 回包才有，
+          // 所以它们共用那个 busy。写成 busy={busy} 会让这行在别的通道保存时
+          // 莫名变灰、点不动。
+          busy={false}
+          label={t('replyChromeLabel')}
+          hint={t('replyChromeHint')}
+          onToggle={() => { setReplyCardChromeEnabled(!chromeOn) }}
         />
         <p className={css.injectFoot}>{t('builtinCardFoot')}</p>
       </div>

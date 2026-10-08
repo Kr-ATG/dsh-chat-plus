@@ -1184,19 +1184,31 @@ body[data-kr-resizing="true"] * {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: 12px;
+  /* 基类字级也走字号轴：这张卡现在只以「贴进对话流」的内联形态存在
+     （右栏那份 2026-09-28 已移出，见下条内联规则），写死 12px 会让整卡的
+     字级在字号设置变化时脱队——内联态虽然另有覆盖，两处口径也该一致。 */
+  font-size: var(--kr-fs-body, 12.5px);
   line-height: 1.6;
   color: var(--dsw-alias-label-secondary);
 }
 
 /*
  * 有界视口：行数上限由组件传入的 --kr-reasoning-rows 驱动
- * （见 KrReasoningCard 的 REASONING_MAX_ROWS），行高 12px × 1.6 = 19.2px。
+ * （见 KrReasoningCard 的 REASONING_MAX_ROWS）。
+ *
+ * 行高必须**从当前字级算**（1.6 倍，与 .kr-reasoning-list 的 line-height 同一个
+ * 系数），不能写死：字级现在跟随官方字号轴（见「字号轴」段），写死 19.2px 会与
+ * 真实行高脱钩——字号调大后每行变高、视口却按旧行高算 max-height，卡片要么被
+ * 撑破要么显示不全，超出部分还在视口里滚。
+ *
+ * 字号 14 时求值是 20px（12.5 × 1.6），与原先写死的 19.2px 只差 0.8px：
+ * 一个 16 行视口从 307px 变成 320px，多出的 13px 落在正常波动内。左值（17.6px）
+ * 只在小字档生效 —— 那是正文被 --kr-fs-body 的下限压在 11px 的时候。
  * 超出部分在视口内滚动，卡片不再被思考内容撑成长条。
  * 上下缘按滚动位置渐隐，与左侧实时轨道同一套做法（data-edges）。
  */
 .kr-reasoning-view {
-  --kr-reasoning-line: 19.2px;
+  --kr-reasoning-line: max(17.6px, calc(var(--kr-fs-body, 12.5px) * 1.6));
   --kr-reasoning-rows: 25;
   max-height: calc(var(--kr-reasoning-line) * var(--kr-reasoning-rows));
   overflow-y: auto;
@@ -1249,7 +1261,8 @@ body[data-kr-resizing="true"] * {
   margin-bottom: 2px;
   border-radius: 6px;
   font: inherit;
-  font-size: 11.5px;
+  /* 翻页入口比正文低两档半，跟着官方字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-11-5, 11.5px);
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
   transition: background-color .16s ease, color .16s ease;
@@ -1267,6 +1280,81 @@ body[data-kr-resizing="true"] * {
 
 @media (prefers-reduced-motion: reduce) {
   .kr-reasoning-more { transition: none; }
+}
+
+/* ══ 字号轴：两张对话流内联卡跟随官方「设置 → 字号」═══════════════════════
+ *
+ * 官方把正文字号发布成 body 上的行内变量 --dsh-content-font-size（10..22，
+ * 默认 14），并派生 --dsh-content-font-delta。思考过程卡与提问与回答卡贴在
+ * 对话流里、与正文同列，字号必须跟着这条轴走——否则用户把字号调到 20，正文
+ * 变大了，这两张卡还钉在 12.5px，读起来像另一套界面。
+ *
+ * 五个档位一律写成「相对正文档平移 + 下限」，三条理由：
+ *  1. **默认档逐一还原**：字号 14 时每一档都精确等于改造前的硬编码值
+ *     （12.5 / 13 / 12 / 11.5 / 11），默认外观一个像素没动；
+ *  2. **不设上限**：官方上限 22，最大档 20.5px 仍在正常阅读区间，不需要截断；
+ *  3. **设下限**：小字档压在 10 ~ 11px。官方自己的次级档在小字号区间也是停止
+ *     跟随的（--dsh-content-font-size-secondary 在 ≤16px 时锁死 13px），这里只是
+ *     把同一条口径按本卡的实际字级平移下来，免得字号调到 10 时正文掉到 8.5px。
+ *
+ * **不复用官方 --dsh-content-font-size-secondary**：它在 ≤16px 区间恒定 13px，
+ * 而用户从默认 14 调到 15、16 恰恰是最常见的一段，那段完全不跟随等于没做。
+ *
+ * 作用域挂在两张卡的根类上（不是 [data-inline]）：变量对两态都存在，规则里
+ * 引用时仍带 fallback，任何一处单独改动都不会让整条 font-size 失效。
+ */
+.kr-card--reasoning,
+.kr-card--ask {
+  --kr-fs-body: max(11px, calc(var(--dsh-content-font-size, 14px) - 1.5px));
+  --kr-fs-title: max(12px, calc(var(--dsh-content-font-size, 14px) - 1px));
+  --kr-fs-12: max(11px, calc(var(--dsh-content-font-size, 14px) - 2px));
+  --kr-fs-11-5: max(10.5px, calc(var(--dsh-content-font-size, 14px) - 2.5px));
+  --kr-fs-11: max(10px, calc(var(--dsh-content-font-size, 14px) - 3px));
+}
+
+/*
+ * 标题行与图标：**只覆盖这两张卡**。
+ *
+ * .kr-card__title / .kr-card__meta / .kr-card__icon 是右栏大盘那五张卡共用的
+ * 基类（任务概览 / 操作面板 / 产出物 / 记忆 / 子智能体），右栏是定宽窄栏、字号
+ * 档位自成一套，本次不动它们；加前缀把跟随限定在这两张贴进对话流的卡上。
+ *
+ * 图标按官方 leading icon 的口径跟随（width / height 用 calc(基线 + delta)），
+ * 不是写死：字号 22 时 16px 图标配 20.5px 正文会显得缩了一号，反之亦然。
+ * SVG 的 width / height 是呈现属性，CSS 声明优先，直接覆盖即可。
+ */
+.kr-card--reasoning .kr-card__title,
+.kr-card--ask .kr-card__title {
+  font-size: var(--kr-fs-title, 13px);
+}
+
+.kr-card--reasoning .kr-card__icon,
+.kr-card--ask .kr-card__icon {
+  /* flex:none：图标现在随字号变宽（字号 22 时 26px），不锁住的话它会被标题
+     挤成椭圆而不是保持方形。 */
+  flex: none;
+  width: calc(18px + var(--dsh-content-font-delta, 0px));
+  height: calc(18px + var(--dsh-content-font-delta, 0px));
+}
+
+.kr-card--reasoning .kr-card__icon svg {
+  width: calc(16px + var(--dsh-content-font-delta, 0px));
+  height: calc(16px + var(--dsh-content-font-delta, 0px));
+}
+
+.kr-card--ask .kr-card__icon svg {
+  width: calc(15px + var(--dsh-content-font-delta, 0px));
+  height: calc(15px + var(--dsh-content-font-delta, 0px));
+}
+
+.kr-card--ask .kr-ask-chevron svg {
+  width: calc(12px + var(--dsh-content-font-delta, 0px));
+  height: calc(12px + var(--dsh-content-font-delta, 0px));
+}
+
+/* 标题行右端的跟随状态（跟随中 / 已暂停）：与标题同一档，跟着字级走。 */
+.kr-card--reasoning .kr-card__follow {
+  font-size: var(--kr-fs-11, 11px);
 }
 
 /* ══ 思考过程卡：贴在 KR 对话流里的内联形态 ═══════════════════════════════
@@ -1381,9 +1469,13 @@ body[data-kr-resizing="true"] * {
 }
 
 /* 内联态的字级跟着正文走：右栏 12px 是窄栏里塞更多行的取舍，对话流里
-   思考与回答同列，差一级会读成两种东西。 */
+   思考与回答同列，差一级会读成两种东西。
+
+   字级改成**跟随官方字号轴**（字号 14 时仍解析成原来的 12.5px）：这张卡与
+   正文同列，用户把字号调大、正文跟着变大而它还钉在原地，两段文字就分成了
+   两种东西——正是上面那句话要避免的情形。 */
 .kr-card--reasoning[data-inline] .kr-reasoning-list {
-  font-size: 12.5px;
+  font-size: var(--kr-fs-body, 12.5px);
   line-height: 1.6;
 }
 
@@ -3941,7 +4033,8 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
   align-items: center;
   gap: 5px;
   flex: none;
-  font-size: 11.5px;
+  /* 状态读数（等待回答 / 3/5 已回答）跟着官方字号轴走，见「字号轴」段。 */
+  font-size: var(--kr-fs-11-5, 11.5px);
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -3960,8 +4053,19 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
 }
 
 .kr-ask-dots > i {
-  width: 3px;
-  height: 3px;
+  /*
+   * 三点随字级放大。写死 3px 的话，字号轴推到 22px 时标题行右侧的「已回答」已涨到
+   * 19.5px，三点还是 3px —— 等待态的信号相对缩成一颗几乎看不见的芝麻，而这三点
+   * 正是「模型在等你回答」的唯一动效线索。
+   *
+   * 写成「基线 + delta × 比例」而不是 calc(var(--kr-fs-11-5) * 3 / 11.5)：
+   * 后者在默认档会被浏览器的 calc 除法算出 2.99536px（浮点误差），而 delta 在
+   * 默认档恰好是 0，前一种写法在默认档**精确**回到 3px（实测过两种写法）。
+   * 比例 0.26 使字号 22 时三点约 5.08px，与字级同比例。
+   * 下限 2px 兜住最小档（字号 10 时三点不再继续缩小）。
+   */
+  width: max(2px, calc(3px + var(--dsh-content-font-delta, 0px) * 0.26));
+  height: max(2px, calc(3px + var(--dsh-content-font-delta, 0px) * 0.26));
   border-radius: 50%;
   background: currentColor;
   animation: kr-ask-dot 1.05s ease-in-out infinite;
@@ -4038,27 +4142,38 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
 
 .kr-ask-row__tag {
   align-self: flex-start;
-  font-size: 11px;
-  line-height: 16px;
+  /* 问题分组小标：字级跟随官方字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-11, 11px);
+  /*
+   * 行高也必须跟着字级走，不能写死 16px。
+   *
+   * 写死的后果只在放大档才看得出来：字号轴推到 22px 时这枚小标是 19px，
+   * 行高却仍是 16px —— 行距小于字高，上下两行文字会贴到一起。
+   * 写成「基线 + delta × 比例」是为了默认档**精确**落在 16px：delta 在默认档
+   * 为 0，而用 calc(字级 * 16 / 11) 会被浏览器的分式求值引入浮点尾数。
+   * 比例 1.4545 来自改造前「11px 字号配 16px 行高」那一档（16/11）。
+   */
+  line-height: calc(16px + var(--dsh-content-font-delta, 0px) * 1.4545);
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* 问句字号与思考卡正文同档（对话流里两块内容同列，差一级会读成两种东西）。 */
+/* 问句字号与思考卡正文同档（对话流里两块内容同列，差一级会读成两种东西），
+   两处引用同一个变量，字号轴一变两卡一起变。 */
 .kr-ask-row__q {
-  font-size: 12.5px;
+  font-size: var(--kr-fs-body, 12.5px);
   line-height: 1.6;
   color: var(--dsw-alias-label-primary);
 }
 
 .kr-ask-row__detail {
-  font-size: 12px;
+  font-size: var(--kr-fs-12, 12px);
   line-height: 1.55;
   color: var(--dsw-alias-label-secondary);
   white-space: pre-wrap;
 }
 
 .kr-ask-row__skip {
-  font-size: 11.5px;
+  font-size: var(--kr-fs-11-5, 11.5px);
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -4082,7 +4197,8 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
 
 .kr-ask-pick {
   display: block;
-  font-size: 12.5px;
+  /* 答案行与问句同档（同一变量），字号轴一变整卡同步。 */
+  font-size: var(--kr-fs-body, 12.5px);
   line-height: 1.6;
   color: var(--dsw-alias-label-primary);
   font-weight: 500;
@@ -4090,7 +4206,7 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
 }
 
 .kr-ask-fallback {
-  font-size: 12px;
+  font-size: var(--kr-fs-12, 12px);
   line-height: 1.6;
   color: var(--dsw-alias-label-tertiary);
 }

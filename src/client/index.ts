@@ -36,6 +36,7 @@ import { ToolGroupNodeView } from './tool-summary/ToolGroupNodeView.tsx'
 import { TurnProcessShadowView } from './tool-summary/TurnProcessShadowView.tsx'
 import { ThinkingStepNodeView } from './thinking/ThinkingStepNodeView.tsx'
 import { RetryShadowView } from './retry/RetryShadowView.tsx'
+import { installReplyCardChrome } from './reply-card-chrome.ts'
 import { applyMessageScreenshot } from './shot/index.tsx'
 import { mountShellChrome } from './shell-chrome.ts'
 import { installOpenPathFix } from './open-path-fix.ts'
@@ -187,6 +188,12 @@ export function apply(ctx: ClientContext): void {
 
   // 对话截图：assistant 消息操作栏相机按钮 → 截图面板（独立 id，KR模式生效）。
   guarded(ctx, 'screenshot seat', () => { applyMessageScreenshot(ctx) })
+
+  // 总结卡外观（框 + 阴影）开关：读 localStorage → 给 body 挂 data-dsh-reply-plain。
+  //
+  // 必须在**首帧之前**跑完：挂晚了会先画一遍带框带影的卡片、再闪成纯正文。
+  // 它没有座位也不渲染任何组件，只是把一条 CSS 规则的前提条件准备好。
+  guarded(ctx, 'reply card chrome', installReplyCardChrome)
 
   // 捕获官方原生的 assistant-step / turn-process 渲染组件：普通「对话」模式下
   // 两个座位都原样委托回官方，插件只负责 KR 那一栏。
@@ -366,3 +373,16 @@ export { assembleHtmlDocument, BRIDGE_TO_HOST, BRIDGE_TO_FRAME, MAX_FRAME_HEIGHT
  */
 export { FONT_OPTIONS, DEFAULT_FONT_ID, fontOptionOf, fontOverrideCss, fontFileUrl } from './ui-font/index.js'
 export { uiFontTest } from './ui-font/index.js'
+/**
+ * 总结卡外观开关：纯逻辑（读写 + body 属性 + 订阅），供 smoke 直接钉住。
+ *
+ * 这条判据错了不会报错：属性名或 CSS 选择器写歪，开关拨下去界面**毫无反应**，
+ * 既没有异常也没有日志，只能靠肉眼比对卡片。必须能被测试断言。
+ */
+export {
+  REPLY_PLAIN_ATTR,
+  replyCardChromeEnabled,
+  setReplyCardChromeEnabled,
+  subscribeReplyCardChrome,
+  installReplyCardChrome,
+} from './reply-card-chrome.js'
