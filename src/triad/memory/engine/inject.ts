@@ -5,9 +5,9 @@
  * 只注入当前工作区项目 + 全局层；token 超预算按重要性截断，最低保留置顶。
  * 命中刷新：被注入的条目距上次命中 ≥1 天时刷新 lastHitAt 并加分。
  *
- * 除主注入外，本文件还承载三条**内置通道**（zh 中文偏好 / diagram 流程图规范 /
- * soul 顶层身份契约）：各自独立 stepCounters、各自全局开关、每会话只注首步、
- * 位置一律在「项目排除 + 主注入开关」两道闸门之前，失败只记日志。
+ * 除主注入外，本文件还承载五条**内置通道**（zh 中文偏好 / diagram 流程图规范 /
+ * html 卡片 / soul 顶层身份契约 / team 团队协作）：各自独立 stepCounters、各自全局开关、
+ * 每会话只注首步、位置一律在「项目排除 + 主注入开关」两道闸门之前，失败只记日志。
  */
 
 import { createUserMessage } from '../../../vendor/dsh-llm/index.js'
@@ -186,11 +186,20 @@ const HTML_INJECTION_RULE = [
   '  · 不引外部资源：CDN 脚本、外链字体、外链图片在离线或内网环境直接白屏。CSS 与 JS 全部内联，图形用内联 SVG / canvas 画。',
   '  · 点击链接会开新标签页（文档已设 base target=_blank），不要在卡片内部做整页跳转。',
   '  · 深浅主题：宿主会把明暗状态以 html[data-ds-dark-theme] 属性同步进来，可用它写两套配色；不写就跟随 color-scheme。',
+  '  · 回写输入框：页面里调用 window.__dshFill(text) 可把当前结果（如计算得数、换算份量）填入用户输入框，由用户检查后发送；不要自动发送。',
   '',
   '硬性约束：',
   '  · 单张卡片正文 ≤ 80KB，超出会静默回退成普通代码块（不报错、也不会告诉你失败）。',
   '  · 围栏语言标记必须正好是 html（```html-preview 这类不算）。',
-  '  · 一条回复里最多一张 HTML 卡片；需要多个视图就在卡片内部自己做切换。',
+  '  · 一条回复里可以有多张卡片：文字解说与卡片穿插混排，简单问答仍用纯文本，不要为放卡而放卡。',
+  '',
+  '轻量交互优先用 ```iu 围栏（原生卡片，不走 iframe，内容为单行 JSON，kind 五选一）：',
+  '  · slider 取值：{"kind":"slider","title":"标题","min":1,"max":10,"step":1,"value":4,"unit":"人","desc":"一句话","outputs":[{"label":"面粉","per":120,"unit":"g"}]}（outputs 最多 8 项，per=每单位用量）。',
+  '  · chart 图表：{"kind":"chart","chart":"bar","title":"标题","labels":["A","B"],"series":[{"name":"系列","values":[3,5]}],"unit":""}（chart=bar|line，labels ≤12，series ≤4）。',
+  '  · checklist 清单：{"kind":"checklist","title":"标题","items":[{"label":"事项","desc":"说明"}]}（items ≤12）。',
+  '  · tabs 对比：{"kind":"tabs","title":"标题","tabs":[{"label":"页签","heading":"小标题","body":"说明"}]}（tabs ≤6）。',
+  '  · piano 钢琴：{"kind":"piano","title":"标题","octave":4,"octaves":1,"wave":"sine","desc":"一句话"}（octave 0–7 起始八度、octaves 1–3、wave=sine|triangle|square|sawtooth；点键或用电脑键盘 A W S E D F T G Y H U J K 演奏，右下「填入输入框」把弹过的音写成音名+简谱）。',
+  '  · 复杂页面（整站原型、多视图联动）仍用 ```html；简单取值/对比/清单/钢琴用 ```iu，体积小、不白屏。',
   '',
   '两条纪律：',
   '  · 卡片是交付物本身，不是正文的插图：先用一句话说清它是什么、怎么用，再给围栏。',
@@ -218,39 +227,45 @@ const SOUL_INJECTION_HEADER = [
 ].join('\n')
 
 /**
- * 效率约束（省 token/耗时）规范注入文本。
+ * 团队协作（Agent Teams / 子代理委派）规范注入文本。
  *
- * 为什么需要它：DSH agent 每个 step 全量重发上下文，token 的 98–99% 是
- * cacheReadTokens，总成本 ≈ Σ每步上下文体积，是步数的二次函数。这套纪律来自
- * 对 6 个 V4.1F 大会话（106–331 步，20M–146M token）的真实事件流重放实测。
+ * 为什么需要它（2026-10-06 由「效率约束」通道改写而来）：模型默认倾向
+ * 单线程自己串完，把本该并行的活排成队列——既慢又把大文件、长输出全灌进
+ * 自己这一条上下文。而 DSH 侧本来就给了完整的团队面（subagent /
+ * spawn_teammate / 共享任务板），不主动注入纪律，模型几乎不会去用。
  *
- * 与 diagram / html 同构：纯静态规范文本，不读条目、不做检索、不参与命中加分。
+ * 与原效率通道同构：纯静态规范文本，不读条目、不做检索、不参与命中加分。
  *
- * **文本长度本身要受约束**（v2 精简，2026-10-06）：这段文字首步注入后进历史，
- * 之后每步都被 cacheRead 一次——它自己就是条款二说的「进入历史的内容」。
- * 第一版 784 字，其中约四分之一是说服性数字（35–50%、−3%~16%）和解释性水分；
- * 模型执行纪律不需要被说服，只需要知道做什么。压到 610 字（−22%）后行为指引
- * 不减，自身常驻成本同比例下降（300 步会话约省 50K token）。删繁就简的判据：
- * 一句话若删掉后模型的做法不会变，它就是水分。
+ * **基调是「更积极」，但不是「无条件」**：只喊「多组队」会退化成每个小改动
+ * 都开四个 teammate，协调开销吃掉全部收益。所以文本自带分档判据，且把判据的
+ * 顺序写成「独立子任务默认并行 → 复杂任务组队 → 只有小事才自己做」，并给
+ * 「我顺手就做完了」这句最常见的偷懒借口钉了一个反判据。
  *
- * 保留的骨架是收益梯度「结构拆分 > 体积压缩 > 去重无收益」，其中最反直觉、
- * 最值得常驻的是两条：①委派要用 fresh 子代理，fork 继承全部历史几乎白给；
- * ②合并碎步/去重循环实测收益≈0（真重复步每会话仅 0–6 个），别在这上面花力气。
+ * 开头带一句「本会话若提供了 subagent / spawn_teammate / 共享任务板」：普通
+ * 对话会话里这些工具可能没注入，不加这句模型会去调不存在的工具。
+ *
+ * **文本长度本身要受约束**：这段文字首步注入后进历史，之后每步都被
+ * cacheRead 一次。判据同前：一句话若删掉后模型的做法不会变，它就是水分。
+ * 保留的高价值事实：①委派必须用 fresh 子代理，fork 继承全部历史起点即大上下文；
+ * ②「先自己串完再补一个验证代理」是顺序错误，返工成本翻倍。
  */
-const EFFICIENCY_INJECTION_RULE = [
-  '【效率约束 · 内置通道】每个 step 全量重发上下文，token 的 98–99% 是 cacheRead，总成本 ≈ Σ每步上下文体积。按收益排序：',
+const TEAM_INJECTION_RULE = [
+  '【团队协作 · 内置通道】先问一句「这活能不能拆」，而不是默认自己串完。本会话若提供了 subagent / spawn_teammate / 共享任务板，按下面三档走：',
   '',
-  '一、结构拆分（省 35–50%）：长任务不要在一个会话里续到 300+ 步。',
-  '  · 独立子任务委派给 fresh 子代理（subagent，自带轻量上下文），不用 subagent_fork——fork 继承全部历史，几乎不省。',
-  '  · fresh 子代理看不到对话历史，委派 prompt 必须自包含。',
-  '  · 跨阶段续跑（调研→实现→验证）在阶段边界收口：状态落盘 _tmp/，提示用户开新会话。',
+  '一、判据（顺序不能反）：',
+  '  · 互不依赖的独立子任务（多文件调研、多方案对比、批量审计/迁移、多个独立修复）→ **默认并行**：同一条消息里发多个 subagent，一个子任务一个；不要串行等，也不要先自己做一个试试。',
+  '  · 跨阶段或多角色的复杂任务（调研→实现→验证、大重构、对抗式审查）→ spawn_teammate 组队，你当 Lead 收口。',
+  '  · 单文件小改、单步查询、纯问答才自己做。判据是「拆出一个子任务的沟通成本是否大于它本身」，不是「我顺手就做完了」——后者是最常见的偷懒借口。',
   '',
-  '二、单步体积压缩（省 ~10%）：每条进历史的内容都被后续所有步重复计费。',
-  '  · pwsh 输出先过滤再返回（Select-Object -First/-Last、Select-String），单条 ~5KB 内；超长落盘 _tmp/ 再精准读。',
-  '  · read 大文件用 offset/limit 切片（先 grep/glob 定位），>4KB 不整读、不重复全读。',
-  '  · reasoning/回复精炼，不复述工具输出原文。',
+  '二、组队的硬规矩：',
+  '  · 委派 prompt 必须自包含：fresh 子代理看不到本会话历史，目标 / 输入 / 产出物路径 / 验收标准要写全。',
+  '  · 写作用域先切分到不重叠，重叠的写操作一律串行；开写前在共享任务板上建任务并标 write_scopes。',
+  '  · 依赖用 blocked_by 表达，不靠「发消息时它大概做完了」这种时序假设。',
+  '  · 交最终答复前等齐所有 required teammate，并亲自跑一遍最终验证；子代理的自我报告不算验收。',
   '',
-  '三、不必刻意：合并碎步/去重循环实测省不到 token（真重复步每会话仅 0–6 个）。独立调用仍应并行发（省时间）；校验按「连贯改动做完统一 build+smoke、失败才深挖」，不为省 token 牺牲验证覆盖。',
+  '三、反模式：',
+  '  · 先自己单线程串完，再补一个「验证代理」——顺序错了，返工成本翻倍。',
+  '  · 让子代理干你已有上下文的活：fork 继承全部历史，起点就是那个大上下文。',
 ].join('\n')
 
 /** 创建注入器。 */
@@ -272,28 +287,28 @@ export function createMemoryInjector(
   const zhStepCounters = new Map<string, number>()
 
   /**
-   * diagram 通道的每会话 step 计数，理由同 zhStepCounters——三条内置通道各记
+   * diagram 通道的每会话 step 计数，理由同 zhStepCounters——各内置通道各记
    * 各的，共用一个 Map 会互相抢占首步名额。
    */
   const diagramStepCounters = new Map<string, number>()
 
   /**
-   * html 通道的每会话 step 计数，理由同 diagramStepCounters——五条内置通道
+   * html 通道的每会话 step 计数，理由同 diagramStepCounters——各内置通道
    * 各记各的，共用一个 Map 会互相抢占首步名额。
    */
   const htmlStepCounters = new Map<string, number>()
 
   /**
-   * soul 通道的每会话 step 计数，理由同 zhStepCounters——四条通道各记各的，
+   * soul 通道的每会话 step 计数，理由同 zhStepCounters——各通道各记各的，
    * 共用一个 Map 会互相抢占首步名额。
    */
   const soulStepCounters = new Map<string, number>()
 
   /**
-   * efficiency 通道的每会话 step 计数，理由同 zhStepCounters——各通道各记各的，
+   * team 通道的每会话 step 计数，理由同 zhStepCounters——各通道各记各的，
    * 共用一个 Map 会互相抢占首步名额。
    */
-  const efficiencyStepCounters = new Map<string, number>()
+  const teamStepCounters = new Map<string, number>()
 
   async function buildMemoryBlock(
     agent: PreStepAgent,
@@ -484,28 +499,28 @@ export function createMemoryInjector(
       }
     }
 
-    // ── 效率约束（省 token/耗时）规范注入（内置通道） ─────────────────
-    // 位置同 diagram / html：两道闸门之前。它回答的是「本环境如何省成本」，
+    // ── 团队协作（Agent Teams / 子代理委派）规范注入（内置通道） ────────
+    // 位置同 diagram / html / soul：两道闸门之前。它回答的是「这活该怎么组织」，
     // 跟「记忆库要不要进上下文」正交；这套纪律跨会话恒定，不该随主开关一起消失。
-    const efficiencyEnabled = await store.isEfficiencyInjectEnabled(config.efficiencyInjectDefaultEnabled !== false)
-    if (!efficiencyEnabled) {
-      logger?.debug?.('[dsh-memory] efficiency injection off (switch disabled)')
-    } else if (!efficiencyStepCounters.has(sessionId)) {
-      efficiencyStepCounters.set(sessionId, 1)
+    const teamEnabled = await store.isTeamInjectEnabled(config.teamInjectDefaultEnabled !== false)
+    if (!teamEnabled) {
+      logger?.debug?.('[dsh-memory] team injection off (switch disabled)')
+    } else if (!teamStepCounters.has(sessionId)) {
+      teamStepCounters.set(sessionId, 1)
       try {
         messages = [...messages, createUserMessage({
-          content: [{ type: 'text', text: EFFICIENCY_INJECTION_RULE }],
+          content: [{ type: 'text', text: TEAM_INJECTION_RULE }],
           source: {
             kind: 'plugin:dsh-memory',
             plugin: 'dsh-memory',
             form: 'snapshot',
-            sections: [{ name: '效率约束', text: EFFICIENCY_INJECTION_RULE }],
+            sections: [{ name: '团队协作', text: TEAM_INJECTION_RULE }],
           },
         })]
-        logger?.debug?.('[dsh-memory] efficiency injection ok')
+        logger?.debug?.('[dsh-memory] team injection ok')
       } catch (error) {
         // 失败绝不能影响主注入与其它通道。
-        logger?.warn?.(`[dsh-memory] efficiency injection failed: ${error instanceof Error ? error.message : String(error)}`)
+        logger?.warn?.(`[dsh-memory] team injection failed: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
 
@@ -565,7 +580,7 @@ export function createMemoryInjector(
       diagramStepCounters.delete(sessionId)
       htmlStepCounters.delete(sessionId)
       soulStepCounters.delete(sessionId)
-      efficiencyStepCounters.delete(sessionId)
+      teamStepCounters.delete(sessionId)
     },
   }
 }

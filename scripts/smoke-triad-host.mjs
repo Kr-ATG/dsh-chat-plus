@@ -406,7 +406,7 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
   need(/isHtmlInjectEnabled/.test(storeSrc) && /setHtmlInjectEnabled/.test(storeSrc),
     'store 提供 html 开关的读写')
 
-  // ── efficiency 通道（与 html 同构） ─────────────────────────────────
+  // ── team 通道（与 html 同构） ───────────────────────────────────────
   if (route !== undefined) {
     const call2 = async (method, url) => {
       const captured = { status: 0, body: null }
@@ -418,34 +418,65 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
       await new Promise((r) => setTimeout(r, 60))
       return captured
     }
-    const got = await call2('GET', '/api/dsh-memory/efficiency-inject-state')
-    need(got.status === 200, `GET /efficiency-inject-state answers 200（实得 ${got.status}）`)
-    need(typeof got.body?.enabled === 'boolean', 'efficiency-inject-state returns a boolean enabled')
-    // 默认开：它约束 agent 的 token/耗时行为本身，对所有会话普遍有益（见 types.ts 字段注释）。
-    need(got.body?.enabled === true, `efficiency 通道默认开（实得 ${JSON.stringify(got.body)}）`)
-    need(got.body?.builtin === true, 'efficiency-inject-state is tagged builtin (无卸载入口)')
-    // inject-state 合并回包也必须带上 efficiencyEnabled（开关浮层一次 hover 要全部状态）。
-    const is = await call2('GET', '/api/dsh-memory/inject-state?sessionId=smoke-eff')
-    need(typeof is.body?.efficiencyEnabled === 'boolean', 'GET /inject-state 顺带回传 efficiencyEnabled')
+    const got = await call2('GET', '/api/dsh-memory/team-inject-state')
+    need(got.status === 200, `GET /team-inject-state answers 200（实得 ${got.status}）`)
+    need(typeof got.body?.enabled === 'boolean', 'team-inject-state returns a boolean enabled')
+    // 默认开：模型默认单线程串完，不注入就不会主动并行委派与组队（见 types.ts 字段注释）。
+    need(got.body?.enabled === true, `team 通道默认开（实得 ${JSON.stringify(got.body)}）`)
+    need(got.body?.builtin === true, 'team-inject-state is tagged builtin (无卸载入口)')
+    // inject-state 合并回包也必须带上 teamEnabled（开关浮层一次 hover 要全部状态）。
+    const is = await call2('GET', '/api/dsh-memory/inject-state?sessionId=smoke-team')
+    need(typeof is.body?.teamEnabled === 'boolean', 'GET /inject-state 顺带回传 teamEnabled')
   }
   // 注入器里的规范文本必须真的存在且带齐三档纪律——少一档模型就学偏重点。
   for (const [needle, why] of [
-    ['EFFICIENCY_INJECTION_RULE', '规范常量'],
-    ['fresh 子代理', '结构拆分主杠杆'],
-    ['subagent_fork', 'fork 几乎白给的反直觉事实'],
-    ['offset/limit', 'read 切片纪律'],
-    ['真重复步', '去重收益≈0 的事实'],
+    ['TEAM_INJECTION_RULE', '规范常量'],
+    ['判据（顺序不能反）', '先分档再动手的判据'],
+    ['默认并行', '独立子任务默认并行的基调（比旧「值得拆」更强）'],
+    ['顺手就做完了', '钉住「我顺手就做完了」这个偷懒借口'],
+    ['subagent', '独立子任务并行委派的载体'],
+    ['spawn_teammate', '复杂任务组队的载体'],
+    ['自包含', 'fresh 子代理看不到历史的委派纪律'],
+    ['write_scopes', '写作用域先切分的硬规矩'],
+    ['反模式', '先自己串完再补验证代理的顺序错误'],
   ]) {
-    need(injectSrc.includes(needle), `效率注入规范必须写清「${why}」（缺 ${needle}）`)
+    need(injectSrc.includes(needle), `团队协作注入规范必须写清「${why}」（缺 ${needle}）`)
   }
-  need(/efficiencyStepCounters/.test(injectSrc) && /isEfficiencyInjectEnabled/.test(injectSrc),
-    'efficiency 通道有独立 step 计数器（不与其它通道抢首步名额）')
-  need(/efficiencyInjectDefaultEnabled: boolean/.test(typesSrc), 'MemoryConfig 声明 efficiencyInjectDefaultEnabled')
-  need(/efficiencyInjectDefaultEnabled: true/.test(typesSrc), 'efficiencyInjectDefaultEnabled 默认 true')
-  need(/CONFIG_BOOLEAN_KEYS[\s\S]{0,400}efficiencyInjectDefaultEnabled/.test(typesSrc),
-    'efficiencyInjectDefaultEnabled 在 CONFIG_BOOLEAN_KEYS 里（否则面板/补丁写不进去）')
-  need(/isEfficiencyInjectEnabled/.test(storeSrc) && /setEfficiencyInjectEnabled/.test(storeSrc),
-    'store 提供 efficiency 开关的读写')
+  need(/teamStepCounters/.test(injectSrc) && /isTeamInjectEnabled/.test(injectSrc),
+    'team 通道有独立 step 计数器（不与其它通道抢首步名额）')
+  need(/teamInjectDefaultEnabled: boolean/.test(typesSrc), 'MemoryConfig 声明 teamInjectDefaultEnabled')
+  need(/teamInjectDefaultEnabled: true/.test(typesSrc), 'teamInjectDefaultEnabled 默认 true')
+  need(/CONFIG_BOOLEAN_KEYS[\s\S]{0,400}teamInjectDefaultEnabled/.test(typesSrc),
+    'teamInjectDefaultEnabled 在 CONFIG_BOOLEAN_KEYS 里（否则面板/补丁写不进去）')
+  // 通道总数是「六条」时的历史注释会误导下一个人，直接钉住条数表述与实现一致。
+  need(/五条\*\*内置通道\*\*[\s\S]{0,120}team 团队协作/.test(injectSrc),
+    'inject.ts 头部注释声明的内置通道条数与实现一致（当前 5 条，含 team）')
+  need(/isTeamInjectEnabled/.test(storeSrc) && /setTeamInjectEnabled/.test(storeSrc),
+    'store 提供 team 开关的读写')
+  // 旧「效率约束」通道已整条替换，源码里不该再有残留（用户明确要求换掉）。
+  // 覆盖 host 与 client 两侧全部承载文件——只扫 host 三个文件时，client 侧的
+  // 路由/字段/i18n 残留会静默溜过。
+  for (const rel of [
+    'src/triad/memory/engine/inject.ts',
+    'src/triad/memory/engine/store.ts',
+    'src/triad/memory/types.ts',
+    'src/triad/memory/api.ts',
+    'src/client/triad/memory/api.ts',
+    'src/client/triad/memory/Toggle.tsx',
+    'src/client/triad/memory/locales.ts',
+  ]) {
+    const src = readFileSync(resolve(ROOT, rel), 'utf8')
+    need(!/EFFICIENCY_INJECTION_RULE|efficiencyInject|efficiencyEnabled|efficiencyStepCounters|efficiency-inject-state/.test(src),
+      `${rel} 里不得残留旧 efficiency 通道标识符`)
+  }
+  // client 侧也要钉住新键：i18n 键拼错不会编译失败，只会静默显示原始 key。
+  const clientLocales = readFileSync(resolve(ROOT, 'src/client/triad/memory/locales.ts'), 'utf8')
+  const clientToggle = readFileSync(resolve(ROOT, 'src/client/triad/memory/Toggle.tsx'), 'utf8')
+  for (const key of ['teamInjectLabel', 'teamInjectHint']) {
+    need(clientLocales.includes(`${key}:`), `locales 定义 ${key}`)
+    need(clientToggle.includes(`t('${key}')`), `Toggle 取用 ${key}`)
+  }
+  need(clientToggle.includes(`pushChannel('teamEnabled'`), 'Toggle 写 team 通道走 teamEnabled 键')
 }
 
 const warns = logs.filter(([lvl]) => lvl === 'warn')

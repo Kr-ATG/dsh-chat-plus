@@ -1969,92 +1969,132 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   animation: kr-fresh-wipe .28s ease both;
 }
 
-.kr-plain-subs {
-  /*
-   * 缩进 23px = 14px 图标 + 9px gap，与**父行文字**的左边界对齐（原先是对齐
-   * 那枚已删的 14px 状态槽）。子块挂在父行文字之下，读作"这一行说的这件事底下
-   * 派生的东西"，而不是与父行平级的另一个动作。
-   *
-   * basis 用 calc(100% - 23px) 而不是 100%：100% 加上 margin-left:23px 就超出
-   * 容器宽度了，窄栏（右栏拉到 300px 下限）时 flex 换行判定失败——子智能体区块
-   * 被挤在标题右侧剩下来的那条窄缝里，文字竖排截断，还顺带把列表撑出一条
-   * 横向滚动条。减掉缩进量才是"占满一整行再往右缩进"的真实意图。
-   */
-  flex: 1 0 calc(100% - 23px);
-  margin: 4px 0 2px 23px;
-  padding: 2px 0 2px 10px;
-  border-left: 1.5px solid color-mix(in srgb, var(--kr-accent) 22%, transparent);
+/* ══ 「子智能体」卡（这次对话派出去几个独立干活的）═════════════════════════
+   读者是普通用户，这张卡只回答两件事：**有几个、谁还在跑**，以及**点进去看**。
+
+   形态上刻意与另外三张卡拉开距离：任务概览是横向清单、操作面板是一列文字流水、
+   产出物是一列带缩略图的文件。这张卡是**一列可点的会话行**（状态点 + 名字 +
+   运行读数 + 悬停浮现的跳转箭头），一行对应一个真实会话 —— 因为它的每一样东西
+   都指向"那边还有一个正在干活的会话"，点一下就该跳过去。
+
+   2026-10-08 之前它挂在操作面板某一步下面当一个缩进小块，那套样式连同子块
+   与逐行样式一并删除：同一份信息不该有两套排版，而独立成卡之后那个位置的
+   唯一职责只剩一枚计数徽标（.kr-plain-step__subcount，仍在）。 */
+
+.kr-card--subs {
+  padding-bottom: 10px;
+}
+
+/* 展开体：高度补间由 useHeightAnimation 的 WAAPI 接管（写内联 height +
+   overflow），这里只排版，绝不写 height，否则和内联样式打架。 */
+.kr-subs-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
-  font-size: 11.5px;
-  color: var(--dsw-alias-label-tertiary);
-  animation: kr-plain-subs-in .3s cubic-bezier(.16, 1, .3, 1) both;
 }
 
-@keyframes kr-plain-subs-in {
-  from { opacity: 0; transform: translateX(-4px); }
-  to { opacity: 1; transform: none; }
-}
-
-.kr-plain-subs[data-state="loading"],
-.kr-plain-subs[data-state="empty"],
-.kr-plain-subs[data-state="error"] {
-  margin-top: 2px;
-  color: var(--dsw-alias-label-caption);
-}
-
-.kr-plain-subs__head {
-  margin-bottom: 2px;
-  color: var(--dsw-alias-label-secondary);
-  font-weight: 500;
-}
-
-.kr-plain-subs__list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.kr-subs-list {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  min-width: 0;
 }
 
-.kr-plain-sub {
+.kr-subs-row {
+  min-width: 0;
+  border-radius: 6px;
+  /* 错峰入场：与操作面板 / 产出物同一套节奏（新行从下方 6px 淡入），
+     三张卡「有东西出现」读起来是一件事。 */
+  animation: kr-subs-row-in .3s cubic-bezier(.16, 1, .3, 1) both;
+  transition: background-color .12s ease;
+}
+
+@keyframes kr-subs-row-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.kr-subs-row:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.07));
+}
+
+/*
+ * 行主体 = 整行一个真按钮。
+ *
+ * 这一行唯一能做的事就是"跳过去看它"，所以"点这一行"和"点一个跳转按钮"是同一
+ * 件事 —— 多挂一枚按钮只是把同一句话说了两遍。做成 button 还顺手解决了键盘与
+ * 触屏：Tab 一次就到，回车即跳，触屏有 :active 反馈。
+ *
+ * UA 按钮样式全部抹掉（灰底、内边距、居中文本、系统字体在这里全是错的），
+ * 因为它现在承载的是一行列表项。
+ */
+.kr-subs-row__main {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  width: 100%;
   min-width: 0;
-  min-height: 18px;
-  padding: 1px 0;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: left;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.kr-plain-sub__dot {
+/* 键盘焦点环：整行可点，焦点必须看得见（WCAG 2.4.7）。 */
+.kr-subs-row__main:focus-visible {
+  outline: 2px solid var(--kr-accent);
+  outline-offset: -2px;
+}
+
+/*
+ * 状态点：5px，跑着的用主色 + 脉冲，结束的压成淡灰。
+ *
+ * 颜色 + 脉冲两重线索，且**形状不承担状态** —— 色弱用户与灰度截图下靠脉冲与
+ * 那枚文字状态（「进行中」/「已结束」）依然读得出。文字状态在窄栏里会被挤掉，
+ * 所以它排在标签之后、读数之前，优先级最低，但绝不是唯一线索。
+ */
+.kr-subs-row__dot {
   flex: none;
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--dsw-alias-label-caption);
-  opacity: .55;
+  opacity: .5;
 }
 
-.kr-plain-sub[data-running="true"] .kr-plain-sub__dot {
+.kr-subs-row[data-running="true"] .kr-subs-row__dot {
   background: var(--kr-accent);
   opacity: 1;
   animation: kr-pulse 1.4s ease-in-out infinite;
 }
 
-.kr-plain-sub__label {
+/* 名字是这一行的主体：主文字色 + 500 字重，长了省略（完整名字在 title 里）。 */
+.kr-subs-row__label {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 500;
   color: var(--dsw-alias-label-secondary);
 }
 
-.kr-plain-sub[data-running="true"] .kr-plain-sub__label {
+.kr-subs-row[data-running="true"] .kr-subs-row__label {
   color: var(--dsw-alias-label-primary);
 }
 
-.kr-plain-sub__tag {
+/* 标签：描边式胶囊、无底色（徽标教训见 .kr-card__meta 注释）。 */
+.kr-subs-row__tag {
   flex: none;
   padding: 0 5px;
   border-radius: 7px;
@@ -2064,18 +2104,103 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   border: 1px solid var(--kr-card-border);
 }
 
-.kr-plain-sub__state {
+/* 时长 / token：tabular-nums，走秒时行宽不抖。 */
+.kr-subs-row__time {
   flex: none;
   font-size: 10.5px;
   color: var(--dsw-alias-label-caption);
   font-variant-numeric: tabular-nums;
 }
 
+.kr-subs-row__state {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--dsw-alias-label-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 跳转箭头：**悬停/聚焦才浮现**，常态宽度也占住（opacity 而不是 display），
+ * 否则指针移到行上时整行文字会向右挪 12px —— 那是"列表在抖"，不是反馈。
+ *
+ * aria-hidden：它只是"这里能点"的视觉提示，读屏用户听到的是整行的 aria-label。
+ */
+.kr-subs-row__go {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  color: var(--kr-accent);
+  opacity: 0;
+  transform: translateX(-3px);
+  transition: opacity .16s ease, transform .16s cubic-bezier(.16, 1, .3, 1);
+}
+
+.kr-subs-row:hover .kr-subs-row__go,
+.kr-subs-row__main:focus-visible .kr-subs-row__go {
+  opacity: 1;
+  transform: none;
+}
+
+.kr-subs-row__main:active .kr-subs-row__go {
+  transform: translateX(1px);
+}
+
+/* 空态 / 读取中：一行低对比度说明，不占多余高度。 */
+.kr-subs-empty {
+  padding: 2px 8px;
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* 「展开其余 N 个」：与产出物卡同款（那张卡也是这么收敛长列表的）。 */
+.kr-subs-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  transition: background-color .12s ease, color .12s ease;
+}
+
+.kr-subs-more:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.07));
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-subs-more:focus-visible {
+  outline: 2px solid var(--kr-accent);
+  outline-offset: -2px;
+}
+
+/* 跳转失败（旧宿主没有 uiWorkspace）时的一枚提示：说清事实，而不是"点了没反应"。
+   字号比 .kr-card__meta 更小、字色更弱 —— 它是异常说明，不该跟读数抢。 */
+.kr-subs-blocked {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--kr-warning);
+  animation: kr-subs-blocked-in .24s ease both;
+}
+
+@keyframes kr-subs-blocked-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .kr-plain-subs,
+  /* 计数药丸的擦除入场关掉（操作面板里那个缩进子块的样式已随独立成卡整块删除，
+     针对它的三条减弱动效规则一并从这里摘掉）。 */
   .kr-plain-step__count,
-  .kr-plain-step__subcount,
-  .kr-plain-sub[data-running="true"] .kr-plain-sub__dot {
+  .kr-plain-step__subcount {
     animation: none;
   }
 }
@@ -2101,6 +2226,24 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   .kr-plain-step[data-status="running"]::before {
     animation: none;
     opacity: 1;
+    transform: none;
+  }
+
+  /* 子智能体卡：入场位移、状态点脉冲、跳转箭头的滑入一并关掉。
+     脉冲关掉后"进行中"仍有两重静态线索（主色点 + 「进行中」文字），
+     箭头则是常态隐藏的装饰，关掉动画后依然在 hover 时浮现（只是不做位移）。 */
+  .kr-subs-row,
+  .kr-subs-blocked,
+  .kr-subs-row[data-running="true"] .kr-subs-row__dot {
+    animation: none;
+  }
+
+  .kr-subs-row__go {
+    transition: opacity .12s linear;
+    transform: none;
+  }
+
+  .kr-subs-row__main:active .kr-subs-row__go {
     transform: none;
   }
 }

@@ -26,6 +26,7 @@ import { injectStyles as injectToolSummaryStyles } from './tool-summary/styles.t
 import { injectStyles as injectBaseStyles } from './styles.ts'
 import { injectDiagramStyles } from './diagram/styles.ts'
 import { injectHtmlEmbedStyles } from './html-embed/styles.ts'
+import { injectIuStyles } from './iu/styles.ts'
 import { injectProtoStyles } from './proto/styles.ts'
 import { injectDownloadStyles } from './download/styles.ts'
 import { DownloadCard } from './download/DownloadCard.tsx'
@@ -168,6 +169,7 @@ export function apply(ctx: ClientContext): void {
   guarded(ctx, 'proto card styles', injectProtoStyles)
   guarded(ctx, 'diagram styles', injectDiagramStyles)
   guarded(ctx, 'html embed styles', injectHtmlEmbedStyles)
+  guarded(ctx, 'iu styles', injectIuStyles)
   guarded(ctx, 'download card styles', injectDownloadStyles)
   // 共享活动抽屉：思考与工具调用的详情面板（body 级宿主，只挂一次）。
   guarded(ctx, 'activity drawer', mountActivityDrawer)
@@ -341,6 +343,15 @@ export { gateIconForRow, decorateGateMenuRows, GATE_ICON_ATTR, GATE_ICON_COMMAND
  * 「能跑但能碰宿主」。必须能被测试断言，不能只靠看代码。
  */
 export { splitHtml, looksLikeHtmlFence } from './html-embed/parse.ts'
+export { splitIu, looksLikeIuFence } from './iu/parse.ts'
+export { sliderFillText, checklistFillText, chartFillText, tabsFillText, pianoFillText } from './iu/IuCard.tsx'
+/**
+ * 裸路径链接化：供 smoke 直接断言「手写反斜杠图片路径会被修正」。
+ *
+ * 这条判据错了不报错，只让用户看到「图片无法预览」——Markdown 把 `\_` 当转义符
+ * 吃掉，渲染出的 src 指向不存在的文件。必须能被测试直接断言。
+ */
+export { linkifyFilePaths, promoteStandaloneImagePath, encodePathForMarkdown } from './path-linkify.ts'
 export { assembleHtmlDocument, BRIDGE_TO_HOST, BRIDGE_TO_FRAME, MAX_FRAME_HEIGHT, MIN_FRAME_HEIGHT } from './html-embed/bridge.ts'
 /**
  * 界面字体：选项表与覆盖 CSS 的纯逻辑，供 smoke 直接钉住。

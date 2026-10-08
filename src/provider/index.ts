@@ -26,15 +26,6 @@
  *   6. 凭据密钥环（modules/credential-keyring.ts）：HTTP API
  *      /api/provider-hub-keys/*。替换 API key 不再覆盖——旧值入环
  *      （`R__KEY_n` 存档引用），可命名、可一键切回（交换语义，两边不丢）。
- *   7. OpenCode Zen 免费层指纹（modules/opencode-free-fingerprint.ts）：
- *      Zen 的免费模型（exo-free 等）按**客户端指纹**而不是凭据放行，普通
- *      API key 直连一律 403 FreeTierError。本模块在全局 fetch 层补
- *      UA / x-opencode-session / 工具四件套 + 强制 stream，只命中
- *      opencode.ai/zen 前缀下的白名单模型，其余请求原样透传。
- *      **它不在这里装配**：纯出站改写、不依赖任何宿主服务（webServer /
- *      settings / tools 一个都不用），所以由调用方直接挂——放进
- *      providerHubServices 的延迟注入里会让 headless 这类没有 webServer 的
- *      profile 整块拿不到它（见 src/host.ts 的装配注释）。
  *
  * 路由前缀、settings 命名空间、工具名一律原样保留（用户零迁移）。
  * 调用方（src/host.ts）负责用 `ctx.inject([...])` 等待上面这些服务就绪，

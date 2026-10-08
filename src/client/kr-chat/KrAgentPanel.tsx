@@ -18,9 +18,11 @@ import { useModalClose } from '../modal-animation.ts'
 import { getLiveDshTodos, subscribeLiveDshTodos } from './kr-todo-bridge.ts'
 import { buildPlainTimeline } from './plain-timeline.ts'
 import { KrPlainTimelineCard } from './KrPlainTimelineCard.tsx'
+import { KrSubagentsCard } from './KrSubagentsCard.tsx'
+import { useSubagentCatalog } from './subagent-catalog.ts'
 import { KrOutputsCard } from './KrOutputsCard.tsx'
 import { collectOutputs, collectSessionToolNodes, outputsFingerprint, type OutputsView } from './outputs.ts'
-import { AGENT_DISPLAY_NAME, KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE } from './enabled.ts'
+import { AGENT_DISPLAY_NAME, KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE, KR_SUBAGENTS_CARD_VISIBLE } from './enabled.ts'
 import { installConversationScrollGuard } from './scroll-guard.ts'
 import { useOfficialWidthHandleFix } from './official-width-handles.ts'
 
@@ -338,10 +340,36 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   // 绝不回落到 activityStore 里上一会话的缓存。
   // 回合已在执行（哪怕工具/思考尚未落盘）也算内容，避免空白新会话刚发起
   // 提问时错误地显示「等待本次对话开始」。
+  /*
+   * 子智能体目录：**全仓库唯一一处订阅**（见 subagent-catalog.ts）。
+   *
+   * 两处消费：下面「子智能体」卡列清单，操作面板的「派出子任务」那一步取计数。
+   * 只在会话身份存在时订阅；没有会话身份时 hook 内部不挂 interval，零开销。
+   *
+   * 口径是**整场会话**而不是本轮：子智能体是独立会话，一个跑了 6 分钟的
+   * workflow 在它被派出的那一轮收口之后依然在跑（截图里那条「6m 45s」就是），
+   * 按轮次过滤会让用户切一下轮次就看不到它了。
+   */
+  const subagentCatalog = useSubagentCatalog(latestChatSessionId)
+  /**
+   * 本轮是否出现过「派出子任务」这一步。
+   *
+   * 只喂给子智能体卡的**空目录判定**：目录还没落地（state 不是 ready）时，
+   * 本轮有派生动作就占一行「正在读取子智能体…」，没有就整张卡不渲染 ——
+   * 后者说明这次会话确实没有子智能体，不该在右栏白占一行高度。
+   */
+  const spawningThisTurn = useMemo(
+    () => plainTimeline.steps.some((step) => step.spawnsSubagents === true),
+    [plainTimeline.steps],
+  )
+
   const hasContent = currentRunning
     || tasks.length > 0
     || reasoningTexts.length > 0
     || tools.length > 0
+    // 子智能体可能在本轮毫无动作时依然在跑（前几轮派出去的、还没收口），
+    // 那种情况下这张卡就是右栏唯一还在动的信号，算进内容判定。
+    || subagentCatalog.rows.length > 0
     // 产出物是**会话累计**的：本轮刚开始、什么都还没落盘时，前几轮做出的文件
     // 依然该被看见。不算进来的话，切到新一轮的瞬间整栏会闪一次空态。
     || outputs.items.length > 0
@@ -378,7 +406,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     () => reasoningTexts.reduce((sum, text) => sum + text.length, 0),
     [reasoningTexts],
   )
-  const heightFingerprint = `${memoryTick}|${reasoningChars}|${reasoningTexts.length}|${tools.length}|${tasks.length}|${plainTimeline.steps.length}|${outputs.items.length}|${outputs.code.length}`
+  const heightFingerprint = `${memoryTick}|${reasoningChars}|${reasoningTexts.length}|${tools.length}|${tasks.length}|${plainTimeline.steps.length}|${outputs.items.length}|${outputs.code.length}|${subagentCatalog.rows.length}`
   const panelSqueezed = usePanelSqueezed(scrollRef, heightFingerprint)
 
   // 会话切换（新建 / 切换 / 离开）时重置本面板的本地视图状态，
@@ -761,6 +789,21 @@ export const KrAgentPanel = memo(function KrAgentPanel({
             running={currentRunning}
             squeezed={panelSqueezed}
             sessionId={latestChatSessionId}
+            subagentCatalog={spawningThisTurn ? subagentCatalog : null}
+          />
+        )}
+
+        {/* 子智能体卡：**独立一张**（用户 2026-10-08 点名要的形态）。
+            原先它是操作面板某一步下面的缩进小块，读起来像"这一步的内部细节"，
+            而事实是"这一步派出去几个各自独立干活的会话"。现在有几个就几行，
+            一行一个，点一行即跳到那个子会话（官方 uiWorkspace.openSession）。
+            位置在操作面板之下、产出物之上：操作面板说"我干了什么"，它说
+            "我派出去的那些在干什么"，产出物是最后落地的成品。 */}
+        {KR_SUBAGENTS_CARD_VISIBLE && (
+          <KrSubagentsCard
+            catalog={subagentCatalog}
+            spawning={spawningThisTurn}
+            squeezed={panelSqueezed}
           />
         )}
 

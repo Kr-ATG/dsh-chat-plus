@@ -379,12 +379,85 @@ if (/void store\.appendExtractLog\([^)]*\)\s*(?!\.catch)/.test(memIndexSrc)) {
 // --disable-web-security 的无头 Chrome 打开的，属性逃逸等于任意本地文件读取。
 const cardSrc = stripComments(srcOf('src/shot/card.ts'))
 const mdSrc = stripComments(srcOf('src/shot/markdown.ts'))
+const themeSrc = stripComments(srcOf('src/shot/theme.ts'))
 if (/src="\$\{embed\.fileUrl\}"/.test(cardSrc) || /title="\$\{escapeHtml\(name\)\}"/.test(cardSrc)) {
   fail('figureOf 的 iframe src/title 必须走 escapeAttr（文件名可含引号 → 属性逃逸）')
 } else if (/data-lang="\$\{escapeHtml\(/.test(mdSrc)) {
   fail('mermaid 的 data-lang 属性必须走 escapeAttr（info string 由模型控制）')
 } else {
   pass('截图卡片的属性上下文全部用 escapeAttr（属性逃逸面已封）')
+}
+
+// iu 围栏的截图快照：**必须在进 shiki 之前短路**。
+//
+// shiki 不认识 `iu` 这个语言（实测抛 Language 'iu' not found），异常被 catch 吞掉
+// 后走降级分支产出 `<pre class="shiki plain">`，于是 card.ts 的 injectIu 按
+// `language-iu` 找落点永远找不到 —— 截图里 iu 卡片静默退化成一段 JSON 源码。
+// 这个失败不报错、不影响构建，只能靠「先判语言」的顺序断言钉住。
+if (!/lang\.trim\(\)\.toLowerCase\(\) === 'iu'/.test(mdSrc)) {
+  fail('iu 围栏必须在 highlight 里先于 shiki 短路（否则 shiki 抛未知语言 → 快照静默失效）')
+} else if (!/class="shiki language-iu"/.test(mdSrc)) {
+  fail('iu 短路分支必须直接产出 language-iu 标记（injectIu 靠它找落点）')
+} else if (!/language-iu/.test(cardSrc) || !/figure class="dtt-iu"/.test(cardSrc)) {
+  fail('card.ts 必须把 language-iu 的源码块替换成 dtt-iu 静态快照')
+} else {
+  pass('iu 截图快照：highlight 先于 shiki 短路 + language-iu 标记 + dtt-iu 替换齐备')
+}
+
+// iu 快照必须与对话流**同源**——否则两处必然漂移（截图里的柱子和对话流里的
+// 不一样高、配色不一样、清单少了勾选框），而这类差异不报错，只能靠断言钉住。
+// 三条同源链路：几何（chartLayout）、配色（CHART_COLORS）、样式（IU_CSS）。
+{
+  const reasons = []
+  // ① 几何与数字格式必须来自 geometry.ts（不能各写一份坐标算法）。
+  if (!/from '\.\.\/client\/iu\/geometry\.ts'/.test(cardSrc)) {
+    reasons.push('card.ts 必须 import geometry.ts 的几何（否则截图与对话流坐标算法会漂移）')
+  }
+  if (!/chartLayout\(/.test(cardSrc)) reasons.push('截图快照必须调用 chartLayout 算几何')
+  if (!/formatNum/.test(cardSrc)) reasons.push('截图快照必须复用 formatNum（数字格式统一）')
+  // ② 样式必须内联同一份 IU_CSS，而不是另写一套 .iushot 规格。
+  if (!/from '\.\.\/client\/iu\/styles\.ts'/.test(cardSrc) || !/IU_CSS/.test(cardSrc)) {
+    reasons.push('card.ts 必须内联 client 的 IU_CSS（另写一份 = 样式漂移）')
+  }
+  if (/iushot/.test(cardSrc) || /iushot/.test(themeSrc)) {
+    reasons.push('旧的 .iushot 独立规格不该残留（已改为复用 IU_CSS）')
+  }
+  // ③ class 名必须对齐 IuCard 的 JSX（对齐才吃得到 IU_CSS）。
+  for (const cls of ['dtt-iu__head', 'dtt-iu__slider-val', 'dtt-iu__outs', 'dtt-iu__chart', 'dtt-iu__check', 'dtt-iu__tabs']) {
+    if (!cardSrc.includes(cls)) reasons.push(`截图快照缺 class ${cls}（吃不到 IU_CSS）`)
+  }
+  // ④ IU_CSS 必须是**导出**的常量，客户端注入与截图内联共用同一份。
+  const iuStylesSrc = stripComments(srcOf('src/client/iu/styles.ts'))
+  if (!/export const IU_CSS/.test(iuStylesSrc)) {
+    reasons.push('styles.ts 必须 export const IU_CSS（截图管线要复用同一份）')
+  }
+  if (!/style\.textContent = IU_CSS/.test(iuStylesSrc)) {
+    reasons.push('injectIuStyles 必须注入 IU_CSS 本体（不能是另一份副本）')
+  }
+  if (reasons.length > 0) fail('iu 截图与对话流同源契约：' + reasons.join('；'))
+  else pass('iu 截图与对话流同源：几何 chartLayout + 格式 formatNum + 样式 IU_CSS + class 对齐')
+}
+
+// 截图页没有宿主 CSS 变量，IU_CSS 里的 --dsw-alias-* 必须映射到卡片调色板，
+// 否则所有 var() 落到兜底中性灰（暗色下尤其明显）。
+if (!/--dsw-alias-state-business-primary:var\(--accent\)/.test(cardSrc)) {
+  fail('截图页必须把 --dsw-alias-* 映射到卡片变量（否则 iu 卡片在截图里是灰的）')
+} else {
+  pass('截图页映射了 --dsw-alias-* 宿主变量（IU_CSS 配色正确落地）')
+}
+
+// iu 快照必须把模型文本全部转义（与 htmlfence 同一安全面：卡片页在
+// --disable-web-security 的无头 Chrome 里打开）。判据要落在 iuBodyOf 的**函数体**
+// 内——escapeHtml 在 card.ts 里到处都是，全文匹配等于没测。
+{
+  const iuBodyFn = /function iuBodyOf[\s\S]*?\n}/.exec(cardSrc)?.[0] ?? ''
+  if (iuBodyFn === '') {
+    fail('找不到 iuBodyOf 实现（iu 快照正文生成器）')
+  } else if (!/escapeHtml/.test(iuBodyFn)) {
+    fail('iuBodyOf 必须转义模型文本（卡片页在 disable-web-security 的无头浏览器里打开）')
+  } else {
+    pass('iu 快照正文在 iuBodyOf 内转义（属性/文本上下文已封）')
+  }
 }
 
 // 净化器：HARDENED_PAIR_TAGS 里有 void 元素（base/link/meta/embed/source）与
@@ -434,134 +507,6 @@ for (const ns of ['network-proxy', 'model-capabilities', 'web-search-anysearch']
 }
 if (providerNamespaces.length >= 3) {
   pass(`provider hub settings namespaces preserved: ${providerNamespaces.join(', ')}`)
-}
-
-/* ── OpenCode Zen 免费层指纹（2026-10-07 加 exo-free 时新增）─────────────
- *
- * 上游按客户端指纹放行免费层，判据错了**不抛错**，只是静默回到
- * 403 FreeTierError（用户看到「模型配好了但一发就报错」）。而命中判据写宽了
- * 更危险：会把别的厂商请求也改写掉。所以三块纯函数都要正反例钉住。
- */
-{
-  const fp = mod.opencodeFingerprintTest
-  const sessionIdFor = mod.opencodeSessionIdFor
-  const needsFingerprint = mod.opencodeNeedsFingerprint
-  const applyFingerprint = mod.opencodeApplyFingerprint
-
-  if (typeof fp !== 'object' || fp === null) {
-    fail('opencode 指纹可测面未导出（host 半身必须 re-export __test）')
-  } else {
-    // ① 官方 UA 与工具四件套的字面量：改错任一个上游就 403/426。
-    if (fp.OPENCODE_USER_AGENT !== 'opencode/1.18.31') {
-      fail(`指纹 UA 必须是实测放行的 opencode/1.18.31，实得 ${fp.OPENCODE_USER_AGENT}`)
-    } else if (fp.ZEN_API_PREFIX !== 'https://opencode.ai/zen/v1/') {
-      fail(`指纹只应命中 zen 前缀，实得 ${fp.ZEN_API_PREFIX}`)
-    } else if (!['bash', 'glob', 'grep', 'read'].every(n => fp.FINGERPRINT_TOOLS.includes(n))) {
-      fail(`指纹工具集缺项：${JSON.stringify(fp.FINGERPRINT_TOOLS)}`)
-    } else if (!fp.FINGERPRINT_MODELS.includes('exo-free')) {
-      fail(`exo-free 必须在指纹白名单里，实得 ${JSON.stringify(fp.FINGERPRINT_MODELS)}`)
-    } else if (fp.FINGERPRINT_MODELS.includes('muse-spark-1.3-contributor-free')) {
-      // 回归钉子：该模型走 /responses，注入指纹会从 403 变成 400
-      // ModelProtocolUnsupported（实测）——白名单里绝不能顺手加它。
-      fail('muse-spark-1.3-contributor-free 不能进指纹白名单（它走 /responses，注入指纹反而 400）')
-    } else {
-      pass(`opencode 指纹常量正确（UA ${fp.OPENCODE_USER_AGENT} / 四件套 ${fp.FINGERPRINT_TOOLS.join('+')}）`)
-    }
-
-    // ② 命中判据：只有 zen 前缀 + 白名单模型才动手，别的厂商一律透传。
-    const cases = [
-      ['zen + exo-free', 'https://opencode.ai/zen/v1/chat/completions', 'exo-free', true],
-      ['zen + 非白名单模型', 'https://opencode.ai/zen/v1/chat/completions', 'space-bunny-free', false],
-      ['zen + responses 模型', 'https://opencode.ai/zen/v1/responses', 'muse-spark-1.3-contributor-free', false],
-      ['别家同路径（伪造前缀）', 'https://evil.example/opencode.ai/zen/v1/chat/completions', 'exo-free', false],
-      ['别家域名', 'https://api.deepseek.com/v1/chat/completions', 'exo-free', false],
-      ['非 zen 的 opencode 路径', 'https://opencode.ai/api/chat', 'exo-free', false],
-    ]
-    const bad = []
-    for (const [label, url, model, want] of cases) {
-      const got = needsFingerprint(url, { model })
-      if (got !== want) bad.push(`${label}: 期望 ${want}，实得 ${got}`)
-    }
-    if (bad.length > 0) fail(`opencode 指纹命中判据错误：${bad.join('；')}`)
-    else pass('opencode 指纹命中判据：仅 zen 前缀 + 白名单模型（6 组正反例）')
-
-    // ③ session id 形态必须与官方 ses_ 一致（12 hex + 14 base62）。
-    const sid = sessionIdFor('seeker\u0000hello')
-    if (!/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/.test(sid)) {
-      fail(`session id 形态不符官方 ses_ 规格：${sid}`)
-    } else if (sessionIdFor('seeker\u0000hello') !== sid) {
-      fail('同一 seed 必须派生出同一个 session id（否则每轮都换会话、前缀缓存全废）')
-    } else if (sessionIdFor('seeker\u0000other') === sid) {
-      fail('不同 seed 必须派生出不同 session id')
-    } else {
-      pass(`session id 形态与稳定性正确（${sid}）`)
-    }
-
-    // ④ 请求改写：补 header / 补四件套 / 强制 stream；调用方工具不被顶掉。
-    const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }
-    const body = {
-      model: 'exo-free',
-      stream: false,
-      messages: [
-        { role: 'system', content: 'You are Seeker.' },
-        { role: 'user', content: 'hi' },
-      ],
-      tools: [{ type: 'function', function: { name: 'pwsh', description: 'p', parameters: { type: 'object', properties: {} } } }],
-    }
-    const out = applyFingerprint(init, body)
-    const outHeaders = new Headers(out.headers)
-    const outBody = JSON.parse(String(out.body))
-    const names = outBody.tools.map(t => t.function.name)
-    if (outHeaders.get('user-agent') !== 'opencode/1.18.31') {
-      fail(`改写后 UA 应为官方标识，实得 ${outHeaders.get('user-agent')}`)
-    } else if (!/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/.test(outHeaders.get('x-opencode-session') ?? '')) {
-      fail(`改写后缺合法 x-opencode-session：${outHeaders.get('x-opencode-session')}`)
-    } else if (outBody.stream !== true) {
-      fail('免费层要求 stream:true，改写后必须强制打开')
-    } else if (!['pwsh', 'bash', 'glob', 'grep', 'read'].every(n => names.includes(n))) {
-      fail(`改写后工具集不完整（调用方工具须保留 + 四件套须补齐）：${JSON.stringify(names)}`)
-    } else if (names.filter(n => n === 'bash').length !== 1 || names.filter(n => n === 'read').length !== 1) {
-      // 上游对重复工具名直接 400（实测 "Tool names must be unique."）。
-      fail(`四件套不得重复注入：${JSON.stringify(names)}`)
-    } else if (outBody.tool_choice === 'none') {
-      fail('调用方本来就有工具时不能把 tool_choice 设成 none（会关掉正常会话的工具选择）')
-    } else {
-      pass(`请求改写正确（保留 pwsh + 补齐四件套且不重复，共 ${names.length} 个工具）`)
-    }
-
-    // ⑤ 无工具的纯聊天：decoy 必须禁止被选中（tool_choice=none）。
-    const bare = applyFingerprint({ method: 'POST', headers: {} }, {
-      model: 'exo-free', messages: [{ role: 'user', content: 'hi' }],
-    })
-    const bareBody = JSON.parse(String(bare.body))
-    if (bareBody.tool_choice !== 'none') {
-      fail(`调用方无工具时必须 tool_choice=none（否则 decoy 会被真选中），实得 ${bareBody.tool_choice}`)
-    } else if (!bareBody.tools.every(t => t.function.name !== 'pwsh')) {
-      fail('纯聊天请求不该出现调用方没有的工具')
-    } else {
-      pass('无工具请求：注入 decoy 并锁 tool_choice=none（decoy 不可被选中）')
-    }
-
-    // ⑥ 会话 seed 取会话头部两段，历史变长也不变（否则每轮换 session）。
-    const seedA = fp.seedOf({
-      messages: [
-        { role: 'system', content: 'SYS' },
-        { role: 'user', content: 'first' },
-        { role: 'assistant', content: 'reply' },
-      ],
-    })
-    const seedB = fp.seedOf({
-      messages: [
-        { role: 'system', content: 'SYS' },
-        { role: 'user', content: 'first' },
-        { role: 'assistant', content: 'reply' },
-        { role: 'user', content: 'second' },
-        { role: 'assistant', content: 'reply2' },
-      ],
-    })
-    if (seedA !== seedB) fail('会话 seed 必须只取系统提示 + 首条 user（历史增长不能改变 session）')
-    else pass('会话 seed 只取会话头部，历史增长不换 session（前缀缓存可命中）')
-  }
 }
 
 // ── 工具闸门：默认全关 + `/指令` 按会话打开 ──────────────────────────────

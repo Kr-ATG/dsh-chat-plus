@@ -304,6 +304,9 @@ body{${canvas};min-height:100vh;box-sizing:border-box;padding:${m.outer}px ${m.o
    裁切；画布背景由围栏文档自带（跟随截图主题），与正文之间不留额外边界。 */
 .content figure.htmlfence{margin:1.1em 0;padding:0;border:0;border-radius:10px;overflow:hidden;background:transparent}
 .content figure.htmlfence iframe{display:block;width:100%;border:0;background:transparent}
+/* 内嵌 iu 快照：样式全部来自 client 半身的 IU_CSS（与对话流同一份源码），
+   这里只做宿主变量映射（见 card.ts 的 iuCssFor），不再另写一套 .iushot 规格
+   —— 另写一份正是「截图和对话流长得不一样」的漂移来源。 */
 .md-img-alt{color:var(--fg3);font-style:italic}
 /* 图表围栏：渲染前是等宽源码块（引擎缺失时的降级形态），mermaid 画完后
    data-processed=true，切成居中的白/暗底画布，SVG 按容器宽度等比缩放。 */

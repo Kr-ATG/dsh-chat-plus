@@ -251,10 +251,42 @@ function linkifyLine(line: string): string {
   let match: RegExpExecArray | null
   while ((match = re.exec(line)) !== null) {
     out += linkifyPlain(line.slice(last, match.index))
-    out += match[0]
+    out += repairHandwrittenImagePath(match[0])
     last = match.index + match[0].length
     if (match[0].length === 0) re.lastIndex += 1
   }
   out += linkifyPlain(line.slice(last))
   return out
+}
+
+/**
+ * 修手写的反斜杠图片路径：`![alt](D:\a\b.png)` → `![alt](D:/a/b.png)`。
+ *
+ * 为什么必须修：Markdown 里 `\` 是**转义符**。`![x](D:\AI\Dsh\_tmp\shot.png)`
+ * 会被解析成 `D:AIDsh_tmp shot.png`（`\_` 退化成 `_`、`\A`/`\D` 各自成转义），
+ * 渲染出的 `src` 直接指向一个不存在的文件 —— 用户看到「图片无法预览」，
+ * 而路径本身完全合法。
+ *
+ * 这个坑只在**手写**语法里出现：插件自己生成的链接走 encodePathForMarkdown，
+ * 反斜杠早已统一成正斜杠（见那里的注释）。但模型写 Windows 路径时天然用反斜杠，
+ * 而 PROTECTED_RE 把 `![x](y)` 整块当作「已有链接，原样保留」跳过了 ——
+ * 本意是保护，实际变成放行。所以在这里补一刀：只动 destination 里的反斜杠，
+ * 其余（alt 文本、尖括号包裹、title）保持原样。
+ *
+ * 判据刻意保守：只有 `![...](...)` 图片语法、且 destination 里真的含 `\` 才改写；
+ * 普通链接 `[x](y)` 不碰（那可能是 URL 或别的东西）。
+ * @param fragment - 一个受保护片段（可能是图片/链接/行内代码/自动链接）。
+ * @returns 修正后的片段；不该动就原样返回。
+ */
+function repairHandwrittenImagePath(fragment: string): string {
+  if (!fragment.startsWith('![')) return fragment
+  // 行内代码不会以 ![ 开头，这里只可能是图片语法。
+  const match = /^(!\[[^\]]*\]\()([^)\s]*)(\s+"[^"]*")?(\))$/.exec(fragment)
+  if (match === null) return fragment
+  const destination = match[2] ?? ''
+  if (!destination.includes('\\')) return fragment
+  // 去掉尖括号包裹（`<D:\a\b.png>`）：CommonMark 只在链接语法里认它，
+  // 且它不解决转义问题，统一去掉后交给正斜杠形式。
+  const bare = destination.replace(/^</, '').replace(/>$/, '')
+  return `${match[1]}${bare.replace(/\\/g, '/')}${match[3] ?? ''}${match[4]}`
 }

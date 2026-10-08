@@ -363,6 +363,9 @@ const expectedStyles = [
   // 对话内 HTML 卡片（src/client/html-embed/styles.ts）：标题栏 + 沙箱舞台 +
   // 全屏层。与 diagram 同批注入，独立 style id。
   'dsh-chat-flow-html-embed-styles',
+  // iu 原生交互卡片（src/client/iu/styles.ts）：滑块 / 图表 / 清单 / 对比 +
+  // 流式占位。与 html 卡片同批注入，独立 style id（命名空间 dtt-iu）。
+  'dsh-chat-plus-iu-styles',
   'dsh-chat-flow-download-styles',
   'dsh-triad-skill-source-styles',
   // 供应商页样式（原 dsh-provider-hub/webui/styles）：.phub-* 卡片与控件规格、
@@ -1102,21 +1105,54 @@ if (krEnabled) {
     }
   }
 
-  // 子智能体区块：样式族 + 会话 id 传递。缺任何一样都会让 workflow 底下
-  // 看不到子智能体清单（而子智能体是独立会话，父调用里根本没有这些信息）。
+  // 子智能体**独立成卡**（2026-10-08 用户点名要的形态）：不再是操作面板某一步
+  // 下面的缩进小块。三件事各自都可能断，任何一处断了这张卡就白给：
+  //   1. 卡本身存在、样式族在位、有几个就几行；
+  //   2. 每一行**可点**且点了真的跳（官方 uiWorkspace.openSession）；
+  //   3. 数据源读的是**真实存在的快照形状**（projectionsBySession.subagentCatalog
+  //      + byId）—— 上一版读 items / subagentsByParent 这两个不存在的键，
+  //      目录永远停在「未加载」，用户截图里那句自相矛盾的话就是这么来的。
   if (krEnabled) {
-    if (!code.includes('.kr-plain-subs__list') || !code.includes('.kr-plain-sub__label')) {
-      fail('client bundle is missing the subagent block styles (.kr-plain-subs*)')
+    const subsSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrSubagentsCard.tsx'), 'utf8')
+    const catSrc0 = readFileSync(resolve(ROOT, 'src/client/kr-chat/subagent-catalog.ts'), 'utf8')
+    // 操作面板源码在本块与下面几块都要读，提到这里声明（下面几块共用同一份）。
+    const cardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrPlainTimelineCard.tsx'), 'utf8')
+    /**
+     * 断言「实现里没有某个东西」时必须**先剥注释**：这一整轮的改动恰恰在注释里
+     * 反复解释了"旧的那套已经删掉、为什么删"，拿原文匹配会把说明文字当成残留。
+     */
+    const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+    const cardCode = stripComments(cardSrc)
+    const subsCode = stripComments(subsSrc)
+    if (!code.includes('.kr-card--subs') || !code.includes('.kr-subs-row__label')) {
+      fail('client bundle is missing the subagents card styles (.kr-card--subs / .kr-subs-*)')
+    } else if (/kr-plain-subs|kr-plain-sub__|SubagentBlock/.test(cardCode) || /\.kr-plain-subs\b/.test(code)) {
+      fail('子智能体已独立成卡，操作面板里不该再有内嵌清单（kr-plain-subs* / SubagentBlock 应已整块删除）')
     } else if (!/sessionId=\{latestChatSessionId\}/.test(agentSrc)) {
-      fail('KrPlainTimelineCard 必须收到当前会话 id（子智能体目录按父会话寻址）')
+      fail('操作面板必须收到当前会话 id（产出行预览按会话寻址）')
+    } else if (!/<KrSubagentsCard/.test(agentSrc)) {
+      fail('右栏必须挂 KrSubagentsCard（子智能体独立成卡）')
+    } else if (!/useSubagentCatalog\(latestChatSessionId\)/.test(agentSrc)) {
+      fail('子智能体目录必须由 KrAgentPanel 单点订阅（两张卡各订一次 = 各开一条 interval + 各发一份 RPC）')
+    } else if (!/subagentCatalog=\{spawningThisTurn \? subagentCatalog : null\}/.test(agentSrc)) {
+      fail('操作面板那枚计数必须拿到同一份目录（单点订阅、向下传）')
+    } else if (!/rows\.map\(\(row, index\) => \(/.test(subsSrc) && !/visible\.map\(\(row, index\) => \(/.test(subsSrc)) {
+      fail('子智能体卡必须**有几个就几行**（一行一个，逐行渲染）')
+    } else if (!/className="kr-subs-row__main"[\s\S]{0,400}?onClick=\{\(\) => \{ onOpen\(row\) \}\}/.test(subsSrc)) {
+      fail('每一行必须是可点的跳转入口（整行一个 button，点了 openSubagentSession）')
+    } else if (!/openSubagentSession/.test(subsSrc) || !/uiWorkspace/.test(catSrc0)) {
+      fail('跳转必须走官方 uiWorkspace.openSession（与官方子智能体目录点一行同一条链路）')
+    } else if (!/projectionsBySession/.test(catSrc0) || !/subagentCatalog/.test(catSrc0)) {
+      fail('子智能体目录必须读 projectionsBySession[父].values.subagentCatalog（官方目录用的同一份投影）')
+    } else if (!/refreshProjections/.test(catSrc0)) {
+      fail('子智能体目录必须主动调 refreshProjections 拉基线（不拉就永远读不到目录）')
     } else {
-      pass('子智能体区块样式与父会话 id 传递在位')
+      pass('子智能体独立成卡：有几个几行 + 整行可点跳转 + 数据源读真实快照形状')
     }
 
     // 「操作面板」卡：技术细节入口已按要求整块删除（连带它打开时的蓝底），
     // 于是这张卡只剩人话；列表仍必须有上下渐隐（否则顶部被硬切出半行）、
     // 收口时必须回顶（内容定格后停在底部会把开头几步挡在视口外）。
-    const cardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrPlainTimelineCard.tsx'), 'utf8')
     if (/showTech|kr-plain-tech-toggle|kr-plain-step__tech/.test(cardSrc)) {
       fail('「技术细节」开关与展开块已整块删除，卡片里不该再有残留')
     } else if (/kr-card__badge/.test(cardSrc)) {
@@ -1183,19 +1219,19 @@ if (krEnabled) {
       pass('操作面板卡头带详细/简要双按钮（默认简要 / 不误触折叠）')
     }
 
-    // 子智能体：主数据源必须是 items（实时投影），subagentsByParent 只作兜底。
-    // 后者只在父会话的目录被打开过时才存在，要靠 refreshSubagents 主动拉、依赖
-    // host 的 remote 子服务能不能通；而顶栏「N 个子智能体」读的是 items 里的投影
-    // 条目——那条路零 RPC 且一定有数据。
-    const catSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/subagent-catalog.ts'), 'utf8')
-    if (!/rowsFromItems/.test(catSrc) || !/'origin'/.test(catSrc)) {
-      fail('子智能体目录必须先从 items（origin==subagent 的条目）读实时投影')
-    } else if (!/state: 'unloaded'/.test(catSrc) || !/parentAvailable/.test(catSrc)) {
-      fail('子智能体目录必须区分「未加载」与「确实为空」（靠 parentAvailable 判定）')
-    } else if (!/state === 'unloaded'/.test(cardSrc) || !/子智能体清单未加载/.test(cardSrc)) {
+    // 子智能体目录的三态语义：**未加载 ≠ 确实为空**。把「还没读到」说成
+    // 「这次没有派生独立的子智能体」，就是在对一件我们并不知道的事下结论
+    // （截图里那句自相矛盾的话正是这么来的）。
+    if (!/state: 'unloaded'/.test(catSrc0) || !/state: 'empty'/.test(catSrc0)) {
+      fail('子智能体目录必须区分「未加载 / 读取中」与「确实为空」两种状态')
+    } else if (!/正在读取子智能体/.test(subsCode)) {
       fail('未加载态必须有独立文案，不能复用「这次没有派生独立的子智能体」')
+    } else if (/这次没有派生独立的子智能体/.test(subsCode)) {
+      fail('卡上不得再出现「这次没有派生独立的子智能体」这句结论（空目录只说明我们还没读到）')
+    } else if (!/rows\.length === 0 && !spawning\) return null/.test(subsCode)) {
+      fail('这次会话确实没有子智能体时整张卡不该出现（常驻空卡只在右栏白占高度）')
     } else {
-      pass('子智能体目录：items 实时投影为主 + 未加载/为空分层')
+      pass('子智能体目录：真实快照形状为主 + 未加载/为空分层 + 无内容不渲染')
     }
   }
 
@@ -1249,8 +1285,44 @@ if (krEnabled) {
     fail('正文渲染必须真的调用 linkifyFilePaths(promoteStandaloneImagePath(...))')
   } else if (!/streaming\) return source/.test(thinkSrc)) {
     fail('裸路径改写只能在定稿文本上做（流式期半截路径会产出死链）')
+  } else if (!/repairHandwrittenImagePath/.test(linkifySrc)) {
+    fail('path-linkify 必须修手写的反斜杠图片路径（Markdown 把 \\_ 当转义符吃掉 → 图片无法预览）')
   } else {
     pass('path-linkify：裸路径 → 官方链接；单图路径 → 图片；代码块/行内代码/已有链接不动')
+  }
+
+  // 手写反斜杠图片路径：**这是模型最可能写出来的形式**（Windows 习惯），
+  // 而 Markdown 里 `\` 是转义符 —— `![x](D:\a\_tmp\s.png)` 会被解析成
+  // `D:a_tmps.png`，渲染出的 src 指向不存在的文件，用户看到「图片无法预览」。
+  // 插件自己生成的链接走 encodePathForMarkdown 早已统一正斜杠，唯独手写的这一路
+  // 被 PROTECTED_RE 当「已有链接，原样保留」放过了 —— 保护变成放行。
+  {
+    const probe = mod.linkifyFilePaths === undefined
+      ? null
+      : mod.linkifyFilePaths(mod.promoteStandaloneImagePath('![截图](D:\\AI\\Dsh\\_tmp\\a\\s.png)'))
+    if (probe === null) {
+      fail('缺少 linkifyFilePaths / promoteStandaloneImagePath 导出（手写反斜杠图片路径不可断言）')
+    } else if (/\\/.test(probe)) {
+      fail(`手写反斜杠图片路径必须被修成正斜杠，实得 ${probe}`)
+    } else if (!/!\[截图\]\(D:\/AI\/Dsh\/_tmp\/a\/s\.png\)/.test(probe)) {
+      fail(`修好的图片语法不对：${probe}`)
+    } else {
+      pass('path-linkify：手写反斜杠图片路径修正为正斜杠（否则 Markdown 转义吃掉 \\_ → 图片无法预览）')
+    }
+    // 尖括号包裹形式同样要修（`![x](<D:\a\b.png>)`）。
+    const angle = mod.linkifyFilePaths === undefined
+      ? null
+      : mod.linkifyFilePaths('![截图](<D:\\AI\\Dsh\\a\\s.png>)')
+    if (angle !== null && /\\/.test(angle)) {
+      fail(`尖括号包裹的反斜杠图片路径也必须修，实得 ${angle}`)
+    }
+    // 普通链接的反斜杠**不能**碰（可能是 URL 或别的东西，改了反而出错）。
+    const plainLink = mod.linkifyFilePaths === undefined
+      ? null
+      : mod.linkifyFilePaths('[文字](C:\\a\\b.txt)')
+    if (plainLink !== null && plainLink !== '[文字](C:\\a\\b.txt)') {
+      fail(`普通链接的反斜杠不该被改（只修图片语法），实得 ${plainLink}`)
+    }
   }
 
   // 正文提及的范围补齐：官方 fileMentions 只在回合收口后、且只认本回合产出的
@@ -1380,10 +1452,10 @@ if (krEnabled) {
     fail('产出物卡空态必须常驻一行（不整张 return null，与任务概览同一口径）')
   } else if (!/KrOutputsCard[\s\S]{0,600}?squeezed=\{panelSqueezed\}/.test(outputsPanelSrc)) {
     fail('右栏挤压时必须把 squeezed 传给产出物卡（默认露出条数降一档）')
-  } else if (!/KrPlainTimelineCard[\s\S]{0,900}?<KrOutputsCard/.test(outputsPanelSrc)) {
-    fail('产出物卡必须挂在操作面板**之下**（滚动区最后一张卡）')
+  } else if (!/KrPlainTimelineCard[\s\S]{0,1200}?<KrSubagentsCard[\s\S]{0,600}?<KrOutputsCard/.test(outputsPanelSrc)) {
+    fail('右栏卡片顺序必须是 操作面板 → 子智能体 → 产出物（过程 → 派出去的 → 成品）')
   } else {
-    pass('产出物卡：整行可点 + SVG 类型缩略图 + 代码折行 + 常驻空态，挂在操作面板之下')
+    pass('产出物卡：整行可点 + SVG 类型缩略图 + 代码折行 + 常驻空态，挂在操作面板与子智能体卡之下')
   }
 
   // 对话滚动守卫（2026-10-04 修「点一下就跑到下面」）：常驻状态机在
@@ -2159,6 +2231,221 @@ if (krEnabled) {
     pass('HTML 卡片：围栏切分精确（大小写/未闭合/超长/空内容各自回退）+ 标题提取')
     pass('HTML 卡片：流式期未闭合围栏 → 预渲染占位卡（pending 翻转同 key，不闪）')
     pass('HTML 卡片：沙箱只给 allow-scripts + 高度上报三重校验 + base target=_blank')
+  }
+}
+
+// ── 对话内 iu 原生交互卡片（```iu 围栏 → IuCard）─────────────────────────
+//
+// 这组断言同样盯「静默失效」：围栏不命中只会显示成代码块；spec 校验写宽了会
+// 让半截 JSON 变成空卡片；回写链路断了点「填入输入框」毫无反应。
+{
+  const reasons = []
+  if (typeof mod.splitIu !== 'function' || typeof mod.looksLikeIuFence !== 'function') {
+    reasons.push('缺少 splitIu / looksLikeIuFence 导出')
+  } else {
+    // ① 四种 kind 都必须切出卡片，且关键字段解析正确。
+    const slider = mod.splitIu('```iu\n{"kind":"slider","title":"人数","min":1,"max":10,"step":1,"value":4,"unit":"人","outputs":[{"label":"面粉","per":120,"unit":"g"}]}\n```')
+    const sCard = slider.find(p => p.kind === 'iu')
+    if (sCard === undefined || sCard.pending !== false) {
+      reasons.push('slider 围栏未被切出卡片')
+    } else if (sCard.spec.kind !== 'slider' || sCard.spec.title !== '人数') {
+      reasons.push(`slider spec 解析错误：${JSON.stringify(sCard.spec)}`)
+    } else if (sCard.spec.outputs.length !== 1 || sCard.spec.outputs[0].per !== 120) {
+      reasons.push('slider outputs 解析错误（per=每单位用量）')
+    }
+    const chart = mod.splitIu('```iu\n{"kind":"chart","chart":"line","title":"趋势","labels":["A","B"],"series":[{"name":"S","values":[1,2]}]}\n```')
+    const cCard = chart.find(p => p.kind === 'iu')
+    if (cCard === undefined || cCard.spec.kind !== 'chart' || cCard.spec.chart !== 'line') {
+      reasons.push('chart 围栏未被切出卡片或 chart 类型错误')
+    }
+    const check = mod.splitIu('```iu\n{"kind":"checklist","title":"清单","items":[{"label":"甲","desc":"说明"}]}\n```')
+    const kCard = check.find(p => p.kind === 'iu')
+    if (kCard === undefined || kCard.spec.kind !== 'checklist' || kCard.spec.items.length !== 1) {
+      reasons.push('checklist 围栏未被切出卡片')
+    }
+    const tabs = mod.splitIu('```iu\n{"kind":"tabs","title":"对比","tabs":[{"label":"A","heading":"H","body":"B"}]}\n```')
+    const tCard = tabs.find(p => p.kind === 'iu')
+    if (tCard === undefined || tCard.spec.kind !== 'tabs' || tCard.spec.tabs.length !== 1) {
+      reasons.push('tabs 围栏未被切出卡片')
+    }
+    // piano：默认值与钳制都要对（八度越界、未知音色都该被收敛，而不是渲染崩掉）。
+    const piano = mod.splitIu('```iu\n{"kind":"piano","title":"小星星","octave":4,"octaves":1,"wave":"triangle"}\n```')
+    const pCard = piano.find(p => p.kind === 'iu')
+    if (pCard === undefined || pCard.spec.kind !== 'piano') {
+      reasons.push('piano 围栏未被切出卡片')
+    } else {
+      if (pCard.spec.octave !== 4 || pCard.spec.octaves !== 1) reasons.push('piano 的 octave/octaves 解析错误')
+      if (pCard.spec.wave !== 'triangle') reasons.push('piano 的 wave 解析错误')
+      if (pCard.spec.showNotes !== true) reasons.push('piano 的 showNotes 默认应为 true')
+      const bare = mod.splitIu('```iu\n{"kind":"piano"}\n```').find(p => p.kind === 'iu')
+      if (bare === undefined) reasons.push('piano 允许只给 kind（其余走默认）')
+      else if (bare.spec.octave !== 4 || bare.spec.octaves !== 1 || bare.spec.wave !== 'sine') {
+        reasons.push(`piano 默认值错误：${JSON.stringify(bare.spec)}`)
+      }
+      // 越界与未知值必须被收敛（八度钳到 0–7、octaves 钳到 1–3、未知音色回落 sine）。
+      const wild = mod.splitIu('```iu\n{"kind":"piano","octave":99,"octaves":9,"wave":"nope"}\n```').find(p => p.kind === 'iu')
+      if (wild === undefined) reasons.push('piano 越界值不该导致整卡回退')
+      else if (wild.spec.octave !== 7 || wild.spec.octaves !== 3 || wild.spec.wave !== 'sine') {
+        reasons.push(`piano 越界值未被钳制：${JSON.stringify(wild.spec)}`)
+      }
+    }
+
+    // ② 非法 / 空 / 未知 kind / 超长 → 一律回退原文，绝不产空卡片。
+    for (const [label, text] of [
+      ['非法 JSON', '```iu\n{不是 JSON\n```'],
+      ['空内容', '```iu\n\n```'],
+      ['未知 kind', '```iu\n{"kind":"nope"}\n```'],
+      ['缺 items 的清单', '```iu\n{"kind":"checklist","title":"x"}\n```'],
+      ['超长', '```iu\n{"kind":"checklist","title":"' + 'x'.repeat(21000) + '"}\n```'],
+    ]) {
+      if (mod.splitIu(text).some(p => p.kind === 'iu')) reasons.push(`${label} 应回退成代码块`)
+    }
+
+    // ③ 语言标记精确匹配：iu-preview / ius 不得被吞；IU 大写要认。
+    for (const lang of ['iu-preview', 'ius']) {
+      if (mod.splitIu('```' + lang + '\n{"kind":"checklist","items":[{"label":"a"}]}\n```').some(p => p.kind === 'iu')) {
+        reasons.push('```' + lang + ' 不该被识别成 iu 卡片')
+      }
+    }
+    if (!mod.splitIu('```IU\n{"kind":"checklist","items":[{"label":"a"}]}\n```').some(p => p.kind === 'iu')) {
+      reasons.push('```IU 大写标记应被识别')
+    }
+    if (mod.looksLikeIuFence('这是一张 iu 卡片')) reasons.push('looksLikeIuFence 不能只看 iu 字样')
+
+    // ④ 流式期未闭合围栏 → pending 占位；定稿态未闭合 → 回退代码块。
+    const live = mod.splitIu('前文\n```iu\n{"kind":"slider","tit', true)
+    const ph = live.find(p => p.kind === 'iu')
+    if (ph === undefined) reasons.push('流式期未闭合的 ```iu 必须产出占位卡')
+    else {
+      if (ph.pending !== true) reasons.push('流式期未闭合围栏必须标记 pending=true')
+      if (!(ph.bytes > 0)) reasons.push('占位卡必须带已写出的字节数')
+    }
+    if (mod.splitIu('```iu\n{"kind":"slider","tit', false).some(p => p.kind === 'iu')) {
+      reasons.push('非流式期的未闭合围栏必须回退成代码块（不能永远停在等待态）')
+    }
+    if (mod.splitIu('```js\nconst a = 1', true).some(p => p.kind === 'iu')) {
+      reasons.push('只有 ```iu 才走占位卡，其它语言的半截围栏不得被吞')
+    }
+
+    // ⑤ 混排多卡（A）：一段正文里多张 iu 卡片都要切出来，且 md 片段原样保留。
+    const multi = mod.splitIu('开头\n```iu\n{"kind":"checklist","items":[{"label":"a"}]}\n```\n中间\n```iu\n{"kind":"tabs","tabs":[{"label":"A","body":"B"}]}\n```\n结尾')
+    const cards = multi.filter(p => p.kind === 'iu')
+    if (cards.length !== 2) reasons.push(`一段正文里的多张 iu 卡片都要切出，实得 ${cards.length}`)
+    if (!multi.some(p => p.kind === 'md' && p.text.includes('中间'))) {
+      reasons.push('卡片之间的 markdown 正文必须原样保留（混排）')
+    }
+  }
+
+  // ⑥ 回写文案生成器（纯函数）：状态必须真的进入文案，否则「填入输入框」填了个空壳。
+  if (typeof mod.sliderFillText !== 'function' || typeof mod.checklistFillText !== 'function') {
+    reasons.push('缺少 sliderFillText / checklistFillText 导出（回写文案不可断言）')
+  } else {
+    const spec = { kind: 'slider', title: '人数', min: 1, max: 10, step: 1, value: 4, unit: '人', desc: '', outputs: [{ label: '面粉', per: 120, unit: 'g' }] }
+    const text = mod.sliderFillText(spec, 6)
+    if (!text.includes('6') || !text.includes('720')) reasons.push(`滑块回写文案必须含当前值与换算，实得 ${text}`)
+    const cl = mod.checklistFillText({ kind: 'checklist', title: '清单', items: [{ label: '甲', desc: '' }, { label: '乙', desc: '' }] }, new Set([0]))
+    if (!cl.includes('甲') || cl.includes('乙')) reasons.push(`清单回写文案必须只含已勾选项，实得 ${cl}`)
+    const empty = mod.checklistFillText({ kind: 'checklist', title: '清单', items: [{ label: '甲', desc: '' }] }, new Set())
+    if (!empty.includes('还没勾选')) reasons.push('未勾选时必须给出可读文案，不能是空串')
+  }
+
+  // ⑦ 沙箱回写桥（C）：bridge 里必须有 __dshFill，宿主侧必须校验来源与长度。
+  const bridgeSrcIu = readFileSync(resolve(ROOT, 'src/client/html-embed/bridge.ts'), 'utf8')
+  if (!/__dshFill/.test(bridgeSrcIu)) reasons.push('iframe bridge 必须暴露 window.__dshFill（沙箱卡片回写入口）')
+  if (!/kind: "fill"/.test(bridgeSrcIu)) reasons.push('bridge 必须以 fill 消息类型上报回写')
+  const cardSrcIu = readFileSync(resolve(ROOT, 'src/client/html-embed/HtmlCard.tsx'), 'utf8')
+  if (!/data\.kind === 'fill'/.test(cardSrcIu)) reasons.push('宿主必须处理 fill 消息')
+  if (!/slice\(0, 2000\)/.test(cardSrcIu)) reasons.push('回写文本必须钳长度（防模型页面推超长内容进草稿）')
+  if (!/event\.source !== frameRef\.current\.contentWindow/.test(cardSrcIu)) reasons.push('fill 回写必须做来源窗口校验')
+  // 原生卡片的回写必须走官方 inputActions.setDraft，而不是自己碰 DOM。
+  const thinkSrcIu = readFileSync(resolve(ROOT, 'src/client/thinking/ThinkingStepNodeView.tsx'), 'utf8')
+  if (!/inputActions/.test(thinkSrcIu) || !/setDraft/.test(thinkSrcIu)) {
+    reasons.push('iu 回写必须走官方 inputActions.setDraft（唯一公开写入路径）')
+  }
+  if (!/splitIu/.test(thinkSrcIu)) reasons.push('正文渲染链路必须接上 splitIu（否则 iu 围栏不渲染）')
+
+  // ⑨ 钢琴发声的三条硬约束（都是「不写就坏、但不报错」的那类）。
+  //
+  // ① AudioContext 必须**懒创建**：浏览器要求首次发声在用户手势里，提前 new
+  //    会得到 suspended 的 context，之后弹琴全程无声——不报错，只是没声音。
+  // ② 松手不能硬切波形：直接 stop() 会「啪」一声爆音，必须指数衰减到极小值。
+  // ③ 每个音要有自己的振荡器：共用全局节点的话多指同按会互相掐断。
+  const iuCardSrc = readFileSync(resolve(ROOT, 'src/client/iu/IuCard.tsx'), 'utf8')
+  if (!/AudioContext/.test(iuCardSrc)) {
+    reasons.push('钢琴必须用 Web Audio 发声（沙箱不能引外部音频资源）')
+  }
+  if (/new\s+\(?window\.AudioContext/.test(iuCardSrc) && !/ensureCtx/.test(iuCardSrc)) {
+    reasons.push('AudioContext 必须懒创建（构造期 new 会拿到 suspended context → 全程无声）')
+  }
+  if (!/ensureCtx/.test(iuCardSrc) || !/state === 'suspended'/.test(iuCardSrc)) {
+    reasons.push('AudioContext 必须懒创建并在 suspended 时 resume')
+  }
+  if (!/exponentialRampToValueAtTime/.test(iuCardSrc)) {
+    reasons.push('发声包络必须指数衰减（直接 stop() 会爆音）')
+  }
+  if (!/voicesRef/.test(iuCardSrc) || !/Map</.test(iuCardSrc)) {
+    reasons.push('每个音必须持有自己的振荡器（共用全局节点会让多指同按互相掐断）')
+  }
+  // 电脑键盘映射必须用 event.code：key 受输入法影响（中文下可能是 Process）。
+  if (!/event\.code|e\.code/.test(iuCardSrc)) {
+    reasons.push('电脑键盘演奏必须读 event.code（event.key 受输入法影响）')
+  }
+  // 键盘接管必须有闸门，否则会抢走对话输入框的按键。
+  if (!/hoverRef/.test(iuCardSrc)) {
+    reasons.push('键盘演奏必须有悬停闸门（否则抢走输入框按键）')
+  }
+  // 琴键的按下反馈不能在 reduced-motion 下被抹掉（那是反馈不是装饰）。
+  // ⚠ 判据用到 iuCss，那段声明在本块**后面**，所以这条放在 ⑧ 之后检查。
+  // 回写文案生成器必须可断言。
+  if (typeof mod.pianoFillText !== 'function') {
+    reasons.push('缺少 pianoFillText 导出（钢琴回写文案不可断言）')
+  } else {
+    const pSpec = { kind: 'piano', title: '小星星', desc: '', octave: 4, octaves: 1, wave: 'sine', showNotes: true }
+    const empty = mod.pianoFillText(pSpec, [])
+    if (!empty.includes('还没弹')) reasons.push('未弹奏时必须给出可读文案，不能是空串')
+    const text = mod.pianoFillText(pSpec, ['C4', 'C4', 'G4', 'G4', 'A4'])
+    if (!text.includes('C4') || !text.includes('G4')) reasons.push(`钢琴回写必须含音名，实得 ${text}`)
+    if (!text.includes('简谱')) reasons.push('钢琴回写必须附简谱（用户要能直接拿去用）')
+    if (!text.includes('1 1 5 5 6')) reasons.push(`简谱换算错误，实得 ${text}`)
+  }
+
+  // ⑧ 图表可见性绝不依赖动画（实测踩中两次，无头截图 / 全局节流下图表变空卡）。
+  //
+  // 本插件的全局节流会在页面不可见时把 animation-play-state 置为 paused；无头
+  // 截图与打印则直接抓第一帧。任何把「看得见」交给动画的写法在这三种场景下都会
+  // 让柱子/折线消失，只剩网格线与数字——不报错，只是看起来像坏掉的空卡。
+  const iuCss = readFileSync(resolve(ROOT, 'src/client/iu/styles.ts'), 'utf8')
+  if (/@keyframes dtt-iu-grow \{\s*from\s*\{\s*transform:/.test(iuCss)) {
+    reasons.push('柱子不得用 transform: scaleY(0) 做入场（几何尺寸必须始终在最终态）')
+  }
+  if (/stroke-dashoffset:\s*640/.test(iuCss)) {
+    reasons.push('折线不得用 stroke-dashoffset 满偏移做入场（可见性不能交给动画）')
+  }
+  if (/@keyframes dtt-iu-grow \{\s*from\s*\{\s*opacity:\s*0\s*\}/.test(iuCss)
+    || /@keyframes dtt-iu-draw \{\s*from\s*\{\s*opacity:\s*0\s*\}/.test(iuCss)) {
+    reasons.push('图表入场动画起点不得是 opacity:0（第一帧/暂停时会看不见）')
+  }
+  if (!/@keyframes dtt-iu-grow/.test(iuCss) || !/prefers-reduced-motion[\s\S]{0,700}dtt-iu__bar/.test(iuCss)) {
+    reasons.push('图表动画必须在 prefers-reduced-motion 下兜底')
+  }
+
+  // 琴键的按下反馈不能在 reduced-motion 下被抹掉（下沉与高亮是**反馈**，
+  // 不是装饰；关掉它按下去就没反应了——与等待态不能动到 0 反馈同一个道理）。
+  if (/prefers-reduced-motion[\s\S]{0,1200}dtt-iu__pkey\[data-on="1"\][^}]*transform:\s*none/.test(iuCss)) {
+    reasons.push('reduced-motion 下不得抹掉琴键下沉反馈（只该关动画）')
+  }
+  if (!/prefers-reduced-motion[\s\S]{0,1200}dtt-iu__pkey/.test(iuCss)) {
+    reasons.push('钢琴必须在 prefers-reduced-motion 下兜底（关动画、留反馈）')
+  }
+
+  if (reasons.length > 0) {
+    fail('对话内 iu 卡片契约：' + reasons.join('；'))
+  } else {
+    pass('iu 卡片：五种 kind 切分 + 非法/空/未知/超长各自回退 + 标记精确匹配')
+    pass('iu 卡片：流式占位（pending）与定稿回退语义正确 + 混排多卡')
+    pass('iu 卡片：回写文案含状态 + 沙箱 __dshFill 桥 + inputActions.setDraft 回写')
+    pass('iu 卡片：图表可见性不依赖动画（无头截图 / 全局节流下不会变空卡）')
+    pass('iu 卡片：钢琴 Web Audio 懒创建 + 指数包络 + 独立振荡器 + 悬停闸门')
   }
 }
 

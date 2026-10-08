@@ -36,16 +36,6 @@ import { applyOfficePreview } from './office/index.ts'
 import { applyFontRoutes } from './fonts/index.ts'
 import { applyTriadHost } from './triad/host.ts'
 import { applyProviderHub, providerHubServices } from './provider/index.ts'
-import { applyOpencodeFingerprint } from './provider/modules/opencode-free-fingerprint.ts'
-// OpenCode Zen 免费层指纹的可测面：session id 派生、命中判据、请求改写纯函数。
-// 这三块错了都不会抛错——只会让 exo-free 静默回到 403，或者更糟：把别的厂商
-// 请求也改写掉。所以导出给 smoke 直接断言（见 scripts/smoke-host.mjs）。
-export {
-  sessionIdFor as opencodeSessionIdFor,
-  needsFingerprint as opencodeNeedsFingerprint,
-  applyFingerprint as opencodeApplyFingerprint,
-  __test as opencodeFingerprintTest,
-} from './provider/modules/opencode-free-fingerprint.ts'
 import { applyMailHost } from './mail/index.ts'
 import { applyToolsGate } from './tools-gate/index.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
@@ -270,22 +260,6 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
       applyProviderHub(providerCtx)
     },
   )
-
-  // ── OpenCode Zen 免费层指纹（纯出站改写，零服务依赖）────────────────────
-  // 为什么**不**放进上面的 providerHubServices 延迟注入：那 8 个服务里含
-  // webServer，headless / tui 这类没有 web 服务的 profile 会让整个回调不执行，
-  // 于是 exo-free 在这些 profile 里照样 403。本模块只用 ctx.effect + logger，
-  // 所以直接挂——任何 profile 都能拿到。
-  //
-  // 包装的是 globalThis.fetch，属进程级副作用：模块内部走 ctx.effect 注册
-  // 卸载，插件被禁用/重载时自动还原，不给下一个实例留一层指向旧闭包的包装。
-  try {
-    applyOpencodeFingerprint(ctx as never)
-  } catch (error) {
-    ctx.logger?.warn?.(
-      `[dsh-chat-plus] opencode fingerprint failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
-    )
-  }
 
   // ── 邮箱工作台（Agent Mail）────────────────────────────────────────────
   // 与三个工作台并列的独立能力：模型工具（mail_*）+ /api/dsh-mail/* 路由 +

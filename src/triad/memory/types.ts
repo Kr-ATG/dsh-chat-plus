@@ -124,13 +124,13 @@ export interface StoreState {
    */
   soulInjectEnabled?: boolean
   /**
-   * 效率约束（省 token/耗时）规范注入开关（全局单值，三态缺省）。
+   * 团队协作（Agent Teams / 子代理委派）规范注入开关（全局单值，三态缺省）。
    * 与 diagram / html 同一范式：硬编码在插件内、无卸载路径，主注入关闭或项目被
-   * 排除时仍单独注入。投的是一段静态规范文本（结构拆分优先 + 单步体积压缩），
+   * 排除时仍单独注入。投的是一段静态规范文本（分档判据 + 组队硬规矩 + 反模式），
    * 不读条目、不做检索、不参与命中加分。
-   * 缺省 = 跟随 config.efficiencyInjectDefaultEnabled（默认开）。
+   * 缺省 = 跟随 config.teamInjectDefaultEnabled（默认开）。
    */
-  efficiencyInjectEnabled?: boolean
+  teamInjectEnabled?: boolean
 }
 
 /** 单个会话的 ticker 状态。 */
@@ -251,14 +251,14 @@ export interface MemoryConfig {
    */
   soulInjectDefaultEnabled: boolean
   /**
-   * 效率约束（省 token/耗时）规范注入默认开关（内置能力，**默认开**）。
+   * 团队协作（Agent Teams / 子代理委派）规范注入默认开关（内置能力，**默认开**）。
    *
    * 与 htmlInjectDefaultEnabled 同构：投的是一段静态规范文本，每会话首步一次。
-   * 默认开的理由：它约束的是 agent 的 token/耗时行为本身（结构拆分优先、单步
-   * 体积压缩），对所有会话普遍有益；文本约 1KB，换一条跨会话恒定的效率纪律，划算。
-   * 与 diagram 默认关相反——diagram 只影响「要不要多画一张图」，不影响任务成本。
+   * 默认开的理由：模型默认单线程串完，不注入就不会主动并行委派与组队；
+   * 文本自带分档判据（小事自己做），所以「默认开」不会退化成事事组队。
+   * 与 diagram 默认关相反——diagram 只影响「要不要多画一张图」，不影响任务组织方式。
    */
-  efficiencyInjectDefaultEnabled: boolean
+  teamInjectDefaultEnabled: boolean
   /** 注入检索 top-k（当前任务相关记忆注入条数；identity/pinned/长期常驻不占此预算）。 */
   injectTopK: number
   /** 全局条目数上限（超限按 importance + recency 淘汰低分条目）。 */
@@ -314,8 +314,8 @@ export const DEFAULT_CONFIG: MemoryConfig = {
   // 默认开：HTML 卡片是交付形态本身（见字段注释），不注入模型就不会主动用。
   htmlInjectDefaultEnabled: true,
   soulInjectDefaultEnabled: true,
-  // 默认开：约束 agent 的 token/耗时行为本身，对所有会话普遍有益（见字段注释）。
-  efficiencyInjectDefaultEnabled: true,
+  // 默认开：模型默认单线程串完，不注入就不会主动并行委派与组队（见字段注释）。
+  teamInjectDefaultEnabled: true,
   injectTopK: 8,
   entryLimit: 500,
   pruneNeverHitDays: 21,
@@ -407,7 +407,7 @@ export type ConfigNumberKey = keyof typeof CONFIG_NUMBER_BOUNDS
 
 const CONFIG_NUMBER_KEYS = Object.keys(CONFIG_NUMBER_BOUNDS) as ConfigNumberKey[]
 
-const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'diagramInjectDefaultEnabled', 'htmlInjectDefaultEnabled', 'soulInjectDefaultEnabled', 'efficiencyInjectDefaultEnabled'] as const
+const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'diagramInjectDefaultEnabled', 'htmlInjectDefaultEnabled', 'soulInjectDefaultEnabled', 'teamInjectDefaultEnabled'] as const
 
 /** 可调布尔字段名。 */
 export type ConfigBooleanKey = (typeof CONFIG_BOOLEAN_KEYS)[number]

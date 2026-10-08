@@ -265,13 +265,13 @@ async function handle(
       const zhEnabled = await store.isZhInjectEnabled(config.zhInjectDefaultEnabled !== false)
       // diagram 同理并进回包：新开一个 GET 端点等于把翻倍的轮询量固化下来。
       const diagramEnabled = await store.isDiagramInjectEnabled(config.diagramInjectDefaultEnabled !== false)
-      // html 同理并进回包（同一理由：composer 的开关浮层一次 hover 就要知道四条通道的状态）。
+      // html 同理并进回包（同一理由：composer 的开关浮层一次 hover 就要知道全部通道的状态）。
       const htmlEnabled = await store.isHtmlInjectEnabled(config.htmlInjectDefaultEnabled !== false)
-      // soul 同样并进回包（同一理由：composer 的开关浮层一次 hover 就要知道三条通道的状态）。
+      // soul 同样并进回包（同一理由：开关浮层一次 hover 要知道全部通道状态）。
       const soulEnabled = await store.isSoulInjectEnabled(config.soulInjectDefaultEnabled !== false)
-      // efficiency 同理并进回包（同一理由：开关浮层一次 hover 要知道全部通道状态）。
-      const efficiencyEnabled = await store.isEfficiencyInjectEnabled(config.efficiencyInjectDefaultEnabled !== false)
-      json(res, 200, { enabled: explicit ?? defaultEnabled, defaultEnabled, explicit, zhEnabled, diagramEnabled, htmlEnabled, soulEnabled, efficiencyEnabled })
+      // team 同理并进回包（同一理由：开关浮层一次 hover 要知道全部通道状态）。
+      const teamEnabled = await store.isTeamInjectEnabled(config.teamInjectDefaultEnabled !== false)
+      json(res, 200, { enabled: explicit ?? defaultEnabled, defaultEnabled, explicit, zhEnabled, diagramEnabled, htmlEnabled, soulEnabled, teamEnabled })
       return
     }
     if (method === 'POST' && rest === '/inject-state') {
@@ -331,17 +331,17 @@ async function handle(
       return
     }
 
-    // ── 效率约束规范注入开关（内置能力，全局单值） ─────────────────────
+    // ── 团队协作规范注入开关（内置能力，全局单值） ─────────────────────
     // 与 diagram / html 端点同构，builtin:true 恒定——同样硬编码在插件里，无卸载入口。
-    if (method === 'GET' && rest === '/efficiency-inject-state') {
-      const enabled = await store.isEfficiencyInjectEnabled(config.efficiencyInjectDefaultEnabled !== false)
+    if (method === 'GET' && rest === '/team-inject-state') {
+      const enabled = await store.isTeamInjectEnabled(config.teamInjectDefaultEnabled !== false)
       json(res, 200, { enabled, builtin: true })
       return
     }
-    if (method === 'POST' && rest === '/efficiency-inject-state') {
+    if (method === 'POST' && rest === '/team-inject-state') {
       const body = await readBody(req) as Record<string, unknown>
       const enabled = body.enabled !== false
-      await store.setEfficiencyInjectEnabled(enabled)
+      await store.setTeamInjectEnabled(enabled)
       json(res, 200, { ok: true, enabled, builtin: true })
       return
     }

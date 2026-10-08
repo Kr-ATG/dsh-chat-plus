@@ -14,6 +14,11 @@
  *
  * 实时性：列表用 useSteppedFollow 跟随，新步骤贴底；用户上滚即截停，滚回
  * 底部自动恢复。与思考过程卡同一套手感。
+ *
+ * 子智能体（`subagent` / `workflow` 派出去的那些）**不在这张卡里列**：
+ * 它们是独立会话，缩进挂在某一步下面会被读成"这一步的内部细节"，还会把一列按
+ * 时间读的流水截成一段一段。2026-10-08 起它们有自己的卡（KrSubagentsCard），
+ * 这里只在派生那一步留一枚计数徽标（「派出 3 个子智能体」）。
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -22,7 +27,7 @@ import { useHeightAnimation, useMotionAllowed, useSteppedFollow } from '../motio
 import { formatDuration } from '../tool-summary/tool-stats.ts'
 import type { PlainIconKey, PlainStep } from './plain-language.ts'
 import { condenseSteps, countOf, stripCount, type PlainStepView, type PlainTimeline } from './plain-timeline.ts'
-import { useSubagentCatalog, type SubagentCatalogView } from './subagent-catalog.ts'
+import type { SubagentCatalogView } from './subagent-catalog.ts'
 import { workspaceCwdOf } from '../client-ctx.ts'
 import { tryOpenInSidebar } from '../open-preview.ts'
 
@@ -77,6 +82,14 @@ export interface KrPlainTimelineCardProps {
   readonly squeezed?: boolean
   /** 当前会话 id：用于查该会话派生了哪些子智能体。 */
   readonly sessionId?: string | null
+  /**
+   * 当前会话的子智能体目录（由 KrAgentPanel 单点订阅后传下来）。
+   *
+   * 只用来给「派出子任务」那一步标一枚计数。**订阅不在这里做**：子智能体卡
+   * 也要这份数据，两处各订阅一次会各开一条 interval，白白把 RPC 打成轮询。
+   * 传 null = 这次会话没派生过子智能体，计数那枚徽标直接显示「派生子任务」。
+   */
+  readonly subagentCatalog?: SubagentCatalogView | null
 }
 
 /**
@@ -149,57 +162,6 @@ function Icon({ name }: { readonly name: PlainIconKey }): ReactElement {
 }
 
 /**
- * 子智能体区块：挂在一条「派生子任务」的步骤下面。
- *
- * 回答的是「这个 workflow 底下到底有几个子智能体、谁还在跑」——这些信息父调用
- * 一概不知道（子智能体是独立会话），不给它的话用户只能自己去顶栏的子智能体
- * 目录里翻，那正是这张卡要取代的一跳。
- *
- * 只列拿得到的事实（名字 / 跑没跑 / 有没有后代），**不编造子智能体内部在做什么**：
- * 那部分数据不在 client 侧，宁可空着。
- */
-function SubagentBlock({ catalog }: { readonly catalog: SubagentCatalogView }): ReactElement | null {
-  if (catalog.state === 'loading') {
-    return <div className="kr-plain-subs" data-state="loading">正在读取子智能体…</div>
-  }
-  if (catalog.state === 'unloaded') {
-    /*
-     * 目录还没拉到（subagentsByParent 里没有这个父会话的键，或首次读取未成功）。
-     * 这里**不能说"这次没有派生独立的子智能体"** —— 那是在对一件我们并不知道的
-     * 事下结论；截图里就出现过「派出子任务 · 子智能体徽标」下面紧跟这句自相矛盾
-     * 的话。读者看不出区别，但这是假话。
-     */
-    return <div className="kr-plain-subs" data-state="empty">子智能体清单未加载</div>
-  }
-  if (catalog.state === 'error') {
-    return <div className="kr-plain-subs" data-state="error">子智能体清单读不到（会话服务未就绪）</div>
-  }
-  if (catalog.state === 'empty' || catalog.rows.length === 0) {
-    return <div className="kr-plain-subs" data-state="empty">这次没有派生独立的子智能体</div>
-  }
-  return (
-    <div className="kr-plain-subs">
-      <div className="kr-plain-subs__head">
-        {catalog.runningCount > 0
-          ? `${catalog.rows.length} 个子智能体 · ${catalog.runningCount} 个进行中`
-          : `${catalog.rows.length} 个子智能体 · 全部结束`}
-      </div>
-      <ul className="kr-plain-subs__list">
-        {catalog.rows.map((row) => (
-          <li key={row.id} className="kr-plain-sub" data-running={row.running ? 'true' : undefined}>
-            <span className="kr-plain-sub__dot" aria-hidden />
-            <span className="kr-plain-sub__label" title={row.label}>{row.label}</span>
-            {row.hasChildren && <span className="kr-plain-sub__tag">还有下级</span>}
-            {row.mode === 'continuable' && <span className="kr-plain-sub__tag">可续接</span>}
-            <span className="kr-plain-sub__state">{row.running ? '进行中' : '已结束'}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-/**
  * 产出行末尾的「打开预览」按钮。
  *
  * 读者是普通用户：他刚让模型做了张图 / 改了份文档，最想要的下一步就是**看一眼**。
@@ -238,11 +200,18 @@ function OpenFileChip({ step, sessionId }: {
   )
 }
 
-function StepRow({ step, index, catalog, brief, sessionId }: {
+function StepRow({ step, index, subagentCount, brief, sessionId }: {
   readonly step: PlainStep
   readonly index: number
-  /** 仅当 step.spawnsSubagents 为真时才有内容。 */
-  readonly catalog: SubagentCatalogView | null
+  /**
+   * 该步骤派生出的子智能体数量；null = 拿不到（目录没落地 / 服务未就绪）。
+   *
+   * 只在**这条步骤真的派生了子智能体**时才有值。清单本身**不再挂在这里** ——
+   * 子智能体是独立会话，缩进挂在某一步下面读起来像"这一步的内部细节"，还会把
+   * 一列按时间读的流水截成一段一段；现在它有自己的卡（KrSubagentsCard），
+   * 这里只留一枚计数，说清"这一步派了几个"，要跳过去看在下面那张卡上。
+   */
+  readonly subagentCount: number | null
   /** 简要（纪要）模式：不要图标，动词写回文字里。 */
   readonly brief: boolean
   /** 当前会话 id：点「预览」时用它构造文件地址。 */
@@ -328,12 +297,22 @@ function StepRow({ step, index, catalog, brief, sessionId }: {
       {step.durationMs !== undefined && step.durationMs > 40 && (
         <span className="kr-plain-step__time">{formatDuration(step.durationMs)}</span>
       )}
-      {step.spawnsSubagents === true && catalog !== null && (
-        <span className="kr-plain-step__subcount">
-          {catalog.state === 'ready' ? `${catalog.rows.length} 个子智能体` : '子智能体'}
+      {step.spawnsSubagents === true && (
+        <span
+          className="kr-plain-step__subcount"
+          /*
+           * 计数口径是**整场会话**，不是这一步单独派了几个 —— 目录条目里只有
+           * `createdAt`，而步骤不带时间戳，按步切分只能靠猜。所以文案用「共」
+           * 把口径说清楚，并在 title 里点明去哪儿看：宁可说"本会话一共几个"，
+           * 也不让读者以为"这一步派了几个"。
+           */
+          title={subagentCount === null
+            ? '正在读取子智能体清单；读完可在下面「子智能体」卡里逐个点进去看'
+            : `本次对话共 ${subagentCount} 个子智能体；在下面「子智能体」卡里点一行即跳过去看`}
+        >
+          {subagentCount === null ? '派出子任务' : `共 ${subagentCount} 个子智能体`}
         </span>
       )}
-      {step.spawnsSubagents === true && catalog !== null && <SubagentBlock catalog={catalog} />}
     </div>
   )
 }
@@ -343,6 +322,7 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   running,
   squeezed = false,
   sessionId = null,
+  subagentCatalog = null,
 }: KrPlainTimelineCardProps) {
   // 默认展开：这张卡挂在滚动区最末尾，收起等于把它藏到视线之外。
   const [open, setOpen] = useState(true)
@@ -376,15 +356,15 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   )
 
   /*
-   * 子智能体清单只在**本轮真的派生了子智能体**时才去订阅。
-   * 没有派生动作时完全不接轮询 —— 绝大多数轮次压根不 spawn，任何时候都在
-   * 读目录是白花的开销。
+   * 子智能体目录**不在这里订阅**（2026-10-08 起）：数据由 KrAgentPanel 单点订阅
+   * 后经 props 传下来。两张卡各订阅一次 = 各开一条 1.5s interval + 各发一份
+   * refreshProjections，白白把 RPC 打成轮询；而它们读的本来就是同一份快照。
+   *
+   * 计数只给「派出子任务」那一步用；目录没落地时传 null，徽标显示「派生子任务」。
    */
-  const hasSpawning = useMemo(
-    () => steps.some((step) => step.spawnsSubagents === true),
-    [steps],
-  )
-  const subagentCatalog = useSubagentCatalog(hasSpawning ? sessionId : null)
+  const subagentCount = subagentCatalog !== null && subagentCatalog.state === 'ready'
+    ? subagentCatalog.rows.length
+    : null
 
   // 跟随探针：条目数变化就重新贴底。
   const probe = useMemo(
@@ -549,7 +529,7 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
                   key={step.id}
                   step={step}
                   index={index}
-                  catalog={step.spawnsSubagents === true ? subagentCatalog : null}
+                  subagentCount={step.spawnsSubagents === true ? subagentCount : null}
                   brief={brief}
                   sessionId={sessionId}
                 />

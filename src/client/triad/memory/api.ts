@@ -196,14 +196,14 @@ export interface InjectStateView {
    */
   soulEnabled?: boolean
   /**
-   * 效率约束内置通道是否开启。
+   * 团队协作内置通道是否开启。
    *
    * 同样由 /inject-state 顺带回传。旧 host 不回此字段时按 false 兜底——与
    * diagram / html 完全同口径：它是新增能力，缺字段意味着这版 host 根本没有，
    * 显示「开」是假阳性（开着却注不进去最误导）。config 默认开只决定新 host
    * 的真实值，不改变缺字段兜底口径。
    */
-  efficiencyEnabled?: boolean
+  teamEnabled?: boolean
 }
 
 /**
@@ -361,9 +361,9 @@ export interface MemoryApi {
    */
   getSoulInjectState: () => Promise<ZhInjectStateView>
   setSoulInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
-  /** 效率约束内置通道开关（全局单值，与主开关无联动）。 */
-  getEfficiencyInjectState: () => Promise<ZhInjectStateView>
-  setEfficiencyInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
+  /** 团队协作内置通道开关（全局单值，与主开关无联动）。 */
+  getTeamInjectState: () => Promise<ZhInjectStateView>
+  setTeamInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
   consolidate: (scope?: 'all' | 'global' | 'project', projectHash?: string) => Promise<{ ok: boolean; results: ConsolidateResultView[] }>
   revisions: () => Promise<{ revisions: RevisionView[] }>
   rollback: (revisionId: string) => Promise<{ ok: boolean }>
@@ -425,8 +425,8 @@ export function createMemoryApi(): MemoryApi {
     setHtmlInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/html-inject-state', { enabled }),
     getSoulInjectState: () => getJson<ZhInjectStateView>('/soul/state'),
     setSoulInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/soul/state', { enabled }),
-    getEfficiencyInjectState: () => getJson<ZhInjectStateView>('/efficiency-inject-state'),
-    setEfficiencyInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/efficiency-inject-state', { enabled }),
+    getTeamInjectState: () => getJson<ZhInjectStateView>('/team-inject-state'),
+    setTeamInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/team-inject-state', { enabled }),
     consolidate: (scope = 'all', projectHash) => sendJson<{ ok: boolean; results: ConsolidateResultView[] }>('/consolidate', { scope, projectHash }),
     revisions: () => getJson<{ revisions: RevisionView[] }>('/revisions'),
     rollback: (revisionId) => sendJson<{ ok: boolean }>('/rollback', { revisionId }),

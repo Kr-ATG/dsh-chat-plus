@@ -170,6 +170,22 @@ export async function renderMarkdown(md: string, theme: ShotTheme): Promise<stri
         // 以 disable-web-security 打开。
         return `<pre class="mermaid" data-lang="${escapeAttr(lang.trim())}">${escapeHtml(code.trim())}</pre>`
       }
+      /*
+       * iu 围栏：**必须在这里短路，不能交给 shiki**。
+       *
+       * shiki 不认识 `iu` 这个语言（实测抛 `Language 'iu' not found`），异常被
+       * 下面的 catch 吞掉后走降级分支，产出的是 `<pre class="shiki plain">` ——
+       * 于是 card.ts 的 injectIu 按 `language-iu` 找落点永远找不到，快照整条
+       * 静默失效（截图里 iu 卡片退化成一段 JSON 源码）。这个失败不报错，只能
+       * 靠「先判语言、再进 shiki」的顺序来防。
+       *
+       * 与 html 分支的差异：html 是 shiki 认识的语言，靠替换 class 打标记；
+       * iu 不是，所以直接产出带标记的 pre（内容照常 escapeHtml，快照要的是
+       * 原文 JSON）。
+       */
+      if (lang.trim().toLowerCase() === 'iu') {
+        return `<pre class="shiki language-iu"><code>${escapeHtml(code.trim())}</code></pre>`
+      }
       if (lang !== '') {
         try {
           const out = highlighter.codeToHtml(code, { lang, theme: shikiTheme })

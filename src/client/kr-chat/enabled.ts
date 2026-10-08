@@ -90,6 +90,25 @@ export const KR_PLAIN_TIMELINE_CARD_VISIBLE = true
 export const KR_OUTPUTS_CARD_VISIBLE = true
 
 /**
+ * KR 右侧大盘「子智能体」卡显隐开关（操作面板之下、产出物之上）。
+ *
+ * 这张卡回答的是「**这次对话派出去几个独立干活的，各自跑完了没有**」。子智能体
+ * 在 DSH 里是独立会话，父调用一概不知道它们的存在；原先这份清单以缩进小块的
+ * 形态挂在操作面板某一步下面（读起来像"这一步的内部细节"，还会把一列按时间读
+ * 的流水截断），2026-10-08 起按用户要求独立成卡：有几个就几行，**点一行即跳到
+ * 那个子会话**（官方 uiWorkspace.openSession）。
+ *
+ * 依赖两块：`subagent-catalog.ts`（读官方子智能体目录投影 + 跳转动作）与
+ * `KrSubagentsCard.tsx`（呈现）。前者不依赖 React 组件，可单独拿去别处用。
+ *
+ * ⚠ 同为**隐藏开关，不是删除**：组件与 `.kr-card--subs` / `.kr-subs-*` 那一套
+ * 样式全部原样保留，改回 false 重新 build 即完整关闭（关闭后子智能体在界面上
+ * 只剩操作面板那枚计数徽标，跳转入口也随之消失 —— 这是刻意的，它只该由这个
+ * 开关决定）。
+ */
+export const KR_SUBAGENTS_CARD_VISIBLE = true
+
+/**
  * KR「提问与回答」卡显隐开关。
  *
  * 这张卡回答的是「**模型问了什么、用户答了什么**」。它存在的唯一理由是：

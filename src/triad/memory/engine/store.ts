@@ -754,24 +754,24 @@ export class MemoryStore {
     await this.writeState(state)
   }
 
-  // ── 效率约束规范注入开关（全局单值） ────────────────────────────────
+  // ── 团队协作规范注入开关（全局单值） ────────────────────────────────
 
   /**
-   * 效率约束注入是否开启（三态：state 显式值 ?? 调用方给的 fallback）。
+   * 团队协作注入是否开启（三态：state 显式值 ?? 调用方给的 fallback）。
    *
-   * 与 diagram / html 通道同样是**全局单值**：它投的是「本环境如何省 token」的
-   * 静态纪律，跨会话恒定，逐会话开关只会制造「这个会话守纪律、下个不守」的
+   * 与 diagram / html 通道同样是**全局单值**：它投的是「这活该怎么组织」的
+   * 静态纪律，跨会话恒定，逐会话开关只会制造「这个会话组队、下个不组」的
    * 不可预期。
    */
-  async isEfficiencyInjectEnabled(fallback: boolean): Promise<boolean> {
+  async isTeamInjectEnabled(fallback: boolean): Promise<boolean> {
     const state = await this.readState()
-    return typeof state.efficiencyInjectEnabled === 'boolean' ? state.efficiencyInjectEnabled : fallback
+    return typeof state.teamInjectEnabled === 'boolean' ? state.teamInjectEnabled : fallback
   }
 
-  /** 写效率约束注入开关（全局单值；直接落盘，调用频率极低）。 */
-  async setEfficiencyInjectEnabled(enabled: boolean): Promise<void> {
+  /** 写团队协作注入开关（全局单值；直接落盘，调用频率极低）。 */
+  async setTeamInjectEnabled(enabled: boolean): Promise<void> {
     const state = await this.readState()
-    state.efficiencyInjectEnabled = enabled
+    state.teamInjectEnabled = enabled
     await this.writeState(state)
   }
 

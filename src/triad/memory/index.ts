@@ -4,7 +4,7 @@
  * - session/event → turn/end 捕获 → LLM 提取候选 → 直接入库 + changes 变更流
  * - ticker → 每 N 轮增量编译 / 会话结束 final 编译 / 每日编译（衰减+折叠+滚出+daily）
  * - agent/pre-step → 记忆注入（带来源 user message，绝不写 system prompt）
- *   外带三条内置通道：zh 中文偏好 / diagram 流程图规范 / soul 顶层身份契约
+ *   外带五条内置通道：zh 中文偏好 / diagram 流程图规范 / html 卡片 / soul 顶层身份契约 / team 团队协作
  * - tools → memory_search / memory_remember / memory_pin / memory_tag / memory_forget
  * - webServer → /api/dsh-memory/*（面板数据 + 裁决操作）
  * - Soul（记忆第四层）→ /api/dsh-memory/soul/*（灵魂读写/档案切换/蒸馏）+ soul_show / soul_set

@@ -117,12 +117,13 @@ function CloseIcon(): JSX.Element {
  * `fullscreen` 只影响尺寸策略：全屏时高度铺满容器，不再跟随内容高度上报
  * （那个高度是为对话流里的内联卡片服务的）。
  */
-function SandboxFrame({ doc, dark, fullscreen, reloadKey, onHeight }: {
+function SandboxFrame({ doc, dark, fullscreen, reloadKey, onHeight, onFill }: {
   readonly doc: string
   readonly dark: boolean
   readonly fullscreen: boolean
   readonly reloadKey: number
   readonly onHeight?: ((height: number) => void) | undefined
+  readonly onFill?: ((text: string) => boolean) | undefined
 }): JSX.Element {
   const frameRef = useRef<HTMLIFrameElement | null>(null)
 
@@ -152,13 +153,15 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, onHeight }: {
     }
   }, [])
 
-  // 高度上报 + ready 握手：三重校验后才接受，且只取高度一个字段。
+  // 高度上报 + ready 握手 + fill 回写：三重校验后才接受，fill 只取 text 一个字段。
+  const onFillRef = useRef(onFill)
+  onFillRef.current = onFill
   useEffect(() => {
     const onMessage = (event: MessageEvent): void => {
       // ① 来源窗口必须是本卡片自己的 iframe（opaque origin 下 origin 恒为 "null"，
       //    所以只能比窗口引用，比不了 origin）。
       if (frameRef.current === null || event.source !== frameRef.current.contentWindow) return
-      const data = event.data as { source?: unknown; kind?: unknown; height?: unknown } | null
+      const data = event.data as { source?: unknown; kind?: unknown; height?: unknown; text?: unknown } | null
       if (data === null || typeof data !== 'object') return
       // ② 命名空间标记，避免把模型页面自己的 postMessage 当成桥消息。
       if (data.source !== BRIDGE_TO_HOST) return
@@ -167,9 +170,18 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, onHeight }: {
         pushTheme(darkRef.current)
         return
       }
+      // ④ fill 回写：卡片内调用 window.__dshFill(text) 把结果推给输入草稿。
+      //    只取 text 一个字段（≤2000 字），写草稿前不执行任何内容。
+      if (data.kind === 'fill') {
+        if (typeof data.text !== 'string') return
+        const clean = data.text.trim().slice(0, 2000)
+        if (clean === '') return
+        try { onFillRef.current?.(clean) } catch { /* 写回失败不影响卡片 */ }
+        return
+      }
       if (data.kind !== 'height') return
       if (onHeight === undefined) return
-      // ④ 类型 + 范围：钳到硬上下限，页面再高也撑不爆对话流。
+      // ⑤ 类型 + 范围：钳到硬上下限，页面再高也撑不爆对话流。
       if (typeof data.height !== 'number' || !Number.isFinite(data.height)) return
       const height = Math.min(MAX_FRAME_HEIGHT, Math.max(MIN_FRAME_HEIGHT, Math.round(data.height)))
       onHeight(height)
@@ -241,10 +253,12 @@ function pendingStage(bytes: number): JSX.Element {
  * 提前 return 另一个组件会让 React 卸载重建 DOM，卡片闭合那一刻会跳一下。
  * 正确做法是在同一个 <figure> 内部条件渲染内容（见 return 里的三元）。
  */
-export const HtmlCard = memo(function HtmlCard({ spec, pending = false }: {
+export const HtmlCard = memo(function HtmlCard({ spec, pending = false, onFill }: {
   readonly spec: HtmlSpec
   /** 流式期围栏未闭合 → 只渲染占位，不挂 iframe。 */
   readonly pending?: boolean
+  /** 沙箱内 window.__dshFill(text) 的回写（C），拿不到时卡片照常渲染。 */
+  readonly onFill?: ((text: string) => boolean) | undefined
 }): JSX.Element {
   const dark = useDarkTheme()
   const [showSource, setShowSource] = useState(false)
@@ -288,7 +302,7 @@ export const HtmlCard = memo(function HtmlCard({ spec, pending = false }: {
   }, [spec.html])
 
   const frame = (
-    <SandboxFrame doc={doc} dark={dark} fullscreen={fullscreen} reloadKey={reloadKey} onHeight={onHeight} />
+    <SandboxFrame doc={doc} dark={dark} fullscreen={fullscreen} reloadKey={reloadKey} onHeight={onHeight} onFill={onFill} />
   )
 
   /*
@@ -382,7 +396,7 @@ export const HtmlCard = memo(function HtmlCard({ spec, pending = false }: {
             </span>
           </div>
           <div className="dtt-he__overlay-stage">
-            <SandboxFrame doc={doc} dark={dark} fullscreen reloadKey={reloadKey} />
+            <SandboxFrame doc={doc} dark={dark} fullscreen reloadKey={reloadKey} onFill={onFill} />
           </div>
         </div>,
         document.body,

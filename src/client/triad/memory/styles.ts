@@ -655,18 +655,26 @@ body[data-ds-dark-theme] .dsh-memory-inject-card{background:var(--dsw-static-neu
 .dsh-memory-inject-tag{margin-left:auto;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:600;line-height:16px}
 .dsh-memory-inject-tag-on{background:color-mix(in srgb,var(--m-text) 9%,transparent);color:var(--m-text-2)}
 .dsh-memory-inject-tag-off{background:color-mix(in srgb,var(--m-text-3) 14%,transparent);color:var(--m-text-3)}
-/* 内置提示词通道卡：只有三行，比记忆卡窄一档，两张卡挨在一起时宽度差本身就是
-   一条无声的分组线。 */
-.dsh-memory-builtin-card{width:238px}
-.dsh-memory-inject-row{display:flex;align-items:center;gap:10px;padding:9px 0;transition:background .15s ease}
+/* 内置提示词通道卡：五条通道，其中「团队协作」带一段较长的副说明。
+   原先 238px 时那段说明被压成 5 行、其余四行光秃，卡片高度与节奏都被单行撑歪；
+   拉宽到 336px 后说明稳定落在 2 行内，与记忆卡（272px）仍差一档，两张卡挨在
+   一起时宽度差本身就是一条无声的分组线。max-width 兜住窄屏，避免浮层顶出视口。 */
+.dsh-memory-builtin-card{width:336px;max-width:calc(100vw - 32px)}
+/* 行内顶对齐：无副说明的行看不出差别（main 高度就是标签高度），带副说明的行则
+   让开关停在标签那一行，一列开关扫过去在同一条水平线上——居中会让长说明把那枚
+   开关单独顶到行中央，破坏整列的对齐。 */
+.dsh-memory-inject-row{display:flex;align-items:flex-start;gap:10px;padding:9px 0;transition:background .15s ease,opacity .2s ease,transform .22s cubic-bezier(.2,.8,.2,1)}
 /* 悬停：极淡的底，让"这一行能点"被看见，又不与开态的底色混淆（开态更深一档）。 */
 .dsh-memory-inject-row:hover{background:color-mix(in srgb,var(--m-text-3) 7%,transparent);border-radius:7px}
 .dsh-memory-inject-row+.dsh-memory-inject-row{border-top:1px dashed var(--m-border)}
 /* 每组第一行：上方已经有组标题，不再叠一条虚线，否则组标题与首行之间多一道割裂。 */
 .dsh-memory-inject-row.dsh-memory-inject-row-lead{border-top:none}
-.dsh-memory-inject-main{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.dsh-memory-inject-main{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1;padding-right:2px}
+/* 标签行高与开关高度对齐：19px 的标签 + 22px 的开关，靠 1.5px 负外边距把开关
+   中线压回标签中线，顶对齐后仍然"看着是同一行"。 */
 .dsh-memory-inject-label{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;line-height:19px;color:var(--m-text)}
 .dsh-memory-inject-hint{font-size:11px;line-height:15px;color:var(--m-text-3)}
+.dsh-memory-inject-row>.dsh-memory-switch{margin-top:1.5px}
 .dsh-memory-inject-badge{padding:0 5px;border-radius:4px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#e8a33d) 20%,transparent);color:var(--dsw-alias-state-warn-primary,#e8a33d);font-size:10px;font-weight:600;line-height:15px}
 .dsh-memory-inject-follow{display:block;width:100%;margin:2px 0 4px;padding:5px 8px;box-sizing:border-box;border:1px dashed var(--m-border);border-radius:8px;background:transparent;color:var(--m-text-2);font-family:inherit;font-size:11.5px;line-height:16px;cursor:pointer;transition:border-color .15s ease,color .15s ease,background .15s ease}
 .dsh-memory-inject-follow:hover{border-color:var(--m-text-3);color:var(--m-text);background:color-mix(in srgb,var(--m-text-3) 9%,transparent)}
@@ -688,7 +696,23 @@ body[data-ds-dark-theme] .dsh-memory-inject-card{background:var(--dsw-static-neu
 /* 开态不再铺任何底色（原先是一层淡蓝，会把整列开关染成蓝色调）。
    状态由开关本身承担：开 = 主文字色实心轨道 + 反色圆点，关 = 淡灰轨道。 */
 .dsh-memory-inject-row-on{background:transparent}
-@media (prefers-reduced-motion:reduce){.dsh-memory-inject-card,.dsh-memory-inject-card-on{transition:none}}
+
+/* ── 展开动效：卡片先到位，内容慢一拍浮现 ─────────────────────────────
+   卡片本体只有 160ms 的位移+淡入（上面），五条通道的行若跟它同时出现，整块
+   像是"啪"地贴上来的。这里给行加一段错开的浮现，延迟由行自己带的 --row-i
+   决定（SwitchRow 内联写入，不数 nth-child——卡片里插一行就会错位）；收起时
+   不设延迟、立即淡出，否则会看到内容赖着不走。记忆卡同样吃这套（共用 inject-row）。 */
+.dsh-memory-inject-card .dsh-memory-inject-row,
+.dsh-memory-inject-card .dsh-memory-inject-foot{
+  opacity:0;transform:translateY(4px);
+  transition:opacity .18s ease,transform .22s cubic-bezier(.2,.8,.2,1),background .15s ease}
+.dsh-memory-inject-card-on .dsh-memory-inject-row,
+.dsh-memory-inject-card-on .dsh-memory-inject-foot{opacity:1;transform:none}
+.dsh-memory-inject-card-on .dsh-memory-inject-row{transition-delay:calc(var(--row-i,0) * 18ms)}
+.dsh-memory-inject-card-on .dsh-memory-inject-foot{transition-delay:110ms}
+@media (prefers-reduced-motion:reduce){.dsh-memory-inject-card,.dsh-memory-inject-card-on{transition:none}
+  .dsh-memory-inject-card .dsh-memory-inject-row,.dsh-memory-inject-card .dsh-memory-inject-foot{opacity:1;transform:none;transition:none}
+  .dsh-memory-inject-card-on .dsh-memory-inject-row,.dsh-memory-inject-card-on .dsh-memory-inject-foot{transition-delay:0ms}}
 .dsh-memory-switch:focus-visible,.dsh-memory-toggle:focus-visible{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 35%,transparent)}
 
 /* ── 窄屏适配 ─────────────────────────────────────────────────────── */

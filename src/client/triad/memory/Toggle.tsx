@@ -6,9 +6,9 @@
  *  - 大脑按钮 → **记忆注入**卡：本会话注入（host state.json 里的显式覆盖）、
  *    默认开启（config.injectDefaultEnabled，决定新会话与未单独设置过的会话）。
  *    已单独设置过时显示「已单独设置」角标，可一键「跟随默认」清除覆盖。
- *  - 提示符按钮 → **内置提示词通道**卡：中文优先 / 对话内流程图 / 过程播报。
- *    三条硬编码在插件内、无卸载入口（回包恒带 builtin），全局单值，不做会话级，
- *    也不受记忆注入的任何一道闸门约束——语言契约必须跨会话恒定，否则同一用户
+ *  - 提示符按钮 → **内置提示词通道**卡：中文优先 / 对话内流程图 / 交互卡片 / 灵魂人设 /
+ *    团队协作。五条硬编码在插件内、无卸载入口（回包恒带 builtin），全局单值，不做会话级，
+ *    也不受记忆注入的任何一道闸门约束——语言契约与人设必须跨会话恒定，否则同一用户
  *    会得到互相矛盾的回答语言。
  *
  * 两张卡曾经挤在一张里（「注入与记忆」）：那是把「提示词注入」与「记忆注入」两种
@@ -23,6 +23,7 @@
  * 路由不存在、写入会失败，UI 必须诚实地弹回真实状态，而不是挂一个假的「已开启」。
  */
 
+import type { CSSProperties } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
@@ -41,14 +42,14 @@ const HIDE_DELAY_MS = 120
 
 /**
  * host 缺字段时的兜底形状：中文通道 / 灵魂 / html 默认开（内置能力），diagram 默认关，
- * efficiency 默认关（旧 host 没这个能力，显示「开」是假阳性）。
+ * team 默认关（旧 host 没这个能力，显示「开」是假阳性）。
  *
  * 只在请求失败时用（正常路径由 host 回包决定）。html 的兜底取 true 与
  * config.htmlInjectDefaultEnabled 同口径——它默认开，请求失败时显示「关」会让
  * 用户以为能力没开。
  */
 const FALLBACK_STATE: InjectStateView = {
-  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false, htmlEnabled: true, soulEnabled: true, efficiencyEnabled: false,
+  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false, htmlEnabled: true, soulEnabled: true, teamEnabled: false,
 }
 
 /** 把 host 回包收敛成本地状态形状（缺字段按默认处理）。 */
@@ -67,9 +68,9 @@ function toState(res: InjectStateView): InjectStateView {
     // 灵魂与中文同口径：内置身份契约，缺字段按开。真正决定注不注得进去的是
     // soul.md 有没有内容（空灵魂不注入，由 host 注入器负责）。
     soulEnabled: res.soulEnabled !== false,
-    // efficiency 与 diagram / html 同口径：缺字段意味着旧 host 根本没这个能力，
+    // team 与 diagram / html 同口径：缺字段意味着旧 host 根本没这个能力，
     // 显示「关」比显示「开」诚实（开着却注不进去是假阳性）。
-    efficiencyEnabled: res.efficiencyEnabled === true,
+    teamEnabled: res.teamEnabled === true,
   }
 }
 
@@ -100,7 +101,7 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
    * 具备的能力；回读拿到的是真实状态。
    */
   const pushChannel = useCallback((
-    key: 'zhEnabled' | 'diagramEnabled' | 'htmlEnabled' | 'soulEnabled' | 'efficiencyEnabled',
+    key: 'zhEnabled' | 'diagramEnabled' | 'htmlEnabled' | 'soulEnabled' | 'teamEnabled',
     next: boolean,
   ): void => {
     setBusy(true)
@@ -113,13 +114,12 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           ? apiRef.current.setHtmlInjectState(next)
           : key === 'soulEnabled'
             ? apiRef.current.setSoulInjectState(next)
-            : apiRef.current.setEfficiencyInjectState(next)
+            : apiRef.current.setTeamInjectState(next)
     void write
       .then(res => {
-        // 中文通道缺字段按开兜底（内置能力），diagram / html / efficiency 缺字段按关兜底（旧
-        // host 根本没有这个能力，显示「开」是假阳性）——与 toState 的口径一致。
-        // 中文通道与灵魂通道同口径（内置能力，缺字段按开）；diagram / html / efficiency 缺字段按关。
-        const enabled = key === 'diagramEnabled' || key === 'htmlEnabled' || key === 'efficiencyEnabled' ? res.enabled === true : res.enabled !== false
+        // 中文通道与灵魂通道缺字段按开兜底（内置能力）；diagram / html / team 缺字段按关
+        // 兜底（旧 host 根本没有这个能力，显示「开」是假阳性）——与 toState 的口径一致。
+        const enabled = key === 'diagramEnabled' || key === 'htmlEnabled' || key === 'teamEnabled' ? res.enabled === true : res.enabled !== false
         setState(prev => ({ ...prev, [key]: enabled }))
       })
       .catch(reload)
@@ -142,7 +142,7 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           diagramEnabled: typeof res.diagramEnabled === 'boolean' ? res.diagramEnabled : prev.diagramEnabled,
           htmlEnabled: typeof res.htmlEnabled === 'boolean' ? res.htmlEnabled : prev.htmlEnabled,
           soulEnabled: typeof res.soulEnabled === 'boolean' ? res.soulEnabled : prev.soulEnabled,
-          efficiencyEnabled: typeof res.efficiencyEnabled === 'boolean' ? res.efficiencyEnabled : prev.efficiencyEnabled,
+          teamEnabled: typeof res.teamEnabled === 'boolean' ? res.teamEnabled : prev.teamEnabled,
         }))
       })
       .catch(reload)
@@ -170,7 +170,7 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           diagramEnabled: typeof res.diagramEnabled === 'boolean' ? res.diagramEnabled : prev.diagramEnabled,
           htmlEnabled: typeof res.htmlEnabled === 'boolean' ? res.htmlEnabled : prev.htmlEnabled,
           soulEnabled: typeof res.soulEnabled === 'boolean' ? res.soulEnabled : prev.soulEnabled,
-          efficiencyEnabled: typeof res.efficiencyEnabled === 'boolean' ? res.efficiencyEnabled : prev.efficiencyEnabled,
+          teamEnabled: typeof res.teamEnabled === 'boolean' ? res.teamEnabled : prev.teamEnabled,
         }))
       })
       .catch(() => undefined)
@@ -263,6 +263,7 @@ function SwitchRow({
   lead = false,
   tag,
   hint,
+  index,
 }: {
   readonly label: string
   readonly on: boolean
@@ -271,12 +272,17 @@ function SwitchRow({
   readonly lead?: boolean
   readonly tag?: string | undefined
   readonly hint?: string | undefined
+  /** 行序号（0 起）：卡片展开时各行错开浮现，见 styles 里的 --row-i。 */
+  readonly index?: number
 }): JSX.Element {
   const classes = [css.injectRow]
   if (lead) classes.push(css.injectRowLead)
   if (on) classes.push(css.injectRowOn)
   return (
-    <div className={classes.join(' ')}>
+    <div
+      className={classes.join(' ')}
+      style={index === undefined ? undefined : ({ '--row-i': String(index) } as CSSProperties)}
+    >
       <span className={css.injectMain}>
         <span className={css.injectLabel}>
           {label}
@@ -371,6 +377,7 @@ export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.E
           </span>
         </div>
         <SwitchRow
+          index={0}
           lead
           on={isOn}
           busy={busy}
@@ -379,6 +386,7 @@ export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.E
           onToggle={() => { pushSession(!isOn) }}
         />
         <SwitchRow
+          index={1}
           on={isDefaultOn}
           busy={busy}
           label={t('injectDefaultOn')}
@@ -406,10 +414,10 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
   const diagramOn = state.diagramEnabled === true
   const htmlOn = state.htmlEnabled === true
   const soulOn = state.soulEnabled !== false
-  const efficiencyOn = state.efficiencyEnabled === true
+  const teamOn = state.teamEnabled === true
   // 按钮状态取「五条里有没有开的」——全关才算关，半开按开显示（它是能力入口，
   // 不是记忆那种一刀切的开关）。
-  const anyOn = zhOn || diagramOn || htmlOn || soulOn || efficiencyOn
+  const anyOn = zhOn || diagramOn || htmlOn || soulOn || teamOn
   const button = (
     <ToggleButton
       on={anyOn}
@@ -432,42 +440,51 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
           <span className={css.injectTitle}><PromptIcon size={13} />{t('builtinCardTitle')}</span>
         </div>
         <SwitchRow
+          index={0}
           lead
           on={zhOn}
           busy={busy}
           label={t('zhInjectLabel')}
+          hint={t('zhInjectHint')}
           onToggle={() => { pushChannel('zhEnabled', !zhOn) }}
         />
         <SwitchRow
+          index={1}
           on={diagramOn}
           busy={busy}
           label={t('diagramInjectLabel')}
+          hint={t('diagramInjectHint')}
           onToggle={() => { pushChannel('diagramEnabled', !diagramOn) }}
         />
         {/* HTML 卡片与流程图同类（都是「正文围栏 → 沙箱卡片」的呈现能力），
             故同卡同区；详细说明见 host 侧 HTML_INJECTION_RULE。 */}
         <SwitchRow
+          index={2}
           on={htmlOn}
           busy={busy}
           label={t('htmlInjectLabel')}
+          hint={t('htmlInjectHint')}
           onToggle={() => { pushChannel('htmlEnabled', !htmlOn) }}
         />
         {/* 灵魂：与中文同类的「跨会话恒定」契约，故与它们同卡；详细编辑在
             工作台 → 记忆 → 灵魂 Tab，这里只给一个总开关。 */}
         <SwitchRow
+          index={3}
           on={soulOn}
           busy={busy}
           label={t('soulInjectLabel')}
+          hint={t('soulInjectHint')}
           onToggle={() => { pushChannel('soulEnabled', !soulOn) }}
         />
-        {/* 效率约束：实测验证的省 token/耗时纪律（结构拆分 > 体积压缩），
-            跨会话恒定的行为契约，与灵魂同类放最后；文本见 host 侧 EFFICIENCY_INJECTION_RULE。 */}
+        {/* 团队协作：默认「这活值得拆」的组织纪律（分档判据 + 组队硬规矩），
+            跨会话恒定的行为契约，与灵魂同类放最后；文本见 host 侧 TEAM_INJECTION_RULE。 */}
         <SwitchRow
-          on={efficiencyOn}
+          index={4}
+          on={teamOn}
           busy={busy}
-          label={t('efficiencyInjectLabel')}
-          hint={t('efficiencyInjectHint')}
-          onToggle={() => { pushChannel('efficiencyEnabled', !efficiencyOn) }}
+          label={t('teamInjectLabel')}
+          hint={t('teamInjectHint')}
+          onToggle={() => { pushChannel('teamEnabled', !teamOn) }}
         />
         <p className={css.injectFoot}>{t('builtinCardFoot')}</p>
       </div>

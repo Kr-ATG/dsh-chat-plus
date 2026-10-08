@@ -25,7 +25,7 @@
  * 总结卡门控不变：turn.status === 'closed'（或中断）后，中间片段变轻量步骤
  * 卡，最终回复变总结卡（纯正文外壳，头部统计行已移除）。
  */
-import { memo, useEffect, useMemo, useSyncExternalStore } from 'react'
+import { memo, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownFileMentions, MarkdownLabels, MarkdownPathImages } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -44,6 +44,8 @@ import { splitDiagram } from '../diagram/parse.ts'
 import { DiagramCard } from '../diagram/DiagramCard.tsx'
 import { splitHtml, looksLikeHtmlFence } from '../html-embed/parse.ts'
 import { HtmlCard } from '../html-embed/HtmlCard.tsx'
+import { splitIu, looksLikeIuFence } from '../iu/parse.ts'
+import { IuCard } from '../iu/IuCard.tsx'
 import { splitProtoTabs } from '../proto/parse.ts'
 import { ProtoTabsCard } from '../proto/ProtoTabsCard.tsx'
 import { isRunning } from '../tool-summary/tool-stats.ts'
@@ -143,6 +145,14 @@ interface AssistantBodyEnv {
   readonly mergedMentions?: MarkdownFileMentions | undefined
   /** 本地路径图片的显示地址解析（官方 MarkdownPathImages 契约）。 */
   readonly pathImages?: MarkdownPathImages | undefined
+  /**
+   * 卡片「填入输入框」写回（iu 与 html 共用）。
+   *
+   * 由 ThinkingStepNodeView 用 session 标准套件的 inputActions.setDraft 实现；
+   * 拿不到时回退剪贴板。纯函数直接消费 env 里的这一支，避免每次渲染新建闭包
+   * 打穿 MarkdownText 的 memo（与 mergedMentions 同一理由）。
+   */
+  readonly onFill?: ((text: string) => boolean) | undefined
 }
 
 /** 助手正文：text 走官方 MarkdownText、image 走官方槽、未知块 JsonBlock。 */
@@ -210,20 +220,35 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
     if (block === undefined) continue
     switch (block.kind) {
       case 'text': {
-        // proto-tabs / diagram / html 围栏 → 卡片组件，其余仍走官方 MarkdownText。
+        // proto-tabs / diagram / html / iu 围栏 → 卡片组件，其余仍走官方 MarkdownText。
         //
-        // 两级切分是有序的：html 先切（它的围栏正文里可能整段包含 ```diagram
-        // 之类的示例文本，先切 html 才不会把示例误当成真卡片），剩下的 markdown
-        // 片段再走 diagram。顺序反过来会让 HTML 示例里的围栏被吃掉。
+        // 切分是有序的：html 最先（它的围栏正文里可能整段包含 ```diagram / ```iu
+        // 之类的示例文本，先切 html 才不会把示例误当成真卡片）；iu 其次（它的
+        // JSON 正文里也可能含示例围栏）；剩下的 markdown 片段再走 diagram。
+        // 顺序反过来会让外层示例里的围栏被吃掉。
         const pushMd = (key: string, text: string): void => {
           if (text === '') return
-          splitDiagram(text).forEach((sub, subIndex) => {
-            if (sub.kind === 'diagram') {
-              rendered.push(<Fresh live={streaming} freshKey={`${key}-dg${subIndex}`}><DiagramCard spec={sub.spec} /></Fresh>)
-            } else if (sub.text !== '') {
+          splitIu(text, streaming).forEach((iuSub, iuIndex) => {
+            if (iuSub.kind === 'iu') {
+              // key 里不能带 pending：闭合那一刻 key 必须保持不变，React 才会
+              // 复用同一个 IuCard 实例（与 HtmlCard 同一理由）。
               rendered.push(
-                <Fresh live={streaming} freshKey={`${key}-md${subIndex}`}><MarkdownText text={decorate(sub.text)} streaming={streaming} labels={labels} fileMentions={mentionResolver} pathImages={env?.pathImages} /></Fresh>,
+                <Fresh live={streaming} freshKey={`${key}-iu${iuIndex}`}>
+                  {iuSub.pending
+                    ? <IuCard pending bytes={iuSub.bytes} onFill={env?.onFill} />
+                    : <IuCard spec={iuSub.spec} onFill={env?.onFill} />}
+                </Fresh>,
               )
+            } else if (iuSub.text !== '') {
+              splitDiagram(iuSub.text).forEach((sub, subIndex) => {
+                if (sub.kind === 'diagram') {
+                  rendered.push(<Fresh live={streaming} freshKey={`${key}-iu${iuIndex}-dg${subIndex}`}><DiagramCard spec={sub.spec} /></Fresh>)
+                } else if (sub.text !== '') {
+                  rendered.push(
+                    <Fresh live={streaming} freshKey={`${key}-iu${iuIndex}-md${subIndex}`}><MarkdownText text={decorate(sub.text)} streaming={streaming} labels={labels} fileMentions={mentionResolver} pathImages={env?.pathImages} /></Fresh>,
+                  )
+                }
+              })
             }
           })
         }
@@ -238,7 +263,7 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
               // 复用同一个 HtmlCard 实例，让卡片从占位平滑变成真身而不是闪一下。
               rendered.push(
                 <Fresh live={streaming} freshKey={`${key}-he${subIndex}`}>
-                  <HtmlCard spec={sub.spec} pending={sub.pending} />
+                  <HtmlCard spec={sub.spec} pending={sub.pending} onFill={env?.onFill} />
                 </Fresh>,
               )
             } else {
@@ -247,9 +272,9 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
           })
         }
         const parts = splitProtoTabs(block.text)
-        // 快路径判据必须是「真的有个 html 围栏」，不能只测正文里出现过 html 三个字母
+        // 快路径判据必须是「真的有个围栏」，不能只测正文里出现过 html 三个字母
         // ——「HTML 卡片」这种普通措辞会让每段正文都白跑一遍切分。
-        if (parts.length === 1 && parts[0]?.kind === 'md' && parts[0].text.indexOf('diagram') < 0 && !looksLikeHtmlFence(parts[0].text)) {
+        if (parts.length === 1 && parts[0]?.kind === 'md' && parts[0].text.indexOf('diagram') < 0 && !looksLikeHtmlFence(parts[0].text) && !looksLikeIuFence(parts[0].text)) {
           rendered.push(
             <Fresh live={streaming} freshKey={`md${index}`}><MarkdownText text={decorate(block.text)} streaming={streaming} labels={labels} fileMentions={mentionResolver} pathImages={env?.pathImages} /></Fresh>,
           )
@@ -360,6 +385,33 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
   const sessionIdProp = (props as { readonly sessionId?: unknown }).sessionId
   const bodySessionId = typeof sessionIdProp === 'string' ? sessionIdProp : null
   /**
+   * 卡片「填入输入框」写回（iu 与 html 共用）。
+   *
+   * 官方 session 标准套件的 inputActions.setDraft 是唯一公开写入路径
+   * （见 PromptOptimizeButton.apply）。assistant-step 是 session 作用域座位，
+   * props 上直接带 inputActions。依赖只取 inputActions 本体（它引用稳定），
+   * 不能依赖整个 props——props 每次渲染都是新对象，会让 onFill 与 bodyEnv
+   * 跟着每帧重建，打穿 MarkdownText 的 memo。
+   * 拿不到时回退剪贴板——至少用户能粘过去，不静默丢字。
+   */
+  const inputActionsOf = (props as { readonly inputActions?: { setDraft?: (t: string) => void } }).inputActions
+  const onFill = useCallback((text: string): boolean => {
+    const clean = text.trim()
+    if (clean === '') return false
+    try {
+      if (inputActionsOf !== undefined && typeof inputActionsOf.setDraft === 'function') {
+        inputActionsOf.setDraft(clean)
+        return true
+      }
+    } catch { /* 走剪贴板兜底 */ }
+    try {
+      void navigator.clipboard.writeText(clean)
+      return true
+    } catch {
+      return false
+    }
+  }, [inputActionsOf])
+  /**
    * 自建文件提及：行内代码里的路径 → 可点开右侧工作区预览。
    *
    * 与官方那条的差别只有一个：**不要求「本回合写过」**。官方只为回合收口时
@@ -410,8 +462,9 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
     return {
       ...(mergedMentions === undefined ? {} : { mergedMentions }),
       ...(pathImages === undefined ? {} : { pathImages }),
+      onFill,
     }
-  }, [bodySessionId, mentions])
+  }, [bodySessionId, mentions, onFill])
 
   // Aggregate reasoning across every assistant step of this turn.
   /*

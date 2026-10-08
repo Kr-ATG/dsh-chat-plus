@@ -15,7 +15,19 @@ import { buildCardCss, mermaidConfigJson, baseOf, type ShotTheme } from './theme
 import { deriveTitle } from '../shared/title.ts'
 import { assembleHtmlDocument } from '../client/html-embed/bridge.ts'
 import { splitHtml } from '../client/html-embed/parse.ts'
+import { splitIu } from '../client/iu/parse.ts'
+import type { IuChartSpec } from '../client/iu/parse.ts'
+import { CHART_COLORS, chartLayout, formatNum, pianoLayout } from '../client/iu/geometry.ts'
+import { IU_CSS } from '../client/iu/styles.ts'
 export { deriveTitle } from '../shared/title.ts'
+
+/**
+ * iu spec 的宽松读法：快照只读展示字段，缺字段一律走兜底。
+ *
+ * 不穷举四分支的联合类型——截图是**定格降级**，遇到不认识的 kind 应该画出
+ * 一个空壳而不是编译不过（parse 层已经保证了结构合法）。
+ */
+type IuSpecLike = { kind: string } & Record<string, unknown>
 
 /** 单条待渲染消息。 */
 export interface ShotMessage {
@@ -192,6 +204,28 @@ function fenceFigureOf(fence: ShotHtmlFence, index: number): string {
 }
 
 /**
+ * iu 卡片在截图页里的 CSS：宿主变量映射 + 复用 IU_CSS 原文。
+ *
+ * 两个要点：
+ *  1. **映射 `--dsw-alias-*` 到截图卡片的调色板变量**。IU_CSS 是给宿主写的，
+ *     用的是 DSH 的 alias 变量；截图页是另一套 `--card / --border / --accent`，
+ *     不映射的话所有 `var()` 都落到兜底值（中性灰），暗色主题下尤其难看。
+ *  2. **复用同一份 IU_CSS 原文**（从 client 半身 import），不重抄。抄一份就
+ *     等于给自己留了一个「改了组件样式、截图没跟上」的漂移口子。
+ */
+function iuCssFor(theme: ShotTheme): string {
+  const dark = baseOf(theme) === 'dark'
+  const vars = [
+    `--dsw-alias-bg-layer-1:${dark ? 'rgba(255,255,255,.04)' : 'rgba(127,127,127,.04)'}`,
+    '--dsw-alias-bg-layer-2:var(--card2, rgba(127,127,127,.10))',
+    '--dsw-alias-border-l3:var(--border2)',
+    '--dsw-alias-state-business-primary:var(--accent)',
+  ].join(';')
+  // 截图是定格：关掉入场动效，避免「抓第一帧抓到半透明」。
+  return `.card{${vars}}\n${IU_CSS}\n.dtt-iu{animation:none}`
+}
+
+/**
  * 把 ```html 围栏的 figure 插进正文：shiki 把 html 围栏渲染成
  * `<pre class="shiki …" …><code>…</code></pre>`，整块替换成 figure——
  * 与对话流一致，围栏就是卡片本身，不保留源码块。
@@ -300,6 +334,137 @@ function injectEmbeds(body: string, embeds: readonly ShotEmbed[]): string {
 }
 
 /**
+ * 一条 iu 围栏的静态快照（截图管线用）。
+ *
+ * 对话流里它是可交互的原生卡片；截图页没有 React 运行时，只能按当前值定格。
+ * **但 DOM 结构与 class 必须与 IuCard 逐字一致**——内联同一份 IU_CSS 后，
+ * 截图里长出来的就是真卡片的样子，而不是另画一套简化版（那样两处必然漂移：
+ * 截图里的柱子和对话流里的不一样高、配色不一样、清单少了勾选框）。
+ */
+export interface ShotIuFence {
+  readonly title: string
+  readonly tag: string
+  readonly body: string
+}
+
+/** 与 IuCard 的 Head 同构（class 对齐，才能吃到 IU_CSS）。 */
+function iuFigureOf(fence: ShotIuFence): string {
+  return `<figure class="dtt-iu"><div class="dtt-iu__head"><span class="dtt-iu__dot"></span>`
+    + `<span class="dtt-iu__title">${escapeHtml(fence.title)}</span>`
+    + `<span class="dtt-iu__tag">${escapeHtml(fence.tag)}</span></div>`
+    + `<div>${fence.body}</div></figure>`
+}
+
+/**
+ * iu 快照正文：按当前值画静态 HTML（无 JS、无交互）。
+ *
+ * 三条同源保证「截图 = 对话流」：
+ *   · class 全部对齐 IuCard 的 JSX（dtt-iu__slider-val / __outs / __chart …）；
+ *   · 图表几何来自 geometry.ts 的同一个 chartLayout（柱子高度与配色一致）；
+ *   · 数字格式来自 geometry.ts 的 formatNum。
+ * 所有模型文本走 escapeHtml：卡片页在 --disable-web-security 的无头 Chrome 里
+ * 打开，绝不能让模型文本逃出标签上下文。
+ */
+function iuBodyOf(spec: IuSpecLike): string {
+  const esc = escapeHtml
+  const fmt = formatNum
+  if (spec.kind === 'slider') {
+    const value = typeof spec.value === 'number' ? spec.value : 0
+    const unit = typeof spec.unit === 'string' ? spec.unit : ''
+    const desc = typeof spec.desc === 'string' && spec.desc !== ''
+      ? `<p class="dtt-iu__desc">${esc(spec.desc)}</p>` : ''
+    const outs = Array.isArray(spec.outputs)
+      ? (spec.outputs as Array<Record<string, unknown>>)
+        .filter(o => typeof o.label === 'string' && o.label !== '')
+        .slice(0, 8)
+        .map(o => `<div class="dtt-iu__out"><b>${fmt(value * (typeof o.per === 'number' ? o.per : 0))}${esc(typeof o.unit === 'string' ? o.unit : '')}</b><span>${esc(String(o.label))}</span></div>`)
+        .join('')
+      : ''
+    return `<div class="dtt-iu__slider-top"><span class="dtt-iu__slider-val">${fmt(value)}</span>`
+      + `${unit !== '' ? `<span class="dtt-iu__slider-unit">${esc(unit)}</span>` : ''}</div>`
+      + desc
+      + (outs !== '' ? `<div class="dtt-iu__outs">${outs}</div>` : '')
+  }
+  if (spec.kind === 'chart') {
+    // 几何与对话流同源：柱子高度、配色、刻度位置完全一致。
+    const chartSpec = spec as unknown as IuChartSpec
+    const geo = chartLayout(chartSpec)
+    const legend = chartSpec.series.map((s, i) => (
+      `<span class="dtt-iu__chip"><span class="dtt-iu__swatch" style="background:${CHART_COLORS[i % CHART_COLORS.length]}"></span>${esc(s.name)}</span>`
+    )).join('')
+    const grid = geo.gridYs.map(y => `<line class="dtt-iu__grid" x1="8" x2="${geo.w - 8}" y1="${y}" y2="${y}"></line>`).join('')
+    const axis = `<line class="dtt-iu__axis" x1="8" x2="${geo.w - 8}" y1="${geo.axisY}" y2="${geo.axisY}"></line>`
+    const ticks = geo.ticks.map(t => `<text class="dtt-iu__tick" x="${t.x}" y="${geo.h - 6}" text-anchor="middle">${esc(t.text)}</text>`).join('')
+    const marks = chartSpec.chart === 'bar'
+      ? geo.bars.map(bar => `<rect class="dtt-iu__bar" x="${bar.x}" y="${bar.y}" width="${bar.w}" height="${bar.h}" rx="3" fill="${bar.color}"></rect>`
+        + (bar.h > 14 ? `<text class="dtt-iu__barval" x="${bar.x + bar.w / 2}" y="${bar.y + 11}" text-anchor="middle" fill="#fff" opacity=".9">${fmt(bar.value)}</text>` : '')).join('')
+      : geo.lines.map(line => `<polyline class="dtt-iu__line" points="${line.points}" stroke="${line.color}"></polyline>`
+        + line.dots.map(d => `<circle class="dtt-iu__dot-svg" cx="${d.x}" cy="${d.y}" r="3" fill="${line.color}"></circle>`).join('')).join('')
+    return `<div class="dtt-iu__legend">${legend}</div>`
+      + `<svg class="dtt-iu__chart" data-i="${chartSpec.series.length}" viewBox="0 0 ${geo.w} ${geo.h}" role="img" aria-label="${escapeAttr(chartSpec.title)}">${grid}${axis}${marks}${ticks}</svg>`
+  }
+  if (spec.kind === 'checklist') {
+    const items = Array.isArray(spec.items) ? (spec.items as Array<Record<string, unknown>>).slice(0, 12) : []
+    const rows = items.map(it => `<div class="dtt-iu__check"><span class="dtt-iu__box"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1.8 5.2 4 7.4 8.2 2.6"></path></svg></span>`
+      + `<span><b>${esc(typeof it.label === 'string' ? it.label : '')}</b>`
+      + `${typeof it.desc === 'string' && it.desc !== '' ? `<small>${esc(it.desc)}</small>` : ''}</span></div>`).join('')
+    return `<div class="dtt-iu__progress"><i style="width:0%"></i></div>`
+      + `<div class="dtt-iu__count">0/${items.length} 已完成</div><div>${rows}</div>`
+  }
+  if (spec.kind === 'piano') {
+    // 键盘布局与对话流同源（pianoLayout），因此键位、黑键叠放位置完全一致。
+    // 截图是定格：所有键都是「未按下」态，也不标已弹音。
+    const octave = typeof spec.octave === 'number' ? spec.octave : 4
+    const octaves = typeof spec.octaves === 'number' ? spec.octaves : 1
+    const showNotes = spec.showNotes !== false
+    const keys = pianoLayout(octave, octaves)
+    const label = (name: string): string => (showNotes && name.startsWith('C') ? `<span class="dtt-iu__plabel">${esc(name)}</span>` : '')
+    const white = keys.filter(k => !k.black)
+      .map(k => `<span class="dtt-iu__pkey" style="left:${k.leftPct}%;width:${k.widthPct}%">${label(k.name)}</span>`).join('')
+    const black = keys.filter(k => k.black)
+      .map(k => `<span class="dtt-iu__pkey dtt-iu__pkey--black" style="left:${k.leftPct}%;width:${k.widthPct}%"></span>`).join('')
+    const desc = typeof spec.desc === 'string' && spec.desc !== ''
+      ? `<p class="dtt-iu__desc">${esc(spec.desc)}</p>` : ''
+    return desc
+      + `<div class="dtt-iu__piano">${white}${black}</div>`
+      + `<div class="dtt-iu__phint"><span>点键或用电脑键盘 A W S E D F T G Y H U J K 演奏</span></div>`
+  }
+  const tabs = Array.isArray((spec as Record<string, unknown>).tabs) ? ((spec as Record<string, unknown>).tabs as Array<Record<string, unknown>>).slice(0, 6) : []
+  const tabBtns = tabs.map((t, i) => `<span class="${i === 0 ? 'dtt-iu__tab dtt-iu__tab--active' : 'dtt-iu__tab'}">${esc(typeof t.label === 'string' ? t.label : '')}</span>`).join('')
+  const first = tabs[0]
+  const head = first !== undefined && typeof first.heading === 'string' && first.heading !== '' ? `<h4>${esc(first.heading)}</h4>` : ''
+  const body = first !== undefined && typeof first.body === 'string' && first.body !== '' ? `<p>${esc(first.body.slice(0, 200))}</p>` : ''
+  return `<div class="dtt-iu__tabs">${tabBtns}</div><div class="dtt-iu__panel">${head}${body}</div>`
+}
+
+function injectIu(body: string, fences: readonly ShotIuFence[]): string {
+  if (fences.length === 0) return body
+  let out = body
+  const rest: ShotIuFence[] = []
+  for (const fence of fences) {
+    let at = -1
+    let cursor = 0
+    for (;;) {
+      const hit = out.indexOf('<pre class="shiki', cursor)
+      if (hit < 0) break
+      const tagEnd = out.indexOf('>', hit)
+      if (tagEnd < 0) break
+      if (out.slice(hit, tagEnd).indexOf('language-iu') >= 0) { at = hit; break }
+      cursor = tagEnd + 1
+    }
+    if (at < 0) {
+      rest.push(fence)
+      continue
+    }
+    const tagEnd = out.indexOf('>', at)
+    const preEnd = out.indexOf('</pre>', tagEnd)
+    if (preEnd < 0) continue
+    out = out.slice(0, at) + iuFigureOf(fence) + out.slice(preEnd + '</pre>'.length)
+  }
+  return rest.length === 0 ? out : out + rest.map(iuFigureOf).join('')
+}
+
+/**
  * 组装完整截图 HTML 文档。
  * @param input - 消息、主题、尺寸与文案。
  * @returns HTML 文本与「是否需要 mermaid 引擎」标记。
@@ -319,19 +484,43 @@ export async function buildCardHtml(input: ShotCardInput): Promise<ShotCardOutpu
     : multi ? `${messages.length} 条消息` : (first.role === 'user' ? '提问' : 'AI 回复')
   const sections: string[] = []
   let hasFenceEmbed = false
+  let hasIuFence = false
   for (const message of messages) {
     let body = injectEmbeds(await bodyOf(message, theme), embeds)
-    // ```html 围栏与对话流同源切分（splitHtml，streaming=false：未闭合/超长一律
+    // ```html / ```iu 围栏与对话流同源切分（streaming=false：未闭合/超长一律
     // 回退代码块，与对话流定稿态语义一致）。只有 assistant 正文走 Markdown 管线，
     // user 的围栏不会成 pre，切了也无处替换。
+    // filter 必须写成**类型谓词**：普通箭头函数只做布尔收窄，`.map` 那侧
+    // 拿到的仍是联合类型（HtmlPart），`part.spec` 直接编译不过。
     const fences: ShotHtmlFence[] = message.role === 'assistant'
       ? splitHtml(clamp(message.text))
-        .filter(part => part.kind === 'html' && part.pending === false)
+        .filter((part): part is Extract<typeof part, { kind: 'html' }> => part.kind === 'html' && part.pending === false)
         .map(part => ({ html: part.spec.html, title: part.spec.title }))
       : []
     if (fences.length > 0) {
       body = injectFences(body, fences)
       hasFenceEmbed = true
+    }
+    // iu 快照：静态定格（无 JS、无交互），多张照单全收——A 的混排在截图里同样混排。
+    if (message.role === 'assistant') {
+      const iuFences: ShotIuFence[] = []
+      for (const part of splitIu(clamp(message.text), false)) {
+        if (part.kind !== 'iu' || part.pending !== false) continue
+        // IuSpec 是有判别式的联合（四选一），静态快照按 kind 分支读字段。
+        // 这里退到宽松读法：快照只读展示字段，缺字段一律走兜底，不为了类型
+        // 好看去穷举四个分支（截图是定格降级，不认识的结构画空壳即可）。
+        const spec = part.spec as unknown as IuSpecLike
+        const tag = spec.kind === 'slider' ? '滑块' : spec.kind === 'chart' ? '图表' : spec.kind === 'checklist' ? '清单' : '对比'
+        iuFences.push({
+          title: typeof spec.title === 'string' && spec.title !== '' ? spec.title : '交互卡片',
+          tag,
+          body: iuBodyOf(spec),
+        })
+      }
+      if (iuFences.length > 0) {
+        body = injectIu(body, iuFences)
+        hasIuFence = true
+      }
     }
     sections.push(multi
       ? `<section class="seg"><div class="seg-role">${message.role === 'user' ? '我' : 'AI'}</div>${body}</section>`
@@ -350,7 +539,8 @@ export async function buildCardHtml(input: ShotCardInput): Promise<ShotCardOutpu
   const html = `<!DOCTYPE html>
 <html lang="zh-CN" data-theme="${theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=${width}">
 <style>${buildCardCss(theme, width, minHeight)}
-${segCss}</style></head>
+${segCss}
+${hasIuFence ? iuCssFor(theme) : ''}</style></head>
 <body><div class="card">
 <div class="rail"></div>
 <header class="head">
