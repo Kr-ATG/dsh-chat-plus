@@ -4,8 +4,8 @@
  * 只做一件事：把随包分发的 woff2 以正确的 MIME 与缓存头吐给浏览器。
  *
  * 为什么字体要走 host 路由而不是内联进 client 产物：
- *  1. 字体 4.15MB，base64 内联进 client.js 会让**每个**用户（包括从不切字体的
- *     绝大多数）冷启动多下载 5.5MB 且解析一份巨大的 JS 字符串；
+ *  1. 字体约 5MB，base64 内联进 client.js 会让**每个**用户（包括从不切字体的
+ *     绝大多数）冷启动多下载 6.6MB 且解析一份巨大的 JS 字符串；
  *  2. 走独立路由后是浏览器原生字体加载：默认档（微软雅黑）一个字节都不下载，
  *     只有用户主动选中「霞鹜新致宋」才拉这一次，之后靠 immutable 缓存命中。
  *
@@ -28,7 +28,7 @@ export const FONT_ROUTE = '/api/chat-flow/fonts'
  * 只列已知的两个文件，不接受任意文件名——请求路径必须精确命中这张表。
  */
 const FONT_FILES: Record<string, { rel: string; mime: string }> = {
-  'lxgw-neozhisong.woff2': { rel: 'assets/fonts/lxgw-neozhisong.woff2', mime: 'font/woff2' },
+  'lxgw-neozhisong-screen.woff2': { rel: 'assets/fonts/lxgw-neozhisong-screen.woff2', mime: 'font/woff2' },
   'IPA-Font-License-1.0.md': { rel: 'assets/fonts/IPA-Font-License-1.0.md', mime: 'text/markdown; charset=utf-8' },
 }
 

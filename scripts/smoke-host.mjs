@@ -258,13 +258,13 @@ if (registered.length !== 7) {
  */
 {
   const FONT_DIR = resolve(ROOT, 'assets', 'fonts')
-  const woff2 = resolve(FONT_DIR, 'lxgw-neozhisong.woff2')
+  const woff2 = resolve(FONT_DIR, 'lxgw-neozhisong-screen.woff2')
   const license = resolve(FONT_DIR, 'IPA-Font-License-1.0.md')
   if (!existsSync(woff2)) {
     fail(`字体资产缺失：${woff2}（切到霞鹜新致宋会静默回退系统字体）`)
   } else {
     const size = statSync(woff2).size
-    // 全字集约 4.2MB；明显偏小说明是子集或文件被截断（掉字同样不报错）。
+    // 全字集约 5MB；明显偏小说明是子集或文件被截断（掉字同样不报错）。
     if (size < 3 * 1024 * 1024) fail(`字体资产偏小（${(size / 1024 / 1024).toFixed(2)} MB），可能被截断或误换成子集`)
     else pass(`字体资产在位（${(size / 1024 / 1024).toFixed(2)} MB 全字集 woff2）`)
   }
@@ -305,7 +305,7 @@ if (registered.length !== 7) {
       req.end()
     })
     try {
-      const hit = await request('GET', '/api/chat-flow/fonts/lxgw-neozhisong.woff2')
+      const hit = await request('GET', '/api/chat-flow/fonts/lxgw-neozhisong-screen.woff2')
       // woff2 的魔数：'wOF2'。断言真实字体字节而不是只看 200 —— 200 空体同样
       // 会让浏览器静默回退，是最难发现的那种坏法。
       const magic = hit.body.subarray(0, 4).toString('latin1')
@@ -320,7 +320,7 @@ if (registered.length !== 7) {
       if (licenseHit.status !== 200) fail(`许可文件应 200，实得 ${licenseHit.status}`)
       else pass('许可文件可经路由取到（前端可链接）')
 
-      const head = await request('HEAD', '/api/chat-flow/fonts/lxgw-neozhisong.woff2')
+      const head = await request('HEAD', '/api/chat-flow/fonts/lxgw-neozhisong-screen.woff2')
       if (head.status !== 200 || head.body.length !== 0) fail(`HEAD 应 200 且无体，实得 ${head.status}/${head.body.length}`)
       else pass('HEAD 请求回 200 无体（浏览器探测不白传 4MB）')
 

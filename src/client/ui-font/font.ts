@@ -94,8 +94,12 @@ export const FONT_OPTIONS: readonly FontOption[] = [
     code: `"SF Mono", "JetBrains Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, "LXGW Neo ZhiSong", "PingFang SC", "Microsoft YaHei"`,
     webfont: {
       family: 'LXGW Neo ZhiSong',
-      file: 'lxgw-neozhisong.woff2',
-      sizeLabel: '4.2 MB',
+      // 屏幕阅读版：原版在 UI 字号下笔画只有微软雅黑约 2/3 的墨量（14px 实测
+      // 213 vs 313），界面上细得发飘；官方同作者用 FontLab 加粗的屏幕版
+      // （LxgwNeoXiZhi-Screen，同为 v1.067 字库、IPA Font License 1.0）实测
+      // 292，观感与雅黑同档。文件名带 -screen 是为了破 immutable 一年缓存。
+      file: 'lxgw-neozhisong-screen.woff2',
+      sizeLabel: '5.0 MB',
     },
   },
 ]
@@ -154,7 +158,7 @@ export function fontOverrideCss(option: FontOption): string {
   if (option.webfont !== undefined) {
     const { family, file } = option.webfont
     // font-display: swap —— 首帧先用回退字体渲染，字体到位后替换。
-    // 用 block 会让整页文字在字体下载期间不可见（4.2MB 首拉有明显空窗）。
+    // 用 block 会让整页文字在字体下载期间不可见（5MB 首拉有明显空窗）。
     rules.unshift(
       `@font-face{font-family:"${family}";src:url("${fontFileUrl(file)}") format("woff2");font-display:swap;font-weight:400;font-style:normal}`,
     )
