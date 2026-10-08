@@ -124,6 +124,25 @@ export function looksLikeHtmlFence(text: string): boolean {
 }
 
 /**
+ * 正文里是否有**能产生可见内容**的标签。
+ *
+ * 原来的判据是 `/<[a-z!/]/i` —— 它把注释起始的 `<!` 也算成标签，于是
+ * 「只写一行注释」的围栏会被判成合法卡片，渲染出来是一张**空白框**：
+ * 实测事故（2026-10-08）模型写了
+ * `<!-- 完整单文件…内容较长，此处省略 -->`，用户看到的就是空白卡片 +
+ * 角落一个 `55 B`，完全猜不到那是「模型没贴内容」。
+ *
+ * 现在先剥掉注释再判：只有注释 = 没有内容 → 回退成代码块，用户一眼能看见
+ * 模型当时到底写了什么（这才是有用的失败态，空白框不是）。
+ * 声明/处理指令（`<!DOCTYPE html>`、`<?xml …?>`）单独放行——它们是真实文档的开头。
+ */
+function hasVisibleTag(html: string): boolean {
+  const withoutComments = html.replace(/<!--[\s\S]*?-->/g, '')
+  if (/<[a-z]/i.test(withoutComments)) return true
+  return /<!(?:doctype|\[CDATA\[)|\<\?/i.test(withoutComments)
+}
+
+/**
  * 把 text 切成 markdown 片段与 html 卡片；无围栏时返回整段 md。
  *
  * @param streaming 是否处于流式输出中。true 时末尾未闭合的 ```html 会产出一个
@@ -141,8 +160,8 @@ export function splitHtml(text: string, streaming = false): readonly HtmlPart[] 
     const head = text.slice(cursor, match.index)
     if (head !== '') parts.push({ kind: 'md', text: head })
     const body = (match[1] ?? '').trim()
-    // 空内容 / 超长 / 完全不含标签 → 回退原文（当普通代码块显示）。
-    if (body === '' || body.length > MAX_HTML_CHARS || !/<[a-z!/]/i.test(body)) {
+    // 空内容 / 超长 / 无可渲染标签（含「只有注释」）→ 回退原文（当普通代码块显示）。
+    if (body === '' || body.length > MAX_HTML_CHARS || !hasVisibleTag(body)) {
       parts.push({ kind: 'md', text: match[0] as string })
     } else {
       parts.push({

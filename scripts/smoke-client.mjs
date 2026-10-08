@@ -2121,6 +2121,37 @@ if (krEnabled) {
     if (mod.splitHtml('```html\njust text\n```').some((part) => part.kind === 'html')) reasons.push('无标签内容应回退')
     const huge = '```html\n<div>' + 'x'.repeat(81000) + '</div>\n```'
     if (mod.splitHtml(huge).some((part) => part.kind === 'html')) reasons.push('超长围栏应回退成代码块')
+    /*
+     * ⑤b **只有注释的围栏必须回退**（2026-10-08 事故现场）。
+     *
+     * 模型把围栏正文写成一行 `<!-- 内容较长，此处省略 -->`；原判据
+     * `/<[a-z!/]/i` 把注释的 `<!` 也算成标签 → 判成合法卡片 → 渲染成
+     * **一张空白框**，角落标 `55 B`。用户看到「对话框里是空白的」，
+     * 而模型以为自己已经说明了省略原因。
+     *
+     * 空白框是最坏的失败态：它不告诉任何人发生了什么。回退成代码块至少能
+     * 让用户看见模型当时写了什么。同时**不能误伤**真卡片，所以下面这几条
+     * 「必须放行」的也要一起断言。
+     */
+    const fence = (body) => mod.splitHtml('```html\n' + body + '\n```').some((part) => part.kind === 'html')
+    const mustFallback = [
+      ['只有占位注释', '<!-- 完整单文件内容较长，此处省略 —— 实际交付见下方卡片 -->'],
+      ['只有普通注释', '<!-- 待补充 -->'],
+      ['只有多行注释', '<!--\n  a\n  b\n-->'],
+      ['注释 + 纯文字', '<!-- x -->\n这里什么都没有'],
+    ]
+    for (const [why, body] of mustFallback) {
+      if (fence(body)) reasons.push(`html 围栏「${why}」必须回退成代码块（渲染出来是空白卡片，用户看不出发生了什么）`)
+    }
+    const mustPass = [
+      ['注释 + 真标签', '<!-- 说明 -->\n<h1>标题</h1>'],
+      ['DOCTYPE 开头', '<!DOCTYPE html><html><body><h1>x</h1></body></html>'],
+      ['只有 style', '<style>body{background:#fff}</style>'],
+      ['只有 script', '<script>console.log(1)</script>'],
+    ]
+    for (const [why, body] of mustPass) {
+      if (!fence(body)) reasons.push(`html 围栏「${why}」必须仍渲染成卡片（剥注释判据不能误伤真内容）`)
+    }
     // ⑥ 廉价预判不能误伤普通正文（正文里出现 "HTML" 三个字母太常见）。
     if (mod.looksLikeHtmlFence('这是一张 HTML 卡片，见下方')) reasons.push('looksLikeHtmlFence 不能只看 html 字样')
     if (!mod.looksLikeHtmlFence('```html\n<div></div>\n```')) reasons.push('looksLikeHtmlFence 漏掉了真围栏')
