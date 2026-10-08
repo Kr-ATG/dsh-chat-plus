@@ -8,7 +8,24 @@
  * 这里只做纯计算、不碰 DOM 也不碰框架，两边各自消费同一份结果。
  */
 
-import type { IuChartSpec } from './parse.ts'
+import type { IuChartSpec, IuKind } from './parse.ts'
+
+/**
+ * 卡片右上角的 kind 角标文案（对话流与截图**同源**）。
+ *
+ * 为什么放进这个模块：这行小字两边都要显示，而截图那边早先是用一串三元
+ * 表达式写的（`kind === 'slider' ? '滑块' : kind === 'chart' ? '图表' : … : '对比'`）
+ * —— 加了 piano 之后它落进最后的兜底，于是**钢琴卡在截图里被标成「对比」**。
+ * 这类「新增一个 kind 却漏改某个分支」的 bug，只有把映射收敛成一处才挡得住：
+ * 现在是 `Record<IuKind, string>`，漏一个 kind 直接编译不过。
+ */
+export const IU_KIND_LABELS: Record<IuKind, string> = {
+  slider: '滑块',
+  chart: '图表',
+  checklist: '清单',
+  tabs: '对比',
+  piano: '钢琴',
+}
 
 /** 系列配色（按系列下标取模；对话流与截图共用，保证同色）。 */
 export const CHART_COLORS = ['#4176e6', '#e67e22', '#27ae60', '#9b59b6'] as const

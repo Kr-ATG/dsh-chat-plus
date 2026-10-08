@@ -10,7 +10,9 @@
   工具行 / 气泡展开收起过渡（260ms / 200ms，播完再卸载）
 - **正文增强**：proto-tabs 可交互卡片（pill / expand / glow）· diagram 流程图围栏
   （JSON → SVG）· **html 沙箱卡片**（```html 围栏 → 独立 iframe，可跑真 HTML/JS，
-  高度自适应上报、只给 allow-scripts）· 生图画廊条 · 重试行影子 · **裸路径自动变成可点链接**（含「整段只有一个
+  高度自适应上报、只给 allow-scripts）· **iu 原生交互卡片**（```iu 围栏 → 宿主原生 React 组件，
+  无 iframe：滑块 / 图表 / 清单 / 对比 / **可弹钢琴**，状态可一键回写输入框；
+  `/iu` 开头即强制出卡）· 生图画廊条 · 重试行影子 · **裸路径自动变成可点链接**（含「整段只有一个
   图片路径 → 直接渲染成图」，见「正文文件提及与右栏预览」）
 - **界面与工具**：会话头部「对话 / 轨迹」标签上移到右上角 · 桌面壳窗口控制留位与主题同步 ·
   对话截图（无头浏览器出图，可内嵌本地 HTML）· download 下载工具（wire 工具 + 实时进度条）
@@ -192,7 +194,81 @@ diagram 是「锦上添花的一张图」，不画图任务照样完成；HTML �
 （`cordis.patch.yml` 覆盖，默认 true）。路由 `GET|POST /api/dsh-memory/html-inject-state`，
 状态随 `/inject-state` 回包顺带返回（同 diagram，不新开 GET 端点）。
 
+> **同一个通道还负责交代 `/iu` 的语义**（`iu` 卡片、钢琴、回写那节见上）。
+> 客户端对 `/iu` **不做任何转换**，所以「这条消息要求出卡」这件事**只能**由这段注入文本告诉模型。
+> 因此这个开关一关，`/iu ...` 就会以一段普通文本到达模型，**不报错、也不出卡**——
+> 排查「`/iu` 没反应」时先看这里。注入文本里的措辞也务必保留「**连 `/iu` 一起原样发给你**」：
+> 曾经写成「客户端已剥掉前缀」，模型据此以为收到的是干净文本，反而把 `/iu` 当成了不认识的命令。
+
 > 与 diagram 同门控：只在 **「Seeker」视图**渲染，普通「对话」视图里原样显示成代码块。
+
+## 对话内原生交互卡片（iu 围栏）
+
+```html 卡片是**沙箱网页**（iframe 里跑真 HTML/JS），`iu` 卡片是**宿主自己的原生 React 组件**：
+没有 iframe、没有沙箱、没有额外安全边界——渲染的全是宿主自己的 DOM，不执行模型给的代码。
+换来的是**手感**：主题与动效跟随宿主、键盘焦点正常、组件状态（滑块值 / 图例开关 / 勾选 / 活动页）
+全部是真实 React state，不是靠脚本自己维护。
+
+````
+```iu
+{ "kind": "slider", "title": "烤肉份量", "min": 0, "max": 5, "step": 0.5,
+  "value": 2.5, "unit": "kg", "desc": "8 个人，含饮料系数",
+  "outputs": [{ "label": "肉", "per": 0.6, "unit": "kg" }] }
+```
+````
+
+五种 `kind`：
+
+| kind | 形态 | 可交互的部分 |
+|---|---|---|
+| `slider` | 滑块 + 换算输出 | 拖动实时算 `per` 换算值 |
+| `chart` | 柱状 / 折线（`chart: "bar" \| "line"`） | 点图例开关某个系列 |
+| `checklist` | 勾选清单 + 进度条 | 逐项勾选，显示 n/m 已完成 |
+| `tabs` | 分段对比 | 切页 |
+| `piano` | **可弹的琴键**（1–3 个八度，4 种波形） | 鼠标点 / 电脑键盘 `A W S E D F T G Y H U J K` |
+
+**回写（右下角「填入输入框」）**：把卡片当前状态拼成一句话写回草稿，用户接着补充或直接发送。
+滑块→「烤肉份量：取 2.5kg，肉1.5kg」；清单→勾选项列表；钢琴→**弹过的音名 + 简谱**
+（`C4 C4 G4 G4 A4 A4 G4` / `1 1 5 5 6 6 5`），模型据此能直接续写或改谱。
+链路是官方 `inputActions.setDraft`，拿不到时回退剪贴板。
+
+**`/iu` 斜杠指令（强制出卡）**：在输入框打 `/iu` 开头即可，**后面直接接你的话**
+（`/iu 做个钢琴`、`/iu象棋`——中文输入法下不敲空格也认）。菜单里会有一项提示，
+但**指令本身不做任何转换**：
+
+| | 行为 | 为什么 |
+|---|---|---|
+| 客户端 | **什么都不做**：不认领、不改写、不投递 | 让输入机的默认发送把原文**连 `/iu` 一起**照发，前缀保留、草稿正常清空、历史记录与手动输入完全一致 |
+| 模型侧 | 靠注入通道里的 `/iu` 语义知道这是「要求出卡」 | 客户端不做转换，所以语义**只能**由注入文本交代 |
+
+> 这两条是踩了两个坑之后的最终形态，**别再改回去**：
+> ① `matchEnter` 返回 `{ text: 改写文本 }` → 输入机的 `onAdjudicated` 只认 `claim`/`undefined`，
+> 其余 outcome **一律静默丢弃**，表现为「消息发不出去也不报错」；
+> ② 自己调 `sessions.scope(id).conversation.send()` 投递 → 绕过了输入机，
+> 于是**前缀被剥**（用户要的是原样保留）且**输入框不清空**（清草稿那步在输入机里）。
+
+**截图管线同源**：`iu` 卡片在无头截图里也能出图，且与对话流**长得一样**——
+几何来自 `geometry.ts`（`chartLayout` / `pianoLayout`）、样式直接用导出的 `IU_CSS`、
+class 名与 DOM 结构（含钢琴的 `pwhite`/`pblack` 两层）都跟真组件一致。
+这条约束的由来：截图那边**曾经自己手搓了一套简化 DOM 与样式**，用户一眼就看出
+「这不是真 UI」，所以现在的规矩是**共用就必须连结构一起共用**——只共用样式表而自己重排
+DOM，等于把「样式与结构耦合」从一个地方挪到两个地方，照样漂移。
+
+两条改这条链路时必须守住的约束（冒烟里都有钉子）：
+
+| 约束 | 后果 |
+|---|---|
+| **可见性不得依赖动画** | 插件全局节流会在页面不可见时 `animation-play-state: paused`，无头截图直接抓第一帧。柱子曾经用 `scaleY(0)`、折线用 `stroke-dashoffset` 做入场 → 三种场景下图表变**空卡**（只剩网格线与数字，不报错） |
+| **kind 角标文案单点定义** | 截图那边原是三串三元表达式，加了 `piano` 后它掉进兜底 → **同一张钢琴卡在对话里标「钢琴」、截图里标「对比」**。现在两边都读 `IU_KIND_LABELS`，漏一个 kind 编译不过 |
+
+容错与 `html` 卡一致：空内容、非法 JSON、未知 kind、超长（>20k 字符）一律**静默回退成代码块**，
+绝不崩卡；`iu` 语言标记走**精确匹配**（`iu-preview` / `ius` 不认）。流式期同样先出占位卡。
+
+`piano` 的三条实现约束（改坏了**不报错、只是没声音**，所以写下来）：
+
+- `AudioContext` **必须懒创建**在首次用户手势里，否则一直是 `suspended`，之后永远静音；
+- 每个音**独立振荡器** + 指数包络收到 `0.0001` 再 `stop()`，否则要么点击声、要么多键互相掐断；
+- 键盘监听有**悬停闸门**（`hoverRef`），避免用户只是在输入框打字就被抢走按键。
 
 ## 团队协作通道（Agent Teams / 子代理委派纪律）
 
@@ -1704,8 +1780,14 @@ node <DSH>/node_modules/.pnpm/typescript@*/node_modules/typescript/bin/tsc -p ts
 
 ```powershell
 node scripts/smoke-client.mjs        # 对话增强：7 座位 / 9 样式表 / KR 开关同源自适应
+                                     #   + iu 卡片：5 种 kind 切分、回写文案、__dshFill 桥、
+                                     #     可见性不依赖动画、钢琴 Web Audio 约束、
+                                     #     /iu 前缀指令（不拦不改写 + 源已注册 + 行为级验证）、
+                                     #     技能源无关 query 不得留候选、kind 角标单点定义、
+                                     #     截图管线钢琴两层容器
 node scripts/smoke-host.mjs          # 本插件 host：3 路由 + download 工具
 node scripts/smoke-triad-host.mjs    # 工作台 host：8 组路由（含 /api/dsh-memory/soul）+ 记忆 8 工具 + soul 2 工具 + agent 钩子，路由零撞车
+                                     #   + HTML 注入规范必须交代 /iu 语义（「连 `/iu` 一起原样发给你」）
 node scripts/smoke-triad-client.mjs  # 工作台 client：Token 活动 52 周热力模型等纯逻辑
 node scripts/test-skill-manager.mjs && node scripts/test-skill-toggles.mjs   # 技能纯逻辑
 ```
@@ -1741,6 +1823,20 @@ node scripts/test-skill-manager.mjs && node scripts/test-skill-toggles.mjs   # �
 > （`setX(prev => ... event.currentTarget.value ...)` 一定崩在 basicStateReducer 并把
 > 整块组件卸载——必须先 `const v = event.currentTarget.value` 再进 updater；
 > 本轮就是靠 UI 探针在真实输入下抓到这条）。
+>
+> `/iu` 就是被这一层抓出来的（2026-10-08）。冒烟全绿，但真浏览器里打 `/iu 象棋` 回车
+> **消息发不出去**，输入框还多出一坨 `/_loose:`——根因在**技能 slash 源的散装技能行**
+> 无条件进候选，导致任何无关 `/xxx` 都在菜单里留一行且默认高亮，回车被菜单吃掉并
+> 把草稿替换成 `/_loose:`。这条链路纯属客户端状态机行为，读源码只能证明「路径存在」，
+> 证明不了「我注册的这个源真的走了那条路」。
+>
+> 探针里另有两个必须记住的细节：
+> ① **别用 abort 拦截请求**——发送失败时官方会**故意还原草稿**（`settleDetachedFailure`
+> → `restoreFailedDrafts`，免得用户白打一遍），于是「草稿没清空」会被误判成 bug；
+> 正确做法是用 `Fetch.fulfillRequest` **伪造一条成功应答**，让客户端链路完整跑完而
+> 请求根本不到服务端；
+> ② **拦截要按 payload 内容命中**，不能见 POST 就拦——App 自己的 RPC（`session/list`、
+> `modelCatalog`…）全被掐死后页面会停在空态、连输入框都没有，那不是被测行为的问题。
 
 ## 结构
 
@@ -1754,8 +1850,11 @@ src/
 │   └── sanitize-html.ts             — 模型原始 HTML 净化（截图 markdown 管线用）
 ├── shot/                            — 截图 host 半身（自 webui/screenshot 移植）
 │   ├── index.ts                     — /api/chat-flow/screenshot 路由（render/save/reveal/image/diagnose）
-│   ├── card.ts                      — 卡片 HTML 组装（页头/标题/正文/页脚/鲸鱼署名）
-│   ├── markdown.ts                  — markdown-it + shiki + mermaid 围栏识别
+│   ├── card.ts                      — 卡片 HTML 组装（页头/标题/正文/页脚/鲸鱼署名）+
+│   │                                   ```iu 围栏 → 静态卡片（几何/样式/class/DOM 全与对话流同源）
+│   ├── markdown.ts                  — markdown-it + shiki + mermaid 围栏识别（`iu` 必须**短路在 shiki 之前**：
+│   │                                  shiki 不认 iu 会抛错 → 落进 catch 变 plain → 注入锚点找不到，
+│   │                                  表现为截图里原样显示 JSON 代码）
 │   ├── theme.ts                     — 五套主题 CSS 编译（浅/深/玻璃/玻璃深/阅读版）
 │   ├── presets.ts                   — 设备×画质档位（host/client 共用纯数据）
 │   ├── renderer.ts                  — 常驻无头浏览器 + 串行渲染队列 + 长图分段拼接
@@ -1771,6 +1870,12 @@ src/
     ├── thinking/
     │   └── ThinkingStepNodeView.tsx — assistant-step 替换：回合聚合思考 chip +
     │                                  卡片门控（回合结束才出卡）+ 官方正文渲染
+    ├── iu/                          — 对话内原生交互卡片（```iu 围栏 → 宿主 React 组件，无 iframe）
+    │   ├── parse.ts                 — 围栏切分 + 五种 kind 的宽松解析（非法/空/未知/超长一律回退代码块）
+    │   ├── geometry.ts              — 图表与键盘几何 + IU_KIND_LABELS（**对话流与截图同源**）
+    │   ├── IuCard.tsx               — 五种卡片本体 + 回写文案（slider/chart/checklist/tabs/piano）
+    │   ├── styles.ts                — IU_CSS（导出给截图管线复用，避免两处样式漂移）
+    │   └── slash.ts                 — `/iu` slash 源（**刻意不拦**：只出菜单候选，回车走默认发送）
     ├── shot/                        — 截图 client 半身（自 webui/screenshot 移植）
     │   ├── index.tsx                — assistant-actions 相机按钮（useChat 快照 ref）
     │   ├── Panel.tsx                — 截图面板（范围/版式/画质/画幅/主题 + 元素删除）

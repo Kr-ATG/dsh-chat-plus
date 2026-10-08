@@ -27,6 +27,7 @@ import { injectStyles as injectBaseStyles } from './styles.ts'
 import { injectDiagramStyles } from './diagram/styles.ts'
 import { injectHtmlEmbedStyles } from './html-embed/styles.ts'
 import { injectIuStyles } from './iu/styles.ts'
+import { applyIuSlash } from './iu/slash.ts'
 import { injectProtoStyles } from './proto/styles.ts'
 import { injectDownloadStyles } from './download/styles.ts'
 import { DownloadCard } from './download/DownloadCard.tsx'
@@ -170,6 +171,9 @@ export function apply(ctx: ClientContext): void {
   guarded(ctx, 'diagram styles', injectDiagramStyles)
   guarded(ctx, 'html embed styles', injectHtmlEmbedStyles)
   guarded(ctx, 'iu styles', injectIuStyles)
+  // `/iu` 斜杠指令：把「出卡片」从模型的判断变成用户的显式命令。
+  // 与内置提示词通道互补——那条只让模型「知道能力存在」，这条是硬要求。
+  guarded(ctx, 'iu slash source', () => { applyIuSlash(ctx) })
   guarded(ctx, 'download card styles', injectDownloadStyles)
   // 共享活动抽屉：思考与工具调用的详情面板（body 级宿主，只挂一次）。
   guarded(ctx, 'activity drawer', mountActivityDrawer)
@@ -344,6 +348,7 @@ export { gateIconForRow, decorateGateMenuRows, GATE_ICON_ATTR, GATE_ICON_COMMAND
  */
 export { splitHtml, looksLikeHtmlFence } from './html-embed/parse.ts'
 export { splitIu, looksLikeIuFence } from './iu/parse.ts'
+export { iuSlashTest } from './iu/slash.ts'
 export { sliderFillText, checklistFillText, chartFillText, tabsFillText, pianoFillText } from './iu/IuCard.tsx'
 /**
  * 裸路径链接化：供 smoke 直接断言「手写反斜杠图片路径会被修正」。

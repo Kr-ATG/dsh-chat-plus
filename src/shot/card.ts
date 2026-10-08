@@ -16,8 +16,8 @@ import { deriveTitle } from '../shared/title.ts'
 import { assembleHtmlDocument } from '../client/html-embed/bridge.ts'
 import { splitHtml } from '../client/html-embed/parse.ts'
 import { splitIu } from '../client/iu/parse.ts'
-import type { IuChartSpec } from '../client/iu/parse.ts'
-import { CHART_COLORS, chartLayout, formatNum, pianoLayout } from '../client/iu/geometry.ts'
+import type { IuChartSpec, IuKind } from '../client/iu/parse.ts'
+import { CHART_COLORS, chartLayout, formatNum, pianoLayout, IU_KIND_LABELS } from '../client/iu/geometry.ts'
 import { IU_CSS } from '../client/iu/styles.ts'
 export { deriveTitle } from '../shared/title.ts'
 
@@ -412,21 +412,34 @@ function iuBodyOf(spec: IuSpecLike): string {
       + `<div class="dtt-iu__count">0/${items.length} 已完成</div><div>${rows}</div>`
   }
   if (spec.kind === 'piano') {
-    // 键盘布局与对话流同源（pianoLayout），因此键位、黑键叠放位置完全一致。
-    // 截图是定格：所有键都是「未按下」态，也不标已弹音。
+    /*
+     * 键盘布局与对话流同源（pianoLayout），**DOM 结构也必须同构**。
+     *
+     * 踩过：早先这里把白键黑键一股脑平铺进 `.dtt-iu__piano`，省掉了
+     * `.dtt-iu__pwhite` / `.dtt-iu__pblack` 两层容器。而 IU_CSS 是照着真实
+     * 组件写的——白键靠 `pwhite{display:flex}` 等分、黑键靠 `pblack{position:absolute}`
+     * 叠上去。少了这两层，白键上的 `left/width` 百分比全落回静态流里，
+     * 截图里的琴键就变成了**一级一级往下掉的阶梯**（而对话流里是正常键盘）。
+     *
+     * 教训：共用 CSS 就必须共用结构。只共用样式表而自己重排 DOM，等于把
+     * 「样式与结构耦合」这件事从一个地方挪到两个地方，一样会漂移。
+     */
     const octave = typeof spec.octave === 'number' ? spec.octave : 4
     const octaves = typeof spec.octaves === 'number' ? spec.octaves : 1
     const showNotes = spec.showNotes !== false
     const keys = pianoLayout(octave, octaves)
     const label = (name: string): string => (showNotes && name.startsWith('C') ? `<span class="dtt-iu__plabel">${esc(name)}</span>` : '')
     const white = keys.filter(k => !k.black)
-      .map(k => `<span class="dtt-iu__pkey" style="left:${k.leftPct}%;width:${k.widthPct}%">${label(k.name)}</span>`).join('')
+      .map(k => `<span class="dtt-iu__pkey">${label(k.name)}</span>`).join('')
     const black = keys.filter(k => k.black)
-      .map(k => `<span class="dtt-iu__pkey dtt-iu__pkey--black" style="left:${k.leftPct}%;width:${k.widthPct}%"></span>`).join('')
+      .map(k => `<span class="dtt-iu__pkey" style="left:${k.leftPct}%;width:${k.widthPct}%"></span>`).join('')
     const desc = typeof spec.desc === 'string' && spec.desc !== ''
       ? `<p class="dtt-iu__desc">${esc(spec.desc)}</p>` : ''
     return desc
-      + `<div class="dtt-iu__piano">${white}${black}</div>`
+      + `<div class="dtt-iu__piano" role="group" aria-label="${escapeAttr(typeof spec.title === 'string' ? spec.title : '')}">`
+      + `<div class="dtt-iu__pwhite">${white}</div>`
+      + `<div class="dtt-iu__pblack">${black}</div>`
+      + `</div>`
       + `<div class="dtt-iu__phint"><span>点键或用电脑键盘 A W S E D F T G Y H U J K 演奏</span></div>`
   }
   const tabs = Array.isArray((spec as Record<string, unknown>).tabs) ? ((spec as Record<string, unknown>).tabs as Array<Record<string, unknown>>).slice(0, 6) : []
@@ -506,11 +519,19 @@ export async function buildCardHtml(input: ShotCardInput): Promise<ShotCardOutpu
       const iuFences: ShotIuFence[] = []
       for (const part of splitIu(clamp(message.text), false)) {
         if (part.kind !== 'iu' || part.pending !== false) continue
-        // IuSpec 是有判别式的联合（四选一），静态快照按 kind 分支读字段。
+        // IuSpec 是有判别式的联合，静态快照按 kind 分支读字段。
         // 这里退到宽松读法：快照只读展示字段，缺字段一律走兜底，不为了类型
         // 好看去穷举四个分支（截图是定格降级，不认识的结构画空壳即可）。
         const spec = part.spec as unknown as IuSpecLike
-        const tag = spec.kind === 'slider' ? '滑块' : spec.kind === 'chart' ? '图表' : spec.kind === 'checklist' ? '清单' : '对比'
+        /*
+         * 角标文案**共用 IU_KIND_LABELS**，不要在这里再写一串三元表达式。
+         *
+         * 踩过：这里原来是 `kind === 'slider' ? '滑块' : … : '对比'`，
+         * 加了 piano 之后它落进兜底分支，**钢琴卡在截图里被标成「对比」**——
+         * 而对话流里 IuCard 写的是 tag="钢琴"，同一张卡两处不一样。
+         * 映射收敛到 geometry.ts 后，漏一个 kind 编译期就报错。
+         */
+        const tag = IU_KIND_LABELS[spec.kind as IuKind] ?? '卡片'
         iuFences.push({
           title: typeof spec.title === 'string' && spec.title !== '' ? spec.title : '交互卡片',
           tag,

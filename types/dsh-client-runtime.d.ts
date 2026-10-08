@@ -25,3 +25,17 @@ export type {
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 
 export type { Context } from '@deepseek-ai/cordis'
+
+/**
+ * `ClientContext` / `SessionId` 别名。
+ *
+ * 插件里一直按旧名 import（`import type { ClientContext, SessionId } from
+ * '@deepseek-ai/dsh-client-runtime/client'`），但当前 DSH 的类型源里这两个名字
+ * 已经不在 client-runtime 面上了：根上下文就是 cordis 的 `Context`，会话 id 是
+ * ui-session 的品牌类型。这里做等价别名，让既有 import 全部类型正确——否则
+ * 每个用到它们的文件都会报 TS2305（而且签名一错，后面全是隐式 any）。
+ *
+ * 纯 type-only：esbuild 整句擦除，产物零影响。
+ */
+export type ClientContext = import('@deepseek-ai/cordis').Context
+export type SessionId = import('@deepseek-ai/dsh-client-ui-session/client').SessionId

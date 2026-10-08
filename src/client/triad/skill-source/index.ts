@@ -266,6 +266,15 @@ export function apply(ctx: ClientContext): void {
     return
   }
 
+  /*
+   * slash 候选文案要跟着语言走,所以在这里 bind 一次 `skill` 命名空间。
+   * 不能图省事写死中文:候选名是**过滤键**(见下方 loose 行的前缀匹配),
+   * 写死中文会让英文界面下按 'Loose' 过滤不出任何东西。
+   *
+   * 之前这里是硬编码字符串 `'散装技能'`,借修 bug 一并收进字典。
+   */
+  const t = ctx.locale.bind(NS)
+
   const source: InputTriggerSource = {
     trigger: '/',
     name: 'skill',
@@ -290,11 +299,29 @@ export function apply(ctx: ClientContext): void {
         .filter(bundle => bundle.name.startsWith(req.query) || bundle.id.startsWith(req.query))
         .map(bundle => bundleCandidate(snapshot, bundle))
         .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
+      /*
+       * 散装技能这一行**必须和下面的集合走同一个 query 过滤器**。
+       *
+       * 这里踩过一个很隐蔽的坑:早先它是无条件 push 的,理由是「散装技能不是
+       * 某个 bundle,没有名字可过滤」。后果是**任何**跟技能无关的 `/xxx` 输入
+       * 都会在菜单里留下一行「散装技能」并默认高亮 —— 而菜单开着时回车会被
+       * 菜单吃掉(arbitrate 的 enter 分支:有高亮就 pick),于是草稿被替换成
+       * `/_loose:`(onPick 的 `{ text: '/id:' , continue: true }`),消息根本
+       * 没发出去,输入框里还多了个莫名其妙的 `/_loose:`。
+       *
+       * 实测触发路径:中文输入法下打 `/iu象棋`(不敲空格)回车 —— 用户看到的是
+       * 「发不出去,输入框变成 `/_loose:`」,完全猜不到是技能菜单干的。
+       *
+       * 现在按同一套前缀规则过滤:无关 query 一律不出候选,菜单无高亮,
+       * 回车就正常落到默认发送。
+       */
       const looseEnabled = skillsOf(snapshot, LOOSE_ID)
-      if (looseEnabled.length > 0) {
+      const looseName = t('loose.title')
+      if (looseEnabled.length > 0
+        && (looseName.startsWith(req.query) || LOOSE_ID.startsWith(req.query))) {
         bundles.push({
-          name: '散装技能',
-          description: `${String(looseEnabled.length)} 个技能`,
+          name: looseName,
+          description: t('loose.count', { count: looseEnabled.length }),
           value: `${BUNDLE_MARK}${LOOSE_ID}`,
         })
       }

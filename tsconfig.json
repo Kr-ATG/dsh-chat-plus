@@ -19,6 +19,8 @@
       "@deepseek-ai/dsh-client-ui-tool": ["../../deepseek-harness/node_modules/.pnpm/node_modules/@deepseek-ai/dsh-client-ui-tool/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-client-ui-chat/client": ["../../deepseek-harness/packages/client/ui-chat/lib/types/client/index.d.ts"],
       "@deepseek-ai/dsh-client-ui-chat": ["../../deepseek-harness/packages/client/ui-chat/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-input-trigger/client": ["../dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-input-trigger/lib/types/client/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-input-trigger": ["../dsh-runtime/node_modules/@deepseek-ai/dsh-client-ui-input-trigger/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-client-ui-attachment": ["../../deepseek-harness/node_modules/.pnpm/node_modules/@deepseek-ai/dsh-client-ui-attachment/lib/types/index.d.ts"],
       "@deepseek-ai/dsh-client-runtime/client": ["./types/dsh-client-runtime.d.ts"],
       "@deepseek-ai/dsh-client-runtime": ["./types/dsh-client-runtime.d.ts"],

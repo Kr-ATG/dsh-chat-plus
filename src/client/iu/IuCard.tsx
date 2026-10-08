@@ -11,7 +11,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { IuChartSpec, IuChecklistSpec, IuPianoSpec, IuSliderSpec, IuSpec, IuTabsSpec } from './parse.ts'
-import { CHART_COLORS, chartLayout, formatNum, midiToFreq, noteToJianpu, pianoLayout } from './geometry.ts'
+import { CHART_COLORS, chartLayout, formatNum, midiToFreq, noteToJianpu, pianoLayout, IU_KIND_LABELS } from './geometry.ts'
 
 /** 填入输入框的回调（父组件用 inputActions.setDraft 实现，拿不到时回退剪贴板）。 */
 export type IuFillFn = (text: string) => boolean
@@ -95,7 +95,7 @@ function SliderBody({ spec, onFill }: { readonly spec: IuSliderSpec; readonly on
   const [value, setValue] = useState(spec.value)
   return (
     <div>
-      <Head title={spec.title} tag="滑块" />
+      <Head title={spec.title} tag={IU_KIND_LABELS.slider} />
       {spec.desc !== '' && <p className="dtt-iu__desc">{spec.desc}</p>}
       <div className="dtt-iu__slider-top">
         <span className="dtt-iu__slider-val">{formatValue(value)}</span>
@@ -141,7 +141,7 @@ function ChartBody({ spec, onFill }: { readonly spec: IuChartSpec; readonly onFi
   const visCount = spec.series.length - hidden.size
   return (
     <div>
-      <Head title={spec.title} tag="图表" />
+      <Head title={spec.title} tag={IU_KIND_LABELS.chart} />
       <div className="dtt-iu__legend">
         {spec.series.map((s, i) => (
           <button
@@ -210,7 +210,7 @@ function ChecklistBody({ spec, onFill }: { readonly spec: IuChecklistSpec; reado
   }
   return (
     <div>
-      <Head title={spec.title} tag="清单" />
+      <Head title={spec.title} tag={IU_KIND_LABELS.checklist} />
       <div className="dtt-iu__progress" aria-hidden>
         <i style={{ width: `${spec.items.length === 0 ? 0 : (checked.size / spec.items.length) * 100}%` }} />
       </div>
@@ -248,7 +248,7 @@ function TabsBody({ spec, onFill }: { readonly spec: IuTabsSpec; readonly onFill
   const tab = spec.tabs[safe]
   return (
     <div>
-      <Head title={spec.title} tag="对比" />
+      <Head title={spec.title} tag={IU_KIND_LABELS.tabs} />
       <div className="dtt-iu__tabs" role="tablist">
         {spec.tabs.map((t, i) => (
           <button
@@ -422,7 +422,7 @@ function PianoBody({ spec, onFill }: { readonly spec: IuPianoSpec; readonly onFi
   const blackKeys = keys.filter(k => k.black)
   return (
     <div>
-      <Head title={spec.title} tag="钢琴" />
+      <Head title={spec.title} tag={IU_KIND_LABELS.piano} />
       {spec.desc !== '' && <p className="dtt-iu__desc">{spec.desc}</p>}
       <div
         className="dtt-iu__piano"

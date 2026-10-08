@@ -302,8 +302,30 @@ const slotsService = {
 // 2026-10-04 起再加 layout（三个工作台页挂在官方 main 座位，开合走 selectPanel）。
 // 缺了哪个，对应工作台的 try/catch 就吃掉它、座位少注册一个——所以这里必须
 // 给全，否则下面的座位数断言分不清「真没注册」与「stub 不够」。
-const sessionsStub = { list: { getSnapshot: () => ({ byId: {} }) } }
-const inputTriggersStub = { register: () => () => {} }
+// sessions 桩：**必须带 scope()**。/iu 的投递链路走
+// `sessions.scope(id).get('conversation').send(text)`，桩里少这一层就会让
+// 投递静默失败（返回 false → 回退默认发送），冒烟却看不出问题。
+const sentPrompts = []
+const sessionsStub = {
+  list: { getSnapshot: () => ({ byId: {} }) },
+  scope: (id) => ({
+    get: (name) => (name === 'conversation'
+      ? { send: async (text) => { sentPrompts.push({ id, text }) } }
+      : undefined),
+  }),
+}
+// inputTriggers 桩：**两个方法都要给**。`register` 是技能源的旧面，`registerSource`
+// 是 input-trigger 契约的正名；少一个就会让对应源静默不注册（catch 里只 warn），
+// 表现为「菜单里没有那一组」，冒烟却看不出问题。
+const registeredTriggerSources = []
+const inputTriggersStub = {
+  register: () => () => {},
+  registerSource: (src) => {
+    registeredTriggerSources.push({ trigger: src?.trigger, name: src?.name, order: src?.order, source: src })
+    return () => {}
+  },
+  sessionOf: () => ({}),
+}
 const modelDirectoriesStub = { list: () => Promise.resolve([]) }
 // layout 桩：selectPanel 记录调用（下面断言「点用量入口先切回会话」）。
 const layoutCalls = []
@@ -2409,7 +2431,155 @@ if (krEnabled) {
     if (!text.includes('1 1 5 5 6')) reasons.push(`简谱换算错误，实得 ${text}`)
   }
 
-  // ⑧ 图表可见性绝不依赖动画（实测踩中两次，无头截图 / 全局节流下图表变空卡）。
+  // ⑨ `/iu` 斜杠指令（用户显式要求出卡）。
+  //
+  // 最终形态是**什么都不做**：源只提供菜单候选，matchEnter 恒返回 undefined，
+  // 让输入机走默认发送把原文（含 `/iu`）发出去。这条链路反过来踩过两次坑：
+  //  · 返回 `{ text }` → 消息被静默丢弃（输入机只认 claim/undefined）；
+  //  · 自己调 conversation.send() → 前缀被剥、输入框不清空。
+  // 断言因此分三层：前缀判定、源已注册、**matchEnter 真的不拦**。
+  {
+    const t = mod.iuSlashTest
+    if (t === undefined) {
+      reasons.push('缺少 iuSlashTest 导出（/iu 判定逻辑不可断言）')
+    } else {
+      if (t.command !== 'iu') reasons.push(`/iu 指令名应为 iu，实得 ${t.command}`)
+      // 前缀判定：带空格 / 不带空格 / 带冒号 都要认；非 /iu 行一律不碰。
+      const cases = [
+        ['/iu 做个钢琴', true],
+        ['/iu做个钢琴', true],
+        ['/iu: 三个方案对比', true],
+        ['  /iu   烤肉份量  ', true],
+        ['/iu', true],
+        ['/iux 别的命令', false],
+        ['/skills', false],
+        ['普通聊天', false],
+      ]
+      for (const [line, want] of cases) {
+        const got = t.hasPrefix(line)
+        if (got !== want) reasons.push(`hasPrefix(${JSON.stringify(line)}) 期望 ${want}，实得 ${got}`)
+      }
+      // 取内容只服务菜单提示；词边界必须正确（否则 /iux 会被误吞）。
+      const stripCases = [
+        ['/iu 做个钢琴', '做个钢琴'],
+        ['/iu做个钢琴', '做个钢琴'],
+        ['/iu', ''],
+        ['/iux 别的命令', null],
+        ['普通聊天', null],
+      ]
+      for (const [line, want] of stripCases) {
+        const got = t.strip(line)
+        if (got !== want) reasons.push(`strip(${JSON.stringify(line)}) 期望 ${JSON.stringify(want)}，实得 ${JSON.stringify(got)}`)
+      }
+    }
+    // 源必须**真的注册**到 inputTriggers：只写 applyIuSlash 不注册的话，
+    // 菜单里永远没有 /iu，而 catch 只 warn —— 静默失效。
+    const iuSrc = registeredTriggerSources.find(s => s?.name === 'iu')
+    if (iuSrc === undefined) {
+      reasons.push('/iu 源未注册到 inputTriggers（菜单里不会有这一组）')
+    } else if (iuSrc.trigger !== '/') {
+      reasons.push(`/iu 源的 trigger 应为 /，实得 ${iuSrc.trigger}`)
+    } else if (iuSrc.order !== 8) {
+      reasons.push(`/iu 源 order 应为 8（排在技能源之后），实得 ${iuSrc.order}`)
+    }
+    /*
+     * 源码形状：**不得**再出现自建投递与包装。
+     *
+     * 这两样都修过 bug 才删掉，留着就会被重新启用：
+     *  · conversation.send / sessions.scope → 绕过输入机，前缀被剥 + 草稿不清空；
+     *  · matchEnter 里的 `{ text }` outcome → 输入机丢弃，消息发不出去。
+     *
+     * ⚠ 两条匹配纪律（都实测踩中过）：
+     *  1. 必须**先剥注释**：本文件的说明注释里就写着这两个名字，全文正则会
+     *     把注释也算成违规；
+     *  2. `{ text }` 只能查 **matchEnter 体内**：`onPick()` 返回
+     *     `{ text: '/iu ' }` 是**合法且必要**的（选中菜单项＝把前缀留在草稿里），
+     *     全文查会误杀好人。两者语义完全不同：onPick 是用户主动选菜单，
+     *     matchEnter 是抢回车键。
+     */
+    const slashSrc = readFileSync(resolve(ROOT, 'src/client/iu/slash.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    if (/conversation\.send|sessions\.scope/.test(slashSrc)) {
+      reasons.push('/iu 不得自建投递（绕过输入机会导致前缀被剥 + 输入框不清空）')
+    }
+    if (/IU_PREFIX\s*=\s*['"`][^'"`]/.test(slashSrc)) {
+      reasons.push('/iu 不得再拼包装前缀（用户要求原话原样发送）')
+    }
+    // 只取 matchEnter 的函数体（从 `matchEnter` 到下一个顶层 `},` 或 `}`）。
+    const enterBody = /matchEnter\s*\([^)]*\)\s*\{([\s\S]*?)\n\s{4}\}/.exec(slashSrc)?.[1]
+    if (enterBody === undefined) {
+      reasons.push('无法定位 /iu 的 matchEnter 函数体（冒烟断言失效，请检查写法）')
+    } else {
+      if (/return \{[^}]*text:/.test(enterBody) || /return \{\s*text:/.test(enterBody)) {
+        reasons.push('/iu 的 matchEnter 不得返回 { text } outcome（输入机只认 claim/undefined，会静默吞掉消息）')
+      }
+      if (!/return undefined/.test(enterBody)) {
+        reasons.push('/iu 的 matchEnter 必须显式 `return undefined`（声明不拦，走默认发送）')
+      }
+    }
+
+    /*
+     * 运行时验证：真的调一次 matchEnter，确认它**什么都不做**。
+     *
+     * 这是行为级回归钉子 —— 光断言源码形状挡不住「形状对但逻辑错」。
+     * 判据有三条：返回 undefined、不投递、不改草稿。
+     */
+    const liveSrc = registeredTriggerSources.find(s => s?.name === 'iu')?.source
+    if (liveSrc === undefined || typeof liveSrc.matchEnter !== 'function') {
+      reasons.push('/iu 源缺 matchEnter（无法显式声明不拦）')
+    } else {
+      for (const line of ['/iu 做个钢琴', '普通聊天', '/iu']) {
+        const before = sentPrompts.length
+        const outcome = await liveSrc.matchEnter({ sessionId: 'smoke-iu' }, line, new AbortController().signal, { attachments: 0 })
+        if (outcome !== undefined) {
+          reasons.push(`/iu 对 ${JSON.stringify(line)} 必须返回 undefined（不认领，交给默认发送），实得 ${JSON.stringify(outcome)}`)
+        }
+        if (sentPrompts.length !== before) {
+          reasons.push(`/iu 不得自己投递（${JSON.stringify(line)} 触发了投递）`)
+        }
+      }
+    }
+
+    /*
+     * 技能源不得在**无关 query** 下留候选。
+     *
+     * 真事：技能 slash 源第一级里「散装技能」那一行原来是无条件 push 的，
+     * 于是任何 `/xxx`（比如中文输入法下不敲空格的 `/iu象棋`）都会在菜单里留
+     * 一行且默认高亮。菜单开着时回车被菜单吃掉（arbitrate 的 enter 分支有高亮
+     * 就 pick），草稿被替换成 `/_loose:` —— 消息发不出去，输入框里还多一坨
+     * 看不懂的东西。用户报的「发不出去」有一半是这个，跟 /iu 本身无关。
+     *
+     * 行为级验证：拿无关 query 调一次 candidates，必须为空数组。
+     */
+    const skillSrc = registeredTriggerSources.find(s => s?.name === 'skill')?.source
+    if (skillSrc === undefined) {
+      reasons.push('技能 slash 源未注册（/ 菜单里不会有技能与集合）')
+    } else if (typeof skillSrc.candidates !== 'function') {
+      reasons.push('技能源缺 candidates')
+    } else {
+      const snapshot = { bundles: [], loose: [{ name: 'demo-skill', description: 'x' }] }
+      const okSkill = await skillSrc.candidates(
+        { sessionId: 'smoke-iu' },
+        { query: 'iu', position: 'leading', drilled: false, signal: new AbortController().signal, ...{} },
+      ).catch(() => undefined)
+      // 上一步依赖网络（技能快照），拿不到就退化成源码形状断言，不能因为
+      // 断言自身环境不足而误报「契约坏了」。
+      if (Array.isArray(okSkill) && okSkill.length > 0) {
+        reasons.push(`技能源在无关 query「iu」下仍给了 ${okSkill.length} 个候选（回车会被菜单吃掉，消息发不出去）`)
+      }
+      void snapshot
+    }
+    // 源码形状兜底：散装技能那一行必须带着 query 前缀判断，不能裸 push。
+    const skillSrcText = readFileSync(resolve(ROOT, 'src/client/triad/skill-source/index.ts'), 'utf8')
+    if (/if \(looseEnabled\.length > 0\) \{\s*\n\s*bundles\.push/.test(skillSrcText)) {
+      reasons.push('技能源的散装技能行不得无条件入列（会让无关 /xxx 也被菜单吃掉回车）')
+    }
+    if (!/looseName\.startsWith\(req\.query\)/.test(skillSrcText)) {
+      reasons.push('技能源的散装技能行必须和集合走同一套 query 前缀过滤')
+    }
+  }
+
+  // ⑩ 图表可见性绝不依赖动画（实测踩中两次，无头截图 / 全局节流下图表变空卡）。
   //
   // 本插件的全局节流会在页面不可见时把 animation-play-state 置为 paused；无头
   // 截图与打印则直接抓第一帧。任何把「看得见」交给动画的写法在这三种场景下都会
@@ -2438,6 +2608,55 @@ if (krEnabled) {
     reasons.push('钢琴必须在 prefers-reduced-motion 下兜底（关动画、留反馈）')
   }
 
+  /*
+   * kind 角标文案必须**单点定义**，两处渲染共用。
+   *
+   * 真事：截图管线那边原是一串三元表达式（… : '对比'），加了 piano 之后
+   * 新 kind 掉进兜底分支，于是**同一张钢琴卡在对话里标「钢琴」、在截图里标
+   * 「对比」**。用户看不出是漏改，只觉得「截图和实际不一样」。
+   * 现在两处都读 geometry.ts 的 IU_KIND_LABELS，漏一个 kind 直接编译不过。
+   */
+  const geometrySrc = readFileSync(resolve(ROOT, 'src/client/iu/geometry.ts'), 'utf8')
+  const labelMap = /IU_KIND_LABELS[^=]*=\s*\{([\s\S]*?)\}/.exec(geometrySrc)?.[1] ?? ''
+  for (const kind of ['slider', 'chart', 'checklist', 'tabs', 'piano']) {
+    if (!new RegExp(`\\b${kind}\\s*:`).test(labelMap)) {
+      reasons.push(`IU_KIND_LABELS 缺 ${kind} 的角标文案（截图会掉进兜底、与对话流不一致）`)
+    }
+  }
+  const iuCardSrcForTag = readFileSync(resolve(ROOT, 'src/client/iu/IuCard.tsx'), 'utf8')
+  if (/tag="(滑块|图表|清单|对比|钢琴)"/.test(iuCardSrcForTag)) {
+    reasons.push('IuCard 的角标不得写死中文字面量（必须读 IU_KIND_LABELS，否则两处会漂移）')
+  }
+  const shotCardSrc = readFileSync(resolve(ROOT, 'src/shot/card.ts'), 'utf8')
+  if (!/IU_KIND_LABELS\[/.test(shotCardSrc)) {
+    reasons.push('截图管线必须读 IU_KIND_LABELS 取角标（不得自己写 kind 判定链）')
+  }
+  if (/kind === 'slider' \? '[^']*' : spec\.kind === 'chart'/.test(shotCardSrc)) {
+    reasons.push('截图管线不得再用 kind 三元链取角标（新增 kind 会静默掉进兜底）')
+  }
+
+  /*
+   * 钢琴的两层容器（pwhite / pblack）在截图管线里也必须在。
+   *
+   * 真事：截图那边原先把白键黑键平铺进 `.dtt-iu__piano` 就完事，省掉了两层
+   * 容器。而 IU_CSS 是照着真实组件写的：白键靠 `pwhite{display:flex}` 等分、
+   * 黑键靠 `pblack{position:absolute}` 叠上去。少一层，白键的 left/width
+   * 百分比全落回静态流 —— 截图里的琴键变成**一级级往下掉的阶梯**，对话流里
+   * 却是正常键盘。共用样式表就必须共用 DOM 结构，只共用一半等于没共用。
+   */
+  for (const [needle, why] of [
+    ['dtt-iu__pwhite', '白键层容器'],
+    ['dtt-iu__pblack', '黑键层容器'],
+  ]) {
+    if (!shotCardSrc.includes(needle)) {
+      reasons.push('截图管线的钢琴缺' + why + '（' + needle + '）——白键会退化成阶梯状')
+    }
+  }
+  // 白键不得再自带 left/width 内联百分比（那是黑键层的活；带上就是重复定位）。
+  if (/dtt-iu__pwhite[\s\S]{0,200}left:\$\{/.test(shotCardSrc)) {
+    reasons.push('截图管线的白键不得带 left 内联定位（白键靠 flex 等分，只有黑键才绝对定位）')
+  }
+
   if (reasons.length > 0) {
     fail('对话内 iu 卡片契约：' + reasons.join('；'))
   } else {
@@ -2446,6 +2665,7 @@ if (krEnabled) {
     pass('iu 卡片：回写文案含状态 + 沙箱 __dshFill 桥 + inputActions.setDraft 回写')
     pass('iu 卡片：图表可见性不依赖动画（无头截图 / 全局节流下不会变空卡）')
     pass('iu 卡片：钢琴 Web Audio 懒创建 + 指数包络 + 独立振荡器 + 悬停闸门')
+    pass('iu 卡片：/iu 前缀式指令（不拦不改写、原文含前缀照发、源已注册 + 行为级验证）')
   }
 }
 

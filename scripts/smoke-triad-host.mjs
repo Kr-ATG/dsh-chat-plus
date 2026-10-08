@@ -396,6 +396,24 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
   need(/htmlStepCounters/.test(injectSrc) && /isHtmlInjectEnabled/.test(injectSrc),
     'html 通道有独立 step 计数器（不与其它通道抢首步名额）')
 
+  // `/iu` 的语义必须由注入通道交代 —— 这是「前端不转换」方案的前提。
+  //
+  // 客户端**什么都不做**：matchEnter 恒返回 undefined，输入机走默认发送，把
+  // 用户打的原文（**连 `/iu` 一起**）照发（见 client/iu/slash.ts）。所以模型唯一
+  // 能知道「这条消息要求出卡」的来源就是这段注入文本。少了它，`/iu 做个钢琴`
+  // 在模型眼里就是普通一句「做个钢琴」，卡片不会出现——而且不报错。
+  //
+  // ⚠ 关键词必须写「原样发给你 / 连 /iu 一起」：曾经写成「客户端已剥掉前缀」，
+  // 模型据此以为收到的是干净文本，于是把 `/iu` 当成了不认识的命令。
+  for (const [needle, why] of [
+    ['/iu', '前缀本身'],
+    ['前缀', '说明这是前缀式指令'],
+    ['连 `/iu` 一起原样发给你', '说明前缀会一并到达（否则模型会当成未知命令）'],
+    ['必须', '强制语气（不是建议）'],
+  ]) {
+    need(injectSrc.includes(needle), `HTML 注入规范必须交代 /iu 语义的「${why}」（缺 ${needle}）`)
+  }
+
   // 配置项三处必须齐：类型、默认值、可调布尔键表。
   const typesSrc = readFileSync(resolve(ROOT, 'src/triad/memory/types.ts'), 'utf8')
   need(/htmlInjectDefaultEnabled: boolean/.test(typesSrc), 'MemoryConfig 声明 htmlInjectDefaultEnabled')

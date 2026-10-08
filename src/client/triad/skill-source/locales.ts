@@ -13,6 +13,9 @@ export const zh = {
   'row.stopped': 'skill 加载已中止',
   'row.instructions': '说明',
   'menu.userOnly': '仅用户',
+  // slash 菜单第一级里「散装技能」那一行(不属于任何集合的技能)。
+  'loose.title': '散装技能',
+  'loose.count': '{count} 个技能',
 } satisfies Record<string, string>
 
 /** The skill namespace key union. */
@@ -25,4 +28,6 @@ export const en = {
   'row.stopped': 'Skill load stopped',
   'row.instructions': 'Instructions',
   'menu.userOnly': 'user-only',
+  'loose.title': 'Loose skills',
+  'loose.count': '{count} skills',
 } satisfies Record<SkillKey, string>
