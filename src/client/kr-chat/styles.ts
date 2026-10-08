@@ -2235,8 +2235,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
  */
 .kr-subs-row__dot {
   flex: none;
-  width: 6px;
-  height: 6px;
+  /* 状态点：随字号轴放大（否则它在大字行的左侧缩成一颗小痣）。 */
+  width: calc(6px + var(--dsh-content-font-delta, 0px) * 0.45);
+  height: calc(6px + var(--dsh-content-font-delta, 0px) * 0.45);
   border-radius: 50%;
   background: var(--dsw-alias-label-caption);
   opacity: .5;
@@ -2542,8 +2543,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   flex: none;
   display: grid;
   place-items: center;
-  /* 类型缩略图：随字号轴放大（1.4 倍系数，与行高同比例），
-     里面的 svg 高度已经是 52%（见下），跟着容器走。 */
+  /* 类型缩略图容器：随字号轴放大（2 倍系数，与行高同比例）。 */
   width: calc(28px + var(--dsh-content-font-delta, 0px) * 2);
   height: calc(28px + var(--dsh-content-font-delta, 0px) * 2);
   border-radius: 6px;
@@ -2552,6 +2552,51 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   color: var(--dsw-alias-label-secondary);
   overflow: hidden;
   transition: transform .24s cubic-bezier(.34, 1.35, .5, 1), border-color .18s ease;
+}
+
+/*
+ * ⚠ 缩略图里的图形（Thumb 那套按类型画的 SVG）**必须显式覆盖**。
+ *
+ * 它的 width/height 是 JSX 里的呈现属性（28 × 28，见 KrOutputsCard 的 Thumb），
+ * 不会跟着容器走：只放大容器的话，容器是个大框、里面的图形还是原来那么大，
+ * 四周留一圈空 —— 而且这处失败**零报错**，只有肉眼看才发现「缩略图显得变小了」。
+ *
+ * 这里不用 flex 居中让它自适应，而是显式给尺寸：图形的 viewBox 是 0 0 28 28，
+ * 直接等比例放大到容器内（留 1px 描边余量由 grid 居中吸收）。
+ */
+.kr-out-row__thumb svg,
+.kr-out-code__thumb svg {
+  width: calc(28px + var(--dsh-content-font-delta, 0px) * 2);
+  height: calc(28px + var(--dsh-content-font-delta, 0px) * 2);
+}
+
+/*
+ * 四张卡里其余的小图标 SVG：**一律显式覆盖呈现属性**。
+ *
+ * 这些 svg 的 width/height 都写在 JSX 里（子智能体卡的跳转箭头 12、两张卡的
+ * 「展开其余 N」11、产出物卡的预览按钮 12 与折行 chevron 11）。它们所在的
+ * 容器已经跟着字号轴放大了，图形不跟就会在大字档下显得缩了一号、四周留空 ——
+ * 同样是零报错的静默失败。
+ *
+ * 用 CSS 覆盖（CSS 声明优先于呈现属性）：一处规则管全部，不必把比例一路
+ * 透传进每个小组件，也不必改 tsx。
+ *
+ * ⚠ 基准值必须逐个对齐 JSX 里的呈现属性（12 / 12 / 11），**不能统一取一个数**：
+ * 写错不会报错，只会在默认档就把图形放大或缩小一点 —— 那属于「不改设置也变样」，
+ * 违反本轮「默认档逐像素还原」的口径。
+ */
+.kr-subs-row__go svg,
+.kr-out-row__open svg {
+  width: calc(12px + var(--dsh-content-font-delta, 0px) * 0.9);
+  height: calc(12px + var(--dsh-content-font-delta, 0px) * 0.9);
+}
+
+/* 下面三枚的呈现属性是 11px（两张卡的「展开其余 N」与代码折行 chevron）。 */
+.kr-subs-more svg,
+.kr-out-more svg,
+.kr-out-code__chevron svg {
+  width: calc(11px + var(--dsh-content-font-delta, 0px) * 0.8);
+  height: calc(11px + var(--dsh-content-font-delta, 0px) * 0.8);
 }
 
 /* 悬停时缩略图轻微放大：一行里"有东西在回应指针"，但只有这一个元素动，
@@ -2619,7 +2664,8 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   /* 悬停浮现的预览按钮：随字号轴放大，否则它在大字行里小得点不准。 */
   width: calc(22px + var(--dsh-content-font-delta, 0px) * 1.5);
   height: calc(22px + var(--dsh-content-font-delta, 0px) * 1.5);
-  margin-left: 6px;
+  /* 与文件名的间距同比例缩放（基准 6px）。 */
+  margin-left: calc(6px + var(--dsh-content-font-delta, 0px) * 0.4);
   padding: 0;
   border: 0;
   border-radius: 5px;
@@ -2747,9 +2793,11 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   transform: rotate(180deg);
 }
 
-/* 展开后的代码清单：缩进一级（28px 缩略图 + 9px gap），表明它们属于上面那一行。 */
+/* 展开后的代码清单：缩进一级（28px 缩略图 + 9px gap），表明它们属于上面那一行。
+   ⚠ 缩进必须跟缩略图一起放大：它等于「缩略图宽 + gap」，缩略图涨了而缩进没涨，
+   展开后两段的行首就不再对齐（那条竖线会压进缩略图里）。 */
 .kr-out-list--code {
-  margin-left: 37px;
+  margin-left: calc(37px + var(--dsh-content-font-delta, 0px) * 2);
   padding-left: 4px;
   border-left: 1px solid var(--kr-hairline);
   animation: kr-out-code-in .26s cubic-bezier(.16, 1, .3, 1) both;

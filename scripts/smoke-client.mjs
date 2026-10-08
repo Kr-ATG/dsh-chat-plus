@@ -1994,6 +1994,54 @@ if (krEnabled) {
     axisReasons.push('.kr-out-row 的 min-height 必须随字号轴缩放（否则放大档把缩略图或文字夹住）')
   }
 
+  /*
+   * 8：**JSX 里的 svg 呈现属性必须被 CSS 覆盖**。
+   *
+   * 这是本轮真正漏过的一处，也是这类改造里最隐蔽的失败：svg 的 width/height
+   * 写在 tsx 里（如产出物卡的 Thumb 是 28、跳转箭头是 12），容器跟着字号轴放大了、
+   * 图形却纹丝不动 —— 容器成了一个大框、图形还是原来那么大，四周留空。
+   * 零报错、零 console、样式表看起来完全正确，只有肉眼看得出来。
+   *
+   * 判据：凡是「容器尺寸走 calc(+delta)」的那些图标 / 缩略图，都必须有一条
+   * 对应的 svg 覆盖规则。逐条点名，少一条就报出来。
+   */
+  const SVG_MUST_SCALE = [
+    // [容器选择器（用于报错文案）, 覆盖规则必须匹配的正则]
+    ['产出物缩略图 .kr-out-row__thumb', /\.kr-out-row__thumb svg,\s*\.kr-out-code__thumb svg\s*\{[^}]*calc\([^)]*--dsh-content-font-delta/],
+    ['子智能体箭头 .kr-subs-row__go', /\.kr-subs-row__go svg/],
+    ['「展开其余 N」两处', /\.kr-subs-more svg/],
+    ['产出物预览按钮 .kr-out-row__open', /\.kr-out-row__open svg/],
+    ['代码折行 chevron', /\.kr-out-code__chevron svg/],
+  ]
+  for (const [label, re] of SVG_MUST_SCALE) {
+    if (!re.test(axisSrc)) {
+      axisReasons.push(label + ' 里的 svg 必须用 CSS 覆盖呈现属性（否则容器放大、图形不放大，零报错）')
+    }
+  }
+  // 覆盖规则本身必须真的带 delta（只写死尺寸等于没覆盖）。
+  const thumbSvg = /\.kr-out-row__thumb svg,\s*\.kr-out-code__thumb svg\s*\{([^}]*)\}/.exec(axisSrc)
+  if (thumbSvg !== null && !thumbSvg[1].includes('--dsh-content-font-delta')) {
+    axisReasons.push('缩略图 svg 的覆盖规则必须带 --dsh-content-font-delta（写死尺寸等于没覆盖）')
+  }
+  /*
+   * 覆盖规则的**基准值必须等于 JSX 里的呈现属性**（12 / 12 / 11 / 11 / 11）。
+   * 取错不会报错，只会在默认档就把图形放大或缩小一点 —— 那违反「默认档逐像素
+   * 还原」。本轮就把 chevron 的 11 写成了 12，实测默认档量到 12px 才发现。
+   */
+  const svgBase12 = /\.kr-subs-row__go svg,\s*\.kr-out-row__open svg\s*\{\s*width:\s*calc\(12px/.test(axisSrc)
+  const svgBase11 = /\.kr-subs-more svg,\s*\.kr-out-more svg,\s*\.kr-out-code__chevron svg\s*\{\s*width:\s*calc\(11px/.test(axisSrc)
+  if (!svgBase12) {
+    axisReasons.push('跳转箭头与预览按钮 svg 的基准必须是 12px（与 JSX 呈现属性一致）')
+  }
+  if (!svgBase11) {
+    axisReasons.push('「展开其余 N」与代码折行 chevron 的 svg 基准必须是 11px（与 JSX 呈现属性一致）')
+  }
+  // 代码清单缩进 = 缩略图宽 + gap，必须同步放大，否则展开后两段行首不对齐。
+  const codeIndent = /\.kr-out-list--code\s*\{([^}]*)\}/.exec(axisSrc)
+  if (codeIndent === null || !/margin-left:\s*calc\(37px \+ var\(--dsh-content-font-delta/.test(codeIndent[1])) {
+    axisReasons.push('.kr-out-list--code 的缩进必须与缩略图同步放大（否则展开后行首不对齐）')
+  }
+
   if (axisReasons.length > 0) {
     fail('字号轴跟随回退：' + axisReasons.join('；'))
   } else {
