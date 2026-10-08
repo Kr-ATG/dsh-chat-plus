@@ -31,12 +31,14 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createRoot, type Root } from 'react-dom/client'
 import type { WorkbenchTab } from './WorkbenchPanel.js'
 import {
+  WORKBENCH_PANEL_ID,
   WORKBENCH_ROW_MARK,
   WORKBENCH_TABS,
   WORKBENCH_TAB_EVENT,
   openWorkbench,
   readWorkbenchTab,
 } from './row-flyout.js'
+import { getService } from '../../client-ctx.js'
 import { useRail } from '../sidebar-nav.js'
 
 /** 横滑条宿主 id（本模块创建）。 */
@@ -116,6 +118,57 @@ function ensureStripStyles(): void {
   document.head.appendChild(tag)
 }
 
+/** 官方 layout 的面板选中态最小可读面（HostObservable：getSnapshot + subscribe）。 */
+interface PanelInfoLike {
+  activePanelId?: string | null
+}
+interface PanelInfoSourceLike {
+  getSnapshot?: () => PanelInfoLike
+  subscribe?: (fn: () => void) => () => void
+}
+
+/**
+ * 订阅官方「当前选中的 main 面板」（ctx.layout.panelInfo）。
+ *
+ * 横滑条的选中态原先只读 localStorage（上次看过的分类），于是离开工作台后
+ * 那一格仍亮着下划线，看起来像「还停在工作台」。这里把官方选中态接进来：
+ * 只有 activePanelId === 'workbench' 时才允许亮选中格，其余页面整条回到
+ * 未选中态（无下划线、文字统一三级灰）。
+ *
+ * 读法全程防御：服务不存在 / 快照形状不对一律视为「未打开」，绝不抛。
+ */
+function useWorkbenchOpen(): boolean {
+  const [open, setOpen] = useState<boolean>(() => readPanelOpen())
+  useEffect(() => {
+    const source = panelInfoSource()
+    if (source === null) return undefined
+    const sync = (): void => setOpen(readPanelOpen())
+    sync()
+    if (typeof source.subscribe !== 'function') return undefined
+    return source.subscribe(sync)
+  }, [])
+  return open
+}
+
+/** 取 panelInfo 观察源（读不到返回 null）。 */
+function panelInfoSource(): PanelInfoSourceLike | null {
+  const layout = getService<{ panelInfo?: PanelInfoSourceLike }>('layout')
+  const source = layout?.panelInfo
+  if (source === undefined || source === null || typeof source.getSnapshot !== 'function') return null
+  return source
+}
+
+/** 当前是否真的停在工作台页（官方选中态为准）。 */
+function readPanelOpen(): boolean {
+  try {
+    const source = panelInfoSource()
+    if (source === null) return false
+    return source.getSnapshot?.().activePanelId === WORKBENCH_PANEL_ID
+  } catch {
+    return false
+  }
+}
+
 /**
  * 按当前形态同步官方行的显隐（幂等）。
  *
@@ -192,6 +245,8 @@ function Cell({ id, label, desc, active, onPick }: CellProps): JSX.Element {
 function WorkbenchStrip({ onWide }: { onWide: (wide: boolean) => void }): JSX.Element | null {
   const rail = useRail()
   const [active, setActive] = useState<WorkbenchTab>(() => readWorkbenchTab())
+  // 官方选中态：只有真停在工作台页时才亮选中格，离开后整条无下划线。
+  const open = useWorkbenchOpen()
   const [edge, setEdge] = useState<{ l: boolean; r: boolean }>({ l: false, r: false })
   const stripRef = useRef<HTMLDivElement | null>(null)
 
@@ -281,7 +336,7 @@ function WorkbenchStrip({ onWide }: { onWide: (wide: boolean) => void }): JSX.El
               id={tab.id}
               label={tab.label}
               desc={tab.desc}
-              active={tab.id === active}
+              active={open && tab.id === active}
               onPick={(id) => { openWorkbench(id) }}
             />
           ))}

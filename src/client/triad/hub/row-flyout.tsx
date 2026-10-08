@@ -41,6 +41,9 @@ export const WORKBENCH_TAB_EVENT = 'dsh-workbench-tab'
 /** localStorage 键：与 WorkbenchPanel 的回填键同一把，两边读写同一份真相。 */
 export const WORKBENCH_TAB_STORE = 'dsh-workbench-active-tab'
 
+/** 工作台在官方 main 槽位 / sidebar.panellist 的座位 id（与 hub/seat.ts 同名）。 */
+export const WORKBENCH_PANEL_ID = 'workbench'
+
 /** 分类元数据：浮层列表与面包屑共用（顺序 = 滚轮切换顺序）。 */
 export interface WorkbenchTabMeta {
   id: WorkbenchTab
@@ -80,7 +83,7 @@ export function openWorkbench(tab?: WorkbenchTab): void {
   try {
     const layout = getService<{ selectPanel?: (id: string | null) => void }>('layout')
     if (layout !== undefined && typeof layout.selectPanel === 'function') {
-      layout.selectPanel('workbench')
+      layout.selectPanel(WORKBENCH_PANEL_ID)
       return
     }
   } catch { /* 忽略读取错误 */ }

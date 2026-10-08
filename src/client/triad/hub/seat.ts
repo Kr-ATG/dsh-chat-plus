@@ -16,11 +16,8 @@ import { createElement } from 'react'
 import type { Context as ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { registerPanelSeat } from '../panel-seat.js'
 import { WorkbenchGridIcon, WorkbenchPanel } from './WorkbenchPanel.js'
-import { attachWorkbenchRowFlyout, WORKBENCH_ROW_MARK } from './row-flyout.js'
+import { attachWorkbenchRowFlyout, WORKBENCH_ROW_MARK, WORKBENCH_PANEL_ID } from './row-flyout.js'
 import { attachWorkbenchStrip } from './strip.js'
-
-/** 工作台座位 id */
-export const WORKBENCH_PANEL_ID = 'workbench'
 
 /** 挂载统一工作台页面、侧栏菜单行与横滑分类条 */
 export function applyWorkbenchSeat(ctx: ClientContext): void {
