@@ -848,9 +848,11 @@ body[data-kr-resizing="true"] * {
 .kr-task-scope {
   flex: none;
   white-space: nowrap;
-  font-size: 10px;
+  /* 口径小标：字级跟随官方字号轴（见「字号轴」段）。行高随之缩放：
+     基准 10px 字配 14px 行高（比例 1.4）。 */
+  font-size: var(--kr-fs-10, 10px);
   font-weight: 500;
-  line-height: 14px;
+  line-height: calc(14px + var(--dsh-content-font-delta, 0px) * 1.4);
   padding: 0 5px;
   border-radius: 999px;
   border: 1px solid var(--kr-card-border);
@@ -1039,14 +1041,22 @@ body[data-kr-resizing="true"] * {
 }
 
 .kr-task-item__icon {
-  width: 14px;
-  height: 14px;
+  /* 状态圆圈：尺寸随官方字号轴放大（见「字号轴」段）。StatusIcon 的
+     width/height 是 JSX 呈现属性，CSS 声明优先，直接覆盖即可——
+     不必把比例透传进那个小组件。 */
+  width: calc(14px + var(--dsh-content-font-delta, 0px));
+  height: calc(14px + var(--dsh-content-font-delta, 0px));
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
   margin-top: 2px;
   color: var(--dsw-alias-label-tertiary);
+}
+
+.kr-task-item__icon svg {
+  width: 100%;
+  height: 100%;
 }
 
 /* 对勾 pop：完成那一帧图标从小到大弹出（overshoot 回弹），与底色淡闪同拍。
@@ -1072,7 +1082,8 @@ body[data-kr-resizing="true"] * {
 .kr-task-item__content {
   flex: 1;
   min-width: 0;
-  font-size: 12.5px;
+  /* 任务正文：字级跟随官方字号轴；行高是比例值（1.45），自动随字级缩放。 */
+  font-size: var(--kr-fs-body, 12.5px);
   line-height: 1.45;
   color: var(--dsw-alias-label-primary);
   word-break: break-word;
@@ -1084,7 +1095,8 @@ body[data-kr-resizing="true"] * {
 }
 
 .kr-task-item__tag {
-  font-size: 11px;
+  /* 状态标签：字级跟随官方字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-11, 11px);
   font-weight: 500;
   padding: 1px 6px;
   border-radius: 4px;
@@ -1282,54 +1294,90 @@ body[data-kr-resizing="true"] * {
   .kr-reasoning-more { transition: none; }
 }
 
-/* ══ 字号轴：两张对话流内联卡跟随官方「设置 → 字号」═══════════════════════
+/* ══ 字号轴：对话流两张内联卡 + 右栏四张卡跟随官方「设置 → 字号」═════════
  *
  * 官方把正文字号发布成 body 上的行内变量 --dsh-content-font-size（10..22，
- * 默认 14），并派生 --dsh-content-font-delta。思考过程卡与提问与回答卡贴在
- * 对话流里、与正文同列，字号必须跟着这条轴走——否则用户把字号调到 20，正文
- * 变大了，这两张卡还钉在 12.5px，读起来像另一套界面。
+ * 默认 14），并派生 --dsh-content-font-delta。这两组卡片（对话流里的思考过程
+ * 卡与提问与回答卡，右栏大盘里的任务概览 / 操作面板 / 子智能体 / 产出物）
+ * 字号都必须跟着这条轴走——否则用户把字号调到 20，正文变大了，卡片还钉在
+ * 12.5px，读起来像另一套界面。
  *
- * 五个档位一律写成「相对正文档平移 + 下限」，三条理由：
+ * 七个档位一律写成「相对正文档平移 + 下限」，三条理由：
  *  1. **默认档逐一还原**：字号 14 时每一档都精确等于改造前的硬编码值
- *     （12.5 / 13 / 12 / 11.5 / 11），默认外观一个像素没动；
+ *     （13 / 12.5 / 12 / 11.5 / 11 / 10.5 / 10），默认外观一个像素没动；
  *  2. **不设上限**：官方上限 22，最大档 20.5px 仍在正常阅读区间，不需要截断；
- *  3. **设下限**：小字档压在 10 ~ 11px。官方自己的次级档在小字号区间也是停止
+ *  3. **设下限**：小字档压在 9.5 ~ 12px。官方自己的次级档在小字号区间也是停止
  *     跟随的（--dsh-content-font-size-secondary 在 ≤16px 时锁死 13px），这里只是
- *     把同一条口径按本卡的实际字级平移下来，免得字号调到 10 时正文掉到 8.5px。
+ *     把同一条口径按各卡的实际字级平移下来，免得字号调到 10 时正文掉到 8.5px。
  *
  * **不复用官方 --dsh-content-font-size-secondary**：它在 ≤16px 区间恒定 13px，
  * 而用户从默认 14 调到 15、16 恰恰是最常见的一段，那段完全不跟随等于没做。
  *
- * 作用域挂在两张卡的根类上（不是 [data-inline]）：变量对两态都存在，规则里
- * 引用时仍带 fallback，任何一处单独改动都不会让整条 font-size 失效。
+ * 档位与基准值的对应（右栏四张卡的正文取 body、小字取后四档）：
+ *   --kr-fs-title 13   标题行 / --kr-fs-body 12.5 正文
+ *   --kr-fs-12    12   / --kr-fs-11-5 11.5 / --kr-fs-11 11
+ *   --kr-fs-10-5  10.5 / --kr-fs-10 10
+ *
+ * 作用域挂在**六个卡根类**上（右侧四张卡 + 左侧两张内联卡）：变量对该卡整棵
+ * 子树生效，规则里引用时仍带 fallback，任何一处单独改动都不会让整条 font-size
+ * 失效。右栏四张卡与对话流那两张的档位不同源（窄栏一套、内容区一套），
+ * 但都从同一个官方变量派生，所以共用这一段声明。
  */
 .kr-card--reasoning,
-.kr-card--ask {
+.kr-card--ask,
+.kr-card--task,
+.kr-card--plain,
+.kr-card--subs,
+.kr-card--outputs {
   --kr-fs-body: max(11px, calc(var(--dsh-content-font-size, 14px) - 1.5px));
   --kr-fs-title: max(12px, calc(var(--dsh-content-font-size, 14px) - 1px));
   --kr-fs-12: max(11px, calc(var(--dsh-content-font-size, 14px) - 2px));
   --kr-fs-11-5: max(10.5px, calc(var(--dsh-content-font-size, 14px) - 2.5px));
   --kr-fs-11: max(10px, calc(var(--dsh-content-font-size, 14px) - 3px));
+  --kr-fs-10-5: max(9.5px, calc(var(--dsh-content-font-size, 14px) - 3.5px));
+  --kr-fs-10: max(9.5px, calc(var(--dsh-content-font-size, 14px) - 4px));
 }
 
 /*
- * 标题行与图标：**只覆盖这两张卡**。
+ * 标题行与图标：覆盖**全部六张卡**。
  *
- * .kr-card__title / .kr-card__meta / .kr-card__icon 是右栏大盘那五张卡共用的
- * 基类（任务概览 / 操作面板 / 产出物 / 记忆 / 子智能体），右栏是定宽窄栏、字号
- * 档位自成一套，本次不动它们；加前缀把跟随限定在这两张贴进对话流的卡上。
+ * .kr-card__title / .kr-card__meta / .kr-card__icon 是各类卡片共用的基类。
+ * 左栏两张（思考 / 问答）与右栏四张（任务概览 / 操作面板 / 子智能体 / 产出物）
+ * 现在一起跟随字号轴；右栏余下那张「记忆」卡是 footer 里的钉底卡、高度与
+ * 折叠口径自成一套，本次不动（它的标题仍吃基类的 13px）。
  *
  * 图标按官方 leading icon 的口径跟随（width / height 用 calc(基线 + delta)），
  * 不是写死：字号 22 时 16px 图标配 20.5px 正文会显得缩了一号，反之亦然。
  * SVG 的 width / height 是呈现属性，CSS 声明优先，直接覆盖即可。
  */
 .kr-card--reasoning .kr-card__title,
-.kr-card--ask .kr-card__title {
+.kr-card--ask .kr-card__title,
+.kr-card--task .kr-card__title,
+.kr-card--plain .kr-card__title,
+.kr-card--subs .kr-card__title,
+.kr-card--outputs .kr-card__title {
   font-size: var(--kr-fs-title, 13px);
 }
 
+/*
+ * 标题行右侧的读数（「3/5 完成」「N 条」「2 个 · 1 个进行中」）：
+ * 基类是写死的 11px / 16px 行高，一起换成档位变量。
+ * 行高按基准比例缩放（11px 字配 16px 行高 → 比例 16/11 ≈ 1.4545）。
+ */
+.kr-card--task .kr-card__meta,
+.kr-card--plain .kr-card__meta,
+.kr-card--subs .kr-card__meta,
+.kr-card--outputs .kr-card__meta {
+  font-size: var(--kr-fs-11, 11px);
+  line-height: calc(16px + var(--dsh-content-font-delta, 0px) * 1.4545);
+}
+
 .kr-card--reasoning .kr-card__icon,
-.kr-card--ask .kr-card__icon {
+.kr-card--ask .kr-card__icon,
+.kr-card--task .kr-card__icon,
+.kr-card--plain .kr-card__icon,
+.kr-card--subs .kr-card__icon,
+.kr-card--outputs .kr-card__icon {
   /* flex:none：图标现在随字号变宽（字号 22 时 26px），不锁住的话它会被标题
      挤成椭圆而不是保持方形。 */
   flex: none;
@@ -1343,6 +1391,15 @@ body[data-kr-resizing="true"] * {
 }
 
 .kr-card--ask .kr-card__icon svg {
+  width: calc(15px + var(--dsh-content-font-delta, 0px));
+  height: calc(15px + var(--dsh-content-font-delta, 0px));
+}
+
+/* 右栏四张卡的标题图标基准都是 14–15px，统一按 15px 起算。 */
+.kr-card--task .kr-card__icon svg,
+.kr-card--plain .kr-card__icon svg,
+.kr-card--subs .kr-card__icon svg,
+.kr-card--outputs .kr-card__icon svg {
   width: calc(15px + var(--dsh-content-font-delta, 0px));
   height: calc(15px + var(--dsh-content-font-delta, 0px));
 }
@@ -1602,13 +1659,15 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  height: 19px;
+  /* 详细/简要切换：字号与高度都跟随官方字号轴（见「字号轴」段）——
+     高度必须一起改，否则大字档下按钮会把文字夹住。 */
+  height: calc(19px + var(--dsh-content-font-delta, 0px));
   padding: 0 6px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--kr-fs-11, 11px);
   line-height: 1;
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
@@ -1662,14 +1721,23 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
    的那一行说的是同一件事，白占一行高度。模型侧的播报约定也于 2026-10-01 整条
    下掉（注入规则 + composer 开关 + extractIntent / nowLabel 一并移除）。 */
 .kr-plain-empty {
-  font-size: 12px;
+  font-size: var(--kr-fs-12, 12px);
   color: var(--dsw-alias-label-tertiary);
   padding: 2px 0;
 }
 
 /* ── 时间线列表（有界视口 + 内部滚动） ───────────────────────────────── */
+/*
+ * ⚠ 行高是**视口高度**的计算基准：max-height = 行数 × 行高 + 6px。
+ * （写法见下一条规则；这里刻意不写反引号 —— 注入式 CSS 的模板字符串里
+ * 反引号会让整段提前闭合，本文件头部有红线说明。）
+ *
+ * 写死 22px 的后果只在放大档显形：字号跟到 20px 时每行实际约 30px，而视口仍按
+ * 22px 算，卡片会把内容切掉一半；反过来小字档会留一大片空白。所以它必须与
+ * 点 kr-plain-step 的真实行高（min-height 与 12px 正文行高）一起缩放。
+ */
 .kr-plain-list {
-  --kr-plain-row-h: 22px;
+  --kr-plain-row-h: calc(22px + var(--dsh-content-font-delta, 0px) * 1.3);
   max-height: calc(var(--kr-plain-rows, 13) * var(--kr-plain-row-h) + 6px);
   overflow-y: auto;
   /* 纵向可滚、横向钳死：卡片里没有任何需要横向滚动的内容，出现横条只可能是
@@ -1724,12 +1792,14 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   /* 窄栏下 flex 子项默认的 min-width:auto 会让长标题把整行顶宽，列表随即冒出
      一条横向滚动条；置 0 后标题上已有的 text-overflow 才真正生效。 */
   min-width: 0;
-  min-height: 22px;
+  /* 行高与上面 --kr-plain-row-h 同一系数（22px 基准 + delta×1.3）：
+     两处必须一起改，否则视口高度与实际行高脱钩（原因见那处的注释）。 */
+  min-height: calc(22px + var(--dsh-content-font-delta, 0px) * 1.3);
   /* 左内距 12px（原先 8px）：给进行中那行左侧的 2px 活动竖线留出站位，否则竖线
      会压在行首 14px 图标上。所有行统一加，整列文字左缘才对齐。 */
   padding: 4px 8px 4px 12px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--kr-fs-12, 12px);
   color: var(--dsw-alias-label-secondary);
   animation: kr-plain-step-in .26s cubic-bezier(.16, 1, .3, 1) both;
   transition: background-color .12s ease;
@@ -1856,8 +1926,10 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   margin-left: 0.45em;
   padding: 0 6px;
   border-radius: 8px;
-  font-size: 11px;
-  line-height: 15px;
+  /* 计数徽标：字号与行高一起跟随字号轴（见「字号轴」段）。
+     行高按基准比例缩放（11px 字配 15px 行高 → 15/11 ≈ 1.3636）。 */
+  font-size: var(--kr-fs-11, 11px);
+  line-height: calc(15px + var(--dsh-content-font-delta, 0px) * 1.3636);
   font-weight: 500;
   color: var(--kr-accent);
   background: color-mix(in srgb, var(--kr-accent) 18%, transparent);
@@ -1935,7 +2007,8 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 
 .kr-plain-step__time {
   flex: none;
-  font-size: 10.5px;
+  /* 实时耗时读数：跟随字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-10-5, 10.5px);
   color: var(--dsw-alias-label-tertiary);
   font-variant-numeric: tabular-nums;
 }
@@ -1955,8 +2028,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   white-space: nowrap;
   padding: 1px 6px;
   border-radius: 8px;
-  font-size: 10.5px;
-  line-height: 15px;
+  /* 失败原因小药丸：字号与行高一起跟随字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-10-5, 10.5px);
+  line-height: calc(15px + var(--dsh-content-font-delta, 0px) * 1.4286);
   color: var(--kr-error);
   background: color-mix(in srgb, var(--kr-error) 12%, transparent);
   animation: kr-plain-issue-in .26s cubic-bezier(.16, 1, .3, 1) both;
@@ -1993,8 +2067,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   background: transparent;
   color: color-mix(in srgb, var(--kr-accent) 62%, var(--dsw-alias-label-tertiary));
   font-family: inherit;
-  font-size: 10.5px;
-  line-height: 15px;
+  /* 「打开文件」入口：跟随字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-10-5, 10.5px);
+  line-height: calc(15px + var(--dsh-content-font-delta, 0px) * 1.4286);
   cursor: pointer;
   opacity: .62;
   transition: opacity .18s ease, color .18s ease, background-color .18s ease,
@@ -2053,8 +2128,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   flex: none;
   padding: 0 6px;
   border-radius: 8px;
-  font-size: 10.5px;
-  line-height: 15px;
+  /* 派生计数徽标（挂在「派生子任务」那一步下方）：跟随字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-10-5, 10.5px);
+  line-height: calc(15px + var(--dsh-content-font-delta, 0px) * 1.4286);
   color: var(--kr-accent);
   background: color-mix(in srgb, var(--kr-accent) 10%, transparent);
   font-variant-numeric: tabular-nums;
@@ -2128,14 +2204,16 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   gap: 8px;
   width: 100%;
   min-width: 0;
-  min-height: 28px;
+  /* 行高随官方字号轴一起缩放（见「字号轴」段）：写死 28px 时放大档会把两行
+     文字夹住。min-height 与行高同一系数。 */
+  min-height: calc(28px + var(--dsh-content-font-delta, 0px) * 1.3333);
   padding: 4px 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   font-family: inherit;
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--kr-fs-12, 12px);
+  line-height: calc(16px + var(--dsh-content-font-delta, 0px) * 1.3333);
   text-align: left;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
@@ -2190,8 +2268,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   flex: none;
   padding: 0 5px;
   border-radius: 7px;
-  font-size: 10px;
-  line-height: 14px;
+  /* 续接标签（「可续接」「还有下级」）：跟随字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-10, 10px);
+  line-height: calc(14px + var(--dsh-content-font-delta, 0px) * 1.4);
   color: var(--dsw-alias-label-caption);
   border: 1px solid var(--kr-card-border);
 }
@@ -2199,14 +2278,16 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 /* 时长 / token：tabular-nums，走秒时行宽不抖。 */
 .kr-subs-row__time {
   flex: none;
-  font-size: 10.5px;
+  /* 读数小字：跟随字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-10-5, 10.5px);
   color: var(--dsw-alias-label-caption);
   font-variant-numeric: tabular-nums;
 }
 
 .kr-subs-row__state {
   flex: none;
-  font-size: 10.5px;
+  /* 「进行中 / 已结束」文字状态：与上面那枚读数同一档。 */
+  font-size: var(--kr-fs-10-5, 10.5px);
   color: var(--dsw-alias-label-caption);
   font-variant-numeric: tabular-nums;
 }
@@ -2221,8 +2302,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   flex: none;
   display: grid;
   place-items: center;
-  width: 14px;
-  height: 14px;
+  /* 跳转箭头容器：与里面的 svg 一起跟随字号轴（见「字号轴」段）。 */
+  width: calc(14px + var(--dsh-content-font-delta, 0px));
+  height: calc(14px + var(--dsh-content-font-delta, 0px));
   color: var(--kr-accent);
   opacity: 0;
   transform: translateX(-3px);
@@ -2242,7 +2324,8 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 /* 空态 / 读取中：一行低对比度说明，不占多余高度。 */
 .kr-subs-empty {
   padding: 2px 8px;
-  font-size: 11.5px;
+  /* 空态说明：跟随字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-11-5, 11.5px);
   color: var(--dsw-alias-label-caption);
 }
 
@@ -2258,7 +2341,8 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   border-radius: 6px;
   background: transparent;
   font-family: inherit;
-  font-size: 11.5px;
+  /* 「展开其余 N 个」：跟随字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-11-5, 11.5px);
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
   transition: background-color .12s ease, color .12s ease;
@@ -2278,7 +2362,8 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
    字号比 .kr-card__meta 更小、字色更弱 —— 它是异常说明，不该跟读数抢。 */
 .kr-subs-blocked {
   flex: none;
-  font-size: 10.5px;
+  /* 异常提示小字：跟随字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-10-5, 10.5px);
   color: var(--kr-warning);
   animation: kr-subs-blocked-in .24s ease both;
 }
@@ -2384,14 +2469,16 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   gap: 0;
   width: 100%;
   min-width: 0;
-  min-height: 36px;
+  /* 行高随官方字号轴缩放（见「字号轴」段）：36px 是给 28px 缩略图定的，
+     两处一起改，放大档才不会把缩略图或文字夹住。 */
+  min-height: calc(36px + var(--dsh-content-font-delta, 0px) * 2);
   padding: 4px 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   font-family: inherit;
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--kr-fs-12, 12px);
+  line-height: calc(16px + var(--dsh-content-font-delta, 0px) * 1.3333);
   text-align: left;
   color: var(--dsw-alias-label-secondary);
   -webkit-tap-highlight-color: transparent;
@@ -2455,8 +2542,10 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   flex: none;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  /* 类型缩略图：随字号轴放大（1.4 倍系数，与行高同比例），
+     里面的 svg 高度已经是 52%（见下），跟着容器走。 */
+  width: calc(28px + var(--dsh-content-font-delta, 0px) * 2);
+  height: calc(28px + var(--dsh-content-font-delta, 0px) * 2);
   border-radius: 6px;
   border: 1px solid var(--kr-card-border);
   background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, .08));
@@ -2527,8 +2616,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   flex: none;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  /* 悬停浮现的预览按钮：随字号轴放大，否则它在大字行里小得点不准。 */
+  width: calc(22px + var(--dsh-content-font-delta, 0px) * 1.5);
+  height: calc(22px + var(--dsh-content-font-delta, 0px) * 1.5);
   margin-left: 6px;
   padding: 0;
   border: 0;
@@ -2594,14 +2684,15 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   gap: 9px;
   width: 100%;
   min-width: 0;
-  min-height: 30px;
+  /* 代码文件折行：与产出物行同比例跟随字号轴（见「字号轴」段）。 */
+  min-height: calc(30px + var(--dsh-content-font-delta, 0px) * 2);
   padding: 3px 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   font-family: inherit;
-  font-size: 11.5px;
-  line-height: 16px;
+  font-size: var(--kr-fs-11-5, 11.5px);
+  line-height: calc(16px + var(--dsh-content-font-delta, 0px) * 1.3913);
   text-align: left;
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
@@ -2623,8 +2714,8 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   flex: none;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: calc(28px + var(--dsh-content-font-delta, 0px) * 2);
+  height: calc(28px + var(--dsh-content-font-delta, 0px) * 2);
   border-radius: 6px;
   border: 1px dashed var(--kr-card-border);
   color: var(--dsw-alias-label-tertiary);
@@ -2641,7 +2732,8 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 
 .kr-out-code__action {
   flex: none;
-  font-size: 11px;
+  /* 折行内的「预览」动作字：跟随字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-11, 11px);
   color: var(--kr-accent);
   opacity: .82;
 }
@@ -2687,7 +2779,8 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   border-top: 1px solid var(--kr-hairline);
   background: transparent;
   font-family: inherit;
-  font-size: 11px;
+  /* 「展开其余 N 条」：跟随字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-11, 11px);
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
   transition: color .16s ease;
@@ -2714,8 +2807,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 /* 空态：常驻一行低对比度说明，卡片不整张消失（与任务概览同一口径）。 */
 .kr-out-empty {
   padding: 2px 8px 3px;
-  font-size: 11.5px;
-  line-height: 16px;
+  /* 空态说明：跟随字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-11-5, 11.5px);
+  line-height: calc(16px + var(--dsh-content-font-delta, 0px) * 1.3913);
   color: var(--dsw-alias-label-tertiary);
 }
 

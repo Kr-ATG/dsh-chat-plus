@@ -1902,11 +1902,28 @@ if (krEnabled) {
     ['12', '11px', '14px', '2px', 12],
     ['11-5', '10.5px', '14px', '2.5px', 11.5],
     ['11', '10px', '14px', '3px', 11],
+    ['10-5', '9.5px', '14px', '3.5px', 10.5],
+    ['10', '9.5px', '14px', '4px', 10],
   ]
-  const axisBlock = /\.kr-card--reasoning,\s*\.kr-card--ask\s*\{([^}]*)\}/.exec(axisSrc)
+  /*
+   * 作用域必须覆盖**六个卡根类**：左栏两张（思考 / 问答）+ 右栏四张
+   * （任务概览 / 操作面板 / 子智能体 / 产出物）。
+   *
+   * 少一个的后果是静默的：那张卡拿不到 --kr-fs-*，规则里的 var 全部退回
+   * fallback（= 改造前的硬编码值），看起来「样式是对的」，只是字号永远不跟。
+   * 所以逐个点名核对，而不是只要求「至少有这两个」。
+   */
+  const REQUIRED_CARD_SCOPES = ['reasoning', 'ask', 'task', 'plain', 'subs', 'outputs']
+  const axisBlock = /\.kr-card--reasoning,\s*\.kr-card--ask[^{]*\{([^}]*)\}/.exec(axisSrc)
   if (axisBlock === null) {
-    axisReasons.push('缺「字号轴」档位变量声明块（.kr-card--reasoning, .kr-card--ask 上声明 --kr-fs-*）')
+    axisReasons.push('缺「字号轴」档位变量声明块（.kr-card--reasoning, .kr-card--ask, … 上声明 --kr-fs-*）')
   } else {
+    const scopeText = axisBlock[0].slice(0, axisBlock[0].indexOf('{'))
+    for (const card of REQUIRED_CARD_SCOPES) {
+      if (!scopeText.includes('.kr-card--' + card)) {
+        axisReasons.push('字号轴作用域缺 .kr-card--' + card + '（该卡拿不到 --kr-fs-*，字号会静默不跟随）')
+      }
+    }
     for (const [suffix, floor, base, offset, resolved] of EXPECT_AXIS) {
       const line = '--kr-fs-' + suffix + ': max(' + floor
         + ', calc(var(--dsh-content-font-size, ' + base + ') - ' + offset + '));'
@@ -1919,16 +1936,16 @@ if (krEnabled) {
     }
   }
 
-  // 3：卡片命名空间里不许再有裸 px 的 font-size
+  // 3：六张卡的命名空间里都不许再有裸 px 的 font-size
   const nakedFonts = []
   for (const block of axisSrc.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const selector = block[1].trim().replace(/\s+/g, ' ')
-    if (!/kr-reasoning|kr-ask|kr-card--reasoning|kr-card--ask/.test(selector)) continue
+    if (!/kr-reasoning|kr-ask|kr-card--(reasoning|ask|task|plain|subs|outputs)|kr-task-|kr-plain-|kr-subs-|kr-out-/.test(selector)) continue
     const hit = /font-size:\s*[\d.]+px/.exec(block[2])
     if (hit !== null) nakedFonts.push(selector + ' → ' + hit[0])
   }
   if (nakedFonts.length > 0) {
-    axisReasons.push('思考卡 / 问答卡命名空间里还有写死 px 的 font-size（应引用 --kr-fs-* 档位）：'
+    axisReasons.push('六张卡命名空间里还有写死 px 的 font-size（应引用 --kr-fs-* 档位）：'
       + nakedFonts.join('；'))
   }
 
@@ -1938,9 +1955,9 @@ if (krEnabled) {
     axisReasons.push('--kr-reasoning-line 必须从当前字级算出（var(--kr-fs-body) × 行高系数），不能写死 px')
   }
 
-  // 5：标题行图标跟着 delta 放大（字号 22 时 16px 图标配 20.5px 正文会缩一号）
-  if (!/\.kr-card--reasoning \.kr-card__icon,\s*\.kr-card--ask \.kr-card__icon\s*\{[^}]*calc\(18px \+ var\(--dsh-content-font-delta/.test(axisSrc)) {
-    axisReasons.push('两张卡的标题图标尺寸必须跟随 --dsh-content-font-delta')
+  // 5：六张卡的标题图标跟着 delta 放大（字号 22 时 16px 图标配 20.5px 正文会缩一号）
+  if (!/\.kr-card--outputs \.kr-card__icon\s*\{[^}]*calc\(18px \+ var\(--dsh-content-font-delta/.test(axisSrc)) {
+    axisReasons.push('六张卡的标题图标尺寸必须跟随 --dsh-content-font-delta')
   }
 
   // 6：与字级联动的行高 / 尺寸也得跟
@@ -1955,11 +1972,34 @@ if (krEnabled) {
     axisReasons.push('.kr-ask-dots 的三点不得写死 3px（放大档下会相对缩成看不见的芝麻），应随 --kr-fs-11-5 缩放')
   }
 
+  /*
+   * 7：右栏两张带**有界视口**的卡，视口高度必须从当前行高算。
+   *
+   * 操作面板列表的 max-height = 行数 × --kr-plain-row-h + 6px，而
+   * `.kr-plain-step` 的 min-height 是同一个基准。写死 22px 时字号跟到 20px、
+   * 每行实际约 30px，视口仍按 22px 算 —— 卡片会把内容切掉一半（反向则留空白）。
+   * 这处耦合没有 CSS 报错、只有一个「显示不全」的现象，所以必须钉住。
+   */
+  const rowH = /--kr-plain-row-h:\s*([^;]+);/.exec(axisSrc)
+  if (rowH === null || !rowH[1].includes('--dsh-content-font-delta')) {
+    axisReasons.push('--kr-plain-row-h 必须随字号轴缩放（写死会让操作面板列表视口与实际行高脱钩，内容被截断）')
+  }
+  const stepBlock = /\.kr-plain-step\s*\{([^}]*)\}/.exec(axisSrc)
+  if (stepBlock === null || !/min-height:\s*calc\(22px \+ var\(--dsh-content-font-delta/.test(stepBlock[1])) {
+    axisReasons.push('.kr-plain-step 的 min-height 必须与 --kr-plain-row-h 同一系数缩放（否则视口与实际行高不一致）')
+  }
+  // 产出物行高同理（36px 是给 28px 缩略图定的）。
+  const outRow = /\.kr-out-row\s*\{([^}]*)\}/.exec(axisSrc)
+  if (outRow === null || !/min-height:\s*calc\(36px \+ var\(--dsh-content-font-delta/.test(outRow[1])) {
+    axisReasons.push('.kr-out-row 的 min-height 必须随字号轴缩放（否则放大档把缩略图或文字夹住）')
+  }
+
   if (axisReasons.length > 0) {
     fail('字号轴跟随回退：' + axisReasons.join('；'))
   } else {
-    pass('字号轴：思考卡 / 问答卡字号·行高·图标全部跟随官方「设置 → 字号」'
-      + '（默认档逐像素还原 12.5/13/12/11.5/11，无写死 px）')
+    pass('字号轴：六张卡（思考/问答/任务概览/操作面板/子智能体/产出物）'
+      + '字号·行高·图标·视口全部跟随官方「设置 → 字号」'
+      + '（默认档逐像素还原 12.5/13/12/11.5/11/10.5/10，无写死 px）')
   }
 }
 
