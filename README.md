@@ -1,7 +1,7 @@
 # dsh-chat-plus
 
 **DeepSeek Harness 的对话体验增强套件**：让对话读得更顺、能出可交互的卡片、把执行过程翻译成人话，
-再把记忆 / 能力 / 用量 / 画廊 / 邮箱收成一排工作台。
+再把灵魂 / 记忆 / 能力 / 用量 / 画廊 / 邮箱收成一排工作台。
 
 零 DSH 源码改动 —— 全部能力以 Cordis 插件注入，官方升级不动它。
 
@@ -20,7 +20,7 @@ bundles 层，不用手改配置文件。
 - [Seeker 视图：双栏执行大盘](#seeker-视图双栏执行大盘)
 - [正文里能出卡片](#正文里能出卡片)
 - [对话读起来更顺](#对话读起来更顺)
-- [五个工作台](#五个工作台)
+- [六个工作台](#六个工作台)
 - [输入区与工具栏](#输入区与工具栏)
 - [供应商中心（设置 → 供应商）](#供应商中心设置--供应商)
 - [提示词通道：什么时候模型才知道这些围栏](#提示词通道什么时候模型才知道这些围栏)
@@ -74,6 +74,8 @@ bundles 层，不用手改配置文件。
 ```
 
 **左栏干净**：只有一行状态卡（头像 + 「Seeker 正在…」+ 末尾三点 + 用时读数）。工具明细不在这边堆。
+
+![Seeker 对话流](docs/shots/seeker-chat-flow.jpg)
 
 **右栏五张卡**：
 
@@ -177,7 +179,7 @@ document.getElementById('b').onclick = () => { document.getElementById('v').text
 
 ---
 
-## 五个工作台
+## 六个工作台
 
 侧边栏工作台，每页独立：
 
@@ -185,6 +187,8 @@ document.getElementById('b').onclick = () => { document.getElementById('v').text
 
 自动沉淀的长期记忆：每轮对话后由模型提炼值得跨会话保留的事实（你的偏好、项目约定、踩过的坑），
 按项目 / 全局分层。可在面板里增删改、置顶、按标签检索。
+
+![记忆工作台](docs/shots/workbench-memory.jpg)
 
 ### 灵魂（Soul）
 
@@ -196,21 +200,40 @@ document.getElementById('b').onclick = () => { document.getElementById('v').text
 - 人格正文里的 `{{userName}}` / `{{userProfile}}` 在注入时替换成真值
 - 可逐张编辑的灵魂卡片 + 内置预设（收在「卡片与预设」折叠区）
 
+![灵魂工作台](docs/shots/workbench-soul.jpg)
+
 ### 能力（技能与 MCP）
 
 管理技能（Skill）与 MCP Server：安装 / 停用 / 查看说明 / 健康检查 / 推荐列表。
 
+![能力工作台](docs/shots/workbench-skills.jpg)
+
 ### 用量
 
 Token 消耗与账号趋势：52 周活动热力、按供应商 / 模型筛选、逐日明细。
+
+![用量工作台](docs/shots/workbench-usage.jpg)
 
 ### 画廊
 
 所有对话生成的**图片 / 网页 / 演示 / 文档 / 表格 / 音视频**一页看全：跨会话增量索引、
 类别筛选、搜索、Lightbox 预览、沙箱打开 html 成品、跳回来源会话。
 
+![画廊工作台](docs/shots/workbench-gallery.jpg)
+
 > PPT / Word / Excel / PDF 有内联预览（host 出页图 + 翻页条），图库缩略图是**真实首页位图**
 > 而不是类型图标。
+
+### 邮箱（Agent Mail）
+
+腾讯 Agent Mail 的三栏工作台：左列文件夹（收件箱 / 已发送 / 回收站 / 垃圾邮件 + 只看未读 /
+只看附件 / 写邮件），中列邮件列表，右列正文与回信。模型的 **11 个 `mail_*` 工具**都落在这一页
+对应的能力上：收发、回复、转发、搜索、附件下载、以及「等验证码」这种专门场景。
+
+**所有写操作都是两阶段确认** —— 点「生成确认」只产生一枚确认令牌，还要在顶部警示条再点
+「确认执行」才真正发出。
+
+![邮箱工作台](docs/shots/workbench-mail.jpg)
 
 ---
 
