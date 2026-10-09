@@ -173,18 +173,10 @@ export interface InjectStateView {
    */
   zhEnabled?: boolean
   /**
-   * 对话内流程图规范内置通道是否开启。
+   * 对话内 HTML 卡片规范内置通道是否开启（iu kind 文档随它注入）。
    *
-   * 同样由 /inject-state 顺带回传。旧 host 不回此字段时按 false 兜底——它默认
-   * 关，且缺字段意味着这版 host 里根本没这个能力，显示为「关」比显示为「开」
-   * 更不误导（开着却注不进去才是最坏的假阳性）。
-   */
-  diagramEnabled?: boolean
-  /**
-   * 对话内 HTML 卡片规范内置通道是否开启。
-   *
-   * 同样由 /inject-state 顺带回传。旧 host 不回此字段时按 false 兜底——与
-   * diagram 完全同口径：默认关，且缺字段意味着这版 host 根本没这个能力。
+   * 同样由 /inject-state 顺带回传。旧 host 不回此字段时按 false 兜底——缺字段
+   * 意味着这版 host 根本没这个能力，显示为「关」比显示为「开」更不误导。
    */
   htmlEnabled?: boolean
   /**
@@ -346,9 +338,9 @@ export interface MemoryApi {
   /** 中文记忆内置通道开关（全局单值，与主开关无联动）。 */
   getZhInjectState: () => Promise<ZhInjectStateView>
   setZhInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
-  /** 对话内流程图内置通道开关（全局单值，与主开关无联动）。 */
-  getDiagramInjectState: () => Promise<ZhInjectStateView>
-  setDiagramInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
+  // 历史注记：曾有 getDiagramInjectState / setDiagramInjectState（对话内流程图
+  // 通道），2026-10-09 随通道移除——图形能力改由 iu kind（graph/arch/sequence）
+  // 承接，注入文档随 html 通道走。
   /** 对话内 HTML 卡片内置通道开关（全局单值，与主开关无联动）。 */
   getHtmlInjectState: () => Promise<ZhInjectStateView>
   setHtmlInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
@@ -419,8 +411,6 @@ export function createMemoryApi(): MemoryApi {
     setInjectState: (sessionId, enabled) => sendJson<InjectStateView & { ok: boolean }>('/inject-state', { sessionId, enabled }),
     getZhInjectState: () => getJson<ZhInjectStateView>('/zh-inject-state'),
     setZhInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/zh-inject-state', { enabled }),
-    getDiagramInjectState: () => getJson<ZhInjectStateView>('/diagram-inject-state'),
-    setDiagramInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/diagram-inject-state', { enabled }),
     getHtmlInjectState: () => getJson<ZhInjectStateView>('/html-inject-state'),
     setHtmlInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/html-inject-state', { enabled }),
     getSoulInjectState: () => getJson<ZhInjectStateView>('/soul/state'),

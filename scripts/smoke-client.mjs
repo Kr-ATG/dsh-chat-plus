@@ -781,23 +781,26 @@ if (krEnabled) {
   } else {
     pass('总结卡外观开关：接在「内置提示词通道」卡里，一行独立 SwitchRow + 本地状态')
   }
-  // 按钮开态只按五条注入通道算：把这行显示偏好算进去，会让「通道全关、只想要
+  // 按钮开态只按四条注入通道算：把这行显示偏好算进去，会让「通道全关、只想要
   // 无框卡片」的按钮显示成开着的入口。
   //
   // 按行抓取再逐项比对，不用 `^...$` 正则：`$` 不带 m 标志时只认字符串末尾，
   // 那种断言会永远为假（本仓踩过同类坑）。
+  //
+  // 历史注记：曾是五条（含 diagramOn），2026-10-09 对话内流程图通道随图形
+  // iu kind（graph/arch/sequence）上线移除，注入通道剩四条。
   const anyOnLine = bareToggle.split('\n').find(line => line.includes('const anyOn ='))
   const anyOnBody = anyOnLine === undefined ? '' : anyOnLine.slice(anyOnLine.indexOf('=') + 1).trim()
-  if (anyOnBody !== 'zhOn || diagramOn || htmlOn || soulOn || teamOn') {
-    fail(`按钮开态 anyOn 必须只由五条注入通道决定（实得「${anyOnBody}」）`)
+  if (anyOnBody !== 'zhOn || htmlOn || soulOn || teamOn') {
+    fail(`按钮开态 anyOn 必须只由四条注入通道决定（实得「${anyOnBody}」）`)
   } else {
-    pass('总结卡外观开关：按钮开态只按五条注入通道算（显示偏好不冒充能力入口）')
+    pass('总结卡外观开关：按钮开态只按四条注入通道算（显示偏好不冒充能力入口）')
   }
-  // 新增这一行后，卡片整体不该被误当成「第六条注入通道」——组标题必须存在。
+  // 新增这一行后，卡片整体不该被误当成「第五条注入通道」——组标题必须存在。
   if (!/displayGroupTitle/.test(bareToggle) || !/displayGroupTitle/.test(readFileSync(resolve(ROOT, 'src/client/triad/memory/locales.ts'), 'utf8'))) {
-    fail('总结卡外观开关必须用「展示」组标题与五条注入通道隔开（否则会被读成一条注入能力）')
+    fail('总结卡外观开关必须用「展示」组标题与四条注入通道隔开（否则会被读成一条注入能力）')
   } else {
-    pass('总结卡外观开关：有独立组标题，与五条注入通道分区')
+    pass('总结卡外观开关：有独立组标题，与四条注入通道分区')
   }
   // 初始化必须在 apply 阶段跑（挂晚了会先画一遍带框卡片再闪成纯正文）。
   if (!/installReplyCardChrome/.test(entrySrc.replace(/\/\*[\s\S]*?\*\//g, ' '))) {

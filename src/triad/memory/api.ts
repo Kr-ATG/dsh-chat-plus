@@ -263,15 +263,13 @@ async function handle(
       // /inject-state（历史上打过一分钟 498 次的请求风暴），再加一个独立
       // GET 端点等于把翻倍的轮询量固化下来。合并回包，零新增请求。
       const zhEnabled = await store.isZhInjectEnabled(config.zhInjectDefaultEnabled !== false)
-      // diagram 同理并进回包：新开一个 GET 端点等于把翻倍的轮询量固化下来。
-      const diagramEnabled = await store.isDiagramInjectEnabled(config.diagramInjectDefaultEnabled !== false)
-      // html 同理并进回包（同一理由：composer 的开关浮层一次 hover 就要知道全部通道的状态）。
+      // html 并进回包（同一理由：composer 的开关浮层一次 hover 就要知道全部通道的状态）。
       const htmlEnabled = await store.isHtmlInjectEnabled(config.htmlInjectDefaultEnabled !== false)
       // soul 同样并进回包（同一理由：开关浮层一次 hover 要知道全部通道状态）。
       const soulEnabled = await store.isSoulInjectEnabled(config.soulInjectDefaultEnabled !== false)
       // team 同理并进回包（同一理由：开关浮层一次 hover 要知道全部通道状态）。
       const teamEnabled = await store.isTeamInjectEnabled(config.teamInjectDefaultEnabled !== false)
-      json(res, 200, { enabled: explicit ?? defaultEnabled, defaultEnabled, explicit, zhEnabled, diagramEnabled, htmlEnabled, soulEnabled, teamEnabled })
+      json(res, 200, { enabled: explicit ?? defaultEnabled, defaultEnabled, explicit, zhEnabled, htmlEnabled, soulEnabled, teamEnabled })
       return
     }
     if (method === 'POST' && rest === '/inject-state') {
@@ -301,23 +299,14 @@ async function handle(
       return
     }
 
-    // ── 对话内流程图规范注入开关（内置能力，全局单值） ─────────────────
-    // 与 zh 端点同构，builtin:true 恒定——同样硬编码在插件里，无卸载入口。
-    if (method === 'GET' && rest === '/diagram-inject-state') {
-      const enabled = await store.isDiagramInjectEnabled(config.diagramInjectDefaultEnabled !== false)
-      json(res, 200, { enabled, builtin: true })
-      return
-    }
-    if (method === 'POST' && rest === '/diagram-inject-state') {
-      const body = await readBody(req) as Record<string, unknown>
-      const enabled = body.enabled !== false
-      await store.setDiagramInjectEnabled(enabled)
-      json(res, 200, { ok: true, enabled, builtin: true })
-      return
-    }
+    // ── 对话内流程图注入开关端点已移除（2026-10-09）──────────────────────
+    // /diagram-inject-state GET/POST 随通道一起删除。图形能力改由 iu kind
+    // （graph/arch/sequence）承接，注入文档随 html 通道走（默认开）。
+    // 旧前端缓存若仍请求该路径会 404——开关行已同步移除，不会再发。
 
     // ── 对话内 HTML 卡片规范注入开关（内置能力，全局单值） ─────────────
-    // 与 diagram 端点同构，builtin:true 恒定——同样硬编码在插件里，无卸载入口。
+    // builtin:true 恒定回传——这个能力硬编码在插件里，没有卸载/移除入口，
+    // 前端据此显示「内置」标记，且不提供任何删除该能力的操作。
     if (method === 'GET' && rest === '/html-inject-state') {
       const enabled = await store.isHtmlInjectEnabled(config.htmlInjectDefaultEnabled !== false)
       json(res, 200, { enabled, builtin: true })
@@ -332,7 +321,7 @@ async function handle(
     }
 
     // ── 团队协作规范注入开关（内置能力，全局单值） ─────────────────────
-    // 与 diagram / html 端点同构，builtin:true 恒定——同样硬编码在插件里，无卸载入口。
+    // 与 html 端点同构，builtin:true 恒定——同样硬编码在插件里，无卸载入口。
     if (method === 'GET' && rest === '/team-inject-state') {
       const enabled = await store.isTeamInjectEnabled(config.teamInjectDefaultEnabled !== false)
       json(res, 200, { enabled, builtin: true })

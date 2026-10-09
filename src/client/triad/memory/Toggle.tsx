@@ -56,7 +56,7 @@ export type MemoryToggleProps =
 const HIDE_DELAY_MS = 120
 
 /**
- * host 缺字段时的兜底形状：中文通道 / 灵魂 / html 默认开（内置能力），diagram 默认关，
+ * host 缺字段时的兜底形状：中文通道 / 灵魂 / html 默认开（内置能力），
  * team 默认关（旧 host 没这个能力，显示「开」是假阳性）。
  *
  * 只在请求失败时用（正常路径由 host 回包决定）。html 的兜底取 true 与
@@ -64,7 +64,7 @@ const HIDE_DELAY_MS = 120
  * 用户以为能力没开。
  */
 const FALLBACK_STATE: InjectStateView = {
-  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, diagramEnabled: false, htmlEnabled: true, soulEnabled: true, teamEnabled: false,
+  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, htmlEnabled: true, soulEnabled: true, teamEnabled: false,
 }
 
 /** 把 host 回包收敛成本地状态形状（缺字段按默认处理）。 */
@@ -75,15 +75,13 @@ function toState(res: InjectStateView): InjectStateView {
     explicit: res.explicit === true,
     // 缺字段按 true 兜底：中文通道是内置能力，默认就该开着。
     zhEnabled: res.zhEnabled !== false,
-    // 缺字段按 false 兜底：diagram 通道默认关，且缺字段意味着旧 host 根本没
-    // 这个能力——显示「关」比显示「开」诚实（显示开着却注不进去是假阳性）。
-    diagramEnabled: res.diagramEnabled === true,
-    // html 与 diagram 完全同口径：默认关，缺字段意味着旧 host 没这个能力。
+    // html 缺字段按 false 兜底：缺字段意味着旧 host 没这个能力——显示「关」
+    // 比显示「开」诚实（显示开着却注不进去是假阳性）。
     htmlEnabled: res.htmlEnabled === true,
     // 灵魂与中文同口径：内置身份契约，缺字段按开。真正决定注不注得进去的是
     // soul.md 有没有内容（空灵魂不注入，由 host 注入器负责）。
     soulEnabled: res.soulEnabled !== false,
-    // team 与 diagram / html 同口径：缺字段意味着旧 host 根本没这个能力，
+    // team 与 html 同口径：缺字段意味着旧 host 根本没这个能力，
     // 显示「关」比显示「开」诚实（开着却注不进去是假阳性）。
     teamEnabled: res.teamEnabled === true,
   }
@@ -116,25 +114,23 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
    * 具备的能力；回读拿到的是真实状态。
    */
   const pushChannel = useCallback((
-    key: 'zhEnabled' | 'diagramEnabled' | 'htmlEnabled' | 'soulEnabled' | 'teamEnabled',
+    key: 'zhEnabled' | 'htmlEnabled' | 'soulEnabled' | 'teamEnabled',
     next: boolean,
   ): void => {
     setBusy(true)
     setState(prev => ({ ...prev, [key]: next }))
     const write = key === 'zhEnabled'
       ? apiRef.current.setZhInjectState(next)
-      : key === 'diagramEnabled'
-        ? apiRef.current.setDiagramInjectState(next)
-        : key === 'htmlEnabled'
-          ? apiRef.current.setHtmlInjectState(next)
-          : key === 'soulEnabled'
-            ? apiRef.current.setSoulInjectState(next)
-            : apiRef.current.setTeamInjectState(next)
+      : key === 'htmlEnabled'
+        ? apiRef.current.setHtmlInjectState(next)
+        : key === 'soulEnabled'
+          ? apiRef.current.setSoulInjectState(next)
+          : apiRef.current.setTeamInjectState(next)
     void write
       .then(res => {
-        // 中文通道与灵魂通道缺字段按开兜底（内置能力）；diagram / html / team 缺字段按关
+        // 中文通道与灵魂通道缺字段按开兜底（内置能力）；html / team 缺字段按关
         // 兜底（旧 host 根本没有这个能力，显示「开」是假阳性）——与 toState 的口径一致。
-        const enabled = key === 'diagramEnabled' || key === 'htmlEnabled' || key === 'teamEnabled' ? res.enabled === true : res.enabled !== false
+        const enabled = key === 'htmlEnabled' || key === 'teamEnabled' ? res.enabled === true : res.enabled !== false
         setState(prev => ({ ...prev, [key]: enabled }))
       })
       .catch(reload)
@@ -154,7 +150,6 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           explicit: next === null ? false : (typeof res.explicit === 'boolean' ? res.explicit : true),
           // 同样要透传：这几个 setter 只该动自己的字段，写整个对象会把它抹掉。
           zhEnabled: typeof res.zhEnabled === 'boolean' ? res.zhEnabled : prev.zhEnabled,
-          diagramEnabled: typeof res.diagramEnabled === 'boolean' ? res.diagramEnabled : prev.diagramEnabled,
           htmlEnabled: typeof res.htmlEnabled === 'boolean' ? res.htmlEnabled : prev.htmlEnabled,
           soulEnabled: typeof res.soulEnabled === 'boolean' ? res.soulEnabled : prev.soulEnabled,
           teamEnabled: typeof res.teamEnabled === 'boolean' ? res.teamEnabled : prev.teamEnabled,
@@ -182,7 +177,6 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           defaultEnabled: typeof res.defaultEnabled === 'boolean' ? res.defaultEnabled : prev.defaultEnabled,
           explicit: typeof res.explicit === 'boolean' ? res.explicit : prev.explicit,
           zhEnabled: typeof res.zhEnabled === 'boolean' ? res.zhEnabled : prev.zhEnabled,
-          diagramEnabled: typeof res.diagramEnabled === 'boolean' ? res.diagramEnabled : prev.diagramEnabled,
           htmlEnabled: typeof res.htmlEnabled === 'boolean' ? res.htmlEnabled : prev.htmlEnabled,
           soulEnabled: typeof res.soulEnabled === 'boolean' ? res.soulEnabled : prev.soulEnabled,
           teamEnabled: typeof res.teamEnabled === 'boolean' ? res.teamEnabled : prev.teamEnabled,
@@ -426,7 +420,6 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
   const { wrapRef, open, showCard, scheduleCardHide, togglePin } = useHoverCard(reload)
 
   const zhOn = state.zhEnabled !== false
-  const diagramOn = state.diagramEnabled === true
   const htmlOn = state.htmlEnabled === true
   const soulOn = state.soulEnabled !== false
   const teamOn = state.teamEnabled === true
@@ -440,10 +433,10 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
   const chromeOn = useSyncExternalStore(subscribeReplyCardChrome, replyCardChromeEnabled, replyCardChromeEnabled)
   // 工具调用卡显隐：与总结卡外框同族（纯呈现偏好、localStorage、跨窗口同步）。
   const toolCallsOn = useSyncExternalStore(subscribeToolCallsVisible, toolCallsVisible, toolCallsVisible)
-  // 按钮状态取「五条里有没有开的」——全关才算关，半开按开显示（它是能力入口，
+  // 按钮状态取「四条里有没有开的」——全关才算关，半开按开显示（它是能力入口，
   // 不是记忆那种一刀切的开关）。**不含总结卡外框**：那一行不是注入通道，
-  // 把它算进来会让「五条通道全关、只想要无框卡片」的按钮显示成开着的入口。
-  const anyOn = zhOn || diagramOn || htmlOn || soulOn || teamOn
+  // 把它算进来会让「四条通道全关、只想要无框卡片」的按钮显示成开着的入口。
+  const anyOn = zhOn || htmlOn || soulOn || teamOn
   const button = (
     <ToggleButton
       on={anyOn}
@@ -474,18 +467,10 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
           hint={t('zhInjectHint')}
           onToggle={() => { pushChannel('zhEnabled', !zhOn) }}
         />
+        {/* HTML 卡片（含 iu 的 16 种原生卡：取值/图表/看板/图形三件套…）——
+             「正文围栏 → 卡片」的呈现能力总开关；详细说明见 host 侧 HTML_INJECTION_RULE。 */}
         <SwitchRow
           index={1}
-          on={diagramOn}
-          busy={busy}
-          label={t('diagramInjectLabel')}
-          hint={t('diagramInjectHint')}
-          onToggle={() => { pushChannel('diagramEnabled', !diagramOn) }}
-        />
-        {/* HTML 卡片与流程图同类（都是「正文围栏 → 沙箱卡片」的呈现能力），
-            故同卡同区；详细说明见 host 侧 HTML_INJECTION_RULE。 */}
-        <SwitchRow
-          index={2}
           on={htmlOn}
           busy={busy}
           label={t('htmlInjectLabel')}
@@ -495,7 +480,7 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
         {/* 灵魂：与中文同类的「跨会话恒定」契约，故与它们同卡；详细编辑在
             工作台 → 记忆 → 灵魂 Tab，这里只给一个总开关。 */}
         <SwitchRow
-          index={3}
+          index={2}
           on={soulOn}
           busy={busy}
           label={t('soulInjectLabel')}
@@ -505,7 +490,7 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
         {/* 团队协作：默认「这活值得拆」的组织纪律（分档判据 + 组队硬规矩），
             跨会话恒定的行为契约，与灵魂同类放最后；文本见 host 侧 TEAM_INJECTION_RULE。 */}
         <SwitchRow
-          index={4}
+          index={3}
           on={teamOn}
           busy={busy}
           label={t('teamInjectLabel')}
@@ -519,7 +504,7 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
           <span className={css.injectGroupTitle}>{t('displayGroupTitle')}</span>
         </div>
         <SwitchRow
-          index={5}
+          index={4}
           lead
           on={chromeOn}
           // busy 恒为 false：这一行写的是 localStorage（同步落盘 + 刷 body 属性），
@@ -532,7 +517,7 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
           onToggle={() => { setReplyCardChromeEnabled(!chromeOn) }}
         />
         <SwitchRow
-          index={6}
+          index={5}
           // 与总结卡外框同族：写 localStorage，同步落盘无网络往返，busy 恒 false。
           busy={false}
           on={toolCallsOn}

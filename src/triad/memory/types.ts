@@ -102,30 +102,27 @@ export interface StoreState {
    */
   zhInjectEnabled?: boolean
   /**
-   * 对话内流程图（diagram 围栏）能力规范注入开关（全局单值，三态缺省）。
-   * 与 zh 通道同一范式：主注入关闭、项目被设为「不注入」时仍单独注入。
-   * 缺省 = 跟随 config.diagramInjectDefaultEnabled（默认关——它是锦上添花的
-   * 呈现能力，不是语言契约，不该每个会话白烧一份常驻 token）。
-   */
-  diagramInjectEnabled?: boolean
-  /**
    * 对话内 HTML 卡片（html 围栏）能力规范注入开关（全局单值，三态缺省）。
-   * 与 diagram 通道同一范式：主注入关闭、项目被设为「不注入」时仍单独注入。
-   * 缺省 = 跟随 config.htmlInjectDefaultEnabled（默认关——与 diagram 同理，
-   * 它是呈现能力而非语言契约，规范文本约 1KB，不该每个会话白烧）。
+   * 与 zh 通道同一范式：主注入关闭、项目被设为「不注入」时仍单独注入。
+   * iu kind（含 graph/arch/sequence 图形卡）的能力文档随本通道一起注入。
+   * 缺省 = 跟随 config.htmlInjectDefaultEnabled（默认关——它是呈现能力而非
+   * 语言契约，规范文本约 1KB，不该每个会话白烧）。
+   *
+   * 历史注记：曾有 diagramInjectEnabled（对话内流程图通道，默认关），2026-10-09
+   * 随图形 kind 上线整体移除；旧状态文件里残留的该字段无人读取，无害。
    */
   htmlInjectEnabled?: boolean
   /**
    * 灵魂（Soul）注入开关（全局单值，三态缺省）。
    * 记忆第四层「顶层身份契约」：用户写的人设/语气/准则，每会话首步独立注入一条
-   * user message。与 zh / diagram 通道同范式——主注入关闭或项目被排除时仍单独生效，
+   * user message。与 zh 通道同范式——主注入关闭或项目被排除时仍单独生效，
    * 因为「我是谁」跟「记忆库要不要进上下文」是两件正交的事。
    * 缺省 = 跟随 config.soulInjectDefaultEnabled（默认开）。
    */
   soulInjectEnabled?: boolean
   /**
    * 团队协作（Agent Teams / 子代理委派）规范注入开关（全局单值，三态缺省）。
-   * 与 diagram / html 同一范式：硬编码在插件内、无卸载路径，主注入关闭或项目被
+   * 与 html 同一范式：硬编码在插件内、无卸载路径，主注入关闭或项目被
    * 排除时仍单独注入。投的是一段静态规范文本（分档判据 + 组队硬规矩 + 反模式），
    * 不读条目、不做检索、不参与命中加分。
    * 缺省 = 跟随 config.teamInjectDefaultEnabled（默认开）。
@@ -219,34 +216,25 @@ export interface MemoryConfig {
    */
   zhInjectDefaultEnabled: boolean
   /**
-   * 对话内流程图能力规范注入默认开关（内置能力，默认关）。
-   *
-   * 与 zhInjectDefaultEnabled 同构：内置于插件、无卸载路径，只有这一个开关。
-   * 打开后每个会话首步注入一条内置 user message，告诉模型本客户端的
-   * `diagram` 围栏 JSON 规范（flowchart 语法与全部硬限制），使模型能自动
-   * 在对话里画出 SVG 流程图卡片。关着时模型完全不知道这个围栏存在。
-   *
-   * 默认关的理由：它只影响「要不要额外渲染一张图」，不影响任务正确性；
-   * 而规则文本约 1KB，每会话常驻首轮，开销换不回对等收益。
-   */
-  diagramInjectDefaultEnabled: boolean
-  /**
    * 对话内 HTML 卡片能力规范注入默认开关（内置能力，**默认开**）。
    *
-   * 与 diagramInjectDefaultEnabled 的形状完全同构，但默认值刻意相反：
-   *  · diagram 是「锦上添花的一张图」——不画图任务照样完成，所以默认关省 token；
-   *  · HTML 卡片是**交付形态本身**（可交互的小工具、可视化、演示页），不注入
-   *    规范模型就永远不会想到用它，等于这个能力不存在。渲染器虽然无条件生效
-   *    （用户明确说「给我个 HTML 计算器」时照样会渲染），但「模型会主动用它」
-   *    才是这个能力真正的价值所在。
-   * 文本约 1.4KB、每会话首步一次，换一个能被主动使用的交付形态，划算。
+   * HTML 卡片是**交付形态本身**（可交互的小工具、可视化、演示页），不注入
+   * 规范模型就永远不会想到用它，等于这个能力不存在。渲染器虽然无条件生效
+   * （用户明确说「给我个 HTML 计算器」时照样会渲染），但「模型会主动用它」
+   * 才是这个能力真正的价值所在。iu kind（13+3 种原生卡，含 graph/arch/sequence
+   * 图形卡）的能力文档也随本通道注入——它们同属「呈现能力声明」，共用一个开关。
+   * 文本约 2KB、每会话首步一次，换一个能被主动使用的交付形态，划算。
+   *
+   * 历史注记：曾有 diagramInjectDefaultEnabled（对话内流程图，默认关），2026-10-09
+   * 移除——手工坐标的 ```diagram 围栏被自动布局的 graph kind 取代，后者随本通道
+   * 默认开，能力从「常年闲置」变为「默认可用」。
    */
   htmlInjectDefaultEnabled: boolean
   /**
    * 灵魂（Soul）注入默认开关（内置能力，默认开）。
    *
    * 与前两条内置通道同构：能力硬编码在插件内、无卸载路径，只有这一个开关。
-   * 默认开的理由与 diagram 相反：它投的是**用户自己写的**顶层身份契约，
+   * 它投的是**用户自己写的**顶层身份契约，
    * 空 soul.md 时通道整体不注入（零开销），一旦写了就说明用户期望它每次都生效。
    */
   soulInjectDefaultEnabled: boolean
@@ -310,8 +298,8 @@ export const DEFAULT_CONFIG: MemoryConfig = {
   logApiRequests: false,
   injectDefaultEnabled: true,
   zhInjectDefaultEnabled: true,
-  diagramInjectDefaultEnabled: false,
   // 默认开：HTML 卡片是交付形态本身（见字段注释），不注入模型就不会主动用。
+  // iu 的 13+3 种 kind 文档（含图形三件套）也随本通道注入。
   htmlInjectDefaultEnabled: true,
   soulInjectDefaultEnabled: true,
   // 默认开：模型默认单线程串完，不注入就不会主动并行委派与组队（见字段注释）。
@@ -407,7 +395,7 @@ export type ConfigNumberKey = keyof typeof CONFIG_NUMBER_BOUNDS
 
 const CONFIG_NUMBER_KEYS = Object.keys(CONFIG_NUMBER_BOUNDS) as ConfigNumberKey[]
 
-const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'diagramInjectDefaultEnabled', 'htmlInjectDefaultEnabled', 'soulInjectDefaultEnabled', 'teamInjectDefaultEnabled'] as const
+const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'htmlInjectDefaultEnabled', 'soulInjectDefaultEnabled', 'teamInjectDefaultEnabled'] as const
 
 /** 可调布尔字段名。 */
 export type ConfigBooleanKey = (typeof CONFIG_BOOLEAN_KEYS)[number]

@@ -185,7 +185,12 @@ const hostBundle = {
 function assertHostExternals(outfile) {
   const source = readFileSync(outfile, 'utf8')
   const specifiers = new Set()
-  for (const m of source.matchAll(/(?:^|[;\n])\s*(?:import|export)[\s\S]*?from\s*["']([^"']+)["']/g)) {
+  // `[^\n]*?` 而非 `[\s\S]*?`：esbuild 产出的 import/export…from **恒为单行**
+  // （不折行）。用 [\s\S] 会跨行贪婪延伸——曾把某个 kind 的 doc 字符串里的
+  // JSON 示例 `{"from":"start"}` 误当成 import：正则从行首的 import 一路匹配到
+  // 那串 `"from":"`，把中间的 `:` 当成模块名，于是构建误报「host 引了无法解析的
+  // 包 :」。限定同一行后，只有真正的 import 语句才会命中。
+  for (const m of source.matchAll(/(?:^|[;\n])\s*(?:import|export)[^\n]*?from\s*["']([^"']+)["']/g)) {
     specifiers.add(m[1])
   }
   for (const m of source.matchAll(/\bimport\s*\(\s*["']([^"']+)["']\s*\)/g)) {

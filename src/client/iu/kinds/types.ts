@@ -21,6 +21,9 @@ import type { IuTimelineSpec } from './timeline.ts'
 import type { IuTreeSpec } from './tree.ts'
 import type { IuGaugeSpec } from './gauge.ts'
 import type { IuQuizSpec } from './quiz.ts'
+import type { IuGraphSpec } from './graph.ts'
+import type { IuArchSpec } from './arch.ts'
+import type { IuSequenceSpec } from './sequence.ts'
 
 /** 全部合法 spec 的判别联合（判别式是 kind 字段）。 */
 export type IuSpec =
@@ -37,3 +40,6 @@ export type IuSpec =
   | IuTreeSpec
   | IuGaugeSpec
   | IuQuizSpec
+  | IuGraphSpec
+  | IuArchSpec
+  | IuSequenceSpec

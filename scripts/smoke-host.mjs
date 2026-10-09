@@ -41,9 +41,17 @@ const pass = (msg) => console.log(`ok    ${msg}`)
 // `@deepseek-ai/cordis` 只会以 `import type` 出现，构建时擦除。
 const source = readFileSync(HOST, 'utf8')
 const HOST_EXTERNAL_ALLOWLIST = new Set([
+  // 与 build.mjs 的 HOST_RUNTIME_EXTERNAL_ALLOWLIST **同源**：undici 必须留给运行时
+  // （它的加载器按 process.versions.undici 挑同大版本实例，内联会锁死版本）。
+  // 两处 allowlist 若不同步，会出现「构建放过、冒烟拦下」的假失败。
+  'undici',
 ])
 const externalImports = [...source.matchAll(
-  /(?:^|[;\n])\s*(?:import|export)[\s\S]*?from\s*["']([^"']+)["']/g,
+  // `[^\n]*?` 而非 `[\s\S]*?`：import/export…from 恒为单行（esbuild 不折行）。
+  // 用 [\s\S] 会跨行误伤字符串字面量——某个 kind 的 doc 里含 JSON 示例
+  // {"from":"start"} 时，正则从行首 import 一路匹配到那串 "from":"，把中间的
+  // `:` 当成模块名，误报「host 引了无法解析的包 :」。与 build.mjs 同一处修正。
+  /(?:^|[;\n])\s*(?:import|export)[^\n]*?from\s*["']([^"']+)["']/g,
 )].map(m => m[1]).filter(spec => !spec.startsWith('node:') && !HOST_EXTERNAL_ALLOWLIST.has(spec))
 if (externalImports.length > 0) {
   fail(`host bundle still imports non-node specifiers: ${externalImports.join(', ')}`)

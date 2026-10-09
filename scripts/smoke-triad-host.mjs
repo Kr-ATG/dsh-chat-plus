@@ -471,9 +471,10 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
   need(/teamInjectDefaultEnabled: true/.test(typesSrc), 'teamInjectDefaultEnabled 默认 true')
   need(/CONFIG_BOOLEAN_KEYS[\s\S]{0,400}teamInjectDefaultEnabled/.test(typesSrc),
     'teamInjectDefaultEnabled 在 CONFIG_BOOLEAN_KEYS 里（否则面板/补丁写不进去）')
-  // 通道总数是「六条」时的历史注释会误导下一个人，直接钉住条数表述与实现一致。
-  need(/五条\*\*内置通道\*\*[\s\S]{0,120}team 团队协作/.test(injectSrc),
-    'inject.ts 头部注释声明的内置通道条数与实现一致（当前 5 条，含 team）')
+  // 通道总数的历史注释会误导下一个人，直接钉住条数表述与实现一致。
+  // 2026-10-09：diagram 通道随图形 iu kind（graph/arch/sequence）移除，五条→四条。
+  need(/四条\*\*内置通道\*\*[\s\S]{0,140}team 团队协作/.test(injectSrc),
+    'inject.ts 头部注释声明的内置通道条数与实现一致（当前 4 条，含 team）')
   need(/isTeamInjectEnabled/.test(storeSrc) && /setTeamInjectEnabled/.test(storeSrc),
     'store 提供 team 开关的读写')
   // 旧「效率约束」通道已整条替换，源码里不该再有残留（用户明确要求换掉）。

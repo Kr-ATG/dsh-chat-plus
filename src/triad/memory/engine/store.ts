@@ -693,34 +693,17 @@ export class MemoryStore {
     await this.writeState(state)
   }
 
-  // ── 对话内流程图能力规范注入开关（全局单值） ──────────────────────
-
-  /**
-   * diagram 围栏规范注入是否开启（三态：state 显式值 ?? 调用方给的 fallback）。
-   *
-   * 与中文通道同样是**全局单值**：它是「本客户端支持什么呈现能力」的声明，
-   * 不是逐会话的上下文松紧，逐会话开关只会制造「这个会话能画图、下个不能」
-   * 的不可预期。
-   */
-  async isDiagramInjectEnabled(fallback: boolean): Promise<boolean> {
-    const state = await this.readState()
-    return typeof state.diagramInjectEnabled === 'boolean' ? state.diagramInjectEnabled : fallback
-  }
-
-  /** 写 diagram 规范注入开关（全局单值；直接落盘，调用频率极低）。 */
-  async setDiagramInjectEnabled(enabled: boolean): Promise<void> {
-    const state = await this.readState()
-    state.diagramInjectEnabled = enabled
-    await this.writeState(state)
-  }
-
   // ── 对话内 HTML 卡片能力规范注入开关（全局单值） ────────────────────
+  // 历史注记：曾有 diagram 注入开关（isDiagramInjectEnabled / setDiagramInjectEnabled），
+  // 2026-10-09 随图形 iu kind（graph/arch/sequence）上线整体移除。
+  // 旧状态文件里残留的 diagramInjectEnabled 字段无人读取，无害。
 
   /**
    * html 围栏规范注入是否开启（三态：state 显式值 ?? 调用方给的 fallback）。
    *
-   * 与 diagram 通道同样是**全局单值**，理由完全一致：它是「本客户端支持什么
-   * 呈现能力」的声明，不是逐会话的上下文松紧。
+   * 与中文通道同样是**全局单值**：它是「本客户端支持什么呈现能力」的声明，
+   * 不是逐会话的上下文松紧，逐会话开关只会制造「这个会话能出卡、下个不能」
+   * 的不可预期。iu kind 的能力文档随本通道注入。
    */
   async isHtmlInjectEnabled(fallback: boolean): Promise<boolean> {
     const state = await this.readState()

@@ -5,8 +5,8 @@
  * 只注入当前工作区项目 + 全局层；token 超预算按重要性截断，最低保留置顶。
  * 命中刷新：被注入的条目距上次命中 ≥1 天时刷新 lastHitAt 并加分。
  *
- * 除主注入外，本文件还承载五条**内置通道**（zh 中文偏好 / diagram 流程图规范 /
- * html 卡片 / soul 顶层身份契约 / team 团队协作）：各自独立 stepCounters、各自全局开关、
+ * 除主注入外，本文件还承载四条**内置通道**（zh 中文偏好 / html+iu 卡片规范 /
+ * soul 顶层身份契约 / team 团队协作）：各自独立 stepCounters、各自全局开关、
  * 每会话只注首步、位置一律在「项目排除 + 主注入开关」两道闸门之前，失败只记日志。
  */
 
@@ -124,51 +124,9 @@ const ZH_INJECTION_RULE = [
 const ZH_INJECTION_BUDGET = 2500
 
 /**
- * 对话内流程图（diagram 围栏）能力规范注入文本。
- *
- * 为什么需要它：客户端的 `splitDiagram()` 会拦截正文里的 ```diagram 围栏并
- * 渲染成 SVG 卡片，但**模型默认完全不知道这个围栏存在**——渲染器、样式、
- * README 全在，指令侧是空的。这是「有渲染器、没接线」的典型缺口。
- *
- * 与 zh 通道的差异：zh 投的是记忆条目（动态检索 + 预算截断），这里投的是一段
- * 纯静态规范文本，不读条目、不做检索、不参与命中加分——它是能力声明，不是记忆。
- *
- * 措辞刻意写清「非法静默回退」：模型对 JSON 围栏的容错直觉很强，但本解析器
- * 遇到非法结构不报错、直接把围栏当普通代码块显示。不知道这点，模型会以为出图
- * 失败然后重试越修越乱。
- */
-const DIAGRAM_INJECTION_RULE = [
-  '【对话内流程图 · 内置通道】本客户端的对话流会把 ```diagram 代码围栏渲染成可交互的 SVG 流程图卡片。',
-  '需要画流程图时输出下面这种围栏（内容为单行 JSON）。不要用 mermaid——mermaid 只在对话截图里被渲染，对话流里始终是代码块。',
-  '',
-  '格式：{"type":"flowchart","title":"标题","desc":"一句话","size":"full","nodes":[…],"edges":[…]}',
-  '',
-  'nodes（1–9 个）：{"id":"唯一标识","shape":"oval|rect|diamond","x":0,"y":0,"w":160,"h":48,"name":"主标签","sub":"副标签","focal":false}',
-  '  · shape：oval=起止，rect=步骤，diamond=判断（最多 3 个出口）。形状承担类型，颜色不承担。',
-  '  · 坐标：x∈[0,800]、y∈[0,1000]，建议对齐 4 的网格；w∈[40,400]、h∈[32,200]。',
-  '  · name ≤14 字，sub ≤24 字（compact 模式不渲染 sub）。',
-  '  · focal=true 走品牌橙高亮，整图最多用一个，标在主干或最关键的那个节点上。',
-  '',
-  'edges（0–12 条）：每条由两端节点 id、分支文字、高亮开关、折线点数组四个字段组成——',
-  '  字段名依次是 from（起点节点 id）、to（终点节点 id）、label（分支文字，≤8 字）、accent（是否橙色高亮）、pts（[[x,y],[x,y]] 这样的点数组）。',
-  '  · pts 是完整折线点，必须含起点与终点、2–8 个点、坐标为数字；拐角圆角由渲染器自动倒，label 画在水平边中点。',
-  '  · 流向自上而下；判断分支一律要标 label（如「是」「否」「超限」），未标分支的判断图是反模式。',
-  '  · accent=true 的连线是橙箭头：只标主干或最关键的那条分支，不要每条都标。',
-  '',
-  '硬性约束（违反会**静默回退成代码块**，不报错、也不会告诉你失败）：',
-  '  · type 必须是 "flowchart"；节点 id 不得重复；edges 的 from/to 必须是已声明的节点 id。',
-  '  · 节点 ≤9、边 ≤12。图复杂了就别硬塞——用文字或表格说清楚，或改用 mermaid。',
-  '  · 一条回复里最多一个 diagram 围栏。',
-  '',
-  '两条纪律：',
-  '  · 图是补充不是正文：先给文字结论或步骤清单，再决定要不要附一张图，不要为画图而画图。',
-  '  · 该围栏只在「Seeker」视图渲染，普通「对话」视图里会原样显示成代码块。你无法确知当前处于哪个视图——若这次任务明确要出图供人阅读，优先用 mermaid（截图能出真图）。',
-].join('\n')
-
-/**
  * 对话内 HTML 卡片（html 围栏）能力规范注入文本。
  *
- * 与 DIAGRAM_INJECTION_RULE 同构：客户端 `splitHtml()` 会拦截正文里的 ```html
+ * 客户端 `splitHtml()` 会拦截正文里的 ```html
  * 围栏并渲染成沙箱 iframe 卡片，但模型默认不知道这个围栏存在——又是「有渲染器、
  * 没接线」。这里补的是指令侧那一半。
  *
@@ -211,7 +169,7 @@ const HTML_INJECTION_RULE = [
   '',
   '【/iu 前缀 · 用户强制出卡】用户在输入框以 `/iu` 开头时，这条消息会**连 `/iu` 一起原样发给你**（客户端不做任何转换，别把它当未知命令或笔误）。',
   '看到以 `/iu` 开头的消息 = 用户**明确要求**用卡片回答（不是建议，是指令）：必须用 ```iu 或 ```html 围栏出卡，不要用纯文字或 Markdown 表格替代。',
-   'kind 由你按内容判断：取值换算→slider、数据对比→chart、数据行列→table、待办检查→checklist、方案对比→tabs、任务分列→kanban、收集输入→form、时间安排→timeline、前后修改→diff、层级结构→tree、完成度指标→gauge、考察理解→quiz、乐器→piano、复杂页面→html。',
+   'kind 由你按内容判断：取值换算→slider、数据对比→chart、数据行列→table、待办检查→checklist、方案对比→tabs、任务分列→kanban、收集输入→form、时间安排→timeline、前后修改→diff、层级结构→tree、完成度指标→gauge、考察理解→quiz、流程/框图→graph、系统架构→arch、调用时序→sequence、乐器→piano、复杂页面→html。',
   '若消息里没说清要什么，就用最贴合其意图的那种卡片，不要反问。',
   '',
   '两条纪律：',
@@ -224,7 +182,7 @@ const HTML_INJECTION_RULE = [
 /**
  * 灵魂（Soul）通道的注入头部。
  *
- * 与 zh / diagram 的差异：那两条投的是**插件内置**的文本（语言契约、渲染规范），
+ * 与 zh / html 的差异：那两条投的是**插件内置**的文本（语言契约、渲染规范），
  * 这一条投的是**用户自己写的**人设。因此头部措辞要显式声明两件事：
  *  1. 它是「顶层身份契约」，优先于模型的默认人格设定 —— 不写这句，模型会把
  *     它当成又一段参考资料，语气照旧。
@@ -302,14 +260,8 @@ export function createMemoryInjector(
   const zhStepCounters = new Map<string, number>()
 
   /**
-   * diagram 通道的每会话 step 计数，理由同 zhStepCounters——各内置通道各记
+   * html 通道的每会话 step 计数，理由同 zhStepCounters——各内置通道各记
    * 各的，共用一个 Map 会互相抢占首步名额。
-   */
-  const diagramStepCounters = new Map<string, number>()
-
-  /**
-   * html 通道的每会话 step 计数，理由同 diagramStepCounters——各内置通道
-   * 各记各的，共用一个 Map 会互相抢占首步名额。
    */
   const htmlStepCounters = new Map<string, number>()
 
@@ -429,34 +381,16 @@ export function createMemoryInjector(
       }
     }
 
-    // ── 对话内流程图能力规范注入（内置通道） ──────────────────────────
-    // 位置同样刻意：两道闸门之前，与中文通道并列。它回答的是「本客户端支持
-    // 什么呈现能力」，跟「记忆库要不要进上下文」正交。
-    const diagramEnabled = await store.isDiagramInjectEnabled(config.diagramInjectDefaultEnabled !== false)
-    if (!diagramEnabled) {
-      logger?.debug?.('[dsh-memory] diagram injection off (switch disabled)')
-    } else if (!diagramStepCounters.has(sessionId)) {
-      diagramStepCounters.set(sessionId, 1)
-      try {
-        messages = [...messages, createUserMessage({
-          content: [{ type: 'text', text: DIAGRAM_INJECTION_RULE }],
-          source: {
-            kind: 'plugin:dsh-memory',
-            plugin: 'dsh-memory',
-            form: 'snapshot',
-            sections: [{ name: '对话内流程图', text: DIAGRAM_INJECTION_RULE }],
-          },
-        })]
-        logger?.debug?.('[dsh-memory] diagram injection ok')
-      } catch (error) {
-        // 失败绝不能影响主注入与中文通道。
-        logger?.warn?.(`[dsh-memory] diagram injection failed: ${error instanceof Error ? error.message : String(error)}`)
-      }
-    }
+    // ── 对话内流程图注入通道已移除（2026-10-09）──────────────────────────
+    // 原 ```diagram 围栏要求模型手工算节点坐标与折线点，画歪是常态，且开关默认关、
+    // 能力常年闲置。图形结构改由 iu kind 承接（graph 自动布局流程图 / arch 分层
+    // 架构图 / sequence 时序图），注入文档随 kind 注册表走 html 卡片通道（默认开）。
+    // 渲染器（splitDiagram + DiagramCard）保留：历史消息里的 ```diagram 围栏
+    // 必须继续显示成卡片，不能变成一坨 JSON 代码块。
 
     // ── 对话内 HTML 卡片能力规范注入（内置通道） ──────────────────────
-    // 位置同 diagram：两道闸门之前。它回答的同样是「本客户端支持什么呈现
-    // 能力」，与「记忆库要不要进上下文」正交。
+    // 位置刻意：两道闸门之前。它回答的是「本客户端支持什么呈现能力」，
+    // 与「记忆库要不要进上下文」正交。iu 的 kind 文档（含图形三件套）也随它注入。
     const htmlEnabled = await store.isHtmlInjectEnabled(config.htmlInjectDefaultEnabled !== false)
     if (!htmlEnabled) {
       logger?.debug?.('[dsh-memory] html injection off (switch disabled)')
@@ -515,7 +449,7 @@ export function createMemoryInjector(
     }
 
     // ── 团队协作（Agent Teams / 子代理委派）规范注入（内置通道） ────────
-    // 位置同 diagram / html / soul：两道闸门之前。它回答的是「这活该怎么组织」，
+    // 位置同 html / soul：两道闸门之前。它回答的是「这活该怎么组织」，
     // 跟「记忆库要不要进上下文」正交；这套纪律跨会话恒定，不该随主开关一起消失。
     const teamEnabled = await store.isTeamInjectEnabled(config.teamInjectDefaultEnabled !== false)
     if (!teamEnabled) {
@@ -592,7 +526,6 @@ export function createMemoryInjector(
     disposeSession: (sessionId: string) => {
       stepCounters.delete(sessionId)
       zhStepCounters.delete(sessionId)
-      diagramStepCounters.delete(sessionId)
       htmlStepCounters.delete(sessionId)
       soulStepCounters.delete(sessionId)
       teamStepCounters.delete(sessionId)

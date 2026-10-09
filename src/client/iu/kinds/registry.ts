@@ -31,6 +31,9 @@ import { timelineKind } from './timeline.ts'
 import { treeKind } from './tree.ts'
 import { gaugeKind } from './gauge.ts'
 import { quizKind } from './quiz.ts'
+import { graphKind } from './graph.ts'
+import { archKind } from './arch.ts'
+import { sequenceKind } from './sequence.ts'
 
 /**
  * 已注册的全部 kind（顺序即注入文档里的出现顺序）。
@@ -55,6 +58,9 @@ export const IU_KINDS = [
   treeKind,
   gaugeKind,
   quizKind,
+  graphKind,
+  archKind,
+  sequenceKind,
   pianoKind,
 ] as const
 
