@@ -1328,7 +1328,8 @@ body[data-kr-resizing="true"] * {
 .kr-card--task,
 .kr-card--plain,
 .kr-card--subs,
-.kr-card--outputs {
+.kr-card--outputs,
+.kr-card--tools {
   --kr-fs-body: max(11px, calc(var(--dsh-content-font-size, 14px) - 1.5px));
   --kr-fs-title: max(12px, calc(var(--dsh-content-font-size, 14px) - 1px));
   --kr-fs-12: max(11px, calc(var(--dsh-content-font-size, 14px) - 2px));
@@ -1336,6 +1337,13 @@ body[data-kr-resizing="true"] * {
   --kr-fs-11: max(10px, calc(var(--dsh-content-font-size, 14px) - 3px));
   --kr-fs-10-5: max(9.5px, calc(var(--dsh-content-font-size, 14px) - 3.5px));
   --kr-fs-10: max(9.5px, calc(var(--dsh-content-font-size, 14px) - 4px));
+}
+
+/* 工具调用卡行高变量：5 行滚动窗口的高度基准。行 = 上下 padding 8px ×2 +
+   正文行高（1.5 × 12px 档）+ 条目透明描边 2px。挂在卡根类上，字号轴一变
+   窗口跟着变，「5 行」在任何字号档下都精确是 5 行。 */
+.kr-card--tools {
+  --kr-tool-row-h: calc(var(--kr-fs-12, 12px) * 1.5 + 18px);
 }
 
 /*
@@ -1590,6 +1598,333 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   gap: 6px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ══ 工具调用卡（技术视角明细，2026-10-09 恢复）══════════════════════════
+   右栏 footer 里的第二块：列表全量渲染，可视窗口只给 5 行高、超出在窗口内
+   滚动（见下方 .kr-panel__memory-dock .kr-tools-list）；点标题行整卡折叠。
+   展开单条调用后的详情面板在行内铺开，列表窗口照旧滚动。 */
+
+/* 工具调用卡标题行右端的提示（「默认 5 行 · 滚动看全部 N 次」/「展开 N 次调用」）：
+   与标题同在一行，次要色弱化（整卡折叠的入口是整行头部点击区）。 */
+.kr-tools-expand-hint {
+  flex: none;
+  font-size: var(--kr-fs-11, 11px);
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+/* 行高变量定义见字号轴段（.kr-card--tools 上的 --kr-tool-row-h）。 */
+
+.kr-tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.kr-tool-card-item {
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  overflow: hidden;
+  transition: all 0.15s ease;
+}
+
+.kr-tool-card-item:hover {
+  background: var(--kr-hover-bg);
+}
+
+.kr-tool-card-item--expanded {
+  background: var(--kr-surface-bg);
+  border: 1px solid var(--kr-card-border);
+  /* 展开态是卡片内部的一块高亮区，用描边区分即可；
+     再投一层阴影就会在卡片里叠出第三层「悬浮」。 */
+  box-shadow: none;
+  margin: 2px 0;
+  border-radius: 8px;
+}
+
+.kr-tool-card-item--failed {
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+/* 概览行：整体可点击 */
+.kr-tool-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px;
+  font-size: var(--kr-fs-12, 12px);
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
+}
+
+.kr-tool-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kr-tool-name {
+  font-weight: 500;
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: var(--kr-fs-11-5, 11.5px);
+  color: var(--dsw-alias-label-primary);
+  flex: none;
+}
+
+.kr-tool-detail {
+  flex: 1;
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kr-tool-time {
+  font-size: var(--kr-fs-11, 11px);
+  color: var(--dsw-alias-label-caption);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+.kr-tool-status {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-tool-status--done {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-tool-status--fail {
+  color: var(--dsw-alias-label-primary);
+}
+
+/*
+ * 单条工具调用行末尾的展开箭头（.kr-tool-row__chevron）已连同 DOM 一起删除。
+ *
+ * 它与卡片级那个是同一类东西：N 行调用就是 N 个同样的 V，而展开能力从来不靠它
+ * ——点击热区是整行 .kr-tool-row（role=button + onClick 切换），行首的状态点
+ * （对勾 / 转圈 / 叉）已经把"这条处于什么状态"说清楚了，右侧再挂一个方向箭头
+ * 只是把同一件事讲两遍。
+ */
+
+/* 展开的详情面板 */
+.kr-tool-detail-panel {
+  padding: 10px 12px;
+  border-top: 1px solid var(--kr-card-border);
+  background: var(--dsw-alias-bg-module-platform, rgba(0, 0, 0, 0.1));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: kr-fade-in 0.2s ease-out;
+}
+
+/* 台账信息标签 */
+.kr-tool-detail__ledger {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--kr-fs-11, 11px);
+}
+
+.kr-tool-detail__badge {
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--kr-surface-bg);
+  border: 1px solid var(--kr-card-border);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-tool-detail__badge--err {
+  background: var(--kr-hover-bg);
+  border-color: var(--kr-card-border);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}
+
+/* 页签栏 */
+.kr-tool-detail__tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--kr-card-border);
+  padding-bottom: 4px;
+}
+
+.kr-tool-detail__tab {
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: var(--kr-fs-11-5, 11.5px);
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.kr-tool-detail__tab:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.1));
+}
+
+.kr-tool-detail__tab--active {
+  color: var(--dsw-alias-label-primary) !important;
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.14)) !important;
+}
+
+/* 页签内容 */
+.kr-tool-detail__content {
+  display: flex;
+  flex-direction: column;
+}
+
+.kr-tool-detail__section {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 代码/文本框 */
+.kr-tool-code-box {
+  border-radius: 7px;
+  border: 1px solid var(--kr-card-border);
+  background: var(--dsw-alias-bg-layer-1, rgba(0, 0, 0, 0.2));
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.kr-tool-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: var(--kr-hover-bg);
+  border-bottom: 1px solid var(--kr-card-border);
+  font-size: var(--kr-fs-11, 11px);
+  color: var(--dsw-alias-label-caption);
+}
+
+.kr-tool-copy-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--kr-fs-11, 11px);
+  cursor: pointer;
+  padding: 1px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s;
+}
+
+.kr-tool-copy-btn:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.15));
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--kr-card-border);
+}
+
+.kr-tool-code-pre {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: var(--kr-fs-11-5, 11.5px);
+  line-height: 1.5;
+  font-family: var(--ds-font-family-code, monospace);
+  color: var(--dsw-alias-label-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.kr-tool-path-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: var(--kr-fs-11-5, 11.5px);
+}
+
+.kr-tool-path-label {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.kr-tool-path-code {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--kr-surface-bg);
+  border: 1px solid var(--kr-card-border);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: var(--kr-fs-11, 11px);
+  word-break: break-all;
+}
+
+.kr-tool-empty-note {
+  padding: 8px;
+  font-size: var(--kr-fs-11-5, 11.5px);
+  color: var(--dsw-alias-label-tertiary);
+  text-align: center;
+}
+
+/* 底部操作条 */
+.kr-tool-detail__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--kr-card-border) 60%, transparent);
+}
+
+.kr-tool-footer-btn {
+  background: var(--kr-surface-bg);
+  border: 1px solid var(--kr-card-border);
+  color: var(--dsw-alias-label-secondary);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: var(--kr-fs-11, 11px);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.kr-tool-footer-btn:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.15));
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--kr-card-hover);
+}
+
+.kr-tool-footer-btn--link {
+  color: var(--dsw-alias-label-secondary);
+  border-color: var(--kr-card-border);
+  background: var(--kr-surface-bg);
+}
+
+.kr-tool-footer-btn--link:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.15));
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--kr-card-hover);
 }
 
 /* 失败提示条（只陈述失败原因，不提供重试动作） */
@@ -3020,15 +3355,36 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
    多少、无论滚动位置。旧方案是滚动区内的 sticky bottom:0，内容少时卡片
    跟在其它卡后面悬在中间，做不到「永远在下方」，已废弃。
 
-   footer 现在只服务记忆卡一块（用时已搬去对话流里那张「Seeker 正在…」活动卡，
-   工具调用卡整块移除），所以它与滚动区是「内容 / 常驻区」的分工。 */
+   footer 现在服务记忆卡与工具调用卡两块（用时已搬去对话流里那张「Seeker
+   正在…」活动卡），所以它与滚动区是「内容 / 常驻区」的分工。 */
 .kr-panel__memory-dock {
   flex: none;
   padding: 0 12px 12px;
-  /* 同样透明：footer 只是把记忆卡钉在下方，不该自己带一块底色。 */
+  /* 同样透明：footer 只是把「用时 / 工具调用 / 记忆」钉在下方，不该自己带一块底色。 */
   background: var(--kr-canvas-bg);
   display: flex;
   flex-direction: column;
+  /* 块之间留呼吸。用时行原有的 padding-bottom 相应收到 0，避免双重间距。 */
+  gap: 8px;
+}
+
+/*
+ * 工具调用卡的「默认 5 行」滚动窗口（2026-10-09 用户定稿形态）。
+ *
+ * 列表**全量渲染**，可视窗口只给 5 行高：行高 = --kr-tool-row-h（挂在
+ * .kr-card--tools 上，跟随官方字号轴），4 个 gap 各 2px。超出 5 条的部分在
+ * 窗口内滚动 —— 不点任何东西就能往下翻全量，同时 footer 的膨胀有硬上限，
+ * 展开单条详情也不会把思考卡挤出右栏视口。
+ *
+ * footer 不是滚动容器（滚动区是 flex:1 + overflow-y:auto 的那块），所以封顶
+ * 必须落在列表自己身上；overscroll-behavior: contain 防止滚到头后把滚动
+ * 链传给外层。
+ */
+.kr-panel__memory-dock .kr-tools-list {
+  max-height: calc(5 * var(--kr-tool-row-h, 34px) + 8px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 /* 记忆卡「没有本会话新增就整卡不渲染」时，dock 里一个子节点都不剩。

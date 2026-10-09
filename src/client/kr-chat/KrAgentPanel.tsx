@@ -5,12 +5,13 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import type { ChatNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { activityStore } from '../tool-summary/activity-drawer.tsx'
 import { latestChatSnapshot, latestChatSessionId, collectTurnNodes, collectLatestSessionTasks, subscribeLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
-import { callDurationMs, formatDuration, isRunning } from '../tool-summary/tool-stats.ts'
-import { toolArgsRaw } from '../tool-summary/activity-view-model.ts'
+import { callDurationMs, callName, formatDuration, isRunning } from '../tool-summary/tool-stats.ts'
+import { rowSummary, classifyCategory, toolArgsRaw, argFields, resultParagraphs, rawResultJson, executionFacts } from '../tool-summary/activity-view-model.ts'
 import { useNow } from '../tool-summary/use-now.ts'
 import { getKrChatStore, PANEL_WIDTH_MAX, PANEL_WIDTH_MIN } from './kr-chat-store.ts'
 import { KrTaskOverviewCard, type DshTaskItem, type TaskSource } from './KrTaskOverviewCard.tsx'
 import { KrMemoryCard } from './KrMemoryCard.tsx'
+import { KrToolCallsCard, type ToolCallItemView } from './KrToolCallsCard.tsx'
 import { usePanelSqueezed } from './use-adaptive-rows.ts'
 import { ShotPanel } from '../shot/Panel.tsx'
 import { collectMessages, deriveCurrentDialogueTitle, type ShotRange, type ShotMessage } from '../shot/collect.ts'
@@ -22,7 +23,7 @@ import { KrSubagentsCard } from './KrSubagentsCard.tsx'
 import { useSubagentCatalog } from './subagent-catalog.ts'
 import { KrOutputsCard } from './KrOutputsCard.tsx'
 import { collectOutputs, collectSessionToolNodes, outputsFingerprint, type OutputsView } from './outputs.ts'
-import { AGENT_DISPLAY_NAME, KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE, KR_SUBAGENTS_CARD_VISIBLE } from './enabled.ts'
+import { AGENT_DISPLAY_NAME, KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE, KR_SUBAGENTS_CARD_VISIBLE, KR_TOOL_CALLS_CARD_VISIBLE } from './enabled.ts'
 import { installConversationScrollGuard } from './scroll-guard.ts'
 import { useOfficialWidthHandleFix } from './official-width-handles.ts'
 
@@ -280,6 +281,88 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     elapsedMeasured = toolsDuration > 0
   }
   const durationText = formatDuration(elapsedMs)
+
+  /*
+   * 工具列表构建（「工具调用」卡的数据源，2026-10-09 恢复）。
+   *
+   * 必须 memo：这段映射里有 `rawResultJson(root)` —— 它对**每一条**工具调用做
+   * 一次 JSON.stringify(…, null, 2)，把完整返回内容重新序列化成带缩进的字符串。
+   * 一次 read 返回两千行文件就是几十到几百 KB，而这只在该条工具的「原始数据」
+   * 页签被展开时才用到（KrToolCallsCard 里 tab === 'raw'）。写在渲染体里意味着
+   * 每个 tick（useNow 1Hz）+ 每个流式快照都要白扔一遍，而且每次给下游
+   * memo 的 KrToolCallsCard 都是全新数组 + 全新元素，卡片自己的 memo 必然失效。
+   */
+  const toolViews = useMemo<readonly ToolCallItemView[]>(() => tools.map((node, index) => {
+    let name = 'tool'
+    let title = '执行工具操作'
+    let duration = '20ms'
+    let status: 'success' | 'running' | 'failed' = 'success'
+    let errorMsg: string | undefined
+    let callId: string | undefined
+    let argsRaw: string | undefined
+    let args: Record<string, unknown> | undefined
+    let resultText: string | undefined
+    let rawJson: string | undefined
+    let exitCode: number | undefined
+    let signal: string | undefined
+
+    try {
+      const root = node.data.root
+      callId = ('callId' in root ? (root as any).callId : undefined) || node.key
+      name = callName(root)
+      argsRaw = toolArgsRaw(root)
+      args = argFields(argsRaw)
+      // 摘要列走 rowSummary（「读取 README.md」这类带对象的人话），比旧版
+      // rowTitle 的变体标题（Read/Bash）信息量大——工具名已在行首单列。
+      title = rowSummary(name, classifyCategory(name), args, argsRaw)
+      resultText = resultParagraphs(root)
+      rawJson = rawResultJson(root)
+      const facts = executionFacts(root)
+      exitCode = facts.exitCode
+      signal = facts.signal
+
+      const ms = callDurationMs(root, now)
+      duration = ms !== undefined ? `${Math.round(ms)}ms` : '10ms'
+      if (isRunning(root)) {
+        status = 'running'
+      } else {
+        // 失败判据：isError 标记 / 非零退出码 / 信号杀死。错误文本按仓库既有
+        // 形状读（plain-timeline.ts 同款 record 断言）：ToolCallBlock 没有
+        // 旧的 .result 字段，error 直接挂在块上。
+        const record = root as { isError?: unknown; error?: unknown }
+        const isErr = record.isError === true
+          || (exitCode !== undefined && exitCode !== 0)
+          || signal !== undefined
+        if (isErr) {
+          status = 'failed'
+          const err = record.error as { message?: unknown } | string | undefined
+          errorMsg = typeof err === 'string' ? err
+            : typeof err?.message === 'string' ? err.message
+            : signal !== undefined ? `killed by signal: ${signal}`
+            : exitCode !== undefined && exitCode !== 0 ? `exit code: ${exitCode}`
+            : '工具执行返回非零状态或异常'
+        }
+      }
+    } catch {
+      title = `工具调用 #${index + 1}`
+    }
+
+    return {
+      id: node.key || `tool-${index}`,
+      callId,
+      name,
+      description: title,
+      durationText: duration,
+      status,
+      errorMessage: errorMsg,
+      argsRaw,
+      args,
+      resultText,
+      rawResultJson: rawJson,
+      exitCode,
+      signal,
+    }
+  }), [tools, now])
 
   // 任务数据源提取：优先使用本轮已记录的 todo_write / submitted-plan，当前未结轮次可回退到 live todos；
   // 均为空时跨轮次回溯获取会话最近有效的任务清单，绝不误显“本轮还没有任务”。
@@ -825,20 +908,37 @@ export const KrAgentPanel = memo(function KrAgentPanel({
         不放滚动容器内部——sticky 只能在「内容溢出且滚动」时贴底，内容少时卡片会
         悬在中间；独立 footer 才能做到「永远钉在右栏最下方」。
 
-        现在只剩**记忆卡**一块：保持钉在最后，维持用户已有的空间习惯；分「工作区
-        记忆 / 全局记忆」两个分区，支持多选批量删除。用时与工具调用都已移出
-        footer：用时搬去了对话流里那张「Seeker 正在…」活动卡（用时读数跟着本轮
-        动作走，所见即所测）；工具调用卡整块移除，工具细节只留在「操作面板」
-        每条末尾的「技术细节」折叠里。
+        自上而下两块：
+          工具调用    —— 技术视角台账，2026-10-09 按用户要求恢复；默认列前 5 行、
+                        超出折叠（点标题行展开全量），展开后明细列表由 styles 的
+                        `.kr-panel__memory-dock .kr-tools-list` 封顶 40vh + 内部
+                        滚动，不会把思考卡挤出屏幕。用时读数已搬去对话流里那张
+                        「Seeker 正在…」活动卡，footer 不再放用时行。
+          记忆        —— 保持钉在最后，维持用户已有的空间习惯；分「工作区记忆 /
+                        全局记忆」两个分区，支持多选批量删除。
 
-        记忆卡 return null 时 footer 命中 :empty，自身连 padding 一起收起。
+        两块都 return null 时 footer 命中 :empty，自身连 padding 一起收起。
       */}
-      {KR_MEMORY_CARD_VISIBLE && (
+      {(KR_MEMORY_CARD_VISIBLE || (KR_TOOL_CALLS_CARD_VISIBLE && toolViews.length > 0)) && (
         <div className="kr-panel__memory-dock">
-          <KrMemoryCard
-            squeezed={panelSqueezed}
-            onContentChange={handleMemoryContentChange}
-          />
+          {KR_TOOL_CALLS_CARD_VISIBLE && (
+            <KrToolCallsCard
+              tools={toolViews}
+              onInspectCall={(callId) => {
+                try {
+                  actStore.handlers().inspectCall(callId)
+                } catch (err) {
+                  console.warn('[kr-agent-panel] inspectCall error', err)
+                }
+              }}
+            />
+          )}
+          {KR_MEMORY_CARD_VISIBLE && (
+            <KrMemoryCard
+              squeezed={panelSqueezed}
+              onContentChange={handleMemoryContentChange}
+            />
+          )}
         </div>
       )}
 

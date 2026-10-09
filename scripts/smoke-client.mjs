@@ -1224,14 +1224,24 @@ if (krEnabled) {
     // 大盘：turnData 必须做引用稳定化，否则下游 memo 全被击穿、每帧重扫全轮思考。
   } else if (!/fingerprintTurnData/.test(agentSrc)) {
     fail('KrAgentPanel 缺少 turnData 引用稳定化（memo 会被每帧击穿）')
-  } else if (!/const toolViews = useMemo/.test(agentSrc) && /KrToolCallsCard/.test(agentSrc)) {
-    fail('KrAgentPanel 若仍挂着工具调用卡，其 toolViews 必须 memo（含每条一次的 rawResultJson 序列化）')
-  } else if (existsSync(resolve(ROOT, 'src/client/kr-chat/KrToolCallsCard.tsx'))) {
-    fail('工具调用卡已按要求整块移除，KrToolCallsCard.tsx 不该还在')
-  } else if (/KrToolCallsCard|kr-tool-|kr-tools-/.test(agentSrc) || /kr-tool-|kr-tools-/.test(code)) {
-    fail('工具调用卡已整块移除，大盘与样式表里不该再留 kr-tool* 残留')
+  } else if (!/const toolViews = useMemo/.test(agentSrc)) {
+    fail('KrAgentPanel 的 toolViews 必须 memo（含每条一次的 rawResultJson 序列化）')
+    // 工具调用卡（2026-10-09 恢复）：组件、装配、样式封顶、默认 5 行四样缺一不可。
+  } else if (!existsSync(resolve(ROOT, 'src/client/kr-chat/KrToolCallsCard.tsx'))) {
+    fail('工具调用卡组件 KrToolCallsCard.tsx 缺失（2026-10-09 已恢复，不该再被删）')
+  } else if (!/KrToolCallsCard/.test(agentSrc) || !/KR_TOOL_CALLS_CARD_VISIBLE/.test(agentSrc)) {
+    fail('KrAgentPanel 未装配工具调用卡（缺 KrToolCallsCard 引用或 KR_TOOL_CALLS_CARD_VISIBLE 开关）')
+  } else if (!/\.kr-panel__memory-dock \.kr-tools-list[\s\S]{0,160}?max-height: calc\(5 \* var\(--kr-tool-row-h/.test(code)) {
+    fail('工具调用卡列表缺「5 行滚动窗口」封顶（全量渲染 + 窗口内滚动，行高随字号轴）')
+  } else if (!/overscroll-behavior: contain/.test(code)) {
+    fail('工具调用卡滚动窗口缺 overscroll-behavior: contain（滚到头会带动外层滚动链）')
   } else {
-    pass('hook 顺序 / busy 收口 / 大盘 memo 三处修复在位；工具调用卡无残留')
+    const cardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrToolCallsCard.tsx'), 'utf8')
+    if (!/const \[collapsed, setCollapsed\] = useState\(false\)/.test(cardSrc) || !/\{!collapsed && \(/.test(cardSrc)) {
+      fail('工具调用卡默认必须展开（列表全量渲染、5 行窗口滚动），整卡折叠只能是用户点击后的状态')
+    } else {
+      pass('hook 顺序 / busy 收口 / 大盘 memo / 工具调用卡装配与 5 行滚动窗口在位')
+    }
   }
 
   // 大盘常驻化：标签行那枚「Agent 轨迹大盘」开关与 store.panelOpen 已整块删除。
