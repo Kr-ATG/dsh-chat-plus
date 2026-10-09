@@ -684,6 +684,36 @@ if (krEnabled) {
     unsubTools()
     if (notified !== 2) fail(`工具调用卡开关订阅者应收到 2 次通知（实得 ${notified}）`)
     else pass('工具调用卡展示开关：变化会通知订阅者（右栏与开关 UI 能跟随）')
+    // 持久化：换一份 Map 版 localStorage 模拟浏览器盘，set 关 → 重新 install
+    // （= 刷新页面 / 重启 DSH 后模块重新读盘）必须读回关。判据错了表现为
+    // 「拨了开关刷新就丢」，用户感知极强，必须钉住。
+    {
+      const disk = new Map()
+      const savedLs = sandbox.localStorage
+      sandbox.localStorage = {
+        getItem: (k) => (disk.has(k) ? disk.get(k) : null),
+        setItem: (k, v) => { disk.set(k, String(v)) },
+        removeItem: (k) => { disk.delete(k) },
+      }
+      try {
+        mod.setToolCallsVisible(false)
+        if (disk.get('dsh.chat_plus.tool_calls_visible') !== '0') {
+          fail('工具调用卡开关未落盘 localStorage（刷新即丢，不持久）')
+        } else {
+          mod.installToolCallsVisible() // 模拟 reload：模块重新读盘
+          const persisted = mod.toolCallsVisible() === false
+          mod.setToolCallsVisible(true)
+          mod.installToolCallsVisible()
+          const backOn = mod.toolCallsVisible() === true
+          if (!persisted) fail('刷新后工具调用卡开关未读回「关」（持久化链断）')
+          else if (!backOn) fail('恢复开后 reload 未读回「开」')
+          else pass('工具调用卡展示开关：落盘 + reload 读回（持久化链完整，全局生效）')
+        }
+      } finally {
+        sandbox.localStorage = savedLs
+        mod.installToolCallsVisible()
+      }
+    }
     // 装配链：Toggle 展示组里有这一行、KrAgentPanel 消费它、index 初始化它。
     if (!/toolCallsLabel/.test(toggleSrc) || !/setToolCallsVisible\(!toolCallsOn\)/.test(toggleSrc)) {
       fail('Toggle 展示组缺「工具调用卡」开关行（label / onToggle 未接 setToolCallsVisible）')
