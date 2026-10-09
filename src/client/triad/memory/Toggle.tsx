@@ -39,6 +39,11 @@ import {
   setReplyCardChromeEnabled,
   subscribeReplyCardChrome,
 } from '../../reply-card-chrome.js'
+import {
+  setToolCallsVisible,
+  subscribeToolCallsVisible,
+  toolCallsVisible,
+} from '../../tool-calls-visible.js'
 import { css, ensureStyles } from './styles.js'
 
 /** 完整 props：composer 插槽 standardProps 的 sessionId + 注入 API 面 + locale。 */
@@ -433,6 +438,8 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
    * 那次点击。
    */
   const chromeOn = useSyncExternalStore(subscribeReplyCardChrome, replyCardChromeEnabled, replyCardChromeEnabled)
+  // 工具调用卡显隐：与总结卡外框同族（纯呈现偏好、localStorage、跨窗口同步）。
+  const toolCallsOn = useSyncExternalStore(subscribeToolCallsVisible, toolCallsVisible, toolCallsVisible)
   // 按钮状态取「五条里有没有开的」——全关才算关，半开按开显示（它是能力入口，
   // 不是记忆那种一刀切的开关）。**不含总结卡外框**：那一行不是注入通道，
   // 把它算进来会让「五条通道全关、只想要无框卡片」的按钮显示成开着的入口。
@@ -523,6 +530,15 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
           label={t('replyChromeLabel')}
           hint={t('replyChromeHint')}
           onToggle={() => { setReplyCardChromeEnabled(!chromeOn) }}
+        />
+        <SwitchRow
+          index={6}
+          // 与总结卡外框同族：写 localStorage，同步落盘无网络往返，busy 恒 false。
+          busy={false}
+          on={toolCallsOn}
+          label={t('toolCallsLabel')}
+          hint={t('toolCallsHint')}
+          onToggle={() => { setToolCallsVisible(!toolCallsOn) }}
         />
         <p className={css.injectFoot}>{t('builtinCardFoot')}</p>
       </div>

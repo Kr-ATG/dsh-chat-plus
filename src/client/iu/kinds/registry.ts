@@ -99,6 +99,6 @@ export function parseIuSpec(raw: unknown): IuSpecBase | undefined {
 }
 
 /** 按 kind 取纯逻辑模块（截图与状态层用）。 */
-export function iuKindOf(kind: string): IuKind<IuState, IuSpecBase> | undefined {
+export function iuKindOf(kind: string): AnyKind | undefined {
   return IU_KIND_MAP.get(kind)
 }

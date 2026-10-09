@@ -37,6 +37,7 @@ import { TurnProcessShadowView } from './tool-summary/TurnProcessShadowView.tsx'
 import { ThinkingStepNodeView } from './thinking/ThinkingStepNodeView.tsx'
 import { RetryShadowView } from './retry/RetryShadowView.tsx'
 import { installReplyCardChrome } from './reply-card-chrome.ts'
+import { installToolCallsVisible } from './tool-calls-visible.js'
 import { applyMessageScreenshot } from './shot/index.tsx'
 import { mountShellChrome } from './shell-chrome.ts'
 import { installOpenPathFix } from './open-path-fix.ts'
@@ -194,6 +195,10 @@ export function apply(ctx: ClientContext): void {
   // 必须在**首帧之前**跑完：挂晚了会先画一遍带框带影的卡片、再闪成纯正文。
   // 它没有座位也不渲染任何组件，只是把一条 CSS 规则的前提条件准备好。
   guarded(ctx, 'reply card chrome', installReplyCardChrome)
+
+  // 工具调用卡展示开关（localStorage 呈现偏好）：读盘 + 绑跨窗口 storage 监听。
+  // KrAgentPanel 经 useSyncExternalStore 订阅，拨完即时生效、刷新后保留。
+  guarded(ctx, 'tool calls visible', installToolCallsVisible)
 
   // 捕获官方原生的 assistant-step / turn-process 渲染组件：普通「对话」模式下
   // 两个座位都原样委托回官方，插件只负责 KR 那一栏。
@@ -386,3 +391,14 @@ export {
   subscribeReplyCardChrome,
   installReplyCardChrome,
 } from './reply-card-chrome.js'
+
+/**
+ * 工具调用卡展示开关：同款纯逻辑（读写 + 订阅），供 smoke 直接钉住。
+ * 判据错了同样静默无反应，必须能被测试断言。
+ */
+export {
+  toolCallsVisible,
+  setToolCallsVisible,
+  subscribeToolCallsVisible,
+  installToolCallsVisible,
+} from './tool-calls-visible.js'

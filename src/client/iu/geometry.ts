@@ -60,11 +60,15 @@ export interface ChartLayout {
   readonly w: number
   readonly h: number
   readonly max: number
+  /** 数据域下界（含负数时为最小值，否则为 0）。 */
+  readonly min: number
+  /** y=0 基线的像素坐标（全正时等于 axisY，有负数时上移）。 */
+  readonly zeroY: number
   /** 网格线的 y 坐标（从下往上 4 条）。 */
   readonly gridYs: readonly number[]
-  /** 横轴 y 坐标。 */
+  /** 横轴 y 坐标（图表底边）。 */
   readonly axisY: number
-  /** 横轴刻度：x 坐标 + 文本。 */
+  /** 横轴刻度：x 坐标 + 文本（bar 模式对齐柱组中心，line 模式对齐数据点）。 */
   readonly ticks: ReadonlyArray<{ readonly x: number; readonly text: string }>
   readonly bars: readonly BarRect[]
   readonly lines: readonly LineShape[]
@@ -75,38 +79,67 @@ export interface ChartLayout {
  *
  * @param spec - 图表 spec（labels / series 已在 parse 层对齐到等长）。
  * @param hidden - 被图例关掉的系列下标（对话流用；截图传空集）。
+ *
+ * ## 两个曾经的 bug（已修，别再改回去）
+ *
+ *  1. **负数不可见**：老实现只 `max = max(0, values)`，全负数据时 max 兜底成
+ *     1，柱高算成负值再被 `Math.max(1,h)` 压成 1px——负数柱状图整个不可用。
+ *     现在数据域取 `[min(0, 最小值), max(0, 最大值)]`，**永远包含 0**，柱子从
+ *     y=0 基线朝上（正）或朝下（负）画，`zeroY` 就是那条基线。
+ *
+ *  2. **bar 模式刻度与柱子错位**：老实现刻度一律按折线的 `li/(n-1)` 均分，
+ *     柱子却按 `li*groupW` 分组居中，两套坐标，标签越多偏得越狠。现在按
+ *     `spec.chart` 分别算：bar 对齐柱组中心（`li*groupW + groupW/2`），
+ *     line 对齐数据点（`li/(n-1)`）。
  */
 export function chartLayout(spec: IuChartSpec, hidden: ReadonlySet<number> = new Set()): ChartLayout {
   const vis = spec.series
     .map((s, i) => ({ s, i }))
     .filter(({ i }) => !hidden.has(i))
+  // 数据域：始终包含 0（有正有负时基线在中间，全正时基线在底，全负时在顶）。
   let max = 0
-  for (const { s } of vis) for (const v of s.values) if (v > max) max = v
-  if (!(max > 0)) max = 1
+  let min = 0
+  for (const { s } of vis) {
+    for (const v of s.values) {
+      if (v > max) max = v
+      if (v < min) min = v
+    }
+  }
+  // 全域退化成一个点（全 0 或无可见系列）时撑开一格，避免除零。
+  if (max === min) { max = min + 1 }
+  const span = max - min
 
   const n = spec.labels.length
   const innerW = CHART_W - CHART_PAD_L - 8
   const innerH = CHART_H - CHART_PAD_T - CHART_PAD_B
   const axisY = CHART_PAD_T + innerH
+  // 值 → y 像素（线性映射，域 [min, max] 贴满 [axisY, CHART_PAD_T]）。
+  const yOf = (v: number): number => CHART_PAD_T + innerH * (1 - (v - min) / span)
+  const zeroY = yOf(0)
 
   const gridYs = [0.25, 0.5, 0.75, 1].map(f => CHART_PAD_T + innerH * (1 - f))
-  const ticks = spec.labels.map((text, li) => ({
-    x: CHART_PAD_L + 4 + (innerW - 8) * (n === 1 ? 0.5 : li / (n - 1)),
-    text,
-  }))
+
+  // bar 与 line 的 x 坐标系不同：bar 按组、line 按点。
+  const groupW = innerW / Math.max(1, n)
+  const tickX = (li: number): number => (spec.chart === 'bar'
+    ? CHART_PAD_L + 4 + li * groupW + groupW / 2
+    : CHART_PAD_L + 4 + (innerW - 8) * (n === 1 ? 0.5 : li / (n - 1)))
+  const ticks = spec.labels.map((text, li) => ({ x: tickX(li), text }))
 
   const bars: BarRect[] = []
   if (spec.chart === 'bar') {
-    const groupW = innerW / Math.max(1, n)
     const cols = vis.length
     const bw = Math.min(26, (groupW - 8) / Math.max(1, cols))
     for (let li = 0; li < n; li += 1) {
       vis.forEach(({ s, i }, si) => {
         const v = s.values[li] ?? 0
-        const h = (v / max) * innerH
+        const yv = yOf(v)
+        // 柱子从基线画到值：正数朝上（top=yv），负数朝下（top=zeroY）。
+        const top = Math.min(yv, zeroY)
+        const h = Math.abs(yv - zeroY)
         bars.push({
           x: CHART_PAD_L + 4 + li * groupW + si * bw,
-          y: CHART_PAD_T + innerH - h,
+          y: top,
           w: Math.max(3, bw - 3),
           h: Math.max(1, h),
           color: CHART_COLORS[i % CHART_COLORS.length] as string,
@@ -118,10 +151,7 @@ export function chartLayout(spec: IuChartSpec, hidden: ReadonlySet<number> = new
 
   const lines: LineShape[] = spec.chart === 'line'
     ? vis.map(({ s, i }) => {
-      const dots = s.values.map((v, li) => ({
-        x: CHART_PAD_L + 4 + (innerW - 8) * (n === 1 ? 0.5 : li / (n - 1)),
-        y: CHART_PAD_T + innerH - (v / max) * innerH,
-      }))
+      const dots = s.values.map((v, li) => ({ x: tickX(li), y: yOf(v) }))
       return {
         name: s.name,
         color: CHART_COLORS[i % CHART_COLORS.length] as string,
@@ -131,7 +161,7 @@ export function chartLayout(spec: IuChartSpec, hidden: ReadonlySet<number> = new
     })
     : []
 
-  return { w: CHART_W, h: CHART_H, max, gridYs, axisY, ticks, bars, lines }
+  return { w: CHART_W, h: CHART_H, max, min, zeroY, gridYs, axisY, ticks, bars, lines }
 }
 
 // ── 钢琴键盘 ─────────────────────────────────────────────────────────────

@@ -24,6 +24,7 @@ import { useSubagentCatalog } from './subagent-catalog.ts'
 import { KrOutputsCard } from './KrOutputsCard.tsx'
 import { collectOutputs, collectSessionToolNodes, outputsFingerprint, type OutputsView } from './outputs.ts'
 import { AGENT_DISPLAY_NAME, KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE, KR_SUBAGENTS_CARD_VISIBLE, KR_TOOL_CALLS_CARD_VISIBLE } from './enabled.ts'
+import { subscribeToolCallsVisible, toolCallsVisible } from '../tool-calls-visible.js'
 import { installConversationScrollGuard } from './scroll-guard.ts'
 import { useOfficialWidthHandleFix } from './official-width-handles.ts'
 
@@ -92,6 +93,10 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     (cb) => store.subscribe(cb),
     () => store.snapshot,
   )
+
+  // 工具调用卡的运行时展示开关（localStorage 呈现偏好，与构建开关叠加）。
+  // 走 useSyncExternalStore：别的窗口拨动同一开关时本面板同步响应。
+  const toolCallsOn = useSyncExternalStore(subscribeToolCallsVisible, toolCallsVisible, toolCallsVisible)
 
   // 监听快照更新（实时响应新提问、流式输出与会话切换）
   const [snapTick, setSnapTick] = useState(0)
@@ -919,9 +924,9 @@ export const KrAgentPanel = memo(function KrAgentPanel({
 
         两块都 return null 时 footer 命中 :empty，自身连 padding 一起收起。
       */}
-      {(KR_MEMORY_CARD_VISIBLE || (KR_TOOL_CALLS_CARD_VISIBLE && toolViews.length > 0)) && (
+      {(KR_MEMORY_CARD_VISIBLE || (KR_TOOL_CALLS_CARD_VISIBLE && toolCallsOn && toolViews.length > 0)) && (
         <div className="kr-panel__memory-dock">
-          {KR_TOOL_CALLS_CARD_VISIBLE && (
+          {KR_TOOL_CALLS_CARD_VISIBLE && toolCallsOn && (
             <KrToolCallsCard
               tools={toolViews}
               running={currentRunning}

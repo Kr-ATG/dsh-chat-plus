@@ -660,6 +660,42 @@ if (krEnabled) {
     else pass('总结卡外观开关：变化会通知订阅者（开关 UI 能跟随）')
   }
 
+  // 1b) 工具调用卡展示开关：同款纯呈现偏好（localStorage + 订阅），行为级断言。
+  //     判据错了界面毫无反应，必须钉住：默认开、拨关生效、订阅收到通知。
+  if (typeof mod.setToolCallsVisible !== 'function' || typeof mod.toolCallsVisible !== 'function') {
+    fail('缺少 setToolCallsVisible / toolCallsVisible 导出（工具调用卡开关不可断言）')
+  } else {
+    mod.installToolCallsVisible()
+    if (mod.toolCallsVisible() !== true) {
+      fail('工具调用卡开关默认必须是开（恢复这张卡就是用户要的形态）')
+    } else {
+      mod.setToolCallsVisible(false)
+      const offOk = mod.toolCallsVisible() === false
+      mod.setToolCallsVisible(true)
+      const onOk = mod.toolCallsVisible() === true
+      if (!offOk) fail('关掉工具调用卡开关后 toolCallsVisible() 未变 false（右栏不会隐藏）')
+      else if (!onOk) fail('重新打开工具调用卡开关后未回到 true')
+      else pass('工具调用卡展示开关：默认开，拨关/拨开即时生效')
+    }
+    let notified = 0
+    const unsubTools = mod.subscribeToolCallsVisible(() => { notified += 1 })
+    mod.setToolCallsVisible(false)
+    mod.setToolCallsVisible(true)
+    unsubTools()
+    if (notified !== 2) fail(`工具调用卡开关订阅者应收到 2 次通知（实得 ${notified}）`)
+    else pass('工具调用卡展示开关：变化会通知订阅者（右栏与开关 UI 能跟随）')
+    // 装配链：Toggle 展示组里有这一行、KrAgentPanel 消费它、index 初始化它。
+    if (!/toolCallsLabel/.test(toggleSrc) || !/setToolCallsVisible\(!toolCallsOn\)/.test(toggleSrc)) {
+      fail('Toggle 展示组缺「工具调用卡」开关行（label / onToggle 未接 setToolCallsVisible）')
+    } else if (!/toolCallsOn/.test(readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8'))) {
+      fail('KrAgentPanel 未消费工具调用卡展示开关（拨了没反应）')
+    } else if (!/installToolCallsVisible/.test(entrySrc)) {
+      fail('index.ts 未初始化 installToolCallsVisible（刷新后不读盘、跨窗口不同步）')
+    } else {
+      pass('工具调用卡展示开关：Toggle 行 / 大盘消费 / apply 初始化三处在位')
+    }
+  }
+
   // 2) CSS：关掉时描边与投影都要让掉，且**保留边框宽度**（否则正文会位移）。
   const plainAt = bareStyle.indexOf('body[data-dsh-reply-plain]')
   if (plainAt < 0) {

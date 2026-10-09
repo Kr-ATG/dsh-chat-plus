@@ -46,7 +46,12 @@ export type IuSpecBase = { readonly kind: string; readonly title: string }
 /** Body 组件拿到的 setState：支持补丁对象或函数式补丁。 */
 export type IuSetState<S> = (patch: Partial<S> | ((prev: S) => Partial<S>)) => void
 
-/** 纯逻辑半边的 kind 模块（host 与 client 均可 import）。 */
+/**
+ * 纯逻辑半边的 kind 模块（host 与 client 均可 import）。
+ *
+ * ⚠ 本接口**不得引用 React 类型**（连 `import type` 都不要）：它在 host 半身
+ * 的依赖链上。React 体契约见 bodies.ts 的 IuKindBody。
+ */
 export interface IuKind<S extends IuState = IuState, Spec extends IuSpecBase = IuSpecBase> {
   /** kind 标识（围栏 JSON 里的那个字符串）。 */
   readonly kind: string
