@@ -30,15 +30,24 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent } from 'react'
 import type {
   ProfileView,
   SoulApi,
   SoulDraft,
   SoulIdentity,
+  SoulUser,
   SoulView,
   SoulDistillStats,
 } from './api.js'
-import { EMPTY_IDENTITY, EMPTY_SOUL } from './api.js'
+import {
+  AVATAR_USER_ID,
+  EMPTY_IDENTITY,
+  EMPTY_SOUL,
+  EMPTY_SOUL_USER,
+  USER_NAME_MAX,
+  USER_PROFILE_MAX,
+} from './api.js'
 import type { SoulCard, SoulCardsResponse, SoulPreset } from './api.js'
 import { CardsSection } from './CardsSection.js'
 import { SoulPersonaCard } from './PersonaCard.js'
@@ -260,6 +269,32 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
   const [newName, setNewName] = useState('')
   const [profileBusy, setProfileBusy] = useState(false)
 
+  /**
+   * 「我的资料」（用户侧身份，2026-10-09 补回）。
+   *
+   * 这一块 host 与 api/client 两侧的端点、类型、文案、样式一直都在
+   * （GET/POST /soul/user + AVATAR_USER_ID 头像），只是上一次版式改版把**界面**
+   * 整块弄丢了——用户打开面板再也改不了自己的称呼与档案，而磁盘上的 user.json
+   * 仍然生效（注入侧的「## 用户」段照常拼），于是表现为「档案像消失了」。
+   *
+   * 状态刻意与灵魂草稿分开：改自己的名字不该 bump 人格版本号、也不该被
+   * 「保存灵魂」按钮顺带提交（host 侧本来就是两条独立写路径）。
+   */
+  const [meName, setMeName] = useState('')
+  const [meProfile, setMeProfile] = useState('')
+  const [meDirty, setMeDirty] = useState(false)
+  const [meSaving, setMeSaving] = useState(false)
+  const [meSaved, setMeSaved] = useState(false)
+  /** 用户头像文件名（null = 未上传）+ 上传中标志。 */
+  const [meAvatar, setMeAvatar] = useState<string | null>(null)
+  const [meAvatarBusy, setMeAvatarBusy] = useState(false)
+  /** 头像缓存破坏值：换图后路径不变，不加它浏览器会一直显示旧脸。 */
+  const [meAvatarBust, setMeAvatarBust] = useState(0)
+  const meFileRef = useRef<HTMLInputElement | null>(null)
+  /** meDirty 的镜像：回包要按**最新**的脏标记决定是否覆盖我的资料草稿。 */
+  const meDirtyRef = useRef(false)
+  meDirtyRef.current = meDirty
+
   // ── 注入开关 ──
   const [injectOn, setInjectOn] = useState(true)
   const [injectKnown, setInjectKnown] = useState(false)
@@ -290,6 +325,13 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
     setDraftText(next.content)
     setDraftIdentity(next.identity)
     setDirty(false)
+    // 「我的资料」跟着回包走，但**不覆盖正在编辑的草稿**——用户敲了半句名字，
+    // 这时切人格/存卡片触发一次回包，草稿被冲掉就是丢字。
+    if (!meDirtyRef.current) {
+      setMeName(next.user.name)
+      setMeProfile(next.user.profile)
+    }
+    setMeAvatar(next.userAvatar)
   }, [])
 
   /** 拉取灵魂 + 档案。 */
@@ -349,6 +391,13 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
       setDraftText(response.soul.content)
       setDraftIdentity(response.soul.identity)
     }
+    // 「我的资料」同款口径：卡片写入的回包也带着 user，别让它把用户在编辑的
+    // 称呼冲掉（同一个坑，两处都要防）。
+    if (!meDirtyRef.current) {
+      setMeName(response.soul.user.name)
+      setMeProfile(response.soul.user.profile)
+    }
+    setMeAvatar(response.soul.userAvatar)
   }, [])
 
   /** 拉取卡片 + 预设。卡片读不出来不拖垮正文与档案，只降级卡片区。 */
@@ -366,6 +415,15 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
           setSoul(cardResponse.soul)
           setDraftText(cardResponse.soul.content)
           setDraftIdentity(cardResponse.soul.identity)
+        }
+        // 「我的资料」独立于上面的正文草稿判定：它是另一份主体（用户自己），
+        // 正文有未保存改动不代表我的资料也不能刷新。
+        if (cardResponse.soul !== null) {
+          if (!meDirtyRef.current) {
+            setMeName(cardResponse.soul.user.name)
+            setMeProfile(cardResponse.soul.user.profile)
+          }
+          setMeAvatar(cardResponse.soul.userAvatar)
         }
       })
       .catch((reason: unknown) => {
@@ -525,6 +583,106 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
       .catch(() => { loadState() })
       .finally(() => { setInjectBusy(false) })
   }, [injectBusy, injectOn, loadState])
+
+  // ── 我的资料：读写与头像（与灵魂是两条独立写路径，互不 bump 版本号） ──
+
+  /** 我的资料改动（任一字段）。 */
+  const onMe = useCallback((patch: Partial<SoulUser>): void => {
+    if (patch.name !== undefined) setMeName(patch.name)
+    if (patch.profile !== undefined) setMeProfile(patch.profile)
+    setMeDirty(true)
+    setMeSaved(false)
+  }, [])
+
+  /** 保存我的资料（整份覆盖：host 侧就是这么定义的，空串 = 清掉该字段）。 */
+  const saveMe = useCallback((): void => {
+    if (meSaving) return
+    setMeSaving(true)
+    void apiRef.current.saveUser({ name: meName.trim(), profile: meProfile.trim() })
+      .then(response => {
+        // 以回包为准：host 会对字段做 trim / 截断，本地假装成功会让面板显示
+        // 一个与磁盘不同的值。
+        setMeName(response.user.name)
+        setMeProfile(response.user.profile)
+        setMeAvatar(response.avatar)
+        setMeDirty(false)
+        setMeSaved(true)
+        flash({ kind: 'ok', text: t('soulMeSaved') })
+        window.setTimeout(() => { setMeSaved(false) }, 900)
+      })
+      .catch((reason: unknown) => {
+        if (apiRef.current.isHostStale(reason)) {
+          flash({ kind: 'err', text: tRef.current('soulMeSaveFailed', { reason: errorText(reason) }) })
+          return
+        }
+        flash({ kind: 'err', text: t('soulMeSaveFailed', { reason: errorText(reason) }) })
+      })
+      .finally(() => { setMeSaving(false) })
+  }, [flash, meName, meProfile, meSaving, t])
+
+  /** 撤销我的资料改动。 */
+  const resetMe = useCallback((): void => {
+    setMeName(soul.user.name)
+    setMeProfile(soul.user.profile)
+    setMeDirty(false)
+    setMeSaved(false)
+  }, [soul.user.name, soul.user.profile])
+
+  /** 头像上传（读成 data URL 后交给 host；体积与类型在前端先拦一道）。 */
+  const onMeAvatarFile = useCallback((event: ChangeEvent<HTMLInputElement>): void => {
+    const file = event.currentTarget.files?.[0]
+    // 清空 value：选了同一张图时 change 不再触发，等于「换回上一张」点不动。
+    event.currentTarget.value = ''
+    if (file === undefined) return
+    if (file.size > 2 * 1024 * 1024) {
+      flash({ kind: 'err', text: t('soulAvatarTooLarge', { size: `${(file.size / 1024 / 1024).toFixed(1)}MB` }) })
+      return
+    }
+    setMeAvatarBusy(true)
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === 'string' ? reader.result : ''
+      if (dataUrl === '') {
+        setMeAvatarBusy(false)
+        flash({ kind: 'err', text: t('soulAvatarReadFailed') })
+        return
+      }
+      void apiRef.current.uploadAvatar(AVATAR_USER_ID, dataUrl)
+        .then(response => {
+          if (response.avatar === null) {
+            flash({ kind: 'err', text: t('soulAvatarFailed', { reason: 'host rejected' }) })
+            return
+          }
+          setMeAvatar(response.avatar)
+          setMeAvatarBust(Date.now())
+        })
+        .catch((reason: unknown) => {
+          flash({ kind: 'err', text: t('soulAvatarFailed', { reason: errorText(reason) }) })
+        })
+        .finally(() => { setMeAvatarBusy(false) })
+    }
+    reader.onerror = () => {
+      setMeAvatarBusy(false)
+      flash({ kind: 'err', text: t('soulAvatarReadFailed') })
+    }
+    reader.readAsDataURL(file)
+  }, [flash, t])
+
+  /** 移除我的头像。 */
+  const removeMeAvatar = useCallback((): void => {
+    if (meAvatarBusy) return
+    setMeAvatarBusy(true)
+    void apiRef.current.removeAvatar(AVATAR_USER_ID)
+      .then(() => {
+        setMeAvatar(null)
+        setMeAvatarBust(Date.now())
+        flash({ kind: 'ok', text: t('soulAvatarRemoved') })
+      })
+      .catch((reason: unknown) => {
+        flash({ kind: 'err', text: t('soulAvatarFailed', { reason: errorText(reason) }) })
+      })
+      .finally(() => { setMeAvatarBusy(false) })
+  }, [flash, meAvatarBusy, t])
 
   /** 两栏 diff：当前灵魂 vs 草案。 */
   const diff = useMemo(() => {
@@ -827,6 +985,110 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
               <span className={css.paneTitle}><SoulIcon size={14} />{t('soulZoneEdit')}</span>
               <span className={css.paneHint} title={t('soulZoneEditHint')}>{t('soulZoneEditHint')}</span>
             </div>
+
+      {/* ── 我的资料（用户侧身份：称呼 + 个人档案 + 头像） ──────────────
+          2026-10-09 补回。host 端点（GET/POST /soul/user）、client api、
+          文案与样式一直都在，丢的只是这一块 JSX——用户打开面板再也改不了
+          自己的称呼与档案，而磁盘上的 user.json 仍在生效，于是表现为
+          「灵魂里关于我的档案不见了」。
+
+          刻意放在那条「深改」折叠区**外面**：它是用户改自己的唯一入口，
+          默认收起等于没有，上次就是在折叠里弄丢的。 */}
+      <section className={css.me} aria-label={t('soulMe')} data-soul-section="me">
+        <div className={css.meHead}>
+          <span className={css.cardTitle}><SoulIcon size={14} />{t('soulMe')}</span>
+          <span className={css.paneHint} title={t('soulMeHint')}>{t('soulMeHint')}</span>
+        </div>
+        <div className={css.meBody}>
+          <button
+            type="button"
+            className={css.meAvatar}
+            disabled={meAvatarBusy}
+            aria-label={meAvatar === null ? t('soulMeAvatarUpload') : t('soulAvatarReplace')}
+            title={`${meAvatar === null ? t('soulMeAvatarUpload') : t('soulAvatarReplace')} · ${t('soulMeAvatarHint')}`}
+            onClick={() => { meFileRef.current?.click() }}
+          >
+            {meAvatarBusy
+              ? <span className={css.meAvatarBusy}><SpinIcon size={16} /></span>
+              : meAvatar === null
+                ? <span className={css.personaAvatarEmpty}><SoulIcon size={22} /></span>
+                : (
+                  <img
+                    className={css.personaAvatarImg}
+                    src={api.avatarUrl(AVATAR_USER_ID, meAvatarBust)}
+                    alt=""
+                  />
+                )}
+          </button>
+          <input
+            ref={meFileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            hidden
+            onChange={onMeAvatarFile}
+          />
+          <div className={css.meGrid}>
+            <div className={css.field}>
+              <span className={css.label}>{t('soulMeName')}</span>
+              <input
+                className={css.input}
+                aria-label={t('soulMeName')}
+                placeholder={t('soulMeNamePlaceholder')}
+                maxLength={USER_NAME_MAX}
+                value={meName}
+                onChange={event => { onMe({ name: event.currentTarget.value }) }}
+              />
+            </div>
+            <div className={css.field}>
+              <span className={css.label}>{t('soulMeProfile')}</span>
+              <textarea
+                className={css.textarea}
+                aria-label={t('soulMeProfile')}
+                placeholder={t('soulMeProfilePlaceholder')}
+                maxLength={USER_PROFILE_MAX}
+                value={meProfile}
+                onChange={event => { onMe({ profile: event.currentTarget.value }) }}
+              />
+              <div className={css.counter}>
+                <span>{meProfile.length} / {USER_PROFILE_MAX}</span>
+                {/* 空态才提示「还没填」；已填时这里留空——变量写法由下面那枚
+                    {{userName}} · {{userProfile}} chip 承担，不重复说两遍。 */}
+                <span>{meName.trim() === '' && meProfile.trim() === '' ? t('soulMeEmpty') : ''}</span>
+              </div>
+            </div>
+            <div className={css.meActions}>
+              <button
+                type="button"
+                className={[
+                  css.btn,
+                  css.btnPrimary,
+                  meSaved ? css.btnDone : '',
+                ].filter(Boolean).join(' ')}
+                disabled={meSaving || !meDirty}
+                onClick={saveMe}
+              >
+                {meSaving ? <SpinIcon /> : meSaved ? <span className={css.check}><CheckIcon /></span> : null}
+                {meSaving ? t('soulMeSaving') : meSaved ? t('soulMeSaved') : t('soulMeSave')}
+              </button>
+              <button
+                type="button"
+                className={`${css.btn} ${css.btnGhost}`}
+                disabled={!meDirty}
+                onClick={resetMe}
+              >{t('soulReset')}</button>
+              {meAvatar !== null && (
+                <button
+                  type="button"
+                  className={`${css.btn} ${css.btnGhost}`}
+                  disabled={meAvatarBusy}
+                  onClick={removeMeAvatar}
+                >{t('soulAvatarRemove')}</button>
+              )}
+              <span className={css.meVar} title={t('soulVarHint')}>{'{{userName}}'} · {'{{userProfile}}'}</span>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* ── 修改区：整段正文 / 身份字段 / 档案 / 蒸馏 ──
           2026-10-06 二轮：外层那枚「整段正文 / 身份字段 / 档案 / 蒸馏」折叠按钮

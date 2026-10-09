@@ -883,6 +883,12 @@ body[data-ds-dark-theme] .dsh-soul-toggle-row{--s-card-bg:var(--dsw-static-neutr
 .dsh-soul-me-grid{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px}
 .dsh-soul-me .dsh-soul-textarea{min-height:76px}
 .dsh-soul-me-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* 我的资料在窄面板下从「头像 + 字段」横排回落成上下堆叠（56px 头像会把
+   输入框挤到 120px 以下，名字会竖排成两个字一行）。 */
+@container soulpanel (max-width: 620px){
+  .dsh-soul-me-body{flex-direction:column;align-items:stretch}
+  .dsh-soul-me-avatar{align-self:center}
+}
 /* 变量提示：等宽字体 + 弱底色，一眼看出「这是要写进正文的记号」而不是装饰文字 */
 .dsh-soul-me-var{display:inline-flex;align-items:center;gap:5px;padding:1px 7px;border-radius:5px;background:var(--s-primary-chip);color:var(--s-primary);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:17px}
 

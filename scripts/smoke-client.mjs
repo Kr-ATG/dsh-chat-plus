@@ -2441,11 +2441,39 @@ if (krEnabled) {
   if (!/soulPresetApplyReplace: '整体替换'/.test(soulLocales) || !/soulPresetApplyMerge: '合并应用'/.test(soulLocales)) {
     reasons.push('预设区必须同时提供「整体替换」与「合并应用」两条路径')
   }
+  // ── 我的资料（用户侧身份）必须真的有界面 ──────────────────────────────
+  // host 的 GET/POST /soul/user、client 的 loadUser/saveUser、文案与 .dsh-soul-me-*
+  // 样式一直都在，但**界面**在一次版式改版里被整块弄丢了：端点全都健康、
+  // user.json 也照常注入，用户却再也改不了自己的称呼与档案（表现为「灵魂里
+  // 关于我的档案消失了」）。这组断言盯的就是「三件套齐全才算这套功能在」。
+  const userReasons = []
+  if (!/api\.loadUser\(|loadUser\(\)/.test(soulPanelSrc) && !/saveUser/.test(soulPanelSrc)) {
+    userReasons.push('SoulPanel 没有接 /soul/user 的读写')
+  }
+  if (!/css\.me\b/.test(soulPanelSrc) || !/data-soul-section="me"/.test(soulPanelSrc)) {
+    userReasons.push('SoulPanel 没有渲染「我的资料」区块')
+  }
+  if (!/avatarUrl\(AVATAR_USER_ID/.test(soulPanelSrc)) {
+    userReasons.push('「我的资料」缺少用户头像（AVATAR_USER_ID）渲染')
+  }
+  // 必须在折叠区**外面**：上次就是收进 details 之后没人再看得到。
+  const meSectionAt = soulPanelSrc.indexOf('data-soul-section="me"')
+  const detailsAt = soulPanelSrc.indexOf('className="dsh-soul-legacy-details"')
+  if (meSectionAt < 0 || detailsAt < 0 || meSectionAt > detailsAt) {
+    userReasons.push('「我的资料」必须在「深改」折叠区之外常驻（收起等于没有）')
+  }
+  if (!/\.dsh-soul-me-avatar/.test(soulCss)) {
+    userReasons.push('缺少我的资料样式（.dsh-soul-me-*）')
+  }
+  if (userReasons.length > 0) {
+    reasons.push('我的资料：' + userReasons.join('；'))
+  }
   if (reasons.length > 0) {
     fail('灵魂/记忆分类契约：' + reasons.join('；'))
   } else {
     pass('工作台分类：灵魂与记忆各自独立成页（默认 soul · 无并排残留 · memory 原样回填）')
     pass('灵魂卡片化：会动的鲸鱼（官方 path）+ 卡片区 + 预设两条应用路径')
+    pass('我的资料界面在位：/soul/user 读写 + 头像 + 折叠区外常驻')
   }
 }
 

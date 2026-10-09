@@ -791,9 +791,9 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     fail('限高必须走 --phub-max-h 变量（写死 100vh-150px 会比弹窗内容区还高，内外滚动条打架）')
   } else if (!/var\(--phub-max-h/.test(supplierSrc)) {
     fail('详情面板限高必须取 --phub-max-h（否则设置弹窗里比容器还高）')
-  } else if (!/transition:width 220ms/.test(providerStyles)) {
+  } else if (!/transition:width 420ms/.test(providerStyles)) {
     fail('弹窗加宽加高要有过渡（用户偏好：UI 改动必须带动效）')
-  } else if (!/\[data-shortcut-modal="settings"\]\{\s*transition:width 220ms/.test(providerStyles)) {
+  } else if (!/\[data-shortcut-modal="settings"\]\{\s*transition:width 420ms/.test(providerStyles)) {
     fail('尺寸过渡必须挂在 data-shortcut-modal="settings" 的常驻规则上（写在 :has(.phub-host) 里退出方向会随页面卸载同帧失效）')
   } else if (!/prefers-reduced-motion[\s\S]*has\(\.phub-host\)/.test(providerStyles)) {
     fail('弹窗尺寸过渡必须尊重 prefers-reduced-motion')
@@ -826,7 +826,7 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   // 5c) 过渡自然度：弹窗尺寸过渡常驻（进入/退出两个方向）+ 首次渲染起点 + 切档去抖
   if (!/@starting-style/.test(stylesForWrap)) {
     fail('弹窗打开时直接落在供应商页的场景需要 @starting-style 补起点（否则首帧就跳到 1680，无过渡）')
-  } else if (!/ResizeObserver\(\(\) => \{/.test(supplierSrc) || !/setTimeout\(\(\) => \{ timer = undefined; apply\(\) \}, 150\)/.test(supplierSrc)) {
+  } else if (!/ResizeObserver\(\(\) => \{/.test(supplierSrc) || !/setTimeout\(\(\) => \{ timer = undefined; apply\(\) \}, 450\)/.test(supplierSrc)) {
     fail('三栏判定必须去抖（弹窗展开途中跨过阈值立刻切档 = 第三列啪地插进来，用户反馈「放大时过渡不自然」）')
   } else if (!/phub-col-in/.test(stylesForWrap) || !/@keyframes phub-col-in/.test(stylesForWrap)) {
     fail('第三列切档必须有 phub-col-in（淡入 + 位移；不做宽度插值，避免卡内控件被压扁）')
