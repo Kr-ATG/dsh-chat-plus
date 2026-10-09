@@ -312,6 +312,12 @@ Token 消耗与账号趋势：52 周活动热力、按供应商 / 模型筛选�
 ### 安装
 
 ```bash
+dsh plugin --profile web add dsh-chat-plus
+```
+
+npm 上是 `dsh-chat-plus`；直接跑 GitHub 源也一样：
+
+```bash
 dsh plugin --profile web add github:Kr-ATG/dsh-chat-plus
 ```
 
