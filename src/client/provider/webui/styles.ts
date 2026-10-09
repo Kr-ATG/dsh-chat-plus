@@ -57,21 +57,23 @@ export function injectStyles(): () => void {
 /* ── 页面骨架：窄屏纵向堆叠 / 宽屏三栏（列表 · 详情 · 模型设置） ──
    宽窄由组件用 ResizeObserver 量自身宽度后打 data-wide（媒体查询量视口，
    与容器实宽不是一回事）。 */
-.phub-host{display:flex;flex-direction:column;gap:18px;animation:phub-page-in 240ms ease backwards}
-/* 弹窗放大过程中内容一直在重排，淡入让这一拍读起来是「铺开」而不是「被拉伸」。 */
-@keyframes phub-page-in{from{opacity:0}to{opacity:1}}
+.phub-host{display:flex;flex-direction:column;gap:18px;animation:phub-page-in 360ms cubic-bezier(.22,1,.36,1) backwards}
+/* 弹窗放大过程中内容一直在重排，淡入 + 轻微上浮让这一拍读起来是「铺开」而不是「被拉伸」。 */
+@keyframes phub-page-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .phub-host[data-wide] > div:first-child{display:flex;align-items:flex-start;gap:16px;min-width:0;width:100%}
 /* 宽屏时三个模型设置卡作为 hub 的第三列：宽度随容器走（clamp 560–900），自身可滚。
    写死 380 太窄（下拉被挤成一小截），按容器比例给足宽度。
    切档（窄屏第二行 → 宽屏第三列）时播 phub-col-in：只淡入 + 轻微右移，
-   **不做宽度插值**——从 0 撑开会把卡里的下拉/输入框压扁 260ms，那种畸变比
-   布局一次到位更扎眼；重排本身由这层淡入遮住即可。 */
-.phub-host[data-wide] > div:first-child > .phub-blocks{flex:0 0 clamp(560px,44%,900px);width:clamp(560px,44%,900px);max-height:var(--phub-max-h, calc(100vh - 150px));overflow-y:auto;overflow-x:hidden;padding-right:2px;animation:phub-block-in 280ms cubic-bezier(.2,.8,.2,1) backwards,phub-col-in 240ms cubic-bezier(.22,.61,.36,1) backwards}
+   **不做宽度插值**——从 0 撑开会把卡里的下拉/输入框压扁，那种畸变比
+   布局一次到位更扎眼；重排本身由这层淡入遮住即可。
+   容器自身只播 col-in（带 120ms 延后，等弹窗先铺开），卡片错峰由下面的
+   nth-child 承担——容器再播一份 block-in 会和子卡叠成双重淡入，时序全乱。 */
+.phub-host[data-wide] > div:first-child > .phub-blocks{flex:0 0 clamp(560px,44%,900px);width:clamp(560px,44%,900px);max-height:var(--phub-max-h, calc(100vh - 150px));overflow-y:auto;overflow-x:hidden;padding-right:2px;animation:phub-col-in 360ms cubic-bezier(.22,1,.36,1) 120ms backwards}
 @keyframes phub-col-in{from{opacity:0;transform:translateX(10px)}}
 /* 窄屏（未打 data-wide）：三块模型设置换行落到第二行，占满整行。
    flex-basis:100% 是换行的关键——只给 flex:1 的话它会被压在同一行里，
-   详情面板被挤成一条。col-in（0 宽撑开）在窄屏无意义，这里只留错峰淡入。 */
-.phub-host:not([data-wide]) > div:first-child > .phub-blocks{flex:1 1 100%;width:100%;animation:phub-block-in 280ms cubic-bezier(.2,.8,.2,1) 60ms backwards}
+   详情面板被挤成一条。容器自身不播动画，错峰淡入由下面的 nth-child 接管。 */
+.phub-host:not([data-wide]) > div:first-child > .phub-blocks{flex:1 1 100%;width:100%}
 .phub-host[data-wide] > div:first-child > .phub-blocks::-webkit-scrollbar{width:8px}
 .phub-host[data-wide] > div:first-child > .phub-blocks::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l3,#c9cdd4);border-radius:4px}
 .phub-host[data-wide] > div:first-child > .phub-blocks::-webkit-scrollbar-track{background:transparent}
@@ -117,12 +119,16 @@ export function injectStyles(): () => void {
    与官方设置页的卡片并排一眼能看出两套。 */
 .phub-block{border:.5px solid var(--dsw-alias-settings-card-stroke, rgba(255,255,255,.2));border-radius:var(--dsw-radius-xl,20px);padding:12px 14px;display:flex;flex-direction:column;gap:12px;min-width:0;box-sizing:border-box;background:var(--dsw-alias-settings-card-fill, transparent);transition:border-color 120ms ease}
 .phub-block:hover{border-color:var(--dsw-alias-border-l3,rgba(255,255,255,.24))}
-.phub-block-in{animation:phub-block-in 280ms cubic-bezier(.2,.8,.2,1) backwards}
-/* 底部三块错峰入场：60ms 一档，整页像一次性铺开而不是同时闪出来。 */
+.phub-block-in{animation:phub-block-in 320ms cubic-bezier(.22,1,.36,1) backwards}
+/* 底部三块错峰入场：弹窗放大的 420ms 里先让骨架铺开，内容晚一拍跟进，
+   整页像一次性铺开而不是同时闪出来。代理块跟在第三块后面。
+   注意：nth-child 直接写 animation 简写（而非 animation-delay），
+   会覆盖子卡自带的 .phub-block-in——这正是要的：时序以这里为准。 */
 .phub-blocks{display:flex;flex-direction:column;gap:14px;min-width:0}
-.phub-blocks > *:nth-child(1){animation-delay:40ms}
-.phub-blocks > *:nth-child(2){animation-delay:100ms}
-.phub-blocks > *:nth-child(3){animation-delay:160ms}
+.phub-blocks > *:nth-child(1){animation:phub-block-in 320ms cubic-bezier(.22,1,.36,1) 140ms backwards}
+.phub-blocks > *:nth-child(2){animation:phub-block-in 320ms cubic-bezier(.22,1,.36,1) 220ms backwards}
+.phub-blocks > *:nth-child(3){animation:phub-block-in 320ms cubic-bezier(.22,1,.36,1) 300ms backwards}
+.phub-proxy.phub-block-in{animation:phub-block-in 320ms cubic-bezier(.22,1,.36,1) 360ms backwards}
 @keyframes phub-block-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 /* 展开的「说明」段落：高度不变，只淡入，避免整块跳动。 */
 .phub-desc-in{animation:phub-desc-in 200ms ease backwards}
@@ -146,15 +152,15 @@ export function injectStyles(): () => void {
    它在弹窗整个生命周期内都成立，两个方向都有过渡。尺寸没变化时不触发过渡，
    其余设置页零影响。 */
 [role="presentation"] > [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]{
-  transition:width 220ms cubic-bezier(.22,.61,.36,1), height 220ms cubic-bezier(.22,.61,.36,1);
+  transition:width 420ms cubic-bezier(.22,1,.36,1), height 420ms cubic-bezier(.22,1,.36,1);
 }
 /* 兜底：万一官方改了那个属性名，至少在供应商页内还有过渡（退出方向会丢，但不至于全丢）。 */
 [role="presentation"] > [dialog][aria-modal="true"]:has(.phub-host){
-  transition:width 220ms cubic-bezier(.22,.61,.36,1), height 220ms cubic-bezier(.22,.61,.36,1);
+  transition:width 420ms cubic-bezier(.22,1,.36,1), height 420ms cubic-bezier(.22,1,.36,1);
 }
 /* options 内距同步过渡：供应商页把它从 24px 收成 16px，收放时不跟着跳一格。 */
 [role="presentation"] > [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"] > div:last-child > div:last-child{
-  transition:padding 220ms cubic-bezier(.22,.61,.36,1);
+  transition:padding 420ms cubic-bezier(.22,1,.36,1);
 }
 
 /* ── 官方设置弹窗里的尺寸适配（只对供应商页生效） ──
@@ -191,7 +197,7 @@ export function injectStyles(): () => void {
 
 @media (prefers-reduced-motion: reduce){
   .phub-navwrap{transition:none}
-  .phub-detail-in,.phub-block-in,.phub-placeholder,.phub-desc-in,.phub-host{animation:none}
+  .phub-detail-in,.phub-block-in,.phub-placeholder,.phub-desc-in,.phub-host,.phub-blocks,.phub-blocks > *,.phub-proxy{animation:none}
   .phub-host .dsh-webui-provider-nav-row{transition:none}
   [role="presentation"] > [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"],
   [role="presentation"] > [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"] > div:last-child > div:last-child,

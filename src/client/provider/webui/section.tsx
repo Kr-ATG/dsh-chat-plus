@@ -242,7 +242,7 @@ function Loaded({ injected }: { injected: SupplierInjected }): unknown {
    * 窗口大小与设置弹窗自身宽度，媒体查询量的是视口，与容器宽度不是一回事。
    * 观察自己（.phub-host）才是「这个页面有没有地方并排」的真答案。
    *
-   * 读数**去抖 150ms**：设置弹窗从 800 撑到 1680 的那 220ms 里容器宽度每帧都在
+   * 读数**去抖 450ms**：设置弹窗从 800 撑到 1680 要 420ms，这期间容器宽度每帧都在
    * 变，跨过 1280 阈值时如果立刻切档，第三列会在动画中途「啪」地插进来——正是
    * 用户反馈的「放大时过渡不自然」。去抖后只在宽度稳定下来才重新判定，切档发生
    * 在弹窗展开结束之后，配合 .phub-blocks 的 phub-col-in（0 → 目标宽）读起来
@@ -261,7 +261,7 @@ function Loaded({ injected }: { injected: SupplierInjected }): unknown {
     apply()
     const observer = new ResizeObserver(() => {
       if (timer !== undefined) window.clearTimeout(timer)
-      timer = window.setTimeout(() => { timer = undefined; apply() }, 150)
+      timer = window.setTimeout(() => { timer = undefined; apply() }, 450)
     })
     observer.observe(el)
     return () => {
