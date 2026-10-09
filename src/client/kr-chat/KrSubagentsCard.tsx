@@ -62,7 +62,6 @@ function rowTitle(row: SubagentRow): string {
   const parts: string[] = [row.label]
   if (row.elapsedMs !== undefined) parts.push(`已跑 ${formatDuration(row.elapsedMs)}`)
   if (row.tokens !== undefined) parts.push(`${formatTokens(row.tokens)} tokens`)
-  if (row.mode === 'continuable') parts.push('可续接')
   if (row.hasChildren) parts.push('它自己也派了子智能体')
   parts.push(row.running ? '进行中 · 点一下跳过去看' : '已结束 · 点一下跳过去看')
   return parts.join(' · ')
@@ -118,7 +117,9 @@ function SubagentLine({ row, index, onOpen, failed }: {
         <span className="kr-subs-row__dot" aria-hidden />
         <span className="kr-subs-row__label">{row.label}</span>
         {row.hasChildren && <span className="kr-subs-row__tag">还有下级</span>}
-        {row.mode === 'continuable' && <span className="kr-subs-row__tag">可续接</span>}
+        {/* 「可续接」标签已按用户要求移除（2026-10-09）：mode 是官方目录的内部
+            分类（one-shot / continuable），在这张卡上不改变任何可做的动作——
+            行点击都是跳转、子会话输入框都只读，展示它只是噪声。 */}
         {/* 时长：进行中的行随轮询走秒（读数来自官方 subagentTiming 投影，
             拿不到就不渲染，绝不自己从"我看到它多久了"里凑一个数）。 */}
         {row.elapsedMs !== undefined && (
