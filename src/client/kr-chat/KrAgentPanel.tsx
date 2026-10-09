@@ -20,7 +20,7 @@ import { getLiveDshTodos, subscribeLiveDshTodos } from './kr-todo-bridge.ts'
 import { buildPlainTimeline } from './plain-timeline.ts'
 import { KrPlainTimelineCard } from './KrPlainTimelineCard.tsx'
 import { KrSubagentsCard } from './KrSubagentsCard.tsx'
-import { useSubagentCatalog } from './subagent-catalog.ts'
+import { filterCatalogByTurn, useSubagentCatalog } from './subagent-catalog.ts'
 import { KrOutputsCard } from './KrOutputsCard.tsx'
 import { collectOutputs, collectSessionToolNodes, outputsFingerprint, type OutputsView } from './outputs.ts'
 import { AGENT_DISPLAY_NAME, KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE, KR_SUBAGENTS_CARD_VISIBLE, KR_TOOL_CALLS_CARD_VISIBLE } from './enabled.ts'
@@ -434,11 +434,17 @@ export const KrAgentPanel = memo(function KrAgentPanel({
    * 两处消费：下面「子智能体」卡列清单，操作面板的「派出子任务」那一步取计数。
    * 只在会话身份存在时订阅；没有会话身份时 hook 内部不挂 interval，零开销。
    *
-   * 口径是**整场会话**而不是本轮：子智能体是独立会话，一个跑了 6 分钟的
-   * workflow 在它被派出的那一轮收口之后依然在跑（截图里那条「6m 45s」就是），
-   * 按轮次过滤会让用户切一下轮次就看不到它了。
+   * 订阅口径仍是**整场会话**（目录是一份会话级投影，一次订阅两处消费），
+   * 但**展示口径按当前查看的轮次过滤**（用户 2026-10-09 点名：会话口径下
+   * 对话一多，卡里堆十几行历史子智能体没人看得完）：filterCatalogByTurn
+   * 用 catalog 条目自带的 createdAt 与本轮 turnStart/turnEnd 对齐，切到哪轮
+   * 就看哪轮派出去的那几个。窗口拿不到时不过滤（宁可多列不漏列）。
    */
-  const subagentCatalog = useSubagentCatalog(latestChatSessionId)
+  const subagentCatalogAll = useSubagentCatalog(latestChatSessionId)
+  const subagentCatalog = useMemo(
+    () => filterCatalogByTurn(subagentCatalogAll, turnData?.turnStart, turnData?.turnEnd),
+    [subagentCatalogAll, turnData?.turnStart, turnData?.turnEnd],
+  )
   /**
    * 本轮是否出现过「派出子任务」这一步。
    *

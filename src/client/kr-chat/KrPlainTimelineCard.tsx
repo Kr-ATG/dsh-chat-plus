@@ -83,11 +83,11 @@ export interface KrPlainTimelineCardProps {
   /** 当前会话 id：用于查该会话派生了哪些子智能体。 */
   readonly sessionId?: string | null
   /**
-   * 当前会话的子智能体目录（由 KrAgentPanel 单点订阅后传下来）。
+   * 当前**查看轮次**的子智能体目录（KrAgentPanel 单点订阅后按轮次窗口过滤传下来）。
    *
    * 只用来给「派出子任务」那一步标一枚计数。**订阅不在这里做**：子智能体卡
    * 也要这份数据，两处各订阅一次会各开一条 interval，白白把 RPC 打成轮询。
-   * 传 null = 这次会话没派生过子智能体，计数那枚徽标直接显示「派生子任务」。
+   * 传 null = 本轮没派生过子智能体，计数那枚徽标直接显示「派生子任务」。
    */
   readonly subagentCatalog?: SubagentCatalogView | null
 }
@@ -301,16 +301,16 @@ function StepRow({ step, index, subagentCount, brief, sessionId }: {
         <span
           className="kr-plain-step__subcount"
           /*
-           * 计数口径是**整场会话**，不是这一步单独派了几个 —— 目录条目里只有
-           * `createdAt`，而步骤不带时间戳，按步切分只能靠猜。所以文案用「共」
-           * 把口径说清楚，并在 title 里点明去哪儿看：宁可说"本会话一共几个"，
-           * 也不让读者以为"这一步派了几个"。
-           */
+            * 计数口径是**当前查看的这一轮对话**（2026-10-09 起，目录按轮次窗口
+            * 过滤后传下来）：这一步所在的那一轮派了几个，就是几个。会话累计的
+            * 历史子智能体不再混进这枚徽标——对话一多时「共 N 个」会指到读者
+            * 根本没参与的历史轮次上去。title 里点明去哪儿逐个看。
+            */
           title={subagentCount === null
             ? '正在读取子智能体清单；读完可在下面「子智能体」卡里逐个点进去看'
-            : `本次对话共 ${subagentCount} 个子智能体；在下面「子智能体」卡里点一行即跳过去看`}
+            : `本轮对话派出 ${subagentCount} 个子智能体；在下面「子智能体」卡里点一行即跳过去看`}
         >
-          {subagentCount === null ? '派出子任务' : `共 ${subagentCount} 个子智能体`}
+          {subagentCount === null ? '派出子任务' : `派出 ${subagentCount} 个子智能体`}
         </span>
       )}
     </div>
