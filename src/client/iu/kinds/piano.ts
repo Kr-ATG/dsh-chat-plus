@@ -94,7 +94,9 @@ function snapshot(spec: IuPianoSpec): string {
     + `<div class="dtt-iu__pwhite">${white}</div>`
     + `<div class="dtt-iu__pblack">${black}</div>`
     + `</div>`
-    + `<div class="dtt-iu__phint"><span>点键或用电脑键盘 A W S E D F T G Y H U J K 演奏</span></div>`
+    // pcount 空 span 与 Body 对齐：Body 恒渲染「已弹 N 个音」计数节点（初始空文本），
+    // snapshot 也输出同一个空 span，两侧 class 集合完全一致（DOM 对齐验证零差异）。
+    + `<div class="dtt-iu__phint"><span>点键或用电脑键盘 A W S E D F T G Y H U J K 演奏</span><span class="dtt-iu__pcount"></span></div>`
 }
 
 const CSS = [
