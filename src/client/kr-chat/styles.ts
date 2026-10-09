@@ -1603,16 +1603,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 /* ══ 工具调用卡（技术视角明细，2026-10-09 恢复）══════════════════════════
    右栏 footer 里的第二块：列表全量渲染，可视窗口只给 5 行高、超出在窗口内
    滚动（见下方 .kr-panel__memory-dock .kr-tools-list）；点标题行整卡折叠。
-   展开单条调用后的详情面板在行内铺开，列表窗口照旧滚动。 */
-
-/* 工具调用卡标题行右端的提示（「默认 5 行 · 滚动看全部 N 次」/「展开 N 次调用」）：
-   与标题同在一行，次要色弱化（整卡折叠的入口是整行头部点击区）。 */
-.kr-tools-expand-hint {
-  flex: none;
-  font-size: var(--kr-fs-11, 11px);
-  color: var(--dsw-alias-label-tertiary);
-  white-space: nowrap;
-}
+   展开单条调用后的详情面板在行内铺开，列表窗口照旧滚动。
+   标题行右端不放提示文字（2026-10-09 用户要求）：整卡折叠的入口就是整行
+   头部点击区，不需要文字提示。 */
 
 /* 行高变量定义见字号轴段（.kr-card--tools 上的 --kr-tool-row-h）。 */
 

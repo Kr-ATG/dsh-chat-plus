@@ -167,6 +167,12 @@ const CSS = [
      不用自定义浮层：原生 title 零瞬态状态、snapshot 与 Body 天然对齐。 */
   '.dtt-iu__bar, .dtt-iu__dot-svg { transition: opacity .15s ease; cursor: default; }',
   '.dtt-iu__bar:hover, .dtt-iu__dot-svg:hover { opacity: .82; }',
+  /* 图表自己的 reduced-motion 兜底：关入场动画。柱子/折线几何尺寸本来就在
+     最终态（入场只动 opacity .5→1），关掉动画后图表照样完整可读。 */
+  '@media (prefers-reduced-motion: reduce) {',
+  '  .dtt-iu__bar, .dtt-iu__line, .dtt-iu__dot-svg, .dtt-iu__area { animation: none; }',
+  '  .dtt-iu__bar, .dtt-iu__dot-svg { transition: none; }',
+  '}',
 ].join('\n')
 
 export const chartKind: IuKind<ChartState, IuChartSpec> = {

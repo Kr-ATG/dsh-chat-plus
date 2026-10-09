@@ -1,31 +1,17 @@
 /**
- * dsh-chat-plus — iu 图表的几何计算（对话流与截图**同源**）。
+ * dsh-chat-plus — iu 图表/钢琴的几何计算（对话流与截图**同源**）。
  *
- * 为什么单独抽出来：同一个图表要在两处画出来——
- *   · 对话流：IuCard 渲染成 React JSX（可交互、图例可点）；
- *   · 截图页：card.ts 拼成静态 HTML 字符串（无 JS 运行时，只能定格）。
+ * 为什么单独抽出来：同一张图要在两处画出来——
+ *   · 对话流：kinds/chart.body.tsx 渲染成 React JSX（可交互、图例可点）；
+ *   · 截图页：kinds/chart.ts 的 snapshot() 拼成静态 HTML 字符串（无 JS 运行时）。
  * 如果两处各写一份坐标算法，迟早会漂移成「截图里的柱子和对话流里的不一样高」。
  * 这里只做纯计算、不碰 DOM 也不碰框架，两边各自消费同一份结果。
- */
-
-import type { IuChartSpec, IuKind } from './parse.ts'
-
-/**
- * 卡片右上角的 kind 角标文案（对话流与截图**同源**）。
  *
- * 为什么放进这个模块：这行小字两边都要显示，而截图那边早先是用一串三元
- * 表达式写的（`kind === 'slider' ? '滑块' : kind === 'chart' ? '图表' : … : '对比'`）
- * —— 加了 piano 之后它落进最后的兜底，于是**钢琴卡在截图里被标成「对比」**。
- * 这类「新增一个 kind 却漏改某个分支」的 bug，只有把映射收敛成一处才挡得住：
- * 现在是 `Record<IuKind, string>`，漏一个 kind 直接编译不过。
+ * kind 的角标文案（IU_KIND_LABELS）已迁到 kinds/registry.ts——它跟着 kind 注册表
+ * 走才能「漏一个 kind 编译不过」；几何模块只该管几何。
  */
-export const IU_KIND_LABELS: Record<IuKind, string> = {
-  slider: '滑块',
-  chart: '图表',
-  checklist: '清单',
-  tabs: '对比',
-  piano: '钢琴',
-}
+
+import type { IuChartSpec } from './parse.ts'
 
 /** 系列配色（按系列下标取模；对话流与截图共用，保证同色）。 */
 export const CHART_COLORS = ['#4176e6', '#e67e22', '#27ae60', '#9b59b6'] as const
@@ -130,7 +116,12 @@ export function chartLayout(spec: IuChartSpec, hidden: ReadonlySet<number> = new
   if (spec.chart === 'bar') {
     const cols = vis.length
     const bw = Math.min(26, (groupW - 8) / Math.max(1, cols))
+    // 柱簇在组内**居中**：整簇宽 cols*bw，簇中心对齐组中心 tickX。
+    // 老实现从组左边起画（x = base + si*bw），柱宽封顶 26 后簇只占组的左半，
+    // 而刻度按组中心排——于是柱子和刻度恒定错开半簇宽（bug#2 的另一半）。
+    const clusterW = cols * bw
     for (let li = 0; li < n; li += 1) {
+      const clusterStart = tickX(li) - clusterW / 2
       vis.forEach(({ s, i }, si) => {
         const v = s.values[li] ?? 0
         const yv = yOf(v)
@@ -138,7 +129,7 @@ export function chartLayout(spec: IuChartSpec, hidden: ReadonlySet<number> = new
         const top = Math.min(yv, zeroY)
         const h = Math.abs(yv - zeroY)
         bars.push({
-          x: CHART_PAD_L + 4 + li * groupW + si * bw,
+          x: clusterStart + si * bw,
           y: top,
           w: Math.max(3, bw - 3),
           h: Math.max(1, h),

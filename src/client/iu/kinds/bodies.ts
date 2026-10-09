@@ -17,7 +17,7 @@
  *   （外壳由 IuCard 提供）——直接返回正文片段即可。
  */
 
-import type { ReactElement } from 'react'
+import type { ReactNode } from 'react'
 import type { IuSetState, IuSpecBase, IuState } from './contract.ts'
 import { SliderBody } from './slider.body.tsx'
 import { ChartBody } from './chart.body.tsx'
@@ -45,8 +45,14 @@ export interface IuBodyProps<S extends IuState, Spec extends IuSpecBase> {
 /** React 体模块。 */
 export interface IuKindBody {
   readonly kind: string
+  /**
+   * Body 组件。返回类型用 ReactNode 而不是 ReactElement | null：各 Body 都是
+   * memo(...) 包出来的 NamedExoticComponent，其调用签名在 React 18 类型下返回
+   * ReactNode（更宽），窄化到 ReactElement 会让 Map 字面量的重载匹配失败
+   * （实测 TS2769）。运行期 React 渲染 ReactNode 完全合法。
+   */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 异构集合，运行期按 spec.kind 路由，类型在各自 Body 内部精确
-  readonly Body: (props: IuBodyProps<any, any>) => ReactElement | null
+  readonly Body: (props: IuBodyProps<any, any>) => ReactNode
 }
 
 /**

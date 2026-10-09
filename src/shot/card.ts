@@ -16,18 +16,9 @@ import { deriveTitle } from '../shared/title.ts'
 import { assembleHtmlDocument } from '../client/html-embed/bridge.ts'
 import { splitHtml } from '../client/html-embed/parse.ts'
 import { splitIu } from '../client/iu/parse.ts'
-import type { IuChartSpec, IuKind } from '../client/iu/parse.ts'
-import { CHART_COLORS, chartLayout, formatNum, pianoLayout, IU_KIND_LABELS } from '../client/iu/geometry.ts'
+import { iuKindOf } from '../client/iu/kinds/registry.ts'
 import { IU_CSS } from '../client/iu/styles.ts'
 export { deriveTitle } from '../shared/title.ts'
-
-/**
- * iu spec 的宽松读法：快照只读展示字段，缺字段一律走兜底。
- *
- * 不穷举四分支的联合类型——截图是**定格降级**，遇到不认识的 kind 应该画出
- * 一个空壳而不是编译不过（parse 层已经保证了结构合法）。
- */
-type IuSpecLike = { kind: string } & Record<string, unknown>
 
 /** 单条待渲染消息。 */
 export interface ShotMessage {
@@ -355,101 +346,6 @@ function iuFigureOf(fence: ShotIuFence): string {
     + `<div>${fence.body}</div></figure>`
 }
 
-/**
- * iu 快照正文：按当前值画静态 HTML（无 JS、无交互）。
- *
- * 三条同源保证「截图 = 对话流」：
- *   · class 全部对齐 IuCard 的 JSX（dtt-iu__slider-val / __outs / __chart …）；
- *   · 图表几何来自 geometry.ts 的同一个 chartLayout（柱子高度与配色一致）；
- *   · 数字格式来自 geometry.ts 的 formatNum。
- * 所有模型文本走 escapeHtml：卡片页在 --disable-web-security 的无头 Chrome 里
- * 打开，绝不能让模型文本逃出标签上下文。
- */
-function iuBodyOf(spec: IuSpecLike): string {
-  const esc = escapeHtml
-  const fmt = formatNum
-  if (spec.kind === 'slider') {
-    const value = typeof spec.value === 'number' ? spec.value : 0
-    const unit = typeof spec.unit === 'string' ? spec.unit : ''
-    const desc = typeof spec.desc === 'string' && spec.desc !== ''
-      ? `<p class="dtt-iu__desc">${esc(spec.desc)}</p>` : ''
-    const outs = Array.isArray(spec.outputs)
-      ? (spec.outputs as Array<Record<string, unknown>>)
-        .filter(o => typeof o.label === 'string' && o.label !== '')
-        .slice(0, 8)
-        .map(o => `<div class="dtt-iu__out"><b>${fmt(value * (typeof o.per === 'number' ? o.per : 0))}${esc(typeof o.unit === 'string' ? o.unit : '')}</b><span>${esc(String(o.label))}</span></div>`)
-        .join('')
-      : ''
-    return `<div class="dtt-iu__slider-top"><span class="dtt-iu__slider-val">${fmt(value)}</span>`
-      + `${unit !== '' ? `<span class="dtt-iu__slider-unit">${esc(unit)}</span>` : ''}</div>`
-      + desc
-      + (outs !== '' ? `<div class="dtt-iu__outs">${outs}</div>` : '')
-  }
-  if (spec.kind === 'chart') {
-    // 几何与对话流同源：柱子高度、配色、刻度位置完全一致。
-    const chartSpec = spec as unknown as IuChartSpec
-    const geo = chartLayout(chartSpec)
-    const legend = chartSpec.series.map((s, i) => (
-      `<span class="dtt-iu__chip"><span class="dtt-iu__swatch" style="background:${CHART_COLORS[i % CHART_COLORS.length]}"></span>${esc(s.name)}</span>`
-    )).join('')
-    const grid = geo.gridYs.map(y => `<line class="dtt-iu__grid" x1="8" x2="${geo.w - 8}" y1="${y}" y2="${y}"></line>`).join('')
-    const axis = `<line class="dtt-iu__axis" x1="8" x2="${geo.w - 8}" y1="${geo.axisY}" y2="${geo.axisY}"></line>`
-    const ticks = geo.ticks.map(t => `<text class="dtt-iu__tick" x="${t.x}" y="${geo.h - 6}" text-anchor="middle">${esc(t.text)}</text>`).join('')
-    const marks = chartSpec.chart === 'bar'
-      ? geo.bars.map(bar => `<rect class="dtt-iu__bar" x="${bar.x}" y="${bar.y}" width="${bar.w}" height="${bar.h}" rx="3" fill="${bar.color}"></rect>`
-        + (bar.h > 14 ? `<text class="dtt-iu__barval" x="${bar.x + bar.w / 2}" y="${bar.y + 11}" text-anchor="middle" fill="#fff" opacity=".9">${fmt(bar.value)}</text>` : '')).join('')
-      : geo.lines.map(line => `<polyline class="dtt-iu__line" points="${line.points}" stroke="${line.color}"></polyline>`
-        + line.dots.map(d => `<circle class="dtt-iu__dot-svg" cx="${d.x}" cy="${d.y}" r="3" fill="${line.color}"></circle>`).join('')).join('')
-    return `<div class="dtt-iu__legend">${legend}</div>`
-      + `<svg class="dtt-iu__chart" data-i="${chartSpec.series.length}" viewBox="0 0 ${geo.w} ${geo.h}" role="img" aria-label="${escapeAttr(chartSpec.title)}">${grid}${axis}${marks}${ticks}</svg>`
-  }
-  if (spec.kind === 'checklist') {
-    const items = Array.isArray(spec.items) ? (spec.items as Array<Record<string, unknown>>).slice(0, 12) : []
-    const rows = items.map(it => `<div class="dtt-iu__check"><span class="dtt-iu__box"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1.8 5.2 4 7.4 8.2 2.6"></path></svg></span>`
-      + `<span><b>${esc(typeof it.label === 'string' ? it.label : '')}</b>`
-      + `${typeof it.desc === 'string' && it.desc !== '' ? `<small>${esc(it.desc)}</small>` : ''}</span></div>`).join('')
-    return `<div class="dtt-iu__progress"><i style="width:0%"></i></div>`
-      + `<div class="dtt-iu__count">0/${items.length} 已完成</div><div>${rows}</div>`
-  }
-  if (spec.kind === 'piano') {
-    /*
-     * 键盘布局与对话流同源（pianoLayout），**DOM 结构也必须同构**。
-     *
-     * 踩过：早先这里把白键黑键一股脑平铺进 `.dtt-iu__piano`，省掉了
-     * `.dtt-iu__pwhite` / `.dtt-iu__pblack` 两层容器。而 IU_CSS 是照着真实
-     * 组件写的——白键靠 `pwhite{display:flex}` 等分、黑键靠 `pblack{position:absolute}`
-     * 叠上去。少了这两层，白键上的 `left/width` 百分比全落回静态流里，
-     * 截图里的琴键就变成了**一级一级往下掉的阶梯**（而对话流里是正常键盘）。
-     *
-     * 教训：共用 CSS 就必须共用结构。只共用样式表而自己重排 DOM，等于把
-     * 「样式与结构耦合」这件事从一个地方挪到两个地方，一样会漂移。
-     */
-    const octave = typeof spec.octave === 'number' ? spec.octave : 4
-    const octaves = typeof spec.octaves === 'number' ? spec.octaves : 1
-    const showNotes = spec.showNotes !== false
-    const keys = pianoLayout(octave, octaves)
-    const label = (name: string): string => (showNotes && name.startsWith('C') ? `<span class="dtt-iu__plabel">${esc(name)}</span>` : '')
-    const white = keys.filter(k => !k.black)
-      .map(k => `<span class="dtt-iu__pkey">${label(k.name)}</span>`).join('')
-    const black = keys.filter(k => k.black)
-      .map(k => `<span class="dtt-iu__pkey" style="left:${k.leftPct}%;width:${k.widthPct}%"></span>`).join('')
-    const desc = typeof spec.desc === 'string' && spec.desc !== ''
-      ? `<p class="dtt-iu__desc">${esc(spec.desc)}</p>` : ''
-    return desc
-      + `<div class="dtt-iu__piano" role="group" aria-label="${escapeAttr(typeof spec.title === 'string' ? spec.title : '')}">`
-      + `<div class="dtt-iu__pwhite">${white}</div>`
-      + `<div class="dtt-iu__pblack">${black}</div>`
-      + `</div>`
-      + `<div class="dtt-iu__phint"><span>点键或用电脑键盘 A W S E D F T G Y H U J K 演奏</span></div>`
-  }
-  const tabs = Array.isArray((spec as Record<string, unknown>).tabs) ? ((spec as Record<string, unknown>).tabs as Array<Record<string, unknown>>).slice(0, 6) : []
-  const tabBtns = tabs.map((t, i) => `<span class="${i === 0 ? 'dtt-iu__tab dtt-iu__tab--active' : 'dtt-iu__tab'}">${esc(typeof t.label === 'string' ? t.label : '')}</span>`).join('')
-  const first = tabs[0]
-  const head = first !== undefined && typeof first.heading === 'string' && first.heading !== '' ? `<h4>${esc(first.heading)}</h4>` : ''
-  const body = first !== undefined && typeof first.body === 'string' && first.body !== '' ? `<p>${esc(first.body.slice(0, 200))}</p>` : ''
-  return `<div class="dtt-iu__tabs">${tabBtns}</div><div class="dtt-iu__panel">${head}${body}</div>`
-}
-
 function injectIu(body: string, fences: readonly ShotIuFence[]): string {
   if (fences.length === 0) return body
   let out = body
@@ -515,27 +411,24 @@ export async function buildCardHtml(input: ShotCardInput): Promise<ShotCardOutpu
       hasFenceEmbed = true
     }
     // iu 快照：静态定格（无 JS、无交互），多张照单全收——A 的混排在截图里同样混排。
+    //
+    // 快照正文与角标**全部委派给 kind 注册表**（kinds/registry.ts）：每个 kind
+    // 自带 snapshot() 与 label，这里不再有手写的 kind 分支。历史上这段是 150 行
+    // 手写镜像（iuBodyOf），出过两次漂移事故：钢琴卡被标成「对比」（三元链兜底）、
+    // 琴键少两层容器变成阶梯（DOM 重排）。现在镜像逻辑就在 kind 模块自己身上，
+    // 与对话流共用同一份几何/布局函数，漏改会编译不过。
     if (message.role === 'assistant') {
       const iuFences: ShotIuFence[] = []
       for (const part of splitIu(clamp(message.text), false)) {
         if (part.kind !== 'iu' || part.pending !== false) continue
-        // IuSpec 是有判别式的联合，静态快照按 kind 分支读字段。
-        // 这里退到宽松读法：快照只读展示字段，缺字段一律走兜底，不为了类型
-        // 好看去穷举四个分支（截图是定格降级，不认识的结构画空壳即可）。
-        const spec = part.spec as unknown as IuSpecLike
-        /*
-         * 角标文案**共用 IU_KIND_LABELS**，不要在这里再写一串三元表达式。
-         *
-         * 踩过：这里原来是 `kind === 'slider' ? '滑块' : … : '对比'`，
-         * 加了 piano 之后它落进兜底分支，**钢琴卡在截图里被标成「对比」**——
-         * 而对话流里 IuCard 写的是 tag="钢琴"，同一张卡两处不一样。
-         * 映射收敛到 geometry.ts 后，漏一个 kind 编译期就报错。
-         */
-        const tag = IU_KIND_LABELS[spec.kind as IuKind] ?? '卡片'
+        const mod = iuKindOf(part.spec.kind)
+        // 注册表查不到的 kind 理论上不存在（splitIu 只放行注册过的 kind），
+        // 防御性跳过：截图是定格降级，不认识的结构宁可不画也不崩整张卡。
+        if (mod === undefined) continue
         iuFences.push({
-          title: typeof spec.title === 'string' && spec.title !== '' ? spec.title : '交互卡片',
-          tag,
-          body: iuBodyOf(spec),
+          title: part.spec.title !== '' ? part.spec.title : '交互卡片',
+          tag: mod.label,
+          body: mod.snapshot(part.spec as never),
         })
       }
       if (iuFences.length > 0) {

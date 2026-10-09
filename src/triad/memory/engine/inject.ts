@@ -11,6 +11,10 @@
  */
 
 import { createUserMessage } from '../../../vendor/dsh-llm/index.js'
+// iu kind 注册表（**纯逻辑**，host 半身可用）：注入文档直接取每个 kind 自带
+// 的 doc 行，不再在这里手写示例——手写必然漂移（piano 的 showNotes 字段实现了
+// 但文档从没提过，模型永远不知道能用它）。文档跟着实现走。
+import { iuKindsDoc, IU_KIND_NAMES } from '../../../client/iu/kinds/registry.ts'
 import type { MemoryConfig } from '../types.js'
 import { buildChineseInjectionText, buildInjectionText, selectChineseEntries, selectInjectionEntries, workspaceHashOf } from './compile.js'
 import { searchEntries } from './retrieval.js'
@@ -197,17 +201,17 @@ const HTML_INJECTION_RULE = [
   '    （判定只看「有没有标签」，`<!--` 就算标签），用户看到的就是一张空白框，而不是你写的说明。',
   '    真写不下（超 80KB）：改用 ```iu 做精简版，或把文件落盘后**用文字给出路径**，不要再贴一个空围栏。',
   '',
-  '轻量交互优先用 ```iu 围栏（原生卡片，不走 iframe，内容为单行 JSON，kind 五选一）：',
-  '  · slider 取值：{"kind":"slider","title":"标题","min":1,"max":10,"step":1,"value":4,"unit":"人","desc":"一句话","outputs":[{"label":"面粉","per":120,"unit":"g"}]}（outputs 最多 8 项，per=每单位用量）。',
-  '  · chart 图表：{"kind":"chart","chart":"bar","title":"标题","labels":["A","B"],"series":[{"name":"系列","values":[3,5]}],"unit":""}（chart=bar|line，labels ≤12，series ≤4）。',
-  '  · checklist 清单：{"kind":"checklist","title":"标题","items":[{"label":"事项","desc":"说明"}]}（items ≤12）。',
-  '  · tabs 对比：{"kind":"tabs","title":"标题","tabs":[{"label":"页签","heading":"小标题","body":"说明"}]}（tabs ≤6）。',
-  '  · piano 钢琴：{"kind":"piano","title":"标题","octave":4,"octaves":1,"wave":"sine","desc":"一句话"}（octave 0–7 起始八度、octaves 1–3、wave=sine|triangle|square|sawtooth；点键或用电脑键盘 A W S E D F T G Y H U J K 演奏，右下「填入输入框」把弹过的音写成音名+简谱）。',
-  '  · 复杂页面（整站原型、多视图联动）仍用 ```html；简单取值/对比/清单/钢琴用 ```iu，体积小、不白屏。',
+   '轻量交互优先用 ```iu 围栏（原生卡片，不走 iframe，内容为单行 JSON）。',
+   `全部 ${IU_KIND_NAMES.length} 种 kind（按常用度排序；卡片状态会持久化，刷新不丢）：`,
+   // kind 清单与示例 JSON **来自注册表**（kinds/<kind>.ts 的 doc 字段）：
+   // 文档跟着实现走，新增 kind 自动出现在这里，杜绝「字段实现了文档没写」
+   //（真事：piano 的 showNotes 实现了，手写文档从没提过，模型永远不知道能用）。
+   iuKindsDoc(),
+   '  · 复杂页面（整站原型、多视图联动、自由交互）仍用 ```html；上面这些 kind 能覆盖的优先用 ```iu，体积小、不白屏、状态可持久化。',
   '',
   '【/iu 前缀 · 用户强制出卡】用户在输入框以 `/iu` 开头时，这条消息会**连 `/iu` 一起原样发给你**（客户端不做任何转换，别把它当未知命令或笔误）。',
   '看到以 `/iu` 开头的消息 = 用户**明确要求**用卡片回答（不是建议，是指令）：必须用 ```iu 或 ```html 围栏出卡，不要用纯文字或 Markdown 表格替代。',
-  'kind 由你按内容判断：取值换算→slider、数据对比→chart、待办检查→checklist、方案对比→tabs、乐器→piano、复杂页面→html。',
+   'kind 由你按内容判断：取值换算→slider、数据对比→chart、数据行列→table、待办检查→checklist、方案对比→tabs、任务分列→kanban、收集输入→form、时间安排→timeline、前后修改→diff、层级结构→tree、完成度指标→gauge、考察理解→quiz、乐器→piano、复杂页面→html。',
   '若消息里没说清要什么，就用最贴合其意图的那种卡片，不要反问。',
   '',
   '两条纪律：',

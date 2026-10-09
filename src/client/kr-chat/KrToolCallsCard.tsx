@@ -145,7 +145,7 @@ export const KrToolCallsCard = memo(function KrToolCallsCard({
 
   return (
     <div className="kr-card kr-card--tools">
-      {/* 卡片头部：标题与状态提示同在一行（用户要求文字不换行）。
+      {/* 卡片头部：只留图标 + 标题（用户要求右端不放提示文字）。
           点头部任意位置 = 整卡折叠 / 展开（只留标题行）。列表本身不折叠：
           全量渲染在 5 行高的滚动窗口里（见 styles.ts）。 */}
       <div className="kr-card__header" onClick={() => setCollapsed(!collapsed)}>
@@ -155,12 +155,6 @@ export const KrToolCallsCard = memo(function KrToolCallsCard({
           </svg>
         </span>
         <span className="kr-card__title">工具调用 ({tools.length})</span>
-        {/* 右端提示：超过 5 条时说明「窗口内可滚」；整卡折叠时改成展开入口。 */}
-        {tools.length > 5 && (
-          <span className="kr-tools-expand-hint">
-            {collapsed ? `展开 ${tools.length} 次调用` : `默认 5 行 · 滚动看全部 ${tools.length} 次`}
-          </span>
-        )}
       </div>
 
       {!collapsed && (

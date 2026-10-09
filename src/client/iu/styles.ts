@@ -1,21 +1,51 @@
 /**
- * iu 原生交互卡片样式（命名空间 dtt-iu，幂等注入）。
+ * dsh-chat-plus — iu 卡片**基座**样式（命名空间 dtt-iu，幂等注入）。
  *
- * 视觉定位：总结正文里的一张小应用卡（有边框、有标题、有操作按钮），
- * 与 diagram 的图纸卡同级，而不是 html 沙箱卡那种去 chrome 的内嵌插图。
- * 动效：入场上浮 + 条形生长 + 折线描画 + 开关位移，全部走合成器友好的
- * opacity / transform，prefers-reduced-motion 下一律关掉。
+ * 本文件只留所有 kind 共用的部分：容器 / 头（标题+角标）/ desc / 底栏（填入
+ * 输入框）/ 流式占位 / 字号轴变量 / 无障碍兜底。每个 kind 的专属样式在
+ * kinds/<kind>.ts 的 css 字段里，由 iuKindsCss() 汇总后拼在本基座之后。
+ *
+ * @module
+ */
+
+import { iuKindsCss } from './kinds/registry.ts'
+
+/**
+ * 基座样式表正文（不含各 kind 专属样式）。
+ *
+ * ## 字号轴（跟随官方「设置 → 字号」）
+ *
+ * 官方把用户字号偏好落在 body 的 `--dsh-content-font-size`（默认 14px，
+ * 见 ui-theme gradient-shadow-text.css 与 ui-layout theme-presenter.ts）。
+ * 基座在 .dtt-iu 上定义：
+ *
+ *     --iu-text-scale: calc(var(--dsh-content-font-size, 14px) / 14)
+ *
+ * 各 kind 的字号一律写 `calc(Npx * var(--iu-text-scale, 1))`——用户在官方设置
+ * 里调字号，卡片文字即时无级跟随（14→17px 时 scale = 1.214…），不需要 JS
+ * 监听、不需要刷新。设计基准 14px 与官方正文一致。
+ *
+ * ## 动效纪律（两案都实测踩过，别再改回去）
+ *
+ *  1. 数据/内容的**可见性永远不依赖动画**：入场动画的起点必须是「已经看得
+ *     见」的状态（opacity ≥ .5），绝不是 opacity 0 / scaleY(0) / dashoffset
+ *     满偏移。无头截图、打印、全局节流（页面不可见时 animation-play-state:
+ *     paused）都会让动画停在第一帧——起点不可见，卡片就是一片空。
+ *  2. prefers-reduced-motion 下关掉全部装饰动画，但**按键/勾选一类的状态
+ *     反馈保留**（那是反馈本身，不是装饰）。
  */
 
 /**
- * 样式表正文，**导出给截图管线复用**。
+ * 基座样式表正文（不含各 kind 专属样式）。
  *
- * 截图页（host 端拼字符串，无 React 运行时）要画「和对话流里长得一样」的
- * iu 卡片，只能内联同一份 CSS —— 各写一份必然漂移（截图里的卡片和对话流里
- * 的不一个样）。这里导出常量而不是让截图端去 import 整个模块，是为了让
- * host 产物不必拖进 React。
+ * kinds/<kind>.ts 只 import core/contract/geometry，**不会** import 本文件，
+ * 所以这里直接 import registry 汇总 kinds CSS 没有静态环（依赖是单向的：
+ * styles → registry → kinds → core）。shot/card.ts 拿到的 IU_CSS 因此就是
+ * 「基座 + 全部 kind」的完整样式表，截图侧零改动。
  */
-export const IU_CSS = [
+const IU_BASE_CSS = [
+  '/* ── 字号轴：跟随官方设置字号（见文件头注释）──────────────────────── */',
+  '.dtt-iu { --iu-text-scale: calc(var(--dsh-content-font-size, 14px) / 14); }',
   '/* 容器：正文里的小应用卡 */',
   '.dtt-iu {',
   '  margin: 12px 0 4px;',
@@ -35,16 +65,17 @@ export const IU_CSS = [
   '.dtt-iu__head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }',
   '.dtt-iu__dot { width: 7px; height: 7px; border-radius: 50%; flex: none;',
   '  background: var(--dsw-alias-state-business-primary, #4176e6); }',
-  '.dtt-iu__title { font-size: 13px; font-weight: 600; flex: 1; min-width: 0;',
+  '.dtt-iu__title { font-size: calc(13px * var(--iu-text-scale, 1)); font-weight: 600; flex: 1; min-width: 0;',
   '  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }',
-  '.dtt-iu__tag { font-size: 10.5px; opacity: .45; border: 1px solid currentColor;',
+  '.dtt-iu__tag { font-size: calc(10.5px * var(--iu-text-scale, 1)); opacity: .45; border: 1px solid currentColor;',
   '  border-radius: 999px; padding: 0 7px; line-height: 18px; white-space: nowrap; }',
-  '.dtt-iu__desc { font-size: 12px; opacity: .6; margin: 0 0 8px; }',
+  '.dtt-iu__desc { font-size: calc(12px * var(--iu-text-scale, 1)); opacity: .6; margin: 0 0 8px; }',
   '/* 底栏：填入输入框按钮 */',
   '.dtt-iu__foot { display: flex; justify-content: flex-end; margin-top: 10px; }',
   '.dtt-iu__fill {',
   '  border: 1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.2));',
-  '  background: transparent; color: inherit; font: inherit; font-size: 12px;',
+  '  background: transparent; color: inherit; font: inherit;',
+  '  font-size: calc(12px * var(--iu-text-scale, 1));',
   '  border-radius: 999px; padding: 4px 12px; cursor: pointer;',
   '  transition: opacity .18s ease, background-color .18s ease, transform .18s ease, border-color .18s ease;',
   '}',
@@ -52,138 +83,10 @@ export const IU_CSS = [
   '.dtt-iu__fill:active { transform: translateY(0) scale(.96); }',
   '.dtt-iu__fill--done { border-color: var(--dsw-alias-state-business-primary, #4176e6);',
   '  color: var(--dsw-alias-state-business-primary, #4176e6); }',
-  '/* 滑块：读数行 + 原生 range + 换算输出 */',
-  '.dtt-iu__slider-top { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 2px; }',
-  '.dtt-iu__slider-val { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums;',
-  '  color: var(--dsw-alias-state-business-primary, #4176e6); }',
-  '.dtt-iu__slider-unit { font-size: 12px; opacity: .55; }',
-  '.dtt-iu input[type=range].dtt-iu__range { width: 100%; margin: 6px 0 4px; accent-color: var(--dsw-alias-state-business-primary, #4176e6); cursor: pointer; }',
-  '.dtt-iu__outs { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; margin-top: 8px; }',
-  '.dtt-iu__out { border-radius: 8px; padding: 6px 9px;',
-  '  background: var(--dsw-alias-bg-layer-2, rgba(127,127,127,.1));',
-  '  transition: transform .18s ease, background-color .18s ease; }',
-  '.dtt-iu__out:hover { transform: translateY(-1px); }',
-  '.dtt-iu__out b { display: block; font-size: 14px; font-variant-numeric: tabular-nums; }',
-  '.dtt-iu__out span { font-size: 11px; opacity: .55; }',
-  '/* 图表：图例开关 + 自适应 SVG */',
-  '.dtt-iu__legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }',
-  '.dtt-iu__chip { border: 1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.2));',
-  '  background: transparent; color: inherit; font: inherit; font-size: 11.5px;',
-  '  border-radius: 999px; padding: 2px 10px 2px 6px; cursor: pointer;',
-  '  display: inline-flex; align-items: center; gap: 6px; opacity: 1;',
-  '  transition: opacity .18s ease, transform .18s ease; }',
-  '.dtt-iu__chip:hover { transform: translateY(-1px); }',
-  '.dtt-iu__chip--off { opacity: .38; }',
-  '.dtt-iu__swatch { width: 8px; height: 8px; border-radius: 3px; flex: none; }',
-  '.dtt-iu__chart { display: block; width: 100%; height: auto; margin-top: 4px; }',
-  '/* 柱子与折线的**可见性永远不依赖动画**——几何尺寸在最终态，入场动画的起点',
-  '   也必须是「已经看得见」的状态（opacity .5 + 轻微上移），绝不是 opacity 0。',
-  '   反例（实测踩中两次）：① scaleY(0)→1 / stroke-dashoffset 满偏移画到 0，',
-  '   把可见性交给动画；② from{opacity:0}。两者在动画没跑或停在第一帧时都会让',
-  '   图表只剩网格线与数字，看起来像坏掉的空卡——无头截图、打印，以及本插件的',
-  '   全局节流（页面不可见时 animation-play-state: paused）都会命中。',
-  '   图表是数据本身，不能靠动效才可见。 */',
-  '.dtt-iu__bar { animation: dtt-iu-grow .5s cubic-bezier(.2,.8,.25,1) both; }',
-  '.dtt-iu__chart[data-i="1"] .dtt-iu__bar { animation-delay: .06s; }',
-  '.dtt-iu__chart[data-i="2"] .dtt-iu__bar { animation-delay: .12s; }',
-  '.dtt-iu__chart[data-i="3"] .dtt-iu__bar { animation-delay: .18s; }',
-  '@keyframes dtt-iu-grow { from { opacity: .5 } to { opacity: 1 } }',
-  '.dtt-iu__line { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;',
-  '  animation: dtt-iu-draw .5s ease .08s both; }',
-  '@keyframes dtt-iu-draw { from { opacity: .5 } to { opacity: 1 } }',
-  '.dtt-iu__dot-svg { animation: dtt-iu-fade .4s ease .3s both; }',
-  '@keyframes dtt-iu-fade { from { opacity: .5 } to { opacity: 1 } }',
-  '.dtt-iu__axis { stroke: var(--dsw-alias-border-l3, rgba(127,127,127,.25)); stroke-width: 1; }',
-  '.dtt-iu__grid { stroke: var(--dsw-alias-border-l3, rgba(127,127,127,.14)); stroke-width: 1; }',
-  '.dtt-iu__tick { font-size: 9px; fill: currentColor; opacity: .5; }',
-  '.dtt-iu__barval { font-size: 9.5px; fill: currentColor; opacity: .75; font-weight: 600; }',
-  '/* 清单：进度条 + 可点行 */',
-  '.dtt-iu__progress { height: 4px; border-radius: 999px; overflow: hidden; margin: 8px 0 6px;',
-  '  background: var(--dsw-alias-bg-layer-2, rgba(127,127,127,.14)); }',
-  '.dtt-iu__progress i { display: block; height: 100%; border-radius: 999px;',
-  '  background: var(--dsw-alias-state-business-primary, #4176e6);',
-  '  transition: width .3s cubic-bezier(.2,.8,.25,1); }',
-  '.dtt-iu__check { display: flex; align-items: flex-start; gap: 9px; width: 100%; text-align: left;',
-  '  border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer;',
-  '  border-radius: 8px; padding: 6px 8px; margin: 0 -8px;',
-  '  transition: background-color .18s ease, transform .12s ease; }',
-  '.dtt-iu__check:hover { background: var(--dsw-alias-bg-layer-2, rgba(127,127,127,.1)); }',
-  '.dtt-iu__check:active { transform: scale(.99); }',
-  '.dtt-iu__box { width: 16px; height: 16px; border-radius: 5px; flex: none; margin-top: 1px;',
-  '  border: 1.5px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4));',
-  '  display: inline-flex; align-items: center; justify-content: center;',
-  '  transition: background-color .2s ease, border-color .2s ease, transform .2s cubic-bezier(.2,.8,.25,1); }',
-  '.dtt-iu__check[data-on="1"] .dtt-iu__box {',
-  '  background: var(--dsw-alias-state-business-primary, #4176e6);',
-  '  border-color: var(--dsw-alias-state-business-primary, #4176e6); transform: scale(1.06); }',
-  '.dtt-iu__box svg { opacity: 0; transform: scale(.5); transition: opacity .18s ease, transform .2s cubic-bezier(.2,.8,.25,1); }',
-  '.dtt-iu__check[data-on="1"] .dtt-iu__box svg { opacity: 1; transform: none; }',
-  '.dtt-iu__check b { display: block; font-size: 13px; font-weight: 500; }',
-  '.dtt-iu__check[data-on="1"] b { opacity: .55; text-decoration: line-through; }',
-  '.dtt-iu__check small { display: block; font-size: 11.5px; opacity: .55; }',
-  '.dtt-iu__count { font-size: 11px; opacity: .5; font-variant-numeric: tabular-nums; }',
-  '/* 对比 Tabs：胶囊切换 + 面板淡入 */',
-  '.dtt-iu__tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0;',
-  '  background: var(--dsw-alias-bg-layer-2, rgba(127,127,127,.1));',
-  '  border-radius: 999px; padding: 3px; width: fit-content; max-width: 100%; }',
-  '.dtt-iu__tab { border: 0; background: transparent; color: inherit; font: inherit;',
-  '  font-size: 12px; border-radius: 999px; padding: 4px 13px; cursor: pointer; opacity: .6;',
-  '  transition: opacity .18s ease, background-color .18s ease, transform .18s ease; }',
-  '.dtt-iu__tab:hover { opacity: 1; transform: translateY(-1px); }',
-  '.dtt-iu__tab--active { background: var(--dsw-alias-bg-layer-1, #fff); opacity: 1;',
-  '  font-weight: 600; box-shadow: 0 1px 6px rgba(20,40,90,.18); }',
-  'body[data-ds-dark-theme] .dtt-iu__tab--active { background: rgba(255,255,255,.12); }',
-  '.dtt-iu__panel { animation: dtt-iu-fade .25s ease both; }',
-  '.dtt-iu__panel h4 { margin: 6px 0 4px; font-size: 13px; }',
-  '.dtt-iu__panel p { margin: 0 0 4px; font-size: 12.5px; line-height: 1.65; opacity: .85; white-space: pre-wrap; }',
-  '/* 钢琴键盘：**白键走 flex 等分、黑键绝对定位叠层**。',
-  '   不用「白键也绝对定位 + 百分比 left/width」——容器一旦有 padding，',
-  '   百分比就相对于 padding box 算，白键会整体错位并露缝（实测踩中：',
-  '   白键缩成几根细线、黑键挤成一堆）。flex 让浏览器自己等分，最稳。 */',
-  '.dtt-iu__piano { position: relative; height: 136px; margin: 8px 0 4px;',
-  '  border-radius: 10px; user-select: none; touch-action: none;',
-  '  background: linear-gradient(180deg, rgba(127,127,127,.14), rgba(127,127,127,.05));',
-  '  padding: 6px 6px 6px; box-sizing: border-box; }',
-  '/* 白键层：铺满，flex 等分。**不能加 gap** —— 黑键的百分比坐标是按「白键宽 =',
-  '   总宽 / 白键数」算的，任何间隙都会让黑键逐键累积偏移（第 5 个黑键能偏出 8px）。',
-  '   键与键的分隔交给 border。 */',
-  '.dtt-iu__pwhite { display: flex; height: 100%; }',
-  '.dtt-iu__pkey { flex: 1 1 0; min-width: 0; padding: 0; cursor: pointer;',
-  '  font: inherit; border-radius: 0 0 6px 6px; position: relative;',
-  '  border: 1px solid rgba(20,40,90,.22); border-top: 0;',
-  '  background: linear-gradient(180deg, #ffffff 0%, #f7f8fb 76%, #e6eaf1 100%);',
-  '  color: #7b8494; display: flex; align-items: flex-end; justify-content: center;',
-  '  padding-bottom: 7px; box-shadow: 0 2px 0 rgba(20,40,90,.14), inset 0 -3px 6px -3px rgba(20,40,90,.14);',
-  '  transition: background-color .08s ease, transform .08s ease, box-shadow .12s ease; }',
-  '/* 按下：键面下沉 + 品牌色高亮 + 一圈光晕（合成器友好，只动 transform/box-shadow）。',
-  '   动画只做「按下那一刻」的增强，常态始终可见 —— 与图表那条纪律一致。 */',
-  '.dtt-iu__pkey[data-on="1"] { background: linear-gradient(180deg,',
-  '  color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 24%, #fff) 0%,',
-  '  color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 50%, #fff) 100%);',
-  '  transform: translateY(2px) scaleY(.985); transform-origin: top;',
-  '  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 55%, transparent),',
-  '    0 0 14px color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 45%, transparent);',
-  '  animation: dtt-iu-pkey-press .28s cubic-bezier(.2,.8,.25,1); }',
-  '@keyframes dtt-iu-pkey-press { 0% { transform: translateY(2px) scaleY(.985) scaleX(.96) } 100% { transform: translateY(2px) scaleY(.985) scaleX(1) } }',
-  '/* 黑键层：绝对定位叠在白键交界处（left/width 来自 pianoLayout，相对于键盘区） */',
-  '.dtt-iu__pblack { position: absolute; left: 6px; right: 6px; top: 6px; height: 62%;',
-  '  pointer-events: none; }',  '.dtt-iu__pblack .dtt-iu__pkey { position: absolute; top: 0; bottom: auto; height: 100%;',
-  '  flex: none; z-index: 2; border-radius: 0 0 5px 5px; pointer-events: auto;',
-  '  background: linear-gradient(180deg, #55606f 0%, #2b3444 72%, #1a2130 100%);',
-  '  border: 1px solid rgba(0,0,0,.55); border-top: 1px solid rgba(255,255,255,.16);',
-  '  box-shadow: 0 3px 5px rgba(0,0,0,.4); }',
-  '.dtt-iu__pblack .dtt-iu__pkey[data-on="1"] { background: linear-gradient(180deg,',
-  '  color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 72%, #1a2130) 0%,',
-  '  color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 42%, #1a2130) 100%); }',
-  '.dtt-iu__plabel { font-size: 9.5px; font-weight: 600; letter-spacing: .02em; pointer-events: none; }',
-  '.dtt-iu__phint { display: flex; align-items: center; justify-content: space-between; gap: 8px;',
-  '  margin-top: 6px; font-size: 11px; opacity: .5; }',
-  '.dtt-iu__pcount { font-variant-numeric: tabular-nums; white-space: nowrap; }',
-  'body[data-ds-dark-theme] .dtt-iu__pkey { background: linear-gradient(180deg, #eef1f5 0%, #d3d9e2 100%); }',
-  'body[data-ds-dark-theme] .dtt-iu__pblack .dtt-iu__pkey { background: linear-gradient(180deg, #49525f 0%, #151a22 100%); }',
-  'body[data-ds-dark-theme] .dtt-iu__pblack .dtt-iu__pkey[data-on="1"] { background: linear-gradient(180deg,',
-  '  color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 72%, #0d1117) 0%,',
-  '  color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 42%, #0d1117) 100%); }',
+  '/* 窄屏：容器留白收窄，正文别挤（各 kind 的横向布局在自己 css 里降级） */',
+  '@media (max-width: 480px) {',
+  '  .dtt-iu { padding: 10px 10px 8px; border-radius: 10px; }',
+  '}',
   '/* 流式占位：与 html 卡片同语言的等待态（呼吸点 + 扫光条） */',
   '.dtt-iu--pending { animation: dtt-iu-rise .45s cubic-bezier(.2,.8,.25,1) both; }',
   '.dtt-iu__stage--pending { display: flex; flex-direction: column; align-items: center;',
@@ -193,30 +96,33 @@ export const IU_CSS = [
   '  background: var(--dsw-alias-state-business-primary, #4176e6);',
   '  animation: dtt-iu-breathe 1.4s ease-in-out infinite; }',
   '@keyframes dtt-iu-breathe { 0%, 100% { opacity: .3; transform: scale(.82) } 50% { opacity: 1; transform: scale(1) } }',
-  '.dtt-iu__pending-text { font-size: 12px; opacity: .55; }',
+  '.dtt-iu__pending-text { font-size: calc(12px * var(--iu-text-scale, 1)); opacity: .55; }',
   '.dtt-iu__pending-track { width: min(200px, 60%); height: 3px; border-radius: 999px; overflow: hidden;',
   '  background: var(--dsw-alias-bg-layer-2, rgba(127,127,127,.14)); }',
   '.dtt-iu__pending-bar { display: block; width: 38%; height: 100%; border-radius: 999px;',
   '  background: linear-gradient(90deg, transparent, var(--dsw-alias-state-business-primary, #4176e6), transparent);',
   '  animation: dtt-iu-sweep 1.5s cubic-bezier(.4,0,.2,1) infinite; }',
   '@keyframes dtt-iu-sweep { 0% { transform: translateX(-110%) } 100% { transform: translateX(300%) } }',
-  '/* 无障碍：关掉全部动效，等待态留常亮反馈。',
-  '   图表这里只需关动画——柱子与折线的几何尺寸本来就在最终态（见上面的注释），',
-  '   所以关掉后图表照样完整可读，不会变成空卡。 */',
+  '/* 无障碍：关掉全部装饰动效，等待态留常亮反馈。',
+  '   图表/琴键的状态反馈保留——那是反馈本身，不是装饰（见文件头纪律 2）。 */',
   '@media (prefers-reduced-motion: reduce) {',
   '  .dtt-iu { animation: none; }',
-  '  .dtt-iu__bar, .dtt-iu__line, .dtt-iu__dot-svg, .dtt-iu__panel { animation: none; }',
   '  .dtt-iu__out:hover, .dtt-iu__chip:hover, .dtt-iu__tab:hover { transform: none; }',
   '  .dtt-iu__fill:hover { transform: none; }',
   '  .dtt-iu__progress i, .dtt-iu__box, .dtt-iu__box svg, .dtt-iu__check, .dtt-iu__fill, .dtt-iu__tab { transition: none; }',
-  '  /* 琴键：关掉「按下回弹」动画，但**下沉与高亮保留** —— 那是按键反馈本身，',
-  '     不是装饰。去掉它按下去就没反应了（与等待态不能动到 0 反馈同一个道理）。 */',
-  '  .dtt-iu__pkey[data-on="1"] { animation: none; }',
-  '  .dtt-iu__pkey { transition: none; }',
   '  .dtt-iu__pending-dot { animation: none; opacity: .75; }',
   '  .dtt-iu__pending-bar { animation: none; transform: translateX(80%); opacity: .6; }',
   '}',
 ].join('\n')
+
+/**
+ * 完整 iu 样式表 = 基座 + 全部 kind 专属样式。
+ *
+ * **导出给截图管线复用**（shot/card.ts 的 `import { IU_CSS }` 零改动即拿到
+ * 全量）。依赖单向：styles → registry → kinds/<kind> → core，无静态环
+ * （没有任何 kind 模块反向 import styles.ts）。
+ */
+export const IU_CSS = IU_BASE_CSS + '\n' + iuKindsCss()
 
 export function injectIuStyles(): void {
   if (typeof document === 'undefined') return

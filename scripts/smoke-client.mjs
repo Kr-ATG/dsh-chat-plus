@@ -17,7 +17,7 @@
  * Usage: node scripts/smoke-client.mjs
  */
 
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
@@ -2819,7 +2819,9 @@ if (krEnabled) {
   //    会得到 suspended 的 context，之后弹琴全程无声——不报错，只是没声音。
   // ② 松手不能硬切波形：直接 stop() 会「啪」一声爆音，必须指数衰减到极小值。
   // ③ 每个音要有自己的振荡器：共用全局节点的话多指同按会互相掐断。
-  const iuCardSrc = readFileSync(resolve(ROOT, 'src/client/iu/IuCard.tsx'), 'utf8')
+  //
+  // 架构升级后发声逻辑在 kinds/piano.body.tsx（React 体半边），不再在 IuCard.tsx。
+  const iuCardSrc = readFileSync(resolve(ROOT, 'src/client/iu/kinds/piano.body.tsx'), 'utf8')
   if (!/AudioContext/.test(iuCardSrc)) {
     reasons.push('钢琴必须用 Web Audio 发声（沙箱不能引外部音频资源）')
   }
@@ -3011,27 +3013,31 @@ if (krEnabled) {
   // 本插件的全局节流会在页面不可见时把 animation-play-state 置为 paused；无头
   // 截图与打印则直接抓第一帧。任何把「看得见」交给动画的写法在这三种场景下都会
   // 让柱子/折线消失，只剩网格线与数字——不报错，只是看起来像坏掉的空卡。
-  const iuCss = readFileSync(resolve(ROOT, 'src/client/iu/styles.ts'), 'utf8')
-  if (/@keyframes dtt-iu-grow \{\s*from\s*\{\s*transform:/.test(iuCss)) {
+  //
+  // 架构升级后 CSS 随 kind 走：图表动画纪律查 kinds/chart.ts、琴键反馈查
+  // kinds/piano.ts、基座兜底查 styles.ts——各查各的，谁的纪律谁自己钉。
+  const chartCss = readFileSync(resolve(ROOT, 'src/client/iu/kinds/chart.ts'), 'utf8')
+  if (/@keyframes dtt-iu-grow \{\s*from\s*\{\s*transform:/.test(chartCss)) {
     reasons.push('柱子不得用 transform: scaleY(0) 做入场（几何尺寸必须始终在最终态）')
   }
-  if (/stroke-dashoffset:\s*640/.test(iuCss)) {
+  if (/stroke-dashoffset:\s*640/.test(chartCss)) {
     reasons.push('折线不得用 stroke-dashoffset 满偏移做入场（可见性不能交给动画）')
   }
-  if (/@keyframes dtt-iu-grow \{\s*from\s*\{\s*opacity:\s*0\s*\}/.test(iuCss)
-    || /@keyframes dtt-iu-draw \{\s*from\s*\{\s*opacity:\s*0\s*\}/.test(iuCss)) {
+  if (/@keyframes dtt-iu-grow \{\s*from\s*\{\s*opacity:\s*0\s*\}/.test(chartCss)
+    || /@keyframes dtt-iu-draw \{\s*from\s*\{\s*opacity:\s*0\s*\}/.test(chartCss)) {
     reasons.push('图表入场动画起点不得是 opacity:0（第一帧/暂停时会看不见）')
   }
-  if (!/@keyframes dtt-iu-grow/.test(iuCss) || !/prefers-reduced-motion[\s\S]{0,700}dtt-iu__bar/.test(iuCss)) {
-    reasons.push('图表动画必须在 prefers-reduced-motion 下兜底')
+  if (!/@keyframes dtt-iu-grow/.test(chartCss) || !/prefers-reduced-motion[\s\S]{0,700}dtt-iu__bar/.test(chartCss)) {
+    reasons.push('图表动画必须在 prefers-reduced-motion 下兜底（chart.ts 自己的 css 里）')
   }
 
   // 琴键的按下反馈不能在 reduced-motion 下被抹掉（下沉与高亮是**反馈**，
   // 不是装饰；关掉它按下去就没反应了——与等待态不能动到 0 反馈同一个道理）。
-  if (/prefers-reduced-motion[\s\S]{0,1200}dtt-iu__pkey\[data-on="1"\][^}]*transform:\s*none/.test(iuCss)) {
+  const pianoCss = readFileSync(resolve(ROOT, 'src/client/iu/kinds/piano.ts'), 'utf8')
+  if (/prefers-reduced-motion[\s\S]{0,1200}dtt-iu__pkey\[data-on="1"\][^}]*transform:\s*none/.test(pianoCss)) {
     reasons.push('reduced-motion 下不得抹掉琴键下沉反馈（只该关动画）')
   }
-  if (!/prefers-reduced-motion[\s\S]{0,1200}dtt-iu__pkey/.test(iuCss)) {
+  if (!/prefers-reduced-motion[\s\S]{0,1200}dtt-iu__pkey/.test(pianoCss)) {
     reasons.push('钢琴必须在 prefers-reduced-motion 下兜底（关动画、留反馈）')
   }
 
@@ -3041,47 +3047,54 @@ if (krEnabled) {
    * 真事：截图管线那边原是一串三元表达式（… : '对比'），加了 piano 之后
    * 新 kind 掉进兜底分支，于是**同一张钢琴卡在对话里标「钢琴」、在截图里标
    * 「对比」**。用户看不出是漏改，只觉得「截图和实际不一样」。
-   * 现在两处都读 geometry.ts 的 IU_KIND_LABELS，漏一个 kind 直接编译不过。
+   *
+   * 架构升级后单点在 kind 注册表：每个 kinds/<kind>.ts 自带 label，
+   * registry.ts 派生 IU_KIND_LABELS；IuCard 外壳与 shot/card.ts 都读 mod.label。
+   * 断言改为：① 每个 kind 模块都有 label 字段；② 两处消费方不得写死字面量。
    */
-  const geometrySrc = readFileSync(resolve(ROOT, 'src/client/iu/geometry.ts'), 'utf8')
-  const labelMap = /IU_KIND_LABELS[^=]*=\s*\{([\s\S]*?)\}/.exec(geometrySrc)?.[1] ?? ''
-  for (const kind of ['slider', 'chart', 'checklist', 'tabs', 'piano']) {
-    if (!new RegExp(`\\b${kind}\\s*:`).test(labelMap)) {
-      reasons.push(`IU_KIND_LABELS 缺 ${kind} 的角标文案（截图会掉进兜底、与对话流不一致）`)
+  const kindDir = resolve(ROOT, 'src/client/iu/kinds')
+  const kindModules = readdirSync(kindDir).filter(f => /^[a-z]+\.ts$/.test(f) && !['core.ts', 'contract.ts', 'registry.ts', 'types.ts', 'bodies.ts'].includes(f))
+  for (const f of kindModules) {
+    const src = readFileSync(resolve(kindDir, f), 'utf8')
+    if (!/\blabel:\s*'[^']+'/.test(src)) {
+      reasons.push(`${f} 缺 label 角标文案（对话流与截图会没有类型标签）`)
     }
   }
   const iuCardSrcForTag = readFileSync(resolve(ROOT, 'src/client/iu/IuCard.tsx'), 'utf8')
-  if (/tag="(滑块|图表|清单|对比|钢琴)"/.test(iuCardSrcForTag)) {
-    reasons.push('IuCard 的角标不得写死中文字面量（必须读 IU_KIND_LABELS，否则两处会漂移）')
+  if (/tag="(滑块|图表|清单|对比|钢琴|数据表|看板|表单|时间线|结构|仪表|自测)"/.test(iuCardSrcForTag)) {
+    reasons.push('IuCard 的角标不得写死中文字面量（必须读注册表的 label，否则两处会漂移）')
   }
   const shotCardSrc = readFileSync(resolve(ROOT, 'src/shot/card.ts'), 'utf8')
-  if (!/IU_KIND_LABELS\[/.test(shotCardSrc)) {
-    reasons.push('截图管线必须读 IU_KIND_LABELS 取角标（不得自己写 kind 判定链）')
+  if (!/mod\.label/.test(shotCardSrc)) {
+    reasons.push('截图管线必须读注册表模块的 label 取角标（不得自己写 kind 判定链）')
   }
   if (/kind === 'slider' \? '[^']*' : spec\.kind === 'chart'/.test(shotCardSrc)) {
     reasons.push('截图管线不得再用 kind 三元链取角标（新增 kind 会静默掉进兜底）')
   }
 
   /*
-   * 钢琴的两层容器（pwhite / pblack）在截图管线里也必须在。
+   * 钢琴的两层容器（pwhite / pblack）在**截图快照**里也必须在。
    *
    * 真事：截图那边原先把白键黑键平铺进 `.dtt-iu__piano` 就完事，省掉了两层
    * 容器。而 IU_CSS 是照着真实组件写的：白键靠 `pwhite{display:flex}` 等分、
    * 黑键靠 `pblack{position:absolute}` 叠上去。少一层，白键的 left/width
    * 百分比全落回静态流 —— 截图里的琴键变成**一级级往下掉的阶梯**，对话流里
    * 却是正常键盘。共用样式表就必须共用 DOM 结构，只共用一半等于没共用。
+   *
+   * 架构升级后快照在 kinds/piano.ts（snapshot 字段），断言对象随之迁移。
    */
+  const pianoSnapshotSrc = readFileSync(resolve(ROOT, 'src/client/iu/kinds/piano.ts'), 'utf8')
   for (const [needle, why] of [
     ['dtt-iu__pwhite', '白键层容器'],
     ['dtt-iu__pblack', '黑键层容器'],
   ]) {
-    if (!shotCardSrc.includes(needle)) {
-      reasons.push('截图管线的钢琴缺' + why + '（' + needle + '）——白键会退化成阶梯状')
+    if (!pianoSnapshotSrc.includes(needle)) {
+      reasons.push('piano.ts 的截图快照缺' + why + '（' + needle + '）——白键会退化成阶梯状')
     }
   }
   // 白键不得再自带 left/width 内联百分比（那是黑键层的活；带上就是重复定位）。
-  if (/dtt-iu__pwhite[\s\S]{0,200}left:\$\{/.test(shotCardSrc)) {
-    reasons.push('截图管线的白键不得带 left 内联定位（白键靠 flex 等分，只有黑键才绝对定位）')
+  if (/dtt-iu__pwhite"?>?\$\{white\}[\s\S]{0,200}left:\$\{/.test(pianoSnapshotSrc)) {
+    reasons.push('piano.ts 快照的白键不得带 left 内联定位（白键靠 flex 等分，只有黑键才绝对定位）')
   }
 
   if (reasons.length > 0) {

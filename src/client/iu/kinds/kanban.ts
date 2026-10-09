@@ -220,7 +220,7 @@ function snapshot(spec: IuKanbanSpec): string {
       + `<div class="dtt-iu__kcol-body">${cards}</div>`
       + `</div>`
   }).join('')
-  return `<div class="dtt-iu__kanban">${cols}</div>`
+  return `<div class="dtt-iu__kanban" role="group" aria-label="${escAttr(spec.title)}">${cols}</div>`
 }
 
 const CSS = [

@@ -24,7 +24,7 @@
  * Usage: node scripts/smoke-host.mjs
  */
 
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -406,27 +406,35 @@ if (!/lang\.trim\(\)\.toLowerCase\(\) === 'iu'/.test(mdSrc)) {
 
 // iu 快照必须与对话流**同源**——否则两处必然漂移（截图里的柱子和对话流里的
 // 不一样高、配色不一样、清单少了勾选框），而这类差异不报错，只能靠断言钉住。
-// 三条同源链路：几何（chartLayout）、配色（CHART_COLORS）、样式（IU_CSS）。
+//
+// 架构升级后同源的载体变了：card.ts 不再有手写的 iuBodyOf 镜像（那 150 行出过
+// 两次漂移事故），而是委派 kind 注册表——每个 kinds/<kind>.ts 自带 snapshot()，
+// 与该 kind 的 React 体共用同一份几何/布局纯函数。断言随之改为钉「委派 + 各
+// kind 模块自身的同源纪律」。
 {
   const reasons = []
-  // ① 几何与数字格式必须来自 geometry.ts（不能各写一份坐标算法）。
-  if (!/from '\.\.\/client\/iu\/geometry\.ts'/.test(cardSrc)) {
-    reasons.push('card.ts 必须 import geometry.ts 的几何（否则截图与对话流坐标算法会漂移）')
+  // ① card.ts 必须委派注册表（iuKindOf + mod.snapshot + mod.label）。
+  if (!/from '\.\.\/client\/iu\/kinds\/registry\.ts'/.test(cardSrc)) {
+    reasons.push('card.ts 必须 import kind 注册表（快照正文/角标都来自它）')
   }
-  if (!/chartLayout\(/.test(cardSrc)) reasons.push('截图快照必须调用 chartLayout 算几何')
-  if (!/formatNum/.test(cardSrc)) reasons.push('截图快照必须复用 formatNum（数字格式统一）')
-  // ② 样式必须内联同一份 IU_CSS，而不是另写一套 .iushot 规格。
+  if (!/iuKindOf\(/.test(cardSrc) || !/mod\.snapshot\(/.test(cardSrc) || !/mod\.label/.test(cardSrc)) {
+    reasons.push('card.ts 必须走 iuKindOf → mod.snapshot/mod.label 委派（不得手写 kind 分支）')
+  }
+  if (/function iuBodyOf/.test(cardSrc)) {
+    reasons.push('旧的手写镜像 iuBodyOf 不该残留（快照逻辑已收敛进各 kind 模块）')
+  }
+  // ② 样式必须内联同一份 IU_CSS（= 基座 + 全部 kind 专属样式），而不是另写一套。
   if (!/from '\.\.\/client\/iu\/styles\.ts'/.test(cardSrc) || !/IU_CSS/.test(cardSrc)) {
     reasons.push('card.ts 必须内联 client 的 IU_CSS（另写一份 = 样式漂移）')
   }
   if (/iushot/.test(cardSrc) || /iushot/.test(themeSrc)) {
     reasons.push('旧的 .iushot 独立规格不该残留（已改为复用 IU_CSS）')
   }
-  // ③ class 名必须对齐 IuCard 的 JSX（对齐才吃得到 IU_CSS）。
-  for (const cls of ['dtt-iu__head', 'dtt-iu__slider-val', 'dtt-iu__outs', 'dtt-iu__chart', 'dtt-iu__check', 'dtt-iu__tabs']) {
-    if (!cardSrc.includes(cls)) reasons.push(`截图快照缺 class ${cls}（吃不到 IU_CSS）`)
+  // ③ 外壳 class（figure/head/title/tag）仍在 card.ts 的 iuFigureOf 里拼。
+  for (const cls of ['figure class="dtt-iu"', 'dtt-iu__head', 'dtt-iu__title', 'dtt-iu__tag']) {
+    if (!cardSrc.includes(cls)) reasons.push(`截图外壳缺 ${cls}（吃不到 IU_CSS）`)
   }
-  // ④ IU_CSS 必须是**导出**的常量，客户端注入与截图内联共用同一份。
+  // ④ IU_CSS 必须是**导出**的常量 = 基座 + iuKindsCss()，注入与截图共用同一份。
   const iuStylesSrc = stripComments(srcOf('src/client/iu/styles.ts'))
   if (!/export const IU_CSS/.test(iuStylesSrc)) {
     reasons.push('styles.ts 必须 export const IU_CSS（截图管线要复用同一份）')
@@ -434,8 +442,48 @@ if (!/lang\.trim\(\)\.toLowerCase\(\) === 'iu'/.test(mdSrc)) {
   if (!/style\.textContent = IU_CSS/.test(iuStylesSrc)) {
     reasons.push('injectIuStyles 必须注入 IU_CSS 本体（不能是另一份副本）')
   }
+  if (!/iuKindsCss\(\)/.test(iuStylesSrc)) {
+    reasons.push('IU_CSS 必须拼上 iuKindsCss()（否则截图里 kind 专属样式全丢）')
+  }
+  // ⑤ 每个 kind 的纯逻辑模块必须自带 snapshot 且转义模型文本（esc/escAttr），
+  //    React 体与快照必须同源（chart/gauge/tree/diff/table 等靠共用纯函数）。
+  //    安全面：卡片页在 --disable-web-security 的无头 Chrome 里打开，
+  //    模型文本逃出标签上下文 = 任意脚本读本地文件。
+  const kindFiles = readdirSync(resolve(ROOT, 'src/client/iu/kinds'))
+    .filter(f => f.endsWith('.ts') && !['core.ts', 'contract.ts', 'registry.ts', 'types.ts', 'bodies.ts'].includes(f))
+  if (kindFiles.length < 13) reasons.push(`kinds 目录应有 ≥13 个纯逻辑模块，实得 ${kindFiles.length}`)
+  for (const f of kindFiles) {
+    const src = stripComments(srcOf(`src/client/iu/kinds/${f}`))
+    const kind = f.replace(/\.ts$/, '')
+    if (!/snapshot/.test(src)) { reasons.push(`${kind}.ts 缺 snapshot（截图会画不出这种卡）`); continue }
+    if (!/\besc\(/.test(src)) reasons.push(`${kind}.ts 的 snapshot 必须用 esc/escAttr 转义模型文本（无头浏览器安全面）`)
+    if (!/readonly css/.test(src) && !/css:/.test(src)) reasons.push(`${kind}.ts 缺 css 字段（样式必须随 kind 模块走）`)
+    if (!/readonly doc|doc:/.test(src)) reasons.push(`${kind}.ts 缺 doc 字段（注入文档必须随实现走，防漂移）`)
+    // 纯逻辑半边不得 import React（host 半身依赖链，见 kinds/contract.ts 头注释）。
+    if (/from 'react'|from "react"/.test(src)) reasons.push(`${kind}.ts（纯逻辑半边）不得 import React——host 半身会内联第二份`)
+    // React 体必须存在且与 kind 同名（bodies.ts 按名收拢）。
+    if (!existsSync(resolve(ROOT, `src/client/iu/kinds/${kind}.body.tsx`))) {
+      reasons.push(`缺 ${kind}.body.tsx（React 体；bodies.ts 的 import 会直接编译失败）`)
+    }
+  }
+  // ⑥ 注册表与 React 体注册表的 kind 集合必须一致（漏一边 = 能解析不能渲染，或反之）。
+  const registrySrc = stripComments(srcOf('src/client/iu/kinds/registry.ts'))
+  const bodiesSrc = stripComments(srcOf('src/client/iu/kinds/bodies.ts'))
+  for (const kind of kindFiles.map(f => f.replace(/\.ts$/, ''))) {
+    if (!new RegExp(`\\b${kind}Kind\\b`).test(registrySrc)) reasons.push(`registry.ts 缺 ${kind}Kind 注册`)
+    if (!new RegExp(`'${kind}'`).test(bodiesSrc)) reasons.push(`bodies.ts 缺 '${kind}' 的 React 体注册`)
+  }
+  // ⑦ chart 的几何仍必须单点来自 geometry.ts（柱子高度/刻度两处同源）。
+  const chartSrc = stripComments(srcOf('src/client/iu/kinds/chart.ts'))
+  if (!/from '\.\.\/geometry\.ts'/.test(chartSrc) || !/chartLayout\(/.test(chartSrc)) {
+    reasons.push('chart.ts 的快照必须调用 geometry.ts 的 chartLayout（几何单点）')
+  }
+  const chartBodySrc = stripComments(srcOf('src/client/iu/kinds/chart.body.tsx'))
+  if (!/chartLayout\(/.test(chartBodySrc)) {
+    reasons.push('chart.body.tsx 必须调用同一个 chartLayout（否则截图与对话流坐标漂移）')
+  }
   if (reasons.length > 0) fail('iu 截图与对话流同源契约：' + reasons.join('；'))
-  else pass('iu 截图与对话流同源：几何 chartLayout + 格式 formatNum + 样式 IU_CSS + class 对齐')
+  else pass(`iu 截图与对话流同源：注册表委派 + ${kindFiles.length} 个 kind 模块自带 snapshot/css/doc + 转义齐备 + 几何单点`)
 }
 
 // 截图页没有宿主 CSS 变量，IU_CSS 里的 --dsw-alias-* 必须映射到卡片调色板，
@@ -446,19 +494,11 @@ if (!/--dsw-alias-state-business-primary:var\(--accent\)/.test(cardSrc)) {
   pass('截图页映射了 --dsw-alias-* 宿主变量（IU_CSS 配色正确落地）')
 }
 
-// iu 快照必须把模型文本全部转义（与 htmlfence 同一安全面：卡片页在
-// --disable-web-security 的无头 Chrome 里打开）。判据要落在 iuBodyOf 的**函数体**
-// 内——escapeHtml 在 card.ts 里到处都是，全文匹配等于没测。
-{
-  const iuBodyFn = /function iuBodyOf[\s\S]*?\n}/.exec(cardSrc)?.[0] ?? ''
-  if (iuBodyFn === '') {
-    fail('找不到 iuBodyOf 实现（iu 快照正文生成器）')
-  } else if (!/escapeHtml/.test(iuBodyFn)) {
-    fail('iuBodyOf 必须转义模型文本（卡片页在 disable-web-security 的无头浏览器里打开）')
-  } else {
-    pass('iu 快照正文在 iuBodyOf 内转义（属性/文本上下文已封）')
-  }
-}
+// iu 快照的模型文本转义断言已上移到「同源契约」块的第 ⑤ 条：架构升级后快照
+// 逻辑收敛进各 kind 模块（card.ts 不再有 iuBodyOf），转义判据改为逐 kind 查
+// esc/escAttr（那里同时钉了 snapshot/css/doc 存在、纯逻辑半边不得 import React、
+// registry 与 bodies 的 kind 集合一致）。安全面不变：卡片页在
+// --disable-web-security 的无头 Chrome 里打开，模型文本逃出标签上下文 = 任意脚本。
 
 // 净化器：HARDENED_PAIR_TAGS 里有 void 元素（base/link/meta/embed/source）与
 // 自闭合元素（svg/math/template）。压栈前不判自闭合，它们永远弹不出来，
