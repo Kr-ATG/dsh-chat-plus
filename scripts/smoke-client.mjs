@@ -1233,14 +1233,22 @@ if (krEnabled) {
     fail('KrAgentPanel 未装配工具调用卡（缺 KrToolCallsCard 引用或 KR_TOOL_CALLS_CARD_VISIBLE 开关）')
   } else if (!/\.kr-panel__memory-dock \.kr-tools-list[\s\S]{0,160}?max-height: calc\(5 \* var\(--kr-tool-row-h/.test(code)) {
     fail('工具调用卡列表缺「5 行滚动窗口」封顶（全量渲染 + 窗口内滚动，行高随字号轴）')
+  } else if (!/\.kr-tool-card-item \{[\s\S]{0,260}?flex: none/.test(code)) {
+    fail('工具调用卡条目缺 flex:none（overflow:hidden 让 flex 最小尺寸归零，条目会被压扁成 2px 细线，2026-10-09 实测事故）')
   } else if (!/overscroll-behavior: contain/.test(code)) {
     fail('工具调用卡滚动窗口缺 overscroll-behavior: contain（滚到头会带动外层滚动链）')
   } else {
     const cardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrToolCallsCard.tsx'), 'utf8')
     if (!/const \[collapsed, setCollapsed\] = useState\(false\)/.test(cardSrc) || !/\{!collapsed && \(/.test(cardSrc)) {
       fail('工具调用卡默认必须展开（列表全量渲染、5 行窗口滚动），整卡折叠只能是用户点击后的状态')
+    } else if (!/useSteppedFollow\(/.test(cardSrc) || !/data-edges=\{edges\}/.test(cardSrc) || !/onScroll=\{onScroll\}/.test(cardSrc)) {
+      fail('工具调用卡列表缺滚动跟随三件套（useSteppedFollow + onScroll + data-edges，与操作面板同款）')
+    } else if (!/running=\{currentRunning\}/.test(agentSrc)) {
+      fail('KrAgentPanel 未把 currentRunning 传给工具调用卡（收口拉回顶部 / 运行中贴底跟随都靠它）')
+    } else if (!/\.kr-tools-list\[data-edges="both"\]/.test(code)) {
+      fail('工具调用卡列表缺上下缘渐隐遮罩（5 行窗口硬切会留半行字，操作面板同款解法）')
     } else {
-      pass('hook 顺序 / busy 收口 / 大盘 memo / 工具调用卡装配与 5 行滚动窗口在位')
+      pass('hook 顺序 / busy 收口 / 大盘 memo / 工具调用卡装配 + 5 行窗口 + 滚动跟随在位')
     }
   }
 

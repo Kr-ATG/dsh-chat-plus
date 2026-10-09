@@ -924,6 +924,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
           {KR_TOOL_CALLS_CARD_VISIBLE && (
             <KrToolCallsCard
               tools={toolViews}
+              running={currentRunning}
               onInspectCall={(callId) => {
                 try {
                   actStore.handlers().inspectCall(callId)

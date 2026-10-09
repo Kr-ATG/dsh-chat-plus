@@ -12,7 +12,8 @@
  *  2. 点标题行 = 整卡折叠 / 展开（只留标题行），给想彻底让位的人一个出口。
  * 展开单条调用后的详情面板不受 5 行窗口限制（它在行内铺开，列表窗口照旧滚动）。
  */
-import { memo, useState, useCallback } from 'react'
+import { memo, useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { useMotionAllowed, useSteppedFollow } from '../motion-utils.ts'
 
 export interface ToolCallItemView {
   readonly id: string
@@ -33,17 +34,48 @@ export interface ToolCallItemView {
 export interface ToolCallsCardProps {
   readonly tools: readonly ToolCallItemView[]
   readonly onInspectCall?: (callId: string) => void
+  /**
+   * 本轮是否仍在运行。运行中列表贴底跟随新调用（与操作面板同语义），
+   * 收口后拉回顶部——定格内容里用户最想看的是开头那几次调用。
+   */
+  readonly running?: boolean
 }
 
 export const KrToolCallsCard = memo(function KrToolCallsCard({
   tools,
   onInspectCall,
+  running = false,
 }: ToolCallsCardProps) {
   /** 整卡折叠（只留标题行）。默认不折叠：列表全量渲染、5 行窗口内滚动。 */
   const [collapsed, setCollapsed] = useState(false)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [activeTabs, setActiveTabs] = useState<Record<string, 'result' | 'input' | 'raw'>>({})
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+
+  /*
+   * 滚动跟随（与操作面板同款，useSteppedFollow）：
+   *  - 运行中：新调用追加时列表贴底跟随；用户上滚即截停，滚回底部自动恢复；
+   *  - 收口后：拉回顶部（定格里开头那几次调用才是用户想看的）；
+   *  - edges 驱动上下缘渐隐遮罩，硬切半行的观感不再出现。
+   * 探针用「条数 + 末条状态」：新调用追加或末条从 running 翻到 done 都会触发重测。
+   */
+  const followProbe = useMemo(
+    () => `${tools.length}:${tools.length > 0 ? tools[tools.length - 1].status : ''}`,
+    [tools],
+  )
+  const motion = useMotionAllowed(true)
+  const { ref: listRef, onScroll, onWheel, edges } = useSteppedFollow(followProbe, running && !collapsed, motion)
+
+  const wasRunningRef = useRef(running)
+  useEffect(() => {
+    const was = wasRunningRef.current
+    wasRunningRef.current = running
+    if (!was || running) return
+    const el = listRef.current
+    if (el === null) return
+    el.scrollTop = 0
+    el.dispatchEvent(new Event('scroll'))
+  }, [running, listRef])
 
   if (tools.length === 0) return null
 
@@ -132,7 +164,13 @@ export const KrToolCallsCard = memo(function KrToolCallsCard({
       </div>
 
       {!collapsed && (
-        <div className="kr-tools-list">
+        <div
+          className="kr-tools-list"
+          ref={listRef}
+          onScroll={onScroll}
+          onWheel={onWheel}
+          data-edges={edges}
+        >
           {tools.map((tool) => {
             const isExpanded = expandedIds.has(tool.id)
             const isFailed = tool.status === 'failed'

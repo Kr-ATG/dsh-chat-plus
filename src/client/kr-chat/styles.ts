@@ -1621,9 +1621,42 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   flex-direction: column;
   gap: 2px;
   margin-top: 2px;
+  /* 纵向可滚、横向钳死（与操作面板 .kr-plain-list 同口径）；滚动条走大盘
+     统一那套（文件末尾「大盘统一简约滚动条」，含本列表的选择器）。 */
+  overflow-x: hidden;
+  padding-right: 2px;
+}
+
+/*
+ * 上下缘按滚动位置渐隐（与操作面板同款，data-edges 由 useSteppedFollow 给出）。
+ * 5 行窗口必然硬切内容，没有遮罩时顶部会留半行被切掉的字——操作面板当年踩过
+ * 同一个坑（用户截图里就是硬切效果），这里直接复用它的解法。
+ */
+.kr-tools-list[data-edges="both"] {
+  -webkit-mask-image: linear-gradient(transparent 0, black 16px, black calc(100% - 16px), transparent 100%);
+  mask-image: linear-gradient(transparent 0, black 16px, black calc(100% - 16px), transparent 100%);
+}
+
+.kr-tools-list[data-edges="top"] {
+  -webkit-mask-image: linear-gradient(transparent 0, black 16px, black 100%);
+  mask-image: linear-gradient(transparent 0, black 16px, black 100%);
+}
+
+.kr-tools-list[data-edges="bottom"] {
+  -webkit-mask-image: linear-gradient(black 0, black calc(100% - 16px), transparent 100%);
+  mask-image: linear-gradient(black 0, black calc(100% - 16px), transparent 100%);
+}
+
+@media (forced-colors: active) {
+  .kr-tools-list { -webkit-mask-image: none !important; mask-image: none !important; }
 }
 
 .kr-tool-card-item {
+  /* 关键：flex: none。父级 .kr-tools-list 是 flex column 且带 max-height 滚动窗口，
+     而本元素 overflow:hidden 会让 flex 自动最小尺寸归零 —— 不写这条，条目会被
+     flex-shrink 按比例压扁去「凑」窗口高度（85 条时每条压成 2px，只剩 failed 的
+     红边，2026-10-09 实测复现）。flex:none 后条目保持内容高度，超出由窗口滚动。 */
+  flex: none;
   border-radius: 6px;
   background: transparent;
   border: 1px solid transparent;
@@ -3254,11 +3287,16 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
    依赖 scroll-driven animation（支持面还不够）。淡色常驻 + hover 提亮是同等
    克制、零 JS 的做法。 */
 
-/* Chromium / WebKit */
+/* Chromium / WebKit
+   ⚠ 2026-10-09 修复：这四条规则的选择器组后面历史上漏了左花括号，整组被浏览器
+   当语法错误吞掉——细滚动条样式从未生效过（右栏各处一直是系统默认粗条）。
+   补上左花括号，并把工具调用卡的 5 行滚动窗口并入同组。
+   （注释里不写花括号字面量：本文件是模板字符串，反引号会截断字符串。） */
 .kr-panel__scroll::-webkit-scrollbar,
 .kr-reasoning-view::-webkit-scrollbar,
 .kr-plain-list::-webkit-scrollbar,
 .kr-memory__list::-webkit-scrollbar,
+.kr-panel__memory-dock .kr-tools-list::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
@@ -3267,6 +3305,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 .kr-reasoning-view::-webkit-scrollbar-track,
 .kr-plain-list::-webkit-scrollbar-track,
 .kr-memory__list::-webkit-scrollbar-track,
+.kr-panel__memory-dock .kr-tools-list::-webkit-scrollbar-track {
   background: transparent;
 }
 
@@ -3274,6 +3313,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 .kr-reasoning-view::-webkit-scrollbar-thumb,
 .kr-plain-list::-webkit-scrollbar-thumb,
 .kr-memory__list::-webkit-scrollbar-thumb,
+.kr-panel__memory-dock .kr-tools-list::-webkit-scrollbar-thumb {
   background-color: var(--kr-scrollbar-thumb);
   /*
    * 这里**不能**再叠 border + background-clip: content-box 去「把 6px 槽收成
@@ -3289,6 +3329,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 .kr-reasoning-view::-webkit-scrollbar-thumb:hover,
 .kr-plain-list::-webkit-scrollbar-thumb:hover,
 .kr-memory__list::-webkit-scrollbar-thumb:hover,
+.kr-panel__memory-dock .kr-tools-list::-webkit-scrollbar-thumb:hover {
   background-color: var(--kr-scrollbar-thumb-hover);
 }
 
@@ -3296,6 +3337,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 .kr-reasoning-view::-webkit-scrollbar-corner,
 .kr-plain-list::-webkit-scrollbar-corner,
 .kr-memory__list::-webkit-scrollbar-corner,
+.kr-panel__memory-dock .kr-tools-list::-webkit-scrollbar-corner {
   background: transparent;
 }
 
@@ -3311,6 +3353,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   .kr-reasoning-view,
   .kr-plain-list,
   .kr-memory__list,
+  .kr-panel__memory-dock .kr-tools-list {
     scrollbar-width: thin;
     scrollbar-color: var(--kr-scrollbar-thumb) transparent;
   }
@@ -3323,6 +3366,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   .kr-reasoning-view::-webkit-scrollbar-thumb,
   .kr-plain-list::-webkit-scrollbar-thumb,
   .kr-memory__list::-webkit-scrollbar-thumb,
+  .kr-panel__memory-dock .kr-tools-list::-webkit-scrollbar-thumb {
     background-color: CanvasText;
   }
 }
@@ -3332,6 +3376,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   .kr-reasoning-view::-webkit-scrollbar-thumb,
   .kr-plain-list::-webkit-scrollbar-thumb,
   .kr-memory__list::-webkit-scrollbar-thumb,
+  .kr-panel__memory-dock .kr-tools-list::-webkit-scrollbar-thumb {
     transition: none;
   }
 }
@@ -3384,7 +3429,10 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   max-height: calc(5 * var(--kr-tool-row-h, 34px) + 8px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
+  /* ⚠ 这里**不能**写 scrollbar-width / scrollbar-color：Blink 121+ 一旦看到
+     非 auto 的标准滚动条属性，就会反过来忽略 ::-webkit-scrollbar 伪元素
+     （本文件 3265 行注释警告过同一个坑）。细滚动条只能走伪元素那一组；
+     Firefox 的兜底在下方 @supports not selector(::-webkit-scrollbar) 里。 */
 }
 
 /* 记忆卡「没有本会话新增就整卡不渲染」时，dock 里一个子节点都不剩。
@@ -3816,8 +3864,8 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   to { opacity: 0; transform: translateY(6px) scale(0.985); }
 }
 
-  color: var(--dsw-alias-label-primary);
-}
+/* （2026-10-09 清理：此处历史上残留一段失去选择器的孤儿声明体——HEAD 里就有，
+   浏览器整块丢弃；.kr-memory__link--danger 的完整规则在文件前部，功能无损。） */
 
 @media (prefers-reduced-motion: reduce) {
   .kr-memory__row { animation: none; transition: background-color 0.12s linear; }
