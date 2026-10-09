@@ -22,6 +22,35 @@ import { latestChatSnapshot, latestChatSessionId, clearLatestChatSnapshot, subsc
 let isSwitchingToKr = false
 
 /**
+ * 当前控制器实例令牌。
+ *
+ * DSH 的 profile 默认 `patchReload: "live"`：插件重建后页面会再加载一份新的
+ * client bundle，而**旧 bundle 的模块级状态与 setInterval 不会被回收**——旧实例
+ * 仍在跑它的 250ms syncDom。两份实例对 `data-dsh-kr-chat` 各写各的（store 未共享
+ * 时一个 set、一个 remove），左栏就在双栏/单栏之间每 250ms 对撞一次。
+ *
+ * 令牌用于「归属权纠正」：DOM 上的按钮与处理器只认最新实例。
+ */
+const CONTROLLER_GLOBAL_KEY = '__dshChatPlusKrController__'
+/**
+ * Seeker 按钮点击的唯一分派口（存在 window 上，跨 bundle 实例共享）。
+ *
+ * 按钮是 DOM 节点，可能由**上一份 bundle** 创建并绑着它的闭包。那个闭包读的是
+ * 旧实例的模块级变量；即使 store 已共享，闭包里的其它状态（面板根、上次会话 id）
+ * 仍是旧的。所以按钮 onlick 一律只调这个分派器，而分派器由**当前生效实例**
+ * 在每次 syncKrTab 时刷新 —— 点谁都走最新逻辑。
+ */
+const TAB_CLICK_GLOBAL_KEY = '__dshChatPlusKrTabClick__'
+
+interface KrControllerHandle {
+  /** 全局递增的实例号（存在 window 上，跨 bundle 实例唯一）。 */
+  token: number
+  /** 本实例的 DOM 同步函数；旧实例可经它转发，避免持有过期闭包。 */
+  syncDom: () => void
+  dispose: () => void
+}
+
+/**
  * 当前会话的最新轮次号。
  *
  * 空白新会话没有任何 navigation 条目，此时返回 1（面板随即走空态），
@@ -125,24 +154,21 @@ function syncKrTab(tablist: HTMLElement): void {
     btn.textContent = 'Seeker'
     btn.onclick = (e) => {
       e.stopPropagation()
-      isSwitchingToKr = true
-      try {
-        store.setActiveTab('kr')
-        // 仅当当前处于原生“轨迹”视图时，才需要触发原生“对话”按钮切回底层 chat 流
-        const trajectoryBtn = Array.from(tablist.querySelectorAll<HTMLButtonElement>('button[role="tab"]'))
-          .find(b => b.id !== 'kr-chat-tab-btn' && b.textContent?.trim() === '轨迹')
-        const isTrajectoryActive = trajectoryBtn?.getAttribute('aria-selected') === 'true'
-          || trajectoryBtn?.className.split(' ').includes(activeClass)
-        if (isTrajectoryActive) {
-          const chatBtn = Array.from(tablist.querySelectorAll<HTMLButtonElement>('button[role="tab"]'))
-            .find(b => b.id !== 'kr-chat-tab-btn' && b.textContent?.trim() === '对话')
-          chatBtn?.click()
-        }
-      } finally {
-        setTimeout(() => { isSwitchingToKr = false }, 150)
+      /*
+       * 一律走 window 上那个「当前生效实例」的分派器。
+       *
+       * 按钮是 DOM 节点：live reload 之后它可能仍是**上一份 bundle** 创建的，
+       * 绑着的 onclick 属于旧实例闭包（旧的面板根、旧的上次会话 id）。旧实例
+       * 已被接管，让它继续处理点击就会写回旧状态 —— 这正是「切回 Seeker 一直
+       * 跳」的另一半。分派器每 250ms 由生效实例刷新，点谁都执行最新逻辑。
+       */
+      const dispatch = (window as unknown as Record<string, unknown>)[TAB_CLICK_GLOBAL_KEY]
+      if (typeof dispatch === 'function') {
+        ;(dispatch as (el: HTMLElement) => void)(tablist)
+        return
       }
-      syncKrTab(tablist)
-      syncDom()
+      // 兜底（分派器尚未登记，例如刚注入的那一帧）：至少把视图切到 Seeker。
+      getKrChatStore().setActiveTab('kr')
     }
     tablist.insertBefore(btn, tablist.firstChild)
   }
@@ -216,23 +242,72 @@ export function KrPanelSystem() {
 }
 
 let mounted = false
-let panelRoot: Root | null = null
-let currentContainer: HTMLElement | null = null
-/** 上次已交给 React 根渲染的会话 id，用于会话切换时强制整树刷新。 */
-let lastRenderedSessionId: string | null | undefined = undefined
-/** 上次的「会话是否有内容」闸门值，翻转时强制重渲染（见 syncDom）。 */
-let lastContentGate: boolean | undefined = undefined
+
+/**
+ * 跨实例共享的面板宿主状态。
+ *
+ * 为什么放在 window 上而不是模块级：live reload 会让两份 bundle 各有一份模块级
+ * 变量。若各自持有 `panelRoot`，两边都会往同一个 `#dsh-kr-panel-container` 上
+ * `createRoot` —— React 18 对同一容器重复 createRoot 会直接告警并让两棵树互相
+ * 覆盖，观感就是右栏内容反复重建。收敛成一份之后，「谁是当前根」全页面唯一。
+ */
+const PANEL_HOST_GLOBAL_KEY = '__dshChatPlusKrPanelHost__'
+
+interface KrPanelHost {
+  root: Root | null
+  container: HTMLElement | null
+  /** 上次已交给 React 根渲染的会话 id，用于会话切换时强制整树刷新。 */
+  lastRenderedSessionId: string | null | undefined
+  /** 上次的「会话是否有内容」闸门值，翻转时强制重渲染（见 syncDom）。 */
+  lastContentGate: boolean | undefined
+}
+
+function getPanelHost(): KrPanelHost {
+  const holder = window as unknown as Record<string, unknown>
+  const existing = holder[PANEL_HOST_GLOBAL_KEY] as KrPanelHost | undefined
+  if (existing && typeof existing === 'object') return existing
+  const created: KrPanelHost = {
+    root: null,
+    container: null,
+    lastRenderedSessionId: undefined,
+    lastContentGate: undefined,
+  }
+  holder[PANEL_HOST_GLOBAL_KEY] = created
+  return created
+}
 
 export function mountKrChatController(): void {
   if (mounted || typeof document === 'undefined') return
   mounted = true
 
+  /*
+   * 接管前任实例：live reload 之后旧 bundle 的 setInterval / 事件监听仍在跑，
+   * 不主动拆掉就会有两个 syncDom 同时写 DOM 与 body 属性（用户报的
+   * 「切回 Seeker 一直跳」）。旧实例把自己登记的 dispose 放在 window 上，
+   * 新实例挂载时先调用它，然后登记自己 —— 全页面任意时刻只有一个控制器在跑。
+   */
+  const holder = window as unknown as Record<string, unknown>
+  const previous = holder[CONTROLLER_GLOBAL_KEY] as KrControllerHandle | undefined
+  const token = (typeof previous?.token === 'number' ? previous.token : 0) + 1
+  if (previous && typeof previous.dispose === 'function') {
+    try { previous.dispose() } catch { /* 旧实例已半死不活，忽略 */ }
+  }
+
   const store = getKrChatStore()
   store.setActiveTab('kr')
 
+  /** 本实例是否仍是当前生效的控制器（旧实例经此让位，不再写 DOM）。 */
+  const owns = (): boolean => {
+    const current = holder[CONTROLLER_GLOBAL_KEY] as KrControllerHandle | undefined
+    return current?.token === token
+  }
+
+  const disposers: Array<() => void> = []
+
   // 全局事件委托：监听原生「对话」与「轨迹」按钮的点击事件，同步 activeTab 状态
-  document.addEventListener('click', (e: MouseEvent) => {
+  const onTabClick = (e: MouseEvent): void => {
     if (isSwitchingToKr || !e.isTrusted) return
+    if (!owns()) return
     const target = (e.target as HTMLElement)?.closest<HTMLButtonElement>('header [role="tablist"] button[role="tab"]')
     if (!target || target.id === 'kr-chat-tab-btn') return
 
@@ -246,11 +321,13 @@ export function mountKrChatController(): void {
 
     const tablist = document.querySelector<HTMLElement>('header:not(.wb-header) [role="tablist"]')
     if (tablist) syncKrTab(tablist)
-  }, true)
+  }
+  document.addEventListener('click', onTabClick, true)
+  disposers.push(() => document.removeEventListener('click', onTabClick, true))
 
   // 监听侧边栏「新会话」点击：立即清掉当前大盘（不等新会话数据到位），
   // 随后再同步 DOM，保证点下的一瞬间右侧就已清空。
-  document.addEventListener('click', (e: MouseEvent) => {
+  const onNewSessionClick = (e: MouseEvent): void => {
     const target = e.target as HTMLElement | null
     if (!target) return
     const btn = target.closest('button, div, span, a')
@@ -260,11 +337,13 @@ export function mountKrChatController(): void {
       setTimeout(syncDom, 50)
       setTimeout(syncDom, 200)
     }
-  }, true)
+  }
+  document.addEventListener('click', onNewSessionClick, true)
+  disposers.push(() => document.removeEventListener('click', onNewSessionClick, true))
 
-  window.addEventListener('popstate', () => {
-    setTimeout(syncDom, 50)
-  })
+  const onPopState = (): void => { setTimeout(syncDom, 50) }
+  window.addEventListener('popstate', onPopState)
+  disposers.push(() => window.removeEventListener('popstate', onPopState))
 
   /*
    * 对话流点击 → 切换右栏大盘轮次。
@@ -285,7 +364,8 @@ export function mountKrChatController(): void {
    * 用 closest 而不是判断 e.target 自己：用户消息气泡里还有时间戳、头像等
    * 子元素，点在它们身上同样算「点在提问上」。
    */
-  document.addEventListener('click', (e: MouseEvent) => {
+  const onFlowClick = (e: MouseEvent): void => {
+    if (!owns()) return
     const state = store.snapshot
     if (state.activeTab !== 'kr') return
 
@@ -314,9 +394,12 @@ export function mountKrChatController(): void {
     if (Number.isFinite(turn) && turn > 0) {
       store.setSelectedTurn(turn)
     }
-  }, true)
+  }
+  document.addEventListener('click', onFlowClick, true)
+  disposers.push(() => document.removeEventListener('click', onFlowClick, true))
 
   const syncDom = () => {
+    if (!owns()) return
     const tablist = document.querySelector<HTMLElement>('header:not(.wb-header) [role="tablist"]')
     const turns = document.querySelectorAll('[data-chat-turn]')
     // 与 KrPanelSystem 同口径：会话 id 已登记即视为绑定了真实会话
@@ -330,15 +413,19 @@ export function mountKrChatController(): void {
 
     const isKr = store.snapshot.activeTab === 'kr'
 
-    if (isKr) {
-      if (document.body.getAttribute('data-dsh-kr-chat') !== 'true') {
-        document.body.setAttribute('data-dsh-kr-chat', 'true')
-      }
-    } else {
-      if (document.body.getAttribute('data-dsh-kr-chat') !== null) {
-        document.body.removeAttribute('data-dsh-kr-chat')
-      }
-    }
+    /*
+     * body 的 data-dsh-kr-chat **不在这里写**。
+     *
+     * 这里原来每 250ms 无条件按本地 store 写/删该属性，于是它与 store 内部的
+     * syncBodyAttribute 形成两个写入点：一旦 live reload 残留了第二份实例、
+     * 两份 store 的 activeTab 分叉（一份 kr、一份 chat），左栏就在双栏与单栏
+     * 之间每 250ms 对撞一次 —— 实测 30s 翻转 210 次，就是用户报的
+     * 「切回 Seeker 一直跳」。
+     *
+     * 属性现在**只由 store 在 activeTab 真正变化时写一次**（syncBodyAttribute），
+     * 这里不再轮询写。轮询只保留幂等的 DOM 同步（按钮类名、容器 display、
+     * 轮次高亮），那些写入值相同、不会互相打架。
+     */
 
     // 若当前脱离了会话（如回到新会话页），重置已选轮次
     if (!hasActiveChat && store.snapshot.selectedTurn !== null) {
@@ -365,6 +452,7 @@ export function mountKrChatController(): void {
     const content = document.querySelector<HTMLElement>('[data-conversation-content]')
     if (!content) return
 
+    const host = getPanelHost()
     let container = document.getElementById('dsh-kr-panel-container')
     if (!hasActiveChat || store.snapshot.activeTab !== 'kr') {
       if (container && container.style.display !== 'none') {
@@ -375,23 +463,23 @@ export function mountKrChatController(): void {
 
     // 会话身份变化时，令常驻的 React 根重新读取会话状态。
     // 切换到有效会话时，默认恢复进入 Seeker (KR) 模式
-    if (lastRenderedSessionId !== latestChatSessionId) {
-      lastRenderedSessionId = latestChatSessionId
+    if (host.lastRenderedSessionId !== latestChatSessionId) {
+      host.lastRenderedSessionId = latestChatSessionId
       if (latestChatSessionId !== null && store.snapshot.activeTab !== 'kr') {
         store.setActiveTab('kr')
       }
-      if (panelRoot) {
-        panelRoot.render(<KrPanelSystem />)
+      if (host.root) {
+        host.root.render(<KrPanelSystem />)
       }
     }
 
     // 「空白新会话」闸门翻转（点开新对话 ↔ 发出首条 / 切回有历史的会话）时同样
     // 强制重渲染：状态广播不一定恰好在翻转那一刻到达，这里兜住 250ms 的确定性。
     const contentGate = hasConversationContent()
-    if (contentGate !== lastContentGate) {
-      lastContentGate = contentGate
-      if (panelRoot) {
-        panelRoot.render(<KrPanelSystem />)
+    if (contentGate !== host.lastContentGate) {
+      host.lastContentGate = contentGate
+      if (host.root) {
+        host.root.render(<KrPanelSystem />)
       }
     }
 
@@ -404,9 +492,11 @@ export function mountKrChatController(): void {
       container.style.display = 'contents'
       content.appendChild(container)
 
-      if (panelRoot) {
-        try { panelRoot.unmount() } catch {}
-        panelRoot = null
+      // 容器换新 → 旧根挂在已脱离文档的节点上，先卸掉再重建，
+      // 否则 React 会对同一逻辑树重复挂载（内容闪两份）。
+      if (host.root) {
+        try { host.root.unmount() } catch {}
+        host.root = null
       }
     } else {
       if (container.style.display !== 'contents') {
@@ -414,13 +504,56 @@ export function mountKrChatController(): void {
       }
     }
 
-    if (!panelRoot && container) {
-      panelRoot = createRoot(container)
-      panelRoot.render(<KrPanelSystem />)
-      currentContainer = container
+    if (!host.root && container) {
+      host.root = createRoot(container)
+      host.root.render(<KrPanelSystem />)
+      host.container = container
     }
   }
 
+  /**
+   * Seeker 按钮点击的实现体（由 window 分派器转调，永远是生效实例这一份）。
+   *
+   * 除了切 store，还要处理「当前停原生『轨迹』视图」这一种情况：轨迹与对话
+   * 是官方两个真实视图，Seeker 复用对话视图，所以必须先把官方切回「对话」。
+   */
+  const handleKrTabClick = (tablist: HTMLElement): void => {
+    isSwitchingToKr = true
+    try {
+      store.setActiveTab('kr')
+      const activeClass = 'wSkVaW_tabActive'
+      // 仅当当前处于原生“轨迹”视图时，才需要触发原生“对话”按钮切回底层 chat 流
+      const trajectoryBtn = Array.from(tablist.querySelectorAll<HTMLButtonElement>('button[role="tab"]'))
+        .find(b => b.id !== 'kr-chat-tab-btn' && b.textContent?.trim() === '轨迹')
+      const isTrajectoryActive = trajectoryBtn?.getAttribute('aria-selected') === 'true'
+        || trajectoryBtn?.className.split(' ').includes(activeClass)
+      if (isTrajectoryActive) {
+        const chatBtn = Array.from(tablist.querySelectorAll<HTMLButtonElement>('button[role="tab"]'))
+          .find(b => b.id !== 'kr-chat-tab-btn' && b.textContent?.trim() === '对话')
+        chatBtn?.click()
+      }
+    } finally {
+      setTimeout(() => { isSwitchingToKr = false }, 150)
+    }
+    syncKrTab(tablist)
+    syncDom()
+  }
+
+  holder[TAB_CLICK_GLOBAL_KEY] = handleKrTabClick
+
+  // 登记自身供后续实例接管（live reload 场景）。
+  holder[CONTROLLER_GLOBAL_KEY] = {
+    token,
+    syncDom,
+    dispose: () => {
+      for (const off of disposers) {
+        try { off() } catch { /* 单个解绑失败不影响其余 */ }
+      }
+      if (intervalId !== 0) window.clearInterval(intervalId)
+      // 只让位、不拆 UI：新实例随即接管并自行重绘，拆掉反而闪一下。
+    },
+  } satisfies KrControllerHandle
+
+  const intervalId = window.setInterval(syncDom, 250)
   syncDom()
-  setInterval(syncDom, 250)
 }
