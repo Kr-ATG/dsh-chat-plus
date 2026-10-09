@@ -2601,7 +2601,11 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   height: calc(6px + var(--dsh-content-font-delta, 0px) * 0.45);
   border-radius: 50%;
   background: var(--dsw-alias-label-caption);
-  opacity: .5;
+  /* 结束态的点原先压到 .5：caption 本就是全套最淡一档，再对半砍在白底上几乎
+      invisible（用户点名「视觉上看不出来」）。抬到 .75 —— 仍明显弱于进行中的
+     主色实点，但扫读时能认出"这里有个结束的行"。 */
+  opacity: .75;
+  transition: opacity .2s ease, background-color .2s ease;
 }
 
 .kr-subs-row[data-running="true"] .kr-subs-row__dot {
@@ -2648,10 +2652,19 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 
 .kr-subs-row__state {
   flex: none;
-  /* 「进行中 / 已结束」文字状态：与上面那枚读数同一档。 */
+  /* 「进行中 / 已结束」文字状态：与上面那枚读数同一档字号，但字色抬一档 ——
+     caption 是全套最淡的 alias，10.5px 小字再叠最淡色，白底上等于隐形
+     （用户点名「已结束标签过于淡」）。tertiary 比 caption 深两级，仍弱于
+     名字（secondary），层级没乱：名字 > 状态 > 读数。 */
   font-size: var(--kr-fs-10-5, 10.5px);
-  color: var(--dsw-alias-label-caption);
+  color: var(--dsw-alias-label-tertiary);
   font-variant-numeric: tabular-nums;
+  transition: color .2s ease;
+}
+
+/* 进行中：状态文字比结束态再亮一档，与主色脉冲点同向，扫读时"谁还在跑"一眼可分。 */
+.kr-subs-row[data-running="true"] .kr-subs-row__state {
+  color: var(--dsw-alias-label-secondary);
 }
 
 /*
