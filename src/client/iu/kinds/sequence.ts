@@ -499,19 +499,20 @@ const CSS = [
   '.dtt-iu__seq-count { margin-left: auto; font-size: calc(11px * var(--iu-text-scale, 1));',
   '  font-variant-numeric: tabular-nums; opacity: .6; white-space: nowrap; padding-left: 6px; }',
   /* 画布：时序图常宽，wrap 横向滚动 */
-  '.dtt-iu__seq-wrap { overflow-x: auto; overflow-y: hidden; margin: 2px 0 4px;',
-  '  border: 1px solid ' + BORDER + '; border-radius: 10px; padding: 8px 10px;',
-  '  background: var(--dsw-alias-bg-layer-1, rgba(127,127,127,.03)); }',
+  '.dtt-iu__seq-wrap { overflow-x: auto; overflow-y: hidden; margin: 4px 0 6px;',
+  '  border: 1px solid ' + BORDER + '; border-radius: 12px; padding: 10px 12px;',
+  '  background: var(--dsw-alias-bg-layer-1, rgba(127,127,127,.03));',
+  '  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary, #2d3142) 4%, transparent); }',
   '.dtt-iu__seq { display: block; width: 100%; min-width: 420px; height: auto; }',
   /* 生命线：竖直虚线 */
-  '.dtt-iu__seq-life { stroke: ' + INK2 + '; stroke-width: 1; stroke-dasharray: 4 4; opacity: .32; }',
-  /* 头盒：tone 四色（描边/文字语义色，底色 color-mix 淡化） */
-  '.dtt-iu__seq-head rect { fill: ' + PAPER + '; stroke: var(--iu-seq-tone); stroke-width: 1.4; rx: 7;',
+  '.dtt-iu__seq-life { stroke: ' + INK2 + '; stroke-width: 1.1; stroke-dasharray: 4 4; opacity: .34; }',
+  /* 头盒：tone 四色（描边/文字语义色，底色 color-mix 淡化 + 顶边强调） */
+  '.dtt-iu__seq-head rect { fill: ' + PAPER + '; stroke: var(--iu-seq-tone); stroke-width: 1.5; rx: 8;',
   '  transition: filter .18s ease, stroke-width .18s ease;',
-  '  filter: drop-shadow(0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary, #2d3142) 12%, transparent)); }',
-  '.dtt-iu__seq-head text { fill: var(--iu-seq-tone); font-weight: 600; text-anchor: middle; letter-spacing: -.01em;',
+  '  filter: drop-shadow(0 2px 6px color-mix(in srgb, var(--iu-seq-tone) 22%, transparent)); }',
+  '.dtt-iu__seq-head text { fill: var(--iu-seq-tone); font-weight: 700; text-anchor: middle; letter-spacing: -.01em;',
   '  font-size: calc(12px * var(--iu-text-scale, 1)); }',
-  '.dtt-iu__seq-head--foot rect { opacity: .85; }',
+  '.dtt-iu__seq-head--foot rect { opacity: .8; }',
   /* 消息组：step 播放的淡入靠 opacity transition；入场错峰动画（--i）只对
      未隐藏的消息挂——若对 data-hidden="1" 的元素也跑动画，animation 的合成
      优先级高于普通声明，隐藏消息会在入场窗口内以 opacity .55→1 闪现。
@@ -525,11 +526,11 @@ const CSS = [
      ⚠ marker 里的 polygon 用的是字面 #4f5d75（marker 内部不继承元素 stroke，
      context-stroke 兼容面太窄）；与 INK2 的兜底色同源，深色主题下箭头略暗
      但可见——截图与对话流一致优先。 */
-  '.dtt-iu__seq-arrow { fill: none; stroke: ' + INK2 + '; stroke-width: 1.4; stroke-linecap: round;',
+  '.dtt-iu__seq-arrow { fill: none; stroke: ' + INK2 + '; stroke-width: 1.5; stroke-linecap: round;',
   '  transition: stroke .18s ease, stroke-width .18s ease; }',
-  '.dtt-iu__seq-msg[data-ret="1"] .dtt-iu__seq-arrow { opacity: .88; }',
+  '.dtt-iu__seq-msg[data-ret="1"] .dtt-iu__seq-arrow { opacity: .9; }',
   /* 标签：底色小块防压线 + 文本（SVG text 字号同样乘 --iu-text-scale） */
-  '.dtt-iu__seq-lbg { fill: ' + PAPER + '; stroke: ' + BORDER + '; stroke-width: .8; rx: 4;',
+  '.dtt-iu__seq-lbg { fill: ' + PAPER + '; stroke: ' + BORDER + '; stroke-width: .8; rx: 5;',
   '  transition: fill .18s ease, stroke .18s ease; }',
   '.dtt-iu__seq-ltext { fill: ' + INK2 + '; text-anchor: middle;',
   '  font-size: calc(11px * var(--iu-text-scale, 1)); transition: fill .18s ease; }',
