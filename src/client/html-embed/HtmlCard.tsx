@@ -26,6 +26,7 @@ import { assembleHtmlDocument, BRIDGE_TO_FRAME, BRIDGE_TO_HOST, MAX_FRAME_HEIGHT
 import {
   HE_ZOOM_DEFAULT, nextHeZoom, readHeZoom, writeHeZoom, type HeZoom,
 } from '../iu/prefs.ts'
+import { lockBodyScroll } from '../shared/scroll-lock.ts'
 
 /** 主题属性（与官方 ui-theme boot 脚本一致）。 */
 const THEME_ATTR = 'data-ds-dark-theme'
@@ -320,17 +321,26 @@ export const HtmlCard = memo(function HtmlCard({ spec, pending = false, onFill }
     if (reports.current > 1) setAnimated(true)
   }, [])
 
-  // 全屏时锁滚动，并支持 Esc 退出。
+  /*
+   * 全屏时锁滚动，并支持 Esc 退出。
+   *
+   * ⚠ 两条踩过的坑，改这段前先读：
+   *  1. **全屏态不得持久化**。它给 body 挂 overflow:hidden，存进 localStorage
+   *     后刷新即恢复全屏 = 用户看到「整页滚不动」，且完全不知道是自己上次开的。
+   *  2. **卸载必须还原**。卡片会随消息重渲染被卸载，不还原就让 body 永久停在
+   *     overflow:hidden（表现同样是「对话流滚不动」）。
+   *     锁走共用的引用计数实现（shared/scroll-lock.ts），多卡同时全屏也不会
+   *     互相把对方的锁放开；释放函数在 effect cleanup 里一定被调到。
+   */
   useEffect(() => {
     if (!fullscreen) return
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') setFullscreen(false)
     }
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    const release = lockBodyScroll()
     document.addEventListener('keydown', onKey)
     return () => {
-      document.body.style.overflow = prevOverflow
+      release()
       document.removeEventListener('keydown', onKey)
     }
   }, [fullscreen])

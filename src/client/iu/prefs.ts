@@ -22,11 +22,17 @@ export type IuZoom = (typeof IU_ZOOM_STEPS)[number]
 /** 默认缩放（原始大小）。 */
 export const IU_ZOOM_DEFAULT: IuZoom = 1
 
-/** 全屏开关的持久化键。 */
-const FS_KEY = 'dsh.chat_plus.iu_fullscreen'
-
 /** 缩放档位的持久化键。 */
 const ZOOM_KEY = 'dsh.chat_plus.iu_zoom'
+
+/*
+ * ⚠ 全屏状态**刻意不持久化**（这里曾经有过 FS_KEY，已删除）。
+ *
+ * 全屏态会给 body 挂 `overflow:hidden`。一旦把它存进 localStorage，刷新后
+ * 自动恢复全屏就等于「整页滚不动」——用户根本不知道是自己上次开了全屏，
+ * 只会觉得对话流坏了。全屏是「当下这一眼」的临时状态，每次进页面从关闭开始。
+ * 缩放不同：它只改字号，不锁滚动，持久化是纯收益。
+ */
 
 /**
  * localStorage 的防御式读写。
@@ -50,16 +56,6 @@ function writeRaw(key: string, value: string): void {
   } catch {
     // 写不进去就算了（配额满 / 无痕模式），不影响本次交互。
   }
-}
-
-/** 读全屏偏好（默认关：卡片默认内嵌在对话流里）。 */
-export function readIuFullscreen(): boolean {
-  return readRaw(FS_KEY) === '1'
-}
-
-/** 写全屏偏好。 */
-export function writeIuFullscreen(on: boolean): void {
-  writeRaw(FS_KEY, on ? '1' : '0')
 }
 
 /**

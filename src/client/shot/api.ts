@@ -45,6 +45,13 @@ export interface RenderRequest {
   html?: string
   /** 会话工作目录：host 用它解析正文里的相对 HTML 路径做内嵌预览。 */
   cwd?: string
+  /**
+   * 内容缩放档位（与对话流里的持久化缩放同源）。
+   *
+   * 截图必须跟着用户在对话流里选的缩放走，否则「所见」与「所得」不一致：
+   * 用户在 150% 下看着正好，截出来却是 100% 的小字。
+   */
+  zoom?: number
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {

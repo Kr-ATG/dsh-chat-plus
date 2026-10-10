@@ -205,6 +205,19 @@ function parseTheme(input: unknown): ShotTheme {
   return input === 'dark' || input === 'glass' || input === 'glass-dark' || input === 'reader' ? input : 'light'
 }
 
+/**
+ * 规整内容缩放档位（缺省 1）。
+ *
+ * 钳到 [0.5, 3]：这个值来自请求体，脏数据不该把截图撑成一屏一个字。
+ * 与 client 端 prefs.ts 的档位表是「宽松校验」关系——那边保证只发合法档位，
+ * 这边不假设请求一定来自自家前端（路由是公开的）。
+ */
+function parseZoom(input: unknown): number {
+  const value = typeof input === 'number' ? input : Number(input)
+  if (!Number.isFinite(value) || value <= 0) return 1
+  return Math.min(3, Math.max(0.5, value))
+}
+
 /** 文件名安全化（用标题做文件名，去掉路径与非法字符）。 */
 function safeFileName(title: string): string {
   const cleaned = title
@@ -260,6 +273,7 @@ async function handleRender(req: IncomingMessage, res: ServerResponse): Promise<
           ? body.title.trim()
           : deriveTitle(messages[0]!.text, messages[0]!.role),
         label: typeof body.label === 'string' ? body.label : '',
+        zoom: parseZoom(body.zoom),
       })
     const html = card !== null ? card.html : (editedHtml as string)
     const base64 = await renderPng({

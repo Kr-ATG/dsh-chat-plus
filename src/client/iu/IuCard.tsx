@@ -31,8 +31,9 @@ import type { IuState } from './kinds/contract.ts'
 import { iuKindOf } from './kinds/registry.ts'
 import { IU_BODIES } from './kinds/bodies.ts'
 import { iuStateKey, readIuState, writeIuState } from './state.ts'
+import { lockBodyScroll } from '../shared/scroll-lock.ts'
 import {
-  IU_ZOOM_DEFAULT, nextIuZoom, readIuFullscreen, readIuZoom, writeIuFullscreen, writeIuZoom,
+  IU_ZOOM_DEFAULT, nextIuZoom, readIuZoom, writeIuZoom,
   type IuZoom,
 } from './prefs.ts'
 
@@ -255,13 +256,15 @@ function IuCardLive({ spec, onFill }: {
   }, [])
 
   /*
-   * 全屏与缩放：两项都是**纯呈现偏好**，走 localStorage（见 prefs.ts 头注释）。
+   * 全屏与缩放：缩放是**纯呈现偏好**，走 localStorage（刷新即记住）。
    *
-   * 全屏层复用同一份 `state` / `setState` —— 内嵌卡与全屏卡同时挂载、共享状态，
-   * 在全屏里拖看板、勾清单，退出全屏后内嵌卡立刻是同一个结果（不需要任何同步代码）。
+   * ⚠ 全屏**不持久化**（曾经持久化过，是个 bug）：全屏态会给 body 挂
+   * `overflow:hidden`，若刷新后自动恢复成全屏，用户会看到「整页滚不动」——
+   * 而且他并不知道是自己上次开了全屏。全屏是「当下这一眼」的临时状态，
+   * 每次进页面都从关闭开始。
    */
   const [zoom, setZoom] = useState<IuZoom>(() => readIuZoom())
-  const [fullscreen, setFullscreen] = useState<boolean>(() => readIuFullscreen())
+  const [fullscreen, setFullscreen] = useState(false)
 
   const cycleZoom = useCallback((): void => {
     setZoom((prev) => {
@@ -271,27 +274,25 @@ function IuCardLive({ spec, onFill }: {
     })
   }, [])
 
-  const enterFullscreen = useCallback((): void => {
-    setFullscreen(true)
-    writeIuFullscreen(true)
-  }, [])
+  const enterFullscreen = useCallback((): void => { setFullscreen(true) }, [])
+  const exitFullscreen = useCallback((): void => { setFullscreen(false) }, [])
 
-  const exitFullscreen = useCallback((): void => {
-    setFullscreen(false)
-    writeIuFullscreen(false)
-  }, [])
-
-  // 全屏时锁背景滚动，Esc 退出（与 html 卡片同款交互）。
+  /*
+   * 全屏时锁背景滚动，Esc 退出。
+   *
+   * 用共用的引用计数锁（shared/scroll-lock.ts）：多张卡片同时开全屏时，
+   * 先关的那个不会把后开的那个的锁一起放开。锁的释放由 lockBodyScroll 返回的
+   * 释放函数负责，**无论组件怎么卸载都会被 effect cleanup 调到**。
+   */
   useEffect(() => {
     if (!fullscreen) return
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') exitFullscreen()
     }
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    const release = lockBodyScroll()
     document.addEventListener('keydown', onKey)
     return () => {
-      document.body.style.overflow = prevOverflow
+      release()
       document.removeEventListener('keydown', onKey)
     }
   }, [fullscreen, exitFullscreen])

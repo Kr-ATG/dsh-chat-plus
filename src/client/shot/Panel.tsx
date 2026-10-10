@@ -140,6 +140,15 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
 
   const messages = useMemo(() => collect(range), [collect, range])
 
+  /*
+   * 截图要跟着对话流里选的缩放档位走（与 iu/html 卡片同源，都读 prefs）。
+   *
+   * 为什么必须带上：用户在 150% 下看着正好，截出来却是 100% 的小字 ——
+   * 「所见即所得」是截图功能的基本预期。编辑模式（传完整 html）不需要它，
+   * 因为那时缩放已经烘焙进 HTML 里了。
+   */
+  const zoom = useMemo(() => readIuZoom(), [])
+
   const run = useCallback((): void => {
     const token = tokenRef.current + 1
     tokenRef.current = token
@@ -160,7 +169,7 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
     setError(null)
     setSavedPath(null)
     setToast(null)
-    render({ messages, theme, width: cardWidth, quality, title: titleText, label: labelText, cwd })
+    render({ messages, theme, width: cardWidth, quality, title: titleText, label: labelText, cwd, zoom })
       .then((next) => {
         if (tokenRef.current !== token) return
         setResult(next)
@@ -174,7 +183,7 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
         if (tokenRef.current !== token) return
         setBusy(false)
       })
-  }, [messages, theme, cardWidth, quality, titleText, labelText, cwd])
+  }, [messages, theme, cardWidth, quality, titleText, labelText, cwd, zoom])
 
   // 打开时渲染一次，之后任一选项变化都重渲染。
   useEffect(() => { run() }, [run])

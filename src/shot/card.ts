@@ -62,6 +62,13 @@ export interface ShotCardInput {
   label?: string
   /** 正文提到的本地 HTML：以 iframe 内嵌进截图（只要页面本身，不带对话里那圈工具条）。 */
   embeds?: readonly ShotEmbed[]
+  /**
+   * 内容缩放档位（与对话流里的持久化缩放同源，缺省 1）。
+   *
+   * 截图必须跟着用户在对话流里选的档位走，否则「所见」与「所得」不一致：
+   * 用户在 150% 下看着正好，截出来却是 100% 的小字。
+   */
+  zoom?: number
 }
 
 /** 单条消息文本上限，超出截断（避免超长图与内存尖峰）。 */
@@ -204,7 +211,7 @@ function fenceFigureOf(fence: ShotHtmlFence, index: number): string {
  *  2. **复用同一份 IU_CSS 原文**（从 client 半身 import），不重抄。抄一份就
  *     等于给自己留了一个「改了组件样式、截图没跟上」的漂移口子。
  */
-function iuCssFor(theme: ShotTheme): string {
+function iuCssFor(theme: ShotTheme, zoom = 1): string {
   const dark = baseOf(theme) === 'dark'
   const vars = [
     `--dsw-alias-bg-layer-1:${dark ? 'rgba(255,255,255,.04)' : 'rgba(127,127,127,.04)'}`,
@@ -212,8 +219,17 @@ function iuCssFor(theme: ShotTheme): string {
     '--dsw-alias-border-l3:var(--border2)',
     '--dsw-alias-state-business-primary:var(--accent)',
   ].join(';')
+  /*
+   * 缩放档位写在 .dtt-iu 上（基座的 --iu-text-scale 会乘上它）。
+   *
+   * 钳到 [0.5, 3] 是防御：这个值来自请求体，脏数据不该把截图撑成一屏一个字。
+   * 只对 iu 卡片生效 —— html 卡片在截图里是静态快照，模型自己写的页面尺寸
+   * 由它自己的 CSS 决定，我们不改它（改了反而与对话流不一致）。
+   */
+  const safeZoom = Number.isFinite(zoom) && zoom > 0 ? Math.min(3, Math.max(0.5, zoom)) : 1
+  const zoomRule = safeZoom === 1 ? '' : `\n.dtt-iu{--iu-zoom:${safeZoom}}`
   // 截图是定格：关掉入场动效，避免「抓第一帧抓到半透明」。
-  return `.card{${vars}}\n${IU_CSS}\n.dtt-iu{animation:none}`
+  return `.card{${vars}}\n${IU_CSS}${zoomRule}\n.dtt-iu{animation:none}`
 }
 
 /**
@@ -454,7 +470,7 @@ export async function buildCardHtml(input: ShotCardInput): Promise<ShotCardOutpu
 <html lang="zh-CN" data-theme="${theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=${width}">
 <style>${buildCardCss(theme, width, minHeight)}
 ${segCss}
-${hasIuFence ? iuCssFor(theme) : ''}</style></head>
+${hasIuFence ? iuCssFor(theme, input.zoom) : ''}</style></head>
 <body><div class="card">
 <div class="rail"></div>
 <header class="head">
