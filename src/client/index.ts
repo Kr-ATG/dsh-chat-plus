@@ -44,6 +44,8 @@ import { installOpenPathFix } from './open-path-fix.ts'
 import { injectKrStyles } from './kr-chat/styles.ts'
 import { mountKrChatController } from './kr-chat/kr-chat-controller.tsx'
 import { KrTodoBridge } from './kr-chat/kr-todo-bridge.ts'
+import { TtftFlatBridge } from './stats-ttft/TtftFlatBridge.tsx'
+import { injectTtftFlatStyles } from './stats-ttft/styles.ts'
 import { KR_CHAT_ENABLED } from './kr-chat/enabled.ts'
 import { applyTriadClient } from './triad/index.ts'
 import { applyProviderClient } from './provider/index.ts'
@@ -282,10 +284,22 @@ export function apply(ctx: ClientContext): void {
   // 空白 Hero 态照常渲染，会话 id 一变即清空活动抽屉 / live todos / 已选轮次，
   // 免得切会话后抽屉里还留着上一会话的思考与工具树。与 KR 的可见 UI 无关，
   // 因此不随开关关闭。
+  guarded(ctx, 'stat ttft styles', injectTtftFlatStyles)
+
   guarded(ctx, 'kr-todo bridge', () => {
     ctx.slots.inject('conversation.input.dock', () => ctx.slots.register(
       { name: 'conversation.input.dock', id: 'kr-todo-bridge', order: 999 },
       KrTodoBridge,
+    ))
+  })
+
+  // 首 token 平均平铺：官方会话统计把这数藏在点开的卡片里，这里把它追认进
+  // 输入框下状态栏同一行。同槽再加一个隐形桥（order 1000，不占视觉行），
+  // 读 sessionStats 投影（整场会话），无投影时用窗口节点现算。
+  guarded(ctx, 'stats ttft flat', () => {
+    ctx.slots.inject('conversation.input.dock', () => ctx.slots.register(
+      { name: 'conversation.input.dock', id: 'dsh-stats-ttft-flat', order: 1000 },
+      TtftFlatBridge,
     ))
   })
 
@@ -402,3 +416,18 @@ export {
   subscribeToolCallsVisible,
   installToolCallsVisible,
 } from './tool-calls-visible.js'
+
+/**
+ * 首 token 平均平铺的纯逻辑：供 smoke 直接钉住口径（平均值 / 紧凑时长 /
+ * 窗口回退）。这三条错了都不会报错，只会让状态栏显示错的数或干脆不显示，
+ * 必须能被测试断言，不能只靠肉眼比对卡片。
+ */
+export {
+  foldWindowTtft,
+  formatFlatDuration,
+  ttftAverageMs,
+  ttftFlatPrefix,
+  ttftFlatText,
+} from './stats-ttft/ttft-flat.ts'
+export { syncTtftFlat, TtftFlatBridge } from './stats-ttft/TtftFlatBridge.tsx'
+export { injectTtftFlatStyles, TTFT_FLAT_STYLE_ID } from './stats-ttft/styles.ts'

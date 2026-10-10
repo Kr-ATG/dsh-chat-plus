@@ -419,6 +419,9 @@ const expectedStyles = [
   // --ds-font-family-code 改写成所选字体。必须在 apply 阶段就注入（不等 React），
   // 否则首帧会先按系统字体渲染、再闪成所选字体。
   'dsh-chat-plus-ui-font',
+  // 首 token 平均平铺读数（src/client/stats-ttft/styles.ts）：只定分隔与入场，
+  // 字号颜色全部继承官方 pill。apply 阶段随桥一起注入。
+  'dsh-stats-ttft-styles',
   ...(krEnabled ? ['dsh-kr-chat-styles'] : []),
 ]
 for (const expected of expectedStyles) {
@@ -887,13 +890,14 @@ if (!code.includes('data-dsh-anim-paused') || !code.includes('animation-play-sta
 // （记忆 / 能力 / 邮箱三个工作台各两枚：main 页 + sidebar.panellist 菜单行，
 // 共 6；composer 两枚开关 dsh-memory-builtin-toggle / dsh-memory-inject-toggle；
 // skill toolview 一枚）+ 供应商设置页一枚（settings.section / provider-hub，
-// 2026-10-05 从工作台 Tab 撤回官方设置弹窗）。
+// 2026-10-05 从工作台 Tab 撤回官方设置弹窗）
+// + 首 token 平均平铺桥一枚（input.dock / dsh-stats-ttft-flat，只做 DOM 追认）。
 // 座位 id/order/locale 全部原样保留；原 automation-notifier 随自动化模块一起下线。
 const cell = (key) => registeredSlots.find((s) => s?.slot === 'conversation.chat.node' && s?.key === key)
-if (registeredSlots.length !== 13) {
-  fail(`expected 13 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
+if (registeredSlots.length !== 14) {
+  fail(`expected 14 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
 } else {
-  pass('registered 13 seats (6 chat-plus + 5 triad + 1 provider settings section + 1 ui-font general row)')
+  pass('registered 14 seats (6 chat-plus + 5 triad + 1 provider settings section + 1 ui-font general row + 1 ttft flat bridge)')
 }
 
 // 工具闸门卡片：挂在输入栏工具行**左端**（与记忆注入开关同一排），order 100。
@@ -1061,6 +1065,70 @@ if (notifier !== undefined) {
 const todoDockSeat = registeredSlots.find((s) => s?.slot === 'conversation.input.dock' && s?.id === 'kr-todo-bridge')
 if (todoDockSeat === undefined) fail('missing input.dock seat conversation.input.dock / kr-todo-bridge')
 else pass('seat conversation.input.dock / kr-todo-bridge')
+
+// 首 token 平均平铺桥：与 kr-todo-bridge 同槽的隐形座位，只读投影 + DOM 追认，
+// 不占视觉行、不 shadow 官方 StatsPills。
+const ttftSeat = registeredSlots.find((s) => s?.slot === 'conversation.input.dock' && s?.id === 'dsh-stats-ttft-flat')
+if (ttftSeat === undefined) fail('missing input.dock seat conversation.input.dock / dsh-stats-ttft-flat')
+else if (ttftSeat.order !== 1000) fail(`ttft flat bridge order = ${ttftSeat.order}, expected 1000（排在桥之后、不占行）`)
+else pass('seat conversation.input.dock / dsh-stats-ttft-flat @ order 1000 (ttft flat bridge)')
+
+// 首 token 平均平铺纯逻辑：平均值、紧凑时长、窗口回退三条都必须可断言。
+// 这三条错了不报错，只会让状态栏显示错的数或干脆不显示。
+if (typeof mod.ttftAverageMs !== 'function' || typeof mod.ttftFlatText !== 'function'
+  || typeof mod.formatFlatDuration !== 'function' || typeof mod.foldWindowTtft !== 'function'
+  || typeof mod.syncTtftFlat !== 'function' || typeof mod.TtftFlatBridge !== 'function'
+  || typeof mod.injectTtftFlatStyles !== 'function') {
+  fail('缺少 ttft 平铺纯逻辑导出（ttftAverageMs / ttftFlatText / formatFlatDuration / foldWindowTtft / syncTtftFlat / TtftFlatBridge / injectTtftFlatStyles）')
+} else {
+  const ttftReasons = []
+  // ① 平均：9.8 秒样例与空口径。
+  if (mod.ttftAverageMs({ ttftMs: 19600, ttftSteps: 2 }) !== 9800) ttftReasons.push('平均值应为合计除以步数')
+  if (mod.ttftAverageMs({ ttftMs: 0, ttftSteps: 0 }) !== null) ttftReasons.push('步数为 0 应返回 null（不渲染）')
+  if (mod.ttftAverageMs(undefined) !== null) ttftReasons.push('投影缺席应返回 null')
+  // ② 文本：中文前缀与 60 秒分界。
+  const zhSec = (k, p) => k === 'duration.compactSeconds' ? `${p.seconds}秒` : `${p.minutes}分${p.seconds}秒`
+  if (mod.ttftFlatText({ ttftMs: 9800, ttftSteps: 1 }, zhSec) !== '首 token 9.8秒') {
+    ttftReasons.push(`9.8 秒样例文本不对，实得 ${mod.ttftFlatText({ ttftMs: 9800, ttftSteps: 1 }, zhSec)}`)
+  }
+  const zhLong = mod.ttftFlatText({ ttftMs: 112000, ttftSteps: 1 }, zhSec)
+  if (zhLong !== '首 token 1分52秒') ttftReasons.push(`112 秒应进分秒，实得 ${zhLong}`)
+  const enSec = (k, p) => k === 'duration.compactSeconds' ? `${p.seconds}s` : `${p.minutes}m${p.seconds}s`
+  if (mod.ttftFlatText({ ttftMs: 9800, ttftSteps: 1 }, enSec) !== 'TTFT 9.8s') {
+    ttftReasons.push('英文环境前缀应为 TTFT（不新增 locale key）')
+  }
+  if (mod.ttftFlatText({ ttftMs: 0, ttftSteps: 0 }, zhSec) !== null) ttftReasons.push('无数据时文本应为 null（调用方卸载读数）')
+  // ③ 窗口回退：只认双时间戳齐全的 assistant 步子。
+  const folded = mod.foldWindowTtft([
+    { kind: 'assistant', timing: { stepStartTime: 0, firstTokenTime: 9800 } },
+    { kind: 'assistant', timing: { stepStartTime: 0, firstTokenTime: 10200 } },
+    { kind: 'tool-result', callTime: 0, time: 1 },
+    { kind: 'assistant', timing: { stepStartTime: null, firstTokenTime: 1 } },
+  ])
+  if (folded === undefined || folded.ttftSteps !== 2 || folded.ttftMs !== 20000) {
+    ttftReasons.push(`窗口回退合计不对，实得 ${JSON.stringify(folded)}`)
+  }
+  if (mod.foldWindowTtft(undefined) !== undefined) ttftReasons.push('快照缺席回退应为 undefined（走无读数分支）')
+  // ④ 样式在册：读数只继承 pill 形态，自身只定分隔与入场；动效必须有兜底。
+  if (!code.includes('data-dsh-ttft-flat') || !code.includes('dsh-ttft-in')) {
+    ttftReasons.push('client bundle 缺少 ttft 平铺样式（data-dsh-ttft-flat / dsh-ttft-in）')
+  } else if (!code.includes('dsh-stats-ttft-styles')) {
+    ttftReasons.push('ttft 平铺样式 id 应为 dsh-stats-ttft-styles（幂等注入可断言）')
+  } else if (!/prefers-reduced-motion[\s\S]{0,200}dsh-ttft/.test(code)) {
+    ttftReasons.push('ttft 平铺动效必须在 prefers-reduced-motion 下兜底')
+  }
+  // ⑤ 座位形状：桥必须同时读投影与窗口快照（缺一路就是降级链断了）。
+  const bridgeSrc = readFileSync(resolve(ROOT, 'src/client/stats-ttft/TtftFlatBridge.tsx'), 'utf8')
+  if (!/useProjection\('sessionStats'\)/.test(bridgeSrc)) ttftReasons.push('桥必须优先读 sessionStats 投影（整场会话口径）')
+  else if (!/foldWindowTtft/.test(bridgeSrc)) ttftReasons.push('桥在无投影时必须用窗口节点现算（与官方回退同源）')
+  else if (!/MutationObserver/.test(bridgeSrc)) ttftReasons.push('官方重渲染会洗掉追认节点，桥必须有 MutationObserver 补回')
+  else if (!/aria-label/.test(bridgeSrc)) ttftReasons.push('追认后必须同步按钮的 aria-label（读屏不能只念旧数）')
+  if (ttftReasons.length > 0) fail('首 token 平均平铺契约：' + ttftReasons.join('；'))
+  else {
+    pass('首 token 平均平铺：平均/文本/回退口径正确（9.8秒样例 + 分秒分界 + 中英前缀）')
+    pass('首 token 平均平铺：样式与动效兜底在位 + 桥读投影与窗口双路 + observer 追认 + aria 同步')
+  }
+}
 
 const processSeat = cell('turn-process')
 if (processSeat === undefined) {
