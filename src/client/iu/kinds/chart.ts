@@ -132,16 +132,18 @@ function snapshot(spec: IuChartSpec): string {
 
 const CSS = [
   '/* chart：图例开关 + 自适应 SVG + 负数基线 + 面积填充 */',
-  '.dtt-iu__legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }',
+  '.dtt-iu__legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }',
   '.dtt-iu__chip { border: 1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.2));',
   '  background: transparent; color: inherit; font: inherit; font-size: calc(11.5px * var(--iu-text-scale, 1));',
-  '  border-radius: 999px; padding: 2px 10px 2px 6px; cursor: pointer;',
+  '  border-radius: 8px; padding: 2px 10px 2px 6px; cursor: pointer;',
   '  display: inline-flex; align-items: center; gap: 6px; opacity: 1;',
-  '  transition: opacity .18s ease, transform .18s ease; }',
+  '  transition: opacity .18s ease, transform .18s ease, box-shadow .18s ease, background-color .18s ease; }',
   '.dtt-iu__chip:hover { transform: translateY(-1px); }',
   '.dtt-iu__chip--off { opacity: .38; }',
+  '.dtt-iu__chip:not(.dtt-iu__chip--off) { box-shadow: inset 0 0 0 1px var(--dsw-alias-state-business-primary, #4176e6);',
+  '  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 7%, transparent); }',
   '.dtt-iu__swatch { width: 8px; height: 8px; border-radius: 3px; flex: none; }',
-  '.dtt-iu__chart { display: block; width: 100%; height: auto; margin-top: 4px; }',
+  '.dtt-iu__chart { display: block; width: 100%; height: auto; margin-top: 6px; padding-bottom: 4px; }',
   /* 柱子与折线的**可见性永远不依赖动画**——几何尺寸在最终态，入场动画的起点
      也必须是「已经看得见」的状态（opacity .5），绝不是 opacity 0。
      反例（实测踩中两次）：scaleY(0)→1 / stroke-dashoffset 满偏移到 0 /
@@ -161,8 +163,8 @@ const CSS = [
   '@keyframes dtt-iu-fade { from { opacity: .5 } to { opacity: 1 } }',
   '.dtt-iu__axis { stroke: var(--dsw-alias-border-l3, rgba(127,127,127,.25)); stroke-width: 1; }',
   '.dtt-iu__grid { stroke: var(--dsw-alias-border-l3, rgba(127,127,127,.14)); stroke-width: 1; }',
-  '.dtt-iu__tick { font-size: 9px; fill: currentColor; opacity: .5; }',
-  '.dtt-iu__barval { font-size: 9.5px; fill: currentColor; opacity: .75; font-weight: 600; }',
+  '.dtt-iu__tick { font-size: calc(9px * var(--iu-text-scale, 1)); fill: currentColor; opacity: .62; font-variant-numeric: tabular-nums; }',
+  '.dtt-iu__barval { font-size: calc(9.5px * var(--iu-text-scale, 1)); fill: currentColor; opacity: .85; font-weight: 600; font-variant-numeric: tabular-nums; transition: opacity .18s ease; }',
   /* hover 数值提示走 SVG 原生 <title>（柱子矮到画不下 barval 时仍可读），
      不用自定义浮层：原生 title 零瞬态状态、snapshot 与 Body 天然对齐。 */
   '.dtt-iu__bar, .dtt-iu__dot-svg { transition: opacity .15s ease; cursor: default; }',

@@ -507,8 +507,8 @@ const CSS = [
   '.dtt-iu__seq-life { stroke: ' + INK2 + '; stroke-width: 1; stroke-dasharray: 4 4; opacity: .32; }',
   /* 头盒：tone 四色（描边/文字语义色，底色 color-mix 淡化） */
   '.dtt-iu__seq-head rect { fill: ' + PAPER + '; stroke: var(--iu-seq-tone); stroke-width: 1.4; rx: 7;',
-  '  transition: filter .2s ease, stroke-width .2s ease; }',
-  '.dtt-iu__seq-head text { fill: var(--iu-seq-tone); font-weight: 600; text-anchor: middle;',
+  '  transition: filter .18s ease, stroke-width .18s ease; filter: drop-shadow(0 1px 2px rgba(0,0,0,.08)); }',
+  '.dtt-iu__seq-head text { fill: var(--iu-seq-tone); font-weight: 600; text-anchor: middle; letter-spacing: -.01em;',
   '  font-size: calc(12px * var(--iu-text-scale, 1)); }',
   '.dtt-iu__seq-head--foot rect { opacity: .85; }',
   /* 消息组：step 播放的淡入靠 opacity transition；入场错峰动画（--i）只对
@@ -534,7 +534,7 @@ const CSS = [
   '  font-size: calc(11px * var(--iu-text-scale, 1)); transition: fill .18s ease; }',
   '.dtt-iu__seq-msg[data-self="1"] .dtt-iu__seq-ltext { text-anchor: start; }',
   /* 激活条 */
-  '.dtt-iu__seq-act { fill: ' + INK2 + '; fill-opacity: .16; stroke: ' + INK2 + '; stroke-opacity: .5; stroke-width: 1; }',
+  '.dtt-iu__seq-act { fill: color-mix(in srgb, var(--iu-seq-tone, #4f5d75) 22%, transparent); fill-opacity: 1; stroke: ' + INK2 + '; stroke-opacity: .6; stroke-width: 1; }',
   /* hover：消息自身（线 / 标签 / 底块）高亮，纯 CSS */
   '.dtt-iu__seq-msg:hover .dtt-iu__seq-arrow { stroke: ' + BRAND + '; stroke-width: 2; }',
   '.dtt-iu__seq-msg:hover .dtt-iu__seq-ltext { fill: ' + BRAND + '; }',
