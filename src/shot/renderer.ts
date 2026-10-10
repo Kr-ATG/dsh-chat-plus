@@ -423,7 +423,7 @@ export async function diagnoseEngine(): Promise<Record<string, unknown>> {
 }
 
 /** 一次渲染（内部：假定已在串行队列内、实例已就绪）。 */
-async function renderOnce(target: Engine, input: RenderInput): Promise<string> {
+async function renderOnce(target: Engine, input: RenderInput): Promise<RenderOutput> {
   const scale = input.scale ?? 2
   // 高度上限按缩放折算成 CSS px，保证输出设备像素不超 Chromium 合成限制。
   const maxCssHeight = Math.min(16000, Math.floor(MAX_DEVICE_HEIGHT / scale))
@@ -484,12 +484,19 @@ async function renderOnce(target: Engine, input: RenderInput): Promise<string> {
      *
      * 前面几个上限管的是**单段**（Chromium 合成表面 / WebSocket 报文），整图拼
      * 接阶段没人管：4K 档 + 超长会话会排出 1.15 亿像素，拼接的峰值内存逼近 1GB，
-     * Node 扛不住就是被 OOM 直接带崩。这里把整图钳到预算内——宁可长图被截断
-     * （前端已能通过 aspectLocked=false 知道画幅没守住），也不让整个 DSH 消失。
+     * Node 扛不住就是被 OOM 直接带崩。这里把整图钳到预算内——宁可长图被截断，
+     * 也不让整个 DSH 消失。
+     *
+     * 但截断**必须回报**（truncated）：原来注释说「前端已能通过 aspectLocked=false
+     * 知道画幅没守住」，而 aspectLocked 只在固定画幅模式有意义、自适应长图下恒为
+     * true，恰好把最常见的场景漏掉，且前端从未消费过它 —— 等于完全静默。
+     * 实测：desktop 4k 档（1280×3）折算下来约 5208 CSS px 就被砍掉。
      */
     const outWidth = Math.round(cssWidth * scale)
     const maxOutHeight = Math.max(600, Math.floor(MAX_STITCH_PIXELS / Math.max(1, outWidth)))
+    let truncated = false
     if (Math.round(cssHeight * scale) > maxOutHeight) {
+      truncated = true
       cssHeight = Math.min(cssHeight, Math.floor(maxOutHeight / scale))
     }
 
@@ -504,7 +511,12 @@ async function renderOnce(target: Engine, input: RenderInput): Promise<string> {
       await evaluateJson(target.session, 'new Promise(r => requestAnimationFrame(r))', true).catch(() => null)
     }
 
-    return await captureTiled(target.session, cssWidth, cssHeight, scale)
+    return {
+      base64: await captureTiled(target.session, cssWidth, cssHeight, scale),
+      truncated,
+      // 截断前的原始内容高度：前端据此告诉用户「本来有多长」。
+      contentHeight: Math.round(contentHeight),
+    }
   } finally {
     await rm(htmlFile, { force: true }).catch(() => {})
   }
@@ -546,11 +558,21 @@ async function captureTiled(
       await setViewport(session, cssWidth, segCssHeight, scale)
       vpHeight = segCssHeight
     }
-    await evaluateJson(
-      session,
-      `new Promise((resolve) => { window.scrollTo(0, ${y}); setTimeout(resolve, 150) })`,
-      true,
-    ).catch(() => {})
+    /*
+     * 滚动到本段起点，并**校验真的滚到位了**。
+     *
+     * 原来这里 `.catch(() => {})` 吞掉一切：滚动没发生（执行上下文切换、引擎假死、
+     * 或文档实际高 < cssHeight 导致浏览器把 scrollY 钳在 docHeight - viewportHeight），
+     * 而这一段的 PNG 照样被 push 到 y 位置 —— 图里就出现**重复条带 + 底部缺失**，
+     * 且 stitchPng 的 totalHeight 是各段高度累加，不会暴露这个错位。
+     *
+     * 现在：滚完读回 scrollY，容差 2px 内算成功；不符则重试一次；仍不符就抛错。
+     * 宁可让这一张截图失败（用户重试即可），也不静默交出一张错位的图。
+     */
+    const scrolled = await scrollToY(session, y)
+    if (!scrolled) {
+      throw new Error(`分段截图失败：第 ${Math.round(y)}px 处无法滚动到位（页面可能比预期矮，或渲染引擎无响应）`)
+    }
     const png = Buffer.from(await captureScreenshot(session, 100, 'png', true, 30000), 'base64')
     tiles.push({
       png,
@@ -565,32 +587,122 @@ async function captureTiled(
 }
 
 /**
+ * 滚动到指定 y 并确认到位；返回是否成功（失败前重试一次）。
+ *
+ * 容差 2px：浏览器对 `scrollTo` 的小数处理与 `scrollY` 的取整会有 1px 级差异，
+ * 卡太死会误报。真失败（上下文没了 / 被钳制）差的是几十上百 px，容差挡不住。
+ */
+async function scrollToY(session: CdpSession, y: number): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const actual = await evaluateJson(
+        session,
+        `new Promise((resolve) => {
+          window.scrollTo(0, ${y});
+          setTimeout(() => resolve(window.scrollY), 150);
+        })`,
+        true,
+        5000,
+      )
+      if (typeof actual === 'number' && Math.abs(actual - y) <= 2) return true
+    } catch {
+      // 执行上下文切换 / 引擎无响应：重试一次再放弃。
+    }
+    await new Promise(resolve => setTimeout(resolve, 120))
+  }
+  return false
+}
+
+/** 量高结果：高度 + 是否可信（不可信时卡片会如实标注，而不是静默用兜底值）。 */
+export interface ProbedHeight {
+  /** 排版高度（CSS px，已钳到 [160, SHOT_FRAME_MAX_HEIGHT]）。 */
+  readonly height: number
+  /**
+   * 这个高度是否可信。
+   *
+   * false 的三种成因：导航失败 / 量到 0 / 量到的值贴住了视口高（页面用
+   * `100vh` 布局，`scrollHeight` 恒等于视口高，与真实内容高无关）。
+   * 不可信时调用方**必须**把这件事告诉用户（卡片页脚标注），否则内嵌页会被
+   * 钉在一个偏矮的框里，而 `scrolling="no"` + 内部 `overflow:hidden` 让超出
+   * 的部分既不可见也不可滚动 —— 等于静默裁掉。
+   */
+  readonly trusted: boolean
+  /**
+   * 页面真实高度**超过** SHOT_FRAME_MAX_HEIGHT 而被钳掉了一截。
+   *
+   * 与 `trusted=false` 正交：trusted 说「量得准不准」，clipped 说「量准了但
+   * 框装不下」。两种都要如实告诉用户。
+   */
+  readonly clipped: boolean
+}
+
+/**
  * 量一个本地 HTML 页面在给定排版宽度下的内容高度（CSS px）。
  *
  * 截图里内嵌本地 HTML 用的是 file:// iframe（卡片页自己也是 file://，相对
  * 资源能正常解析），但跨源的 iframe 读不到内部 DOM，高度只能事先单独量：
  * 复用常驻实例导航到该文件 → 等稳定 → 量 scrollHeight → 夹进
  * [160, SHOT_FRAME_MAX_HEIGHT]。任何失败都回兜底高度，绝不因为一张嵌入页
- * 量不到而让整张截图失败。
+ * 量不到而让整张截图失败（但会标记 trusted=false，由卡片如实说明）。
  *
  * 上限与 ```html 围栏那条路径共用 `SHOT_FRAME_MAX_HEIGHT`：两条都是「往截图里
  * 内嵌一整页」，载体同样是长图，卡在历史值 2400 会把长页腰斩。**两处必须同源**，
  * 否则同一张长页走文件内嵌与走围栏内嵌会得到不同结果。
+ *
+ * 两个刻意的量高技巧：
+ *  · **视口给得很矮**（100px）：`scrollHeight` 是「内容高与视口高的较大值」，
+ *    视口高时内容不足也会返回视口高（实测 1500px 的页面在 2000 视口下量出 2000）；
+ *    视口矮时它才是内容真高。
+ *  · **贴住视口高就判不可信**：`100vh` / `100dvh` 布局的页面里 `scrollHeight`
+ *    恒等于视口高，与真实内容高无关。如实标 false 比猜一个数字诚实。
  * @param fileUrl - 目标页面的 file:// 地址。
  * @param cssWidth - 与 iframe 一致的排版宽度（CSS px）。
  * @param fallback - 量不到时的兜底高度。
  */
-export async function probePageHeight(fileUrl: string, cssWidth: number, fallback = 620): Promise<number> {
-  const task = async (): Promise<number> => {
+export async function probePageHeight(fileUrl: string, cssWidth: number, fallback = 620): Promise<ProbedHeight> {
+  /*
+   * 量高视口刻意取**很矮**（100px）。
+   *
+   * `scrollHeight` 的语义是「内容高与视口高的较大值」：视口给得高，内容不足时
+   * 也会返回视口高 —— 实测把视口设成 2000 后，一个真实 1500px 的页面量出 2000，
+   * 于是被误判成「贴住视口 = 不可信」。反过来视口足够矮时，`scrollHeight` 就是
+   * 内容真高。100px 既矮到不会顶到绝大多数页面，又不至于让 100vh 布局塌成 0
+   * （那种页面量出来必然贴住视口，会被如实标 trusted=false）。
+   */
+  const PROBE_VIEWPORT_H = 100
+  const task = async (): Promise<ProbedHeight> => {
     try {
       const target = await ensureEngine()
-      await setViewport(target.session, cssWidth, 800, 1)
+      await setViewport(target.session, cssWidth, PROBE_VIEWPORT_H, 1)
       await navigateAndWait(target.session, fileUrl, 8000, true)
-      await evaluateJson(target.session, settleJs(1500), true, 4000).catch(() => null)
+      /*
+       * 文件不存在时 Chrome **不抛导航错误**，而是渲染一张自己的错误页
+       * （实测 body 带 class="neterror"、URL 变成 chrome-error://chromewebdata/，
+       * 量出的 270px 是无意义高度）。所以要主动确认页面确实是目标文件。
+       */
+      const isErrorPage = await evaluateJson(
+        target.session,
+        'location.href.indexOf("chrome-error://") === 0'
+        + ' || !!(document.body && /(^|\\s)neterror(\\s|$)/.test(document.body.getAttribute("class") || ""))',
+        false,
+        3000,
+      ).catch(() => false)
+      if (isErrorPage === true) return { height: clampProbed(fallback), trusted: false, clipped: false }
+      // 等久一点：图片/字体没落地时量到的是偏矮值，而这里只有一次机会
+      // （量完就把高度钉进 iframe，之后再没有第二次测量）。
+      await evaluateJson(target.session, settleJs(3000), true, 6000).catch(() => null)
       const measured = await measureHeight(target.session)
-      return Math.max(160, Math.min(SHOT_FRAME_MAX_HEIGHT, measured > 0 ? measured : fallback))
+      if (!(measured > 0)) return { height: clampProbed(fallback), trusted: false, clipped: false }
+      // 贴住视口高 → 页面用了 100vh 之类布局，量出来的不是内容高。
+      const pinned = Math.abs(measured - PROBE_VIEWPORT_H) <= 2
+      return {
+        height: clampProbed(measured),
+        trusted: !pinned,
+        // 原始量高超过上限 → 框装不下，如实标记（钳制本身仍要做，否则整图会被撑爆）。
+        clipped: measured > SHOT_FRAME_MAX_HEIGHT,
+      }
     } catch {
-      return fallback
+      return { height: clampProbed(fallback), trusted: false, clipped: false }
     } finally {
       touchIdle()
     }
@@ -598,6 +710,11 @@ export async function probePageHeight(fileUrl: string, cssWidth: number, fallbac
   const run = chain.then(task, task)
   chain = run.catch(() => {})
   return run
+}
+
+/** 量高结果的统一钳制（下界 160，上界与围栏内嵌同源）。 */
+function clampProbed(value: number): number {
+  return Math.max(160, Math.min(SHOT_FRAME_MAX_HEIGHT, Math.round(value)))
 }
 
 /**
@@ -638,12 +755,33 @@ export function renderFileThumbnail(fileUrl: string, cssWidth: number, cssHeight
 }
 
 /**
+ * 渲染结果：PNG（base64）+ 这次输出是否被预算截断。
+ *
+ * 为什么要回报截断：`MAX_STITCH_PIXELS` 是内存安全闸（超了是 OOM 直接带崩 Node），
+ * 不能抬高；但被它截掉的那截内容用户在图里看不到，必须让他知道。原来只靠
+ * `aspectLocked`（且前端从未消费）——而 aspectLocked 只在**固定画幅**模式下有意义，
+ * 自适应长图模式下恒为 true，恰好把「长图被预算截断」这个最常见的场景漏掉了。
+ */
+export interface RenderOutput {
+  /** PNG 的 base64 数据（不含 data: 前缀）。 */
+  readonly base64: string
+  /**
+   * 内容是否因输出像素预算被截断（底部缺失）。
+   *
+   * true 时前端应提示用户：降低画质档 / 缩小宽度 / 减少截图范围。
+   */
+  readonly truncated: boolean
+  /** 截断前的原始内容高度（CSS px）；未截断时等于实际输出高度。 */
+  readonly contentHeight: number
+}
+
+/**
  * 渲染 HTML 为 PNG（base64）。串行执行；实例失效时自动重建并重试一次。
  * @param input - HTML 与视口尺寸。
- * @returns PNG 的 base64 数据（不含 data: 前缀）。
+ * @returns PNG 的 base64 数据与截断信息。
  */
-export function renderPng(input: RenderInput): Promise<string> {
-  const task = async (): Promise<string> => {
+export function renderPng(input: RenderInput): Promise<RenderOutput> {
+  const task = async (): Promise<RenderOutput> => {
     try {
       return await renderOnce(await ensureEngine(), input)
     } catch (firstError) {

@@ -302,8 +302,12 @@ body{${canvas};min-height:100vh;box-sizing:border-box;padding:${m.outer}px ${m.o
 .content figure.htmlshot figcaption{padding:7px 12px;border-top:1px solid var(--border2);font-size:12px;color:var(--fg3);letter-spacing:.01em;background:var(--card2,transparent)}
 /* 内嵌 html 围栏卡片：与对话流同款「无框内嵌」——不加描边/底色包裹，只留圆角
    裁切；画布背景由围栏文档自带（跟随截图主题），与正文之间不留额外边界。 */
-.content figure.htmlfence{margin:1.1em 0;padding:0;border:0;border-radius:10px;overflow:hidden;background:transparent}
+.content figure.htmlfence{margin:1.1em 0;padding:0;border:0;border-radius:10px;overflow:hidden;background:transparent;position:relative}
 .content figure.htmlfence iframe{display:block;width:100%;border:0;background:transparent}
+/* 内容超过内嵌上限时的角标：iframe 不可滚动，被裁的部分用户在图里看不到，
+   必须显式说明，否则他会以为那就是卡片的全部内容。角标由 embedBoot 打的
+   data-clipped 驱动（纯 CSS 生成，不在脚本里动态建 DOM）。 */
+.content figure.htmlfence[data-clipped="1"]::after{content:"内容超过内嵌上限，底部未显示";position:absolute;left:0;right:0;bottom:0;padding:6px 12px;font-size:12px;line-height:1.5;text-align:center;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.72))}
 /* 内嵌 iu 快照：样式全部来自 client 半身的 IU_CSS（与对话流同一份源码），
    这里只做宿主变量映射（见 card.ts 的 iuCssFor），不再另写一套 .iushot 规格
    —— 另写一份正是「截图和对话流长得不一样」的漂移来源。 */

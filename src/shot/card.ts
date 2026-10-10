@@ -9,7 +9,7 @@
  * `<script src="mermaid.min.js">` + 引导脚本（引擎文件由 renderer.ts 投放到同
  * 目录），并把「渲染完成」暴露成 window.__shotMermaid 供渲染器等待。
  */
-import { escapeHtml, hasDiagramFence, renderMarkdown } from './markdown.ts'
+import { escapeHtml, fenceKey, hasDiagramFence, renderMarkdown } from './markdown.ts'
 import { escapeAttr } from '../shared/sanitize-html.ts'
 import { buildCardCss, mermaidConfigJson, baseOf, type ShotTheme } from './theme.ts'
 import { deriveTitle } from '../shared/title.ts'
@@ -36,6 +36,22 @@ export interface ShotEmbed {
   readonly fileUrl: string
   /** iframe 高度（CSS px，按卡片内容宽排版量出来的）。 */
   readonly height: number
+  /**
+   * 这个高度是否可信（见 renderer 的 `ProbedHeight`）。
+   *
+   * false 时页面很可能被裁掉一截，而 iframe 带 `scrolling="no"`、内部
+   * `overflow:hidden` —— 被裁的部分既不可见也不可滚动。所以必须在图注里
+   * 如实标注，不能假装量准了。
+   */
+  readonly trusted?: boolean
+  /**
+   * 该页面的真实高度是否**超过**了 SHOT_FRAME_MAX_HEIGHT 而被截断。
+   *
+   * 与 `trusted=false` 是两回事：trusted 是「量得准不准」，clipped 是「量准了
+   * 但框装不下」。两种都要在图注里说明——iframe 不可滚动，用户在图里看不到
+   * 被裁的部分，不说他会以为那就是页面的全部。
+   */
+  readonly clipped?: boolean
 }
 
 /**
@@ -46,6 +62,20 @@ export interface ShotHtmlFence {
   readonly html: string
   /** 标题（<title>/<h1> 提取，失败给兜底名），用于 figure 的 aria-label。 */
   readonly title: string
+  /**
+   * 定位键：`fenceKey(围栏正文)` 算出的内容哈希（由 markdown.ts 写进
+   * `data-fence-k`）。用它精确匹配落点，不依赖「第几个标记」这种会被回退围栏
+   * 与两侧解析差异带偏的推断。
+   */
+  readonly key: string
+  /**
+   * 全局唯一的帧 id（跨消息、跨围栏递增）。
+   *
+   * 与 `key` 分开是必须的：`key` 是内容哈希，两段**内容相同**的围栏会得到同一个
+   * 值；而 fid 是截图页配对高度桥上报的键（figure 的 data-fid ↔ 桥上报的 id），
+   * 重复会让两条围栏抢同一个高度。
+   */
+  readonly fid: string
 }
 
 /** 卡片组装参数。 */
@@ -73,10 +103,17 @@ export interface ShotCardInput {
    * 因条数上限被丢弃的消息数（缺省 0）。
    *
    * 存在的唯一理由是**不静默**：截图范围选「整段会话」而会话超过上限时，
-   * 超出部分不会进图。页脚必须如实说明「另有 N 条未包含」，否则用户看到
-   * 一个自洽的「60 条消息」统计，无从知道原本有 100 条。
+   * 超出部分不会进图。页脚必须如实说明，否则用户看到一个自洽的「60 条消息」
+   * 统计，无从知道原本有 100 条。
    */
   omitted?: number
+  /**
+   * 正文提到但**没能内嵌**的本地 HTML 张数（缺省 0）。
+   *
+   * 与 `omitted` 分开计数：一个是「消息被截断」，一个是「产物预览没画进来」，
+   * 用户要采取的行动不同（换范围 / 检查路径或体积），合并成一个数字等于什么都没说。
+   */
+  omittedEmbeds?: number
 }
 
 /** 单条消息文本上限，超出截断（避免超长图与内存尖峰）。 */
@@ -216,7 +253,11 @@ export interface ShotCardOutput {
 function figureOf(embed: ShotEmbed): string {
   const name = embed.abs.split(/[\\/]+/).pop() ?? embed.abs
   const title = escapeAttr(name)
-  return `<figure class="htmlshot"><iframe src="${escapeAttr(embed.fileUrl)}" title="${title}" scrolling="no" loading="eager" style="height:${embed.height}px"></iframe><figcaption>${escapeHtml(name)} · 本地 HTML</figcaption></figure>`
+  // 高度不可信 / 被上限截断时在图注里说明：iframe 带 scrolling="no"、内部
+  // overflow:hidden，被裁的部分用户在图里看不到，不说的话他会以为那就是全部。
+  const clipped = embed.clipped === true ? ` · 页面超过 ${SHOT_FRAME_MAX_HEIGHT}px 上限，底部未显示` : ''
+  const caveat = embed.trusted === false ? ' · 高度未能量准，可能显示不全' : ''
+  return `<figure class="htmlshot"><iframe src="${escapeAttr(embed.fileUrl)}" title="${title}" scrolling="no" loading="eager" style="height:${embed.height}px"></iframe><figcaption>${escapeHtml(name)} · 本地 HTML${caveat}${clipped}</figcaption></figure>`
 }
 
 /** 块级收尾标签（内嵌预览要插到它后面，而不是把句子劈开）。 */
@@ -239,10 +280,8 @@ const BLOCK_END = /<\/(?:p|li|h[1-4]|blockquote|td|th|dd|dt)>/
  * 若裸着会闭合属性，而这张卡片页是在带 --disable-web-security 的无头 Chrome
  * 里打开的，注入的事件处理器有读本地文件的能力。
  */
-function fenceFigureOf(fence: ShotHtmlFence, index: number): string {
-  // fid 写进 bridge 上报 + figure 的 data-fid：截图页按 id 配对，不靠 contentWindow
-  // 比对（无头 Chrome 里 srcdoc iframe 的窗口引用比对实测不可靠）。
-  const fid = 'f' + index
+function fenceFigureOf(fence: ShotHtmlFence): string {
+  const fid = fence.fid
   const doc = assembleHtmlDocument(fence.html, fid, { settleAnimations: true })
   const title = escapeAttr(fence.title)
   return `<figure class="htmlfence" data-fid="${fid}"><iframe srcdoc="${escapeAttr(doc)}" title="${title}" scrolling="no" loading="eager" sandbox="allow-scripts allow-popups allow-forms allow-modals allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" style="height:320px"></iframe></figure>`
@@ -281,35 +320,56 @@ function iuCssFor(theme: ShotTheme, zoom = 1): string {
 
 /**
  * 把 ```html 围栏的 figure 插进正文：shiki 把 html 围栏渲染成
- * `<pre class="shiki …" …><code>…</code></pre>`，整块替换成 figure——
+ * `<pre class="shiki …" data-fence-k="…">…</pre>`，整块替换成 figure——
  * 与对话流一致，围栏就是卡片本身，不保留源码块。
  *
- * 定位用 `<pre class="shiki` + `language-html` 双特征：pre 的属性顺序由 shiki
- * 决定（class 在前），language-html 出现在 class 里；找不到就放弃该条（宁可
- * 少一张图，不劈句子）。
+ * **按 `data-fence-k`（围栏正文的内容哈希）精确匹配，不按「第几个 language-html」找**。
+ * 后者在正文含被回退成代码块的围栏时必然错位：空内容 / 只有注释 / 超 80KB 的
+ * 围栏走 splitHtml 的 md 分支，但 markdown 侧照样给它打 `language-html` 标记，
+ * 于是「第 0 个合法围栏」会命中「第 0 个 language-html 块」——也就是那个**非法**
+ * 围栏的位置。结果是卡片插错位置 + 合法位置残留一坨源码块。
+ * 序号由 markdown 渲染器按文档顺序写死（见 markdown.ts 的 fenceIndex），
+ * 与 splitHtml 切出的顺序天然一致，不受合法性判定影响。
+ *
+ * 找不到对应序号就放弃该条（宁可少一张图，不劈句子）。
  */
 function injectFences(body: string, fences: readonly ShotHtmlFence[]): string {
   if (fences.length === 0) return body
   let out = body
-  fences.forEach((fence, index) => {
-    // 顺序扫描剩余的 shiki 块，找第一个语言为 html 的（即本条围栏的落点）。
-    let at = -1
-    let cursor = 0
-    for (;;) {
-      const hit = out.indexOf('<pre class="shiki', cursor)
-      if (hit < 0) break
-      const tagEnd = out.indexOf('>', hit)
-      if (tagEnd < 0) break
-      if (out.slice(hit, tagEnd).indexOf('language-html') >= 0) { at = hit; break }
-      cursor = tagEnd + 1
-    }
-    if (at < 0) return
+  for (const fence of fences) {
+    const at = findFencePre(out, 'language-html', fence.key)
+    if (at < 0) continue
     const tagEnd = out.indexOf('>', at)
+    if (tagEnd < 0) continue
     const preEnd = out.indexOf('</pre>', tagEnd)
-    if (preEnd < 0) return
-    out = out.slice(0, at) + fenceFigureOf(fence, index) + out.slice(preEnd + '</pre>'.length)
-  })
+    if (preEnd < 0) continue
+    out = out.slice(0, at) + fenceFigureOf(fence) + out.slice(preEnd + '</pre>'.length)
+  }
   return out
+}
+
+/**
+ * 按「语言标记 + 围栏内容哈希」定位一个 shiki 块的起点下标；找不到返回 -1。
+ *
+ * 定位键 `data-fence-k` 由 markdown.ts 用 `fenceKey(code)` 写入，注入侧对
+ * **同一段围栏正文**独立算出同一个值（见 fenceKey 的说明：内容哈希而非序号，
+ * 因为两侧的围栏识别规则不可能完全一致）。
+ *
+ * 同时仍校验语言标记：万一模型正文里恰好构造出同名属性（markdown 渲染的是模型
+ * 可控文本），双重校验能挡住误命中。属性匹配带引号边界，避免前缀误命中。
+ */
+function findFencePre(html: string, langClass: string, key: string): number {
+  const needle = `data-fence-k="${key}"`
+  let cursor = 0
+  for (;;) {
+    const hit = html.indexOf('<pre class="shiki', cursor)
+    if (hit < 0) return -1
+    const tagEnd = html.indexOf('>', hit)
+    if (tagEnd < 0) return -1
+    const tag = html.slice(hit, tagEnd)
+    if (tag.indexOf(langClass) >= 0 && tag.indexOf(needle) >= 0) return hit
+    cursor = tagEnd + 1
+  }
 }
 
 /**
@@ -367,9 +427,9 @@ function embedBoot(theme: ShotTheme): string {
       return;
     }
     if (data.kind !== 'height') return;
-    var h = data.height;
-    if (typeof h !== 'number' || !isFinite(h) || typeof data.id !== 'string') return;
-    h = Math.max(MIN_H, Math.min(MAX_H, Math.round(h)));
+    var raw = data.height;
+    if (typeof raw !== 'number' || !isFinite(raw) || typeof data.id !== 'string') return;
+    var h = Math.max(MIN_H, Math.min(MAX_H, Math.round(raw)));
     // 高度没变（桥的去重阈值是 2px）就不算「有新变化」，不必重置静默窗口——
     // 否则桥每 250ms 一次的 tick 会让计时器永远重置，白等到超时。
     if (last[data.id] === h) return;
@@ -379,6 +439,13 @@ function embedBoot(theme: ShotTheme): string {
         var frame = figures[i].querySelector('iframe');
         if (frame) {
           frame.style.height = h + 'px';
+          /*
+           * 内容真高超过上限 → 框装不下。iframe 带 scrolling="no"、内部
+           * html{overflow:hidden}，被裁的部分既不可见也不可滚动，所以必须
+           * 在卡片里说明，不能静默截断。标记写进 figure 的 data-clipped，
+           * 由下面的 CSS 生成角标（不动态建 DOM，保持这段脚本的极简）。
+           */
+          if (raw > MAX_H) figures[i].setAttribute('data-clipped', '1');
           scheduleSettle(data.id, frame);
         }
         break;
@@ -432,6 +499,13 @@ export interface ShotIuFence {
   readonly title: string
   readonly tag: string
   readonly body: string
+  /**
+   * 定位键：`fenceKey(围栏原文 JSON)` 算出的内容哈希。
+   *
+   * 与 `ShotHtmlFence.key` 同理——按内容匹配而非序号，因为 splitIu 与
+   * markdown-it 对围栏的识别规则不可能完全一致。
+   */
+  readonly key: string
 }
 
 /** 与 IuCard 的 Head 同构（class 对齐，才能吃到 IU_CSS）。 */
@@ -442,21 +516,19 @@ function iuFigureOf(fence: ShotIuFence): string {
     + `<div>${fence.body}</div></figure>`
 }
 
+/**
+ * 把 iu 围栏替换成静态快照。定位同样按 `data-fence-k` 精确匹配（理由见
+ * `injectFences` 的说明：按「第几个 language-iu」找会被回退围栏带偏）。
+ *
+ * 找不到落点的围栏**追加到正文末尾**而不是丢弃：iu 卡片是纯文本快照，没有
+ * iframe 那种「位置错了会误导」的风险，而丢掉一张卡是实打实的内容缺失。
+ */
 function injectIu(body: string, fences: readonly ShotIuFence[]): string {
   if (fences.length === 0) return body
   let out = body
   const rest: ShotIuFence[] = []
   for (const fence of fences) {
-    let at = -1
-    let cursor = 0
-    for (;;) {
-      const hit = out.indexOf('<pre class="shiki', cursor)
-      if (hit < 0) break
-      const tagEnd = out.indexOf('>', hit)
-      if (tagEnd < 0) break
-      if (out.slice(hit, tagEnd).indexOf('language-iu') >= 0) { at = hit; break }
-      cursor = tagEnd + 1
-    }
+    const at = findFencePre(out, 'language-iu', fence.key)
     if (at < 0) {
       rest.push(fence)
       continue
@@ -490,18 +562,28 @@ export async function buildCardHtml(input: ShotCardInput): Promise<ShotCardOutpu
   const sections: string[] = []
   let hasFenceEmbed = false
   let hasIuFence = false
+  /** 围栏帧 id 的全局序号（跨消息递增，保证 fid 唯一）。 */
+  let fenceSeq = 0
   for (const message of messages) {
     let body = injectEmbeds(await bodyOf(message, theme), embeds)
     // ```html / ```iu 围栏与对话流同源切分（streaming=false：未闭合/超长一律
     // 回退代码块，与对话流定稿态语义一致）。只有 assistant 正文走 Markdown 管线，
     // user 的围栏不会成 pre，切了也无处替换。
-    // filter 必须写成**类型谓词**：普通箭头函数只做布尔收窄，`.map` 那侧
-    // 拿到的仍是联合类型（HtmlPart），`part.spec` 直接编译不过。
-    const fences: ShotHtmlFence[] = message.role === 'assistant'
-      ? splitHtml(clamp(message.text))
-        .filter((part): part is Extract<typeof part, { kind: 'html' }> => part.kind === 'html' && part.pending === false)
-        .map(part => ({ html: part.spec.html, title: part.spec.title }))
-      : []
+    //
+    // key 由围栏正文算出（fenceKey），与 markdown 侧写进 data-fence-k 的值一致；
+    // 用它定位落点，不数序号——两侧的围栏识别规则不可能完全一致（markdown-it 认
+    // ` ```html title=x `、不认缩进围栏，splitHtml 的正则反之），数序号必然漂移。
+    const parts = message.role === 'assistant' ? splitHtml(clamp(message.text)) : []
+    const fences: ShotHtmlFence[] = []
+    for (const part of parts) {
+      if (part.kind !== 'html') continue
+      // pending 只出现在流式期；截图走定稿语义，pending 的一律不注入。
+      if (part.pending) continue
+      // fid 跨消息全局递增（fenceSeq 在外层循环之外），保证多消息下不重复。
+      const fid = `f${fenceSeq}`
+      fenceSeq += 1
+      fences.push({ html: part.spec.html, title: part.spec.title, key: fenceKey(part.spec.html), fid })
+    }
     if (fences.length > 0) {
       body = injectFences(body, fences)
       hasFenceEmbed = true
@@ -516,6 +598,8 @@ export async function buildCardHtml(input: ShotCardInput): Promise<ShotCardOutpu
     if (message.role === 'assistant') {
       const iuFences: ShotIuFence[] = []
       for (const part of splitIu(clamp(message.text), false)) {
+        // raw 是围栏原文，用 fenceKey(raw) 算定位键（与 markdown 侧写进
+        // data-fence-k 的值一致）；只认合法且非 pending 的。
         if (part.kind !== 'iu' || part.pending !== false) continue
         const mod = iuKindOf(part.spec.kind)
         // 注册表查不到的 kind 理论上不存在（splitIu 只放行注册过的 kind），
@@ -525,6 +609,7 @@ export async function buildCardHtml(input: ShotCardInput): Promise<ShotCardOutpu
           title: part.spec.title !== '' ? part.spec.title : '交互卡片',
           tag: mod.label,
           body: mod.snapshot(part.spec as never),
+          key: fenceKey(part.raw),
         })
       }
       if (iuFences.length > 0) {
@@ -537,9 +622,12 @@ export async function buildCardHtml(input: ShotCardInput): Promise<ShotCardOutpu
       : body)
   }
   const omitted = Math.max(0, Math.floor(input.omitted ?? 0))
-  // 被截断时必须说出来：只说「60 条消息」会让用户以为整段会话都在图里。
+  const omittedEmbeds = Math.max(0, Math.floor(input.omittedEmbeds ?? 0))
+  // 两类截断分开说：只说「60 条消息」会让用户以为整段会话都在图里；
+  // 只说「N 张未内嵌」也不告诉他是超上限还是文件读不到。
   const omittedNote = omitted > 0 ? ` · 另有 ${omitted} 条未包含（超出单次上限）` : ''
-  const note = `${multi ? `${messages.length} 条消息 · ` : ''}${chars.toLocaleString('zh-CN')} 字${omittedNote}`
+  const embedNote = omittedEmbeds > 0 ? ` · ${omittedEmbeds} 张产物预览未内嵌` : ''
+  const note = `${multi ? `${messages.length} 条消息 · ` : ''}${chars.toLocaleString('zh-CN')} 字${omittedNote}${embedNote}`
   // 只有 assistant 正文走 Markdown 管线，user 是纯文本（围栏不会成图）。
   const needsMermaid = messages.some(m => m.role === 'assistant' && hasDiagramFence(clamp(m.text)))
   // 多条消息时段与段之间加细线与角色标签（单条不需要额外分隔）。

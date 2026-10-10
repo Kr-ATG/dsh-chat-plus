@@ -152,6 +152,36 @@ function attrStr(value: string | number | null | undefined): string {
  * @param theme - 截图主题（决定 shiki 配色）。
  * @returns HTML 片段字符串。
  */
+/**
+ * 围栏定位键：对围栏正文做 FNV-1a 32 位哈希，转 base36。
+ *
+ * **为什么用内容哈希而不是序号**：注入侧（card.ts）要拿 markdown 渲染出的
+ * `<pre>` 换成卡片，需要一个「两侧都能独立算出来」的匹配键。序号看似直观，
+ * 但两侧的围栏识别规则**不可能完全一致**：
+ *   · markdown-it 按自己的块级语法解析，info string 取首词——` ```html title=x `
+ *     它会当成 html 围栏并回调 highlight；
+ *   · splitHtml 的正则要求 `html` 后直接换行，上面那条它**不认**；
+ *   · 反过来，缩进 4 空格的 ` ```html ` 会被 markdown-it 当缩进代码块（不回调），
+ *     而 splitHtml 的正则没有行首锚点、照样匹配。
+ * 任何一处不一致，序号就整体漂移——卡片插到别人的位置上。
+ *
+ * 哈希只依赖围栏正文本身，与顺序、与两套解析规则都无关：同一段正文在两侧
+ * 算出的 key 必然相同。正文按 trim 归一（markdown-it 的 token.content 尾部
+ * 带换行，splitHtml 的捕获组也已 trim，归一后一致）。
+ *
+ * 32 位哈希在单条消息（几十个围栏以内）里碰撞概率可忽略；真撞了也只是回到
+ * 「卡片位置不对」这个已知失败态，不会更糟。
+ */
+export function fenceKey(code: string): string {
+  const text = code.trim()
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(36)
+}
+
 export async function renderMarkdown(md: string, theme: ShotTheme): Promise<string> {
   const highlighter = await getHighlighter()
   const shikiTheme = baseOf(theme) === 'dark' ? 'github-dark' : 'github-light'
@@ -184,16 +214,38 @@ export async function renderMarkdown(md: string, theme: ShotTheme): Promise<stri
        * 原文 JSON）。
        */
       if (lang.trim().toLowerCase() === 'iu') {
-        return `<pre class="shiki language-iu"><code>${escapeHtml(code.trim())}</code></pre>`
+        // key 由围栏正文算出（见 fenceKey 说明）：注入侧从 splitIu 拿到的正文
+        // 独立算出同一个 key，不依赖两侧的围栏识别规则完全一致。
+        return `<pre class="shiki language-iu" data-fence-k="${fenceKey(code)}"><code>${escapeHtml(code.trim())}</code></pre>`
       }
       if (lang !== '') {
+        // shiki 的语言名**大小写敏感**（实测 `HTML` → Language `HTML` not found），
+        // 而 splitHtml 的围栏正则带 `i` 标志、把 ```HTML 判成合法卡片。不归一的话
+        // 这条围栏会走 catch 降级成 `shiki plain`（无定位键），注入侧找不到落点
+        // → 卡片整块消失、连源码块都不留。归一后再喂给 shiki，两边判据一致。
+        const normalized = lang.trim().toLowerCase()
         try {
-          const out = highlighter.codeToHtml(code, { lang, theme: shikiTheme })
+          const out = highlighter.codeToHtml(code, { lang: normalized, theme: shikiTheme })
           // html 围栏打标记：card.ts 的 injectFences 靠它把 shiki 源码块整块替换成
           // 内嵌卡片（与对话流一致，围栏就是卡片本身）。shiki 产物默认不带语言
           // class，这里补一个；只影响截图管线，对话流的 html 围栏在进 markdown
           // 之前就被 splitHtml 切走了，看不到这个标记。
-          if (lang.trim().toLowerCase() === 'html') return out.replace('<pre class="shiki', '<pre class="shiki language-html')
+          //
+          // data-fence-k 是**定位键**（见 fenceKey 说明）：内容哈希，与围栏顺序
+          // 无关，因此不受「两侧解析规则不一致」影响。
+          //
+          // 插入位置必须在**整个 class 属性之后**：shiki 产出的开头是
+          // `<pre class="shiki github-light" style="…">`，若只替换 `<pre class="shiki`
+          // 会把 class 值劈成两半（`class="shiki language-html" data-fence-k="x" github-light"`），
+          // 属性结构直接坏掉。所以一次替换同时处理「往 class 里补 language-html」
+          // 与「在 class 之后插 data-fence-k」。
+          if (normalized === 'html') {
+            const key = fenceKey(code)
+            return out.replace(
+              /<pre(\s+)class="([^"]*)"/,
+              (_m, gap: string, cls: string) => `<pre${gap}class="${cls} language-html" data-fence-k="${key}"`,
+            )
+          }
           return out
         } catch {
           // 未知/未加载语言 → 降级为无高亮代码块

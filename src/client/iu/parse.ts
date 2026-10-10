@@ -36,9 +36,22 @@ export type { IuPianoSpec, IuPianoWave } from './kinds/piano.ts'
 export type IuKind = typeof IU_KIND_NAMES[number] | string
 
 export type IuPart =
-  | { readonly kind: 'md'; readonly text: string }
-  | { readonly kind: 'iu'; readonly spec: IuSpecBase; readonly pending: false }
-  | { readonly kind: 'iu'; readonly pending: true; readonly bytes: number }
+  | {
+    readonly kind: 'md'
+    readonly text: string
+    /**
+     * 这段 md 其实是一个 **iu 围栏的回退形态**时，记录围栏的**正文原文**；
+     * 普通正文段落为 undefined。
+     *
+     * 存在的理由：截图管线要用「围栏正文的内容哈希」当定位键（与 markdown 侧
+     * 写进 `data-fence-k` 的值对上）。非法 iu 围栏（JSON 不合法 / 未知 kind /
+     * 超长 / 空）会被回退成代码块，但它仍占一个 markdown 渲染出来的 pre；
+     * 下游要靠原文算出同一个 key 才能跳过它、把合法卡片插到正确位置。
+     */
+    readonly fenceRaw?: string
+  }
+  | { readonly kind: 'iu'; readonly spec: IuSpecBase; readonly pending: false; readonly raw: string }
+  | { readonly kind: 'iu'; readonly pending: true; readonly bytes: number; readonly raw: string }
 
 /** 单个 iu 围栏的内容上限（字符）。JSON 配参数很小，超了多半是贴错了东西。 */
 const MAX_IU_CHARS = 20_000
@@ -116,9 +129,10 @@ export function splitIu(text: string, streaming = false): readonly IuPart[] {
       }
     }
     if (spec === undefined) {
-      parts.push({ kind: 'md', text: match[0] as string })
+      // 回退成代码块，但带上原文：截图侧要用它算定位键。
+      parts.push({ kind: 'md', text: match[0] as string, fenceRaw: body })
     } else {
-      parts.push({ kind: 'iu', spec, pending: false })
+      parts.push({ kind: 'iu', spec, pending: false, raw: body })
     }
     cursor = match.index + (match[0] as string).length
   }
@@ -132,7 +146,7 @@ export function splitIu(text: string, streaming = false): readonly IuPart[] {
       const head = tail.slice(0, open.fenceStart)
       if (head !== '') parts.push({ kind: 'md', text: head })
       const partial = tail.slice(open.bodyStart)
-      parts.push({ kind: 'iu', pending: true, bytes: partial.length })
+      parts.push({ kind: 'iu', pending: true, bytes: partial.length, raw: partial.trim() })
       tail = ''
     }
   }

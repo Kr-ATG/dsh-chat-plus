@@ -36,6 +36,7 @@ export const cls = {
   spinner: 'tsh-spinner',
   hint: 'tsh-hint',
   error: 'tsh-error',
+  warn: 'tsh-warn',
   editBar: 'tsh-edit-bar',
   editHint: 'tsh-edit-hint',
   editCount: 'tsh-edit-count',
@@ -106,6 +107,19 @@ html[data-dsh-glass] .tsh-panel{background:var(--tsh-panel-surface);backdrop-fil
 @keyframes tsh-spin{to{transform:rotate(360deg)}}
 .tsh-hint{display:flex;flex-direction:column;align-items:center;gap:10px;font-size:13px;color:var(--dsw-alias-label-tertiary,#888)}
 .tsh-error{max-width:520px;font-size:13px;line-height:1.6;color:var(--dsw-alias-state-error-primary,#e5484d);text-align:center;word-break:break-word}
+/* 截断提示：不是错误（图是成功的，只是少了尾巴），所以用警示色而不是错误色；
+   带一次入场动效，避免用户盯着预览图时忽略这条新增说明。 */
+.tsh-warn{
+  max-width:560px;margin-top:12px;padding:8px 12px;
+  font-size:12.5px;line-height:1.6;text-align:center;word-break:break-word;
+  color:var(--dsw-alias-state-warning-primary,#d29922);
+  background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 10%,transparent);
+  border:1px solid color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d29922) 28%,transparent);
+  border-radius:8px;
+  animation:tsh-warn-in .32s cubic-bezier(.22,.61,.36,1) both;
+}
+@keyframes tsh-warn-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.tsh-warn{animation:none}}
 
 /* ── 元素删除编辑模式 ── */
 /* 编辑中：选项条整体减淡并禁止交互（改了选项会脱离编辑，需要先退出重渲染）。 */

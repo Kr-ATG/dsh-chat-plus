@@ -21,6 +21,16 @@ export interface RenderResult {
   bytes: number
   /** 固定画幅是否精确命中（false = 内容超出比例，已保留完整长图）。 */
   aspectLocked?: boolean
+  /**
+   * 长图是否被输出像素预算截断（底部内容缺失）。
+   *
+   * 与 aspectLocked 不同：后者只在**固定画幅**模式下有意义（自适应长图恒为 true），
+   * 而预算截断在任何模式下都会发生——desktop 4K 档约 5208 CSS px 就触发。
+   * 面板据此给出提示，否则用户拿到一张少了尾巴的图却毫无察觉。
+   */
+  truncated?: boolean
+  /** 截断前的原始内容高度（CSS px），用于提示文案说明「本来有多长」。 */
+  contentHeight?: number
   /** 本次渲染使用的完整 HTML 文档（面板「元素删除」编辑模式取页面用）。 */
   html?: string
 }

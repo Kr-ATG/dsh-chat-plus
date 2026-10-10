@@ -78,23 +78,40 @@ function resolveLocal(raw: string, cwd: string | undefined): string | null {
  *
  * 抽取规则见 src/shared/html-paths.ts。任何一条探测失败都只是少一张
  * 图，不影响整张截图。
+ *
+ * **同时回报被丢弃的张数**：超过 MAX_EMBEDS / MAX_EMBED_BYTES、或文件读不到的，
+ * 都不进截图。以前这些是静默的——用户看到正文里写着 4 个产物路径、图里只有 3 张，
+ * 无从知道少的那张是「被上限截掉」还是「本来就不存在」。张数交给卡片页脚说明。
  * @param messages - 待截图的消息。
  * @param cwd - 会话工作目录（相对路径基准）。
  * @param contentWidth - 卡片正文内容盒宽度（iframe 与量高用同一个宽度）。
  */
-async function collectEmbeds(messages: readonly ShotMessage[], cwd: string | undefined, contentWidth: number): Promise<ShotEmbed[]> {
+async function collectEmbeds(
+  messages: readonly ShotMessage[],
+  cwd: string | undefined,
+  contentWidth: number,
+): Promise<{ embeds: ShotEmbed[]; omitted: number }> {
   const picked = new Map<string, { abs: string; raw: string }>()
+  let omitted = 0
   for (const message of messages) {
     if (message.role !== 'assistant') continue
     for (const hit of findLocalHtmlPaths(message.text)) {
       const abs = resolveLocal(hit.path, cwd)
       if (abs === null || !/\.html?$/i.test(abs)) continue
       const key = abs.toLowerCase()
-      if (!picked.has(key)) picked.set(key, { abs, raw: hit.path })
-      if (picked.size >= MAX_EMBEDS) break
+      // 同一个文件被重复提到只算一次，不算「被丢弃」。
+      if (picked.has(key)) continue
+      if (picked.size >= MAX_EMBEDS) {
+        omitted += 1
+        continue
+      }
+      picked.set(key, { abs, raw: hit.path })
     }
   }
-  return await toEmbeds([...picked.values()], contentWidth)
+  const embeds = await toEmbeds([...picked.values()], contentWidth)
+  // 进了候选但没量成（文件不存在 / 过大 / 读不到）的，同样计入「未内嵌」。
+  omitted += picked.size - embeds.length
+  return { embeds, omitted }
 }
 
 /** 逐个校验可读性并量高度（串行，复用常驻引擎）。 */
@@ -106,10 +123,10 @@ async function toEmbeds(picked: readonly { abs: string; raw: string }[], content
       if (!info.isFile() || info.size <= 0 || info.size > MAX_EMBED_BYTES) continue
       if (!/\.html?$/i.test(extname(abs))) continue
       const fileUrl = 'file:///' + abs.replaceAll('\\', '/')
-      const height = await probePageHeight(fileUrl, contentWidth)
-      out.push({ raw, abs, fileUrl, height })
+      const probed = await probePageHeight(fileUrl, contentWidth)
+      out.push({ raw, abs, fileUrl, height: probed.height, trusted: probed.trusted })
     } catch {
-      // 文件不存在 / 读不到：截图里就不出现，不报错。
+      // 文件不存在 / 读不到：截图里就不出现，不报错（张数已计入 omitted）。
     }
   }
   return out
@@ -267,13 +284,17 @@ async function handleRender(req: IncomingMessage, res: ServerResponse): Promise<
   try {
     // 编辑模式：直接用前端传来的 HTML（已由面板删除过元素）；否则组装卡片。
     // 正文提到的本地 HTML 先探测高度再内嵌（每张要多导航一次）。
-    const embeds = editedHtml === null
+    const collected = editedHtml === null
       ? await collectEmbeds(messages, cwd, cardContentWidth(preset.cssWidth))
-      : []
+      : { embeds: [] as ShotEmbed[], omitted: 0 }
     const card = editedHtml !== null
       ? null
       : await buildCardHtml({
-        messages, theme, width: preset.cssWidth, minHeight: cardMinHeight, embeds, omitted,
+        messages, theme, width: preset.cssWidth, minHeight: cardMinHeight, embeds: collected.embeds,
+        // 两条截断分开上报：消息条数被截 vs 本地 HTML 预览没内嵌，用户要做的
+        // 处置不同（换截图范围 / 检查路径与体积）。
+        omitted,
+        omittedEmbeds: collected.omitted,
         title: typeof body.title === 'string' && body.title.trim() !== ''
           ? body.title.trim()
           : deriveTitle(messages[0]!.text, messages[0]!.role),
@@ -281,7 +302,7 @@ async function handleRender(req: IncomingMessage, res: ServerResponse): Promise<
         zoom: parseZoom(body.zoom),
       })
     const html = card !== null ? card.html : (editedHtml as string)
-    const base64 = await renderPng({
+    const rendered = await renderPng({
       html,
       width: viewportWidth,
       height: preset.minHeight,
@@ -290,7 +311,7 @@ async function handleRender(req: IncomingMessage, res: ServerResponse): Promise<
       needsMermaid: card !== null ? card.needsMermaid : html.includes('class="mermaid"'),
       needsFenceWait: card !== null ? card.hasFenceEmbed : html.includes('figure class="htmlfence"'),
     })
-    const png = Buffer.from(base64, 'base64')
+    const png = Buffer.from(rendered.base64, 'base64')
     const size = pngSize(png)
     const id = `shot-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
     cachePut(id, { png, ...size, title: typeof body.title === 'string' ? body.title : '', at: Date.now() })
@@ -302,6 +323,16 @@ async function handleRender(req: IncomingMessage, res: ServerResponse): Promise<
       imageUrl: `${ROUTE}/image?id=${encodeURIComponent(id)}`,
       bytes: png.length,
       aspectLocked,
+      /*
+       * 长图是否被输出预算截断（底部缺失）。
+       *
+       * 与 aspectLocked 分开：后者只在**固定画幅**模式下有意义（自适应长图恒为
+       * true），而预算截断在任何模式下都会发生（4K 档约 5208 CSS px 就触发）。
+       * 前端据此给出提示——不提示的话用户拿到一张少了尾巴的图却毫无察觉。
+       */
+      truncated: rendered.truncated,
+      /** 截断前的原始内容高度（CSS px），供提示文案说明「本来有多长」。 */
+      contentHeight: rendered.contentHeight,
       // 回传本次渲染用的完整 HTML，面板的「元素删除」编辑模式从这里取页面。
       html,
       ...size,

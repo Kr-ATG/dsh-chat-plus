@@ -486,6 +486,16 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
     : result !== null
       ? `${result.width} × ${result.height} px · ${humanBytes(result.bytes)} · ${messages.length} 条消息`
       : ''
+  /*
+   * 长图被输出预算截断时的提示文案。
+   *
+   * 为什么必须提示：截断是内存安全闸造成的（超了会 OOM 带崩进程），不能取消；
+   * 但被截掉的那截内容用户在图里看不到，不说他会以为那就是全部。
+   * 提示里给出「本来有多长」与可操作的降级方向。
+   */
+  const truncatedHint = result?.truncated === true
+    ? `长图超出输出上限，底部未包含（完整内容约 ${result.contentHeight ?? '?'} px）。可降低画质档、缩小宽度，或改用「单条回复」范围。`
+    : null
 
   return createPortal(
     <>
@@ -689,6 +699,9 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
               )
             )}
           </div>
+          {!busy && error === null && truncatedHint !== null && (
+            <div className={cls.warn} role="status">{truncatedHint}</div>
+          )}
         </div>
 
         <div className={cls.foot}>

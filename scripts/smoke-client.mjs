@@ -2798,6 +2798,68 @@ if (krEnabled) {
     // 常量必须从 card.ts 导出（renderer 复用），不能各写一份字面量。
     if (!/export const SHOT_FRAME_MAX_HEIGHT/.test(cardSrc)) {
       reasons.push('SHOT_FRAME_MAX_HEIGHT 必须从 card.ts 导出供 renderer 复用')
+    // ⑦-4 围栏落点必须按**内容哈希**定位，不能按序号。
+    // 两侧的围栏识别规则不可能完全一致（markdown-it 认 ` ```html title=x `、不认
+    // 缩进围栏；splitHtml 的正则反之），数序号必然漂移 → 卡片插到非法围栏的位置。
+    // 实测：非法围栏（只有注释）在前时，卡片会插到它的位置上。
+    if (!/export function fenceKey/.test(readFileSync(resolve(ROOT, 'src/shot/markdown.ts'), 'utf8'))) {
+      reasons.push('markdown.ts 必须导出 fenceKey（围栏内容哈希定位键）')
+    }
+    const markdownSrc = readFileSync(resolve(ROOT, 'src/shot/markdown.ts'), 'utf8')
+    if (!/data-fence-k="\$\{/.test(markdownSrc) && !/data-fence-k="\$\{fenceKey/.test(markdownSrc)) {
+      reasons.push('html/iu 围栏必须写 data-fence-k（内容哈希）供注入侧定位')
+    }
+    if (/data-fence-i="/.test(markdownSrc) || /data-fence-i="/.test(cardSrc)) {
+      reasons.push('不得再用序号 data-fence-i 定位（会被回退围栏与解析差异带偏），必须用 data-fence-k')
+    }
+    // shiki 语言名大小写敏感：```HTML 必须归一后再喂给 shiki，否则降级成
+    // shiki plain（无定位键）→ 卡片整块消失、连源码块都不留。
+    if (!/lang:\s*normalized/.test(markdownSrc)) {
+      reasons.push('shiki 语言名必须小写归一（```HTML 否则会整块消失）')
+    }
+
+    // ⑦-5 内嵌页「量不准 / 装不下」都必须在卡片里说出来。
+    // iframe 带 scrolling="no" + 内部 overflow:hidden，被裁的部分既不可见也不可
+    // 滚动，不标注用户会以为那就是页面的全部。
+    const themeSrc2 = readFileSync(resolve(ROOT, 'src/shot/theme.ts'), 'utf8')
+    if (!/data-clipped/.test(cardSrc) || !/data-clipped="1"/.test(themeSrc2)) {
+      reasons.push('内嵌围栏超上限时必须打 data-clipped 并在 CSS 里给出可见角标')
+    }
+    if (!/trusted/.test(cardSrc) || !/高度未能量准/.test(cardSrc)) {
+      reasons.push('本地 HTML 量高不可信时必须在图注里说明')
+    }
+    if (!/clipped/.test(cardSrc) || !/超过 \$\{SHOT_FRAME_MAX_HEIGHT\}px 上限/.test(cardSrc)) {
+      reasons.push('本地 HTML 超上限被截断时必须在图注里说明')
+    }
+
+    // ⑦-6 分段截图的滚动必须校验到位，不能静默吞掉。
+    // 滚动没发生而 PNG 照常 push 到 y 位置 → 重复条带 + 底部缺失，且
+    // stitchPng 的 totalHeight 是高度累加，不会暴露这个错位。
+    if (!/scrollToY/.test(rendererSrc)) {
+      reasons.push('分段截图必须校验滚动到位（scrollToY），不能 catch 后静默继续')
+    }
+    if (/window\.scrollTo\(0, \$\{y\}\); setTimeout\(resolve, 150\)/.test(rendererSrc)) {
+      reasons.push('分段滚动不得再是无校验的 fire-and-forget')
+    }
+
+    // ⑦-7 长图截断必须可见（前端消费 truncated）。
+    if (!/truncated/.test(rendererSrc)) reasons.push('renderPng 必须回报 truncated（长图是否被预算截断）')
+    const panelSrc = readFileSync(resolve(ROOT, 'src/client/shot/Panel.tsx'), 'utf8')
+    const apiSrc = readFileSync(resolve(ROOT, 'src/client/shot/api.ts'), 'utf8')
+    if (!/truncated/.test(apiSrc)) reasons.push('RenderResult 必须声明 truncated')
+    if (!/truncatedHint/.test(panelSrc)) reasons.push('面板必须消费 truncated 并给出提示（否则截断仍静默）')
+    // 提示类名走 styles.ts 的 cls 映射（Panel 里写的是 cls.warn），所以两处都要查。
+    const shotStylesSrc = readFileSync(resolve(ROOT, 'src/client/shot/styles.ts'), 'utf8')
+    if (!/cls\.warn/.test(panelSrc) || !/tsh-warn/.test(shotStylesSrc)) {
+      reasons.push('截断提示必须有对应样式（Panel 用 cls.warn + styles.ts 定义 .tsh-warn）')
+    }
+
+    // ⑦-8 本地 HTML 张数被截断要计入 omitted（与消息条数分开计数）。
+    if (!/omittedEmbeds/.test(cardSrc)) reasons.push('卡片必须区分「消息被截」与「产物预览未内嵌」两类截断')
+    const shotIndexSrc2 = readFileSync(resolve(ROOT, 'src/shot/index.ts'), 'utf8')
+    if (!/omittedEmbeds:\s*collected\.omitted/.test(shotIndexSrc2)) {
+      reasons.push('collectEmbeds 的丢弃张数必须传给卡片（omittedEmbeds）')
+    }
     }
   }
 
