@@ -64,10 +64,6 @@ export function sliderFillText(spec: unknown, value: number): string {
 export function checklistFillText(spec: unknown, checked: ReadonlySet<number>): string {
   return callFill('checklist', spec, { checked: [...checked].sort((a, b) => a - b) })
 }
-/** chart：旧签名 (spec, Set<被隐藏系列下标>)。 */
-export function chartFillText(spec: unknown, hidden: ReadonlySet<number>): string {
-  return callFill('chart', spec, { hidden: [...hidden].sort((a, b) => a - b) })
-}
 /** tabs：旧签名 (spec, 活动页下标)。 */
 export function tabsFillText(spec: unknown, active: number): string {
   return callFill('tabs', spec, { active })

@@ -375,7 +375,7 @@ export { gateIconForRow, decorateGateMenuRows, GATE_ICON_ATTR, GATE_ICON_COMMAND
 export { splitHtml, looksLikeHtmlFence } from './html-embed/parse.ts'
 export { splitIu, looksLikeIuFence } from './iu/parse.ts'
 export { iuSlashTest } from './iu/slash.ts'
-export { sliderFillText, checklistFillText, chartFillText, tabsFillText, pianoFillText } from './iu/IuCard.tsx'
+export { sliderFillText, checklistFillText, tabsFillText, pianoFillText } from './iu/IuCard.tsx'
 /**
  * 裸路径链接化：供 smoke 直接断言「手写反斜杠图片路径会被修正」。
  *
