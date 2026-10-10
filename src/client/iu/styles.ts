@@ -19,7 +19,14 @@ import { iuKindsCss } from './kinds/registry.ts'
  * 见 ui-theme gradient-shadow-text.css 与 ui-layout theme-presenter.ts）。
  * 基座在 .dtt-iu 上定义：
  *
- *     --iu-text-scale: calc(var(--dsh-content-font-size, 14px) / 14)
+ *     --iu-text-scale: calc(var(--dsh-content-font-size, 14px) / 14px)
+ *
+ * ⚠ **除数是 14px，不是 14**。CSS calc 的量纲规则：长度 ÷ 数字 = 长度，
+ * 长度 ÷ 长度 = 数字。写成 `/14` 时该变量求值为 `1px`（长度），于是各 kind 的
+ * `calc(12.5px * var(--iu-text-scale))` 变成 px² —— 非法量纲，**整条 font-size
+ * 声明被静默丢弃**，文字回退成继承值（SVG 里 16px）。真浏览器实测：
+ * `/14` → font-size 16px（失效）；`/14px` → 12.5px（正确）。
+ * 症状是「字号轴完全不生效 + 图形里文字撑爆节点框」，不报任何错。
  *
  * 各 kind 的字号一律写 `calc(Npx * var(--iu-text-scale, 1))`——用户在官方设置
  * 里调字号，卡片文字即时无级跟随（14→17px 时 scale = 1.214…），不需要 JS
@@ -45,7 +52,12 @@ import { iuKindsCss } from './kinds/registry.ts'
  */
 const IU_BASE_CSS = [
   '/* ── 字号轴：跟随官方设置字号（见文件头注释）──────────────────────── */',
-  '.dtt-iu { --iu-text-scale: calc(var(--dsh-content-font-size, 14px) / 14);',
+  '/* ⚠ 除数必须带单位（14px，不是 14）：CSS calc 里「长度 / 数字」的结果仍是长度，',
+  '   而 --iu-text-scale 必须是**无单位数字**。写成 /14 时该值是 1px，于是所有',
+  '   calc(Npx * var(--iu-text-scale)) 变成 px² 这种非法量纲，整条 font-size 被',
+  '   静默丢弃、回退成继承值（SVG 里 16px）——表现为「字号轴不生效 + 文字撑爆节点框」。',
+  '   长度 / 长度 = 数字，所以除数是 14px。 */',
+  '.dtt-iu { --iu-text-scale: calc(var(--dsh-content-font-size, 14px) / 14px);',
   '  --iu-r-lg: calc(14px * var(--iu-text-scale, 1)); --iu-r-md: calc(10px * var(--iu-text-scale, 1));',
   '  --iu-sh-sm: 0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary, #2d3142) 10%, transparent);',
   '  --iu-sh-md: 0 6px 16px color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 22%, transparent); }',
