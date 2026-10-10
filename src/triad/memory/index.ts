@@ -16,6 +16,7 @@ import { compileAll, workspaceHashOf } from './engine/compile.js'
 import { extractCandidates, isDuplicateContent, transcriptFromEvents } from './engine/extract.js'
 import { createMemoryInjector } from './engine/inject.js'
 import { MemoryStore, entryIdOf, summarize } from './engine/store.js'
+import { createTodoClosure, type TurnStoppingAgent } from './engine/todo-closure.js'
 import { setWebuiMemoryStore } from '../memory-store-singleton.js'
 import { mountSoul, SoulStore } from '../soul/index.js'
 import { createTicker } from './engine/ticker.js'
@@ -99,6 +100,22 @@ export function applyMemory(ctx: Context, input: Partial<MemoryConfig> | undefin
   // ── 模型工具 ─────────────────────────────────────────────────────────
   const toolsDispose = registerMemoryTools(ctx, store, config)
   ctx.effect(() => toolsDispose, 'dsh-memory: tools')
+
+  // ── 回合结束自动收口（agent/turn-stopping）────────────────────────────
+  // 为什么是 turn-stopping 而不是 session/event：见 engine/todo-closure.ts 的
+  // 模块头注释（append 的 reenter 守卫 + todo/write 要求 turn 仍 open）。
+  //
+  // 装配与运行都独立隔离：这一块挂了只是「清单里的 in_progress 不收口」，
+  // 绝不能把记忆引擎一起带走——所以挂载包 try/catch，监听器内部自己也全程
+  // try/catch（turn-stopping 是 serial + awaited，抛错会毁掉用户的整个回合）。
+  try {
+    const closure = createTodoClosure(ctx, store, config, ctx.logger)
+    ctx.effect(() => closure.dispose, 'dsh-memory: todo closure')
+    ctx.on('agent/turn-stopping', ((payload: { agent: TurnStoppingAgent }) => closure.listener(payload)) as never)
+    ctx.logger?.debug?.('[dsh-memory] todo closure mounted')
+  } catch (error) {
+    ctx.logger?.warn?.(`[dsh-memory] todo closure failed to mount: ${error instanceof Error ? error.message : String(error)}`)
+  }
 
   // ── HTTP API ─────────────────────────────────────────────────────────
   const routesDispose = mountMemoryRoutes(ctx, store, config)

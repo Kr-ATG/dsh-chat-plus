@@ -269,7 +269,9 @@ async function handle(
       const soulEnabled = await store.isSoulInjectEnabled(config.soulInjectDefaultEnabled !== false)
       // team 同理并进回包（同一理由：开关浮层一次 hover 要知道全部通道状态）。
       const teamEnabled = await store.isTeamInjectEnabled(config.teamInjectDefaultEnabled !== false)
-      json(res, 200, { enabled: explicit ?? defaultEnabled, defaultEnabled, explicit, zhEnabled, htmlEnabled, soulEnabled, teamEnabled })
+      // 自动收口同理并进回包（同一理由：开关浮层一次 hover 要知道全部通道状态）。
+      const todoClosureEnabled = await store.isTodoClosureEnabled(config.todoClosureDefaultEnabled !== false)
+      json(res, 200, { enabled: explicit ?? defaultEnabled, defaultEnabled, explicit, zhEnabled, htmlEnabled, soulEnabled, teamEnabled, todoClosureEnabled })
       return
     }
     if (method === 'POST' && rest === '/inject-state') {
@@ -331,6 +333,22 @@ async function handle(
       const body = await readBody(req) as Record<string, unknown>
       const enabled = body.enabled !== false
       await store.setTeamInjectEnabled(enabled)
+      json(res, 200, { ok: true, enabled, builtin: true })
+      return
+    }
+
+    // ── 回合结束自动收口开关（内置能力，全局单值） ─────────────────────
+    // 与上面几个开关同构，builtin:true 恒定——收口逻辑硬编码在插件里（无卸载
+    // 入口），只有「开/关」这一种操作。默认开，因此缺字段时按 !== false 兜底。
+    if (method === 'GET' && rest === '/todo-closure-state') {
+      const enabled = await store.isTodoClosureEnabled(config.todoClosureDefaultEnabled !== false)
+      json(res, 200, { enabled, builtin: true })
+      return
+    }
+    if (method === 'POST' && rest === '/todo-closure-state') {
+      const body = await readBody(req) as Record<string, unknown>
+      const enabled = body.enabled !== false
+      await store.setTodoClosureEnabled(enabled)
       json(res, 200, { ok: true, enabled, builtin: true })
       return
     }

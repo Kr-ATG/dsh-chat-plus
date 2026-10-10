@@ -128,6 +128,17 @@ export interface StoreState {
    * 缺省 = 跟随 config.teamInjectDefaultEnabled（默认开）。
    */
   teamInjectEnabled?: boolean
+  /**
+   * 回合结束自动收口开关（全局单值，三态缺省）。
+   *
+   * 与上面四条注入通道不同：它不往上下文里投文本，而是在 `agent/turn-stopping`
+   * 把清单里残留的 in_progress 项改写为 pending——右栏「任务概览」卡在回合结束
+   * 后不该还挂着一条「进行中」，那既不是真实状态（回合都结束了），也会让卡片
+   * 永远显示成「卡住了」。仍然是全局单值：清单收口与否是流程纪律，逐会话开关
+   * 只会制造「这个会话收、下个不收」的不可预期。
+   * 缺省 = 跟随 config.todoClosureDefaultEnabled（见 store.isTodoClosureEnabled）。
+   */
+  todoClosureEnabled?: boolean
 }
 
 /** 单个会话的 ticker 状态。 */
@@ -247,6 +258,16 @@ export interface MemoryConfig {
    * 与 diagram 默认关相反——diagram 只影响「要不要多画一张图」，不影响任务组织方式。
    */
   teamInjectDefaultEnabled: boolean
+  /**
+   * 回合结束自动收口默认开关（内置能力，**默认开**）。
+   *
+   * 与上面四条注入通道并列的第五条内置通道，但投的不是文本而是**行为**：
+   * 回合收口时把残留的 in_progress 任务项改写成 pending（见 engine/todo-closure.ts）。
+   * 默认开的理由：`todo` 投影是 last-write-wins 的整表快照，模型漏收尾时
+   * in_progress 会一直挂在右栏任务卡上——这是纯展示层噪音，自动清掉没有副作用；
+   * 用户真想在回合间保留「进行中」语义时，关掉即可。
+   */
+  todoClosureDefaultEnabled: boolean
   /** 注入检索 top-k（当前任务相关记忆注入条数；identity/pinned/长期常驻不占此预算）。 */
   injectTopK: number
   /** 全局条目数上限（超限按 importance + recency 淘汰低分条目）。 */
@@ -304,6 +325,8 @@ export const DEFAULT_CONFIG: MemoryConfig = {
   soulInjectDefaultEnabled: true,
   // 默认开：模型默认单线程串完，不注入就不会主动并行委派与组队（见字段注释）。
   teamInjectDefaultEnabled: true,
+  // 默认开：回合结束后的残留 in_progress 是纯展示层噪音，自动改写为 pending 无副作用。
+  todoClosureDefaultEnabled: true,
   injectTopK: 8,
   entryLimit: 500,
   pruneNeverHitDays: 21,
@@ -395,7 +418,7 @@ export type ConfigNumberKey = keyof typeof CONFIG_NUMBER_BOUNDS
 
 const CONFIG_NUMBER_KEYS = Object.keys(CONFIG_NUMBER_BOUNDS) as ConfigNumberKey[]
 
-const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'htmlInjectDefaultEnabled', 'soulInjectDefaultEnabled', 'teamInjectDefaultEnabled'] as const
+const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'htmlInjectDefaultEnabled', 'soulInjectDefaultEnabled', 'teamInjectDefaultEnabled', 'todoClosureDefaultEnabled'] as const
 
 /** 可调布尔字段名。 */
 export type ConfigBooleanKey = (typeof CONFIG_BOOLEAN_KEYS)[number]

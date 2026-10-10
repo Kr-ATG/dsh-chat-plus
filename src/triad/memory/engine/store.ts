@@ -758,6 +758,26 @@ export class MemoryStore {
     await this.writeState(state)
   }
 
+  // ── 回合结束自动收口开关（全局单值） ────────────────────────────────
+
+  /**
+   * 回合结束自动收口是否开启（三态：state 显式值 ?? 调用方给的 fallback）。
+   *
+   * 与上面四条注入通道同样是**全局单值**：收口是一条流程纪律，不描述任何单个
+   * 会话的内容，逐会话开关只会制造「这个会话收、下个不收」的不可预期。
+   */
+  async isTodoClosureEnabled(fallback: boolean): Promise<boolean> {
+    const state = await this.readState()
+    return typeof state.todoClosureEnabled === 'boolean' ? state.todoClosureEnabled : fallback
+  }
+
+  /** 写回合结束自动收口开关（全局单值；直接落盘，调用频率极低）。 */
+  async setTodoClosureEnabled(enabled: boolean): Promise<void> {
+    const state = await this.readState()
+    state.todoClosureEnabled = enabled
+    await this.writeState(state)
+  }
+
   // ── 项目 meta ───────────────────────────────────────────────────────
 
   async readProjectMeta(hash: string): Promise<ProjectMeta | undefined> {

@@ -6,15 +6,21 @@
  *  - 大脑按钮 → **记忆注入**卡：本会话注入（host state.json 里的显式覆盖）、
  *    默认开启（config.injectDefaultEnabled，决定新会话与未单独设置过的会话）。
  *    已单独设置过时显示「已单独设置」角标，可一键「跟随默认」清除覆盖。
- *  - 提示符按钮 → **内置提示词通道**卡：中文优先 / 对话内流程图 / 交互卡片 / 灵魂人设 /
- *    团队协作。五条硬编码在插件内、无卸载入口（回包恒带 builtin），全局单值，不做会话级，
+ *  - 提示符按钮 → **内置提示词通道**卡：中文优先 / 交互卡片 / 灵魂人设 / 团队协作
+ *    四条**注入通道**，外加一条**回合结束自动收口**——它一个字都不进 prompt，
+ *    只管回合收尾时把残留的「进行中」任务项改回「未完成」，见 host 侧
+ *    engine/todo-closure.ts。放在同一张卡里是因为它同属「插件内置、全局单值、
+ *    无卸载入口」这一类能力，但它与注入无关这件事由 hint 文案说清。
+ *    全部硬编码在插件内、无卸载入口（回包恒带 builtin），全局单值，不做会话级，
  *    也不受记忆注入的任何一道闸门约束——语言契约与人设必须跨会话恒定，否则同一用户
  *    会得到互相矛盾的回答语言。
  *    卡尾另有一行**总结卡外框**：它不是注入通道，一个字都不进 prompt，只管 Seeker
  *    对话流里那张总结卡要不要框和阴影（纯显示偏好，存 localStorage，见
- *    ../../reply-card-chrome.ts）。它与上面五条刻意用一枚小组标题隔开——混在同一列
+ *    ../../reply-card-chrome.ts）。它与上面那几行刻意用一枚小组标题隔开——混在同一列
  *    里会让人以为「总结卡外框」也是往提示词里塞东西，而这正是本仓反复踩过的
- *    「两种不同的东西挤一张卡」的坑。因此按钮的开态只按**五条通道**算，不含它。
+ *    「两种不同的东西挤一张卡」的坑。因此按钮的开态只按**那四条注入通道**算，
+ *    不含它，也不含自动收口——后者同样一个字都不进 prompt，只是同属「插件内置、
+ *    全局单值、无卸载入口」这一类能力才并排放在同一张卡里。
  *
  * 两张卡曾经挤在一张里（「注入与记忆」）：那是把「提示词注入」与「记忆注入」两种
  * 不同的事塞给一个按钮，标题总有一半对不上，读者也要在无关的行之间来回跳。
@@ -56,15 +62,16 @@ export type MemoryToggleProps =
 const HIDE_DELAY_MS = 120
 
 /**
- * host 缺字段时的兜底形状：中文通道 / 灵魂 / html 默认开（内置能力），
+ * host 缺字段时的兜底形状：中文通道 / 灵魂 / html / 自动收口默认开（内置能力），
  * team 默认关（旧 host 没这个能力，显示「开」是假阳性）。
  *
  * 只在请求失败时用（正常路径由 host 回包决定）。html 的兜底取 true 与
  * config.htmlInjectDefaultEnabled 同口径——它默认开，请求失败时显示「关」会让
- * 用户以为能力没开。
+ * 用户以为能力没开。自动收口同此理：host 侧 config.todoClosureDefaultEnabled
+ * 默认 true，兜底取 false 会让请求一失败就显示成关。
  */
 const FALLBACK_STATE: InjectStateView = {
-  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, htmlEnabled: true, soulEnabled: true, teamEnabled: false,
+  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, htmlEnabled: true, soulEnabled: true, teamEnabled: false, todoClosureEnabled: true,
 }
 
 /** 把 host 回包收敛成本地状态形状（缺字段按默认处理）。 */
@@ -84,6 +91,10 @@ function toState(res: InjectStateView): InjectStateView {
     // team 与 html 同口径：缺字段意味着旧 host 根本没这个能力，
     // 显示「关」比显示「开」诚实（开着却注不进去是假阳性）。
     teamEnabled: res.teamEnabled === true,
+    // 自动收口与 zh / soul 同口径（**不是** html / team 那种）：它是默认开的
+    // 通道，缺字段按开。写成 === true 的话，client 已更新、host 还没重启的那段
+    // 窗口里开关会显示成关，host 一重启又跳成开。
+    todoClosureEnabled: res.todoClosureEnabled !== false,
   }
 }
 
@@ -114,7 +125,7 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
    * 具备的能力；回读拿到的是真实状态。
    */
   const pushChannel = useCallback((
-    key: 'zhEnabled' | 'htmlEnabled' | 'soulEnabled' | 'teamEnabled',
+    key: 'zhEnabled' | 'htmlEnabled' | 'soulEnabled' | 'teamEnabled' | 'todoClosureEnabled',
     next: boolean,
   ): void => {
     setBusy(true)
@@ -125,11 +136,14 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
         ? apiRef.current.setHtmlInjectState(next)
         : key === 'soulEnabled'
           ? apiRef.current.setSoulInjectState(next)
-          : apiRef.current.setTeamInjectState(next)
+          : key === 'teamEnabled'
+            ? apiRef.current.setTeamInjectState(next)
+            : apiRef.current.setTodoClosureState(next)
     void write
       .then(res => {
-        // 中文通道与灵魂通道缺字段按开兜底（内置能力）；html / team 缺字段按关
-        // 兜底（旧 host 根本没有这个能力，显示「开」是假阳性）——与 toState 的口径一致。
+        // 中文 / 灵魂 / 自动收口缺字段按开兜底（默认开的内置能力）；html / team
+        // 缺字段按关兜底（旧 host 根本没有这个能力，显示「开」是假阳性）——
+        // 与 toState 的口径逐条一致。
         const enabled = key === 'htmlEnabled' || key === 'teamEnabled' ? res.enabled === true : res.enabled !== false
         setState(prev => ({ ...prev, [key]: enabled }))
       })
@@ -153,6 +167,7 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           htmlEnabled: typeof res.htmlEnabled === 'boolean' ? res.htmlEnabled : prev.htmlEnabled,
           soulEnabled: typeof res.soulEnabled === 'boolean' ? res.soulEnabled : prev.soulEnabled,
           teamEnabled: typeof res.teamEnabled === 'boolean' ? res.teamEnabled : prev.teamEnabled,
+          todoClosureEnabled: typeof res.todoClosureEnabled === 'boolean' ? res.todoClosureEnabled : prev.todoClosureEnabled,
         }))
       })
       .catch(reload)
@@ -180,6 +195,7 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           htmlEnabled: typeof res.htmlEnabled === 'boolean' ? res.htmlEnabled : prev.htmlEnabled,
           soulEnabled: typeof res.soulEnabled === 'boolean' ? res.soulEnabled : prev.soulEnabled,
           teamEnabled: typeof res.teamEnabled === 'boolean' ? res.teamEnabled : prev.teamEnabled,
+          todoClosureEnabled: typeof res.todoClosureEnabled === 'boolean' ? res.todoClosureEnabled : prev.todoClosureEnabled,
         }))
       })
       .catch(() => undefined)
@@ -423,6 +439,8 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
   const htmlOn = state.htmlEnabled === true
   const soulOn = state.soulEnabled !== false
   const teamOn = state.teamEnabled === true
+  // 自动收口与 zh / soul 同口径（默认开）：缺字段按开，别抄 html / team 的 === true。
+  const todoClosureOn = state.todoClosureEnabled !== false
   /*
    * 总结卡外框：纯显示偏好，不走 host，状态在 localStorage（见 reply-card-chrome）。
    *
@@ -433,9 +451,12 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
   const chromeOn = useSyncExternalStore(subscribeReplyCardChrome, replyCardChromeEnabled, replyCardChromeEnabled)
   // 工具调用卡显隐：与总结卡外框同族（纯呈现偏好、localStorage、跨窗口同步）。
   const toolCallsOn = useSyncExternalStore(subscribeToolCallsVisible, toolCallsVisible, toolCallsVisible)
-  // 按钮状态取「四条里有没有开的」——全关才算关，半开按开显示（它是能力入口，
-  // 不是记忆那种一刀切的开关）。**不含总结卡外框**：那一行不是注入通道，
-  // 把它算进来会让「四条通道全关、只想要无框卡片」的按钮显示成开着的入口。
+  // 按钮状态取「这几条注入通道里有没有开的」——全关才算关，半开按开显示（它是
+  // 能力入口，不是记忆那种一刀切的开关）。**不含总结卡外框**：那一行不是注入通道，
+  // 把它算进来会让「通道全关、只想要无框卡片」的按钮显示成开着的入口。
+  // **也不含自动收口**，同理：它一个字都不进 prompt，只是同属「插件内置、全局单值、
+  // 无卸载入口」这一类能力才并排放在同一张卡里；算进来会让「四条通道全关、只留自动
+  // 收口」的按钮显示成开着的入口，而用户点进去会发现注入其实一条都没开。
   const anyOn = zhOn || htmlOn || soulOn || teamOn
   const button = (
     <ToggleButton
@@ -497,18 +518,30 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
           hint={t('teamInjectHint')}
           onToggle={() => { pushChannel('teamEnabled', !teamOn) }}
         />
-        {/* 展示设置组：与上面五条注入通道**不是一类东西**，所以另起一枚组标题隔开。
+        {/* 回合结束自动收口：不是注入通道（一个字都不进 prompt），只是同属「插件
+            内置、全局单值、无卸载入口」这一类能力，所以并排放在同一张卡里。
+            默认开（host 侧 config.todoClosureDefaultEnabled 默认 true）；关掉后
+            回合结束时残留的「进行中」任务项保持原样。 */}
+        <SwitchRow
+          index={4}
+          on={todoClosureOn}
+          busy={busy}
+          label={t('todoClosureLabel')}
+          hint={t('todoClosureHint')}
+          onToggle={() => { pushChannel('todoClosureEnabled', !todoClosureOn) }}
+        />
+        {/* 展示设置组：与上面那几行**不是一类东西**，所以另起一枚组标题隔开。
             不隔开的话，读者会以为「总结卡外框」也是往提示词里塞内容的能力，
             而它其实只管一张卡片长什么样。 */}
         <div className={css.injectGroup}>
           <span className={css.injectGroupTitle}>{t('displayGroupTitle')}</span>
         </div>
         <SwitchRow
-          index={4}
+          index={5}
           lead
           on={chromeOn}
           // busy 恒为 false：这一行写的是 localStorage（同步落盘 + 刷 body 属性），
-          // 没有网络往返，不存在"正在保存"的中间态。上面五行要等 host 回包才有，
+          // 没有网络往返，不存在"正在保存"的中间态。上面几行要等 host 回包才有，
           // 所以它们共用那个 busy。写成 busy={busy} 会让这行在别的通道保存时
           // 莫名变灰、点不动。
           busy={false}
@@ -517,7 +550,7 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
           onToggle={() => { setReplyCardChromeEnabled(!chromeOn) }}
         />
         <SwitchRow
-          index={5}
+          index={6}
           // 与总结卡外框同族：写 localStorage，同步落盘无网络往返，busy 恒 false。
           busy={false}
           on={toolCallsOn}

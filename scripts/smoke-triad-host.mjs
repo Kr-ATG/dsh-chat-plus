@@ -13,11 +13,35 @@
  */
 
 import { resolve, dirname } from 'node:path'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..')
+
+/*
+ * ── DSH_HOME 隔离（必须在 import 插件之前设置）────────────────────────
+ *
+ * 记忆引擎的数据根走 `memoryHome()`（src/triad/memory/engine/store.ts:24）：
+ * `process.env.DSH_HOME ?? ~/.dsh`。不隔离的话，本脚本里的「开关写回」类断言
+ * 会直接改写**用户真实的** `~/.dsh/memories/dsh-memory/store/state.json` ——
+ * 冒烟进程被杀 / 断电 / 还原路径自身抛错，都会把用户的开关状态弄坏。
+ *
+ * 隔离到工作区 `_tmp/`（用户约定的临时产物目录，有定期清理）之后，「开关关闭
+ * 真的不写」这类断言才能安全地进仓库冒烟。实测隔离不影响其它断言。
+ *
+ * 注意位置：`DSH_HOME` 必须在插件模块求值前生效，所以这段放在所有 import 之后、
+ * 但仍在 `await import(...)` 插件之前——store 的路径是**调用时**读环境变量，
+ * 不是模块加载时，因此这里设置是有效的。
+ *
+ * 每次跑前先删掉上一轮的残留：隔离目录里会落技能资产副本等文件，留着只会
+ * 让 _tmp 越滚越大（内容每次重生成，无需保留）。
+ */
+const SMOKE_DSH_HOME = resolve(ROOT, '_tmp', 'smoke-triad-host-dsh-home')
+try {
+  rmSync(SMOKE_DSH_HOME, { recursive: true, force: true })
+} catch { /* 残留清不掉（被占用等）不影响本次运行：写入会覆盖同名文件 */ }
+process.env.DSH_HOME = SMOKE_DSH_HOME
 
 const fail = (msg) => { console.error(`FAIL  ${msg}`); process.exitCode = 1 }
 const pass = (msg) => console.log(`ok    ${msg}`)
@@ -69,6 +93,8 @@ else pass('apply is a function')
 // ── 3. run apply() against a stub host context ───────────────────────────
 const routes = new Map()
 const listeners = new Map()
+/** 收口断言摆场景用：投影里当前的 todos 值（由断言段赋值）。 */
+let projectionTodos = null
 const tools = []
 const logs = []
 const injectNamesSeen = []
@@ -116,6 +142,16 @@ const ctx = {
   sessions: {},
   sessionPersistence: {},
   llm: {},
+  /*
+   * `sessionProjections` 桩：只实现收口模块用到的那一个方法 `stateOf`。
+   *
+   * 下面「回合结束自动收口」那组断言要**真跑监听器**（而不是扫源码字符串），
+   * 收口逻辑会问投影要当前清单，所以这里必须给一个能改写的 `todos` 值。
+   * `projectionTodos` 由断言段直接赋值来摆场景。
+   */
+  sessionProjections: {
+    stateOf: (_session, key) => (key === 'todos' ? projectionTodos : undefined),
+  },
   // 主插件 apply 用 ctx.inject 延迟等 service 就绪；桩要真的把回调跑起来，
   // 否则工作台一次都不挂载，下面的路由断言全 false。
   //
@@ -496,11 +532,315 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
   // client 侧也要钉住新键：i18n 键拼错不会编译失败，只会静默显示原始 key。
   const clientLocales = readFileSync(resolve(ROOT, 'src/client/triad/memory/locales.ts'), 'utf8')
   const clientToggle = readFileSync(resolve(ROOT, 'src/client/triad/memory/Toggle.tsx'), 'utf8')
+  // 收口模块的承载文件：缺失时给一条清晰失败，而不是让整个冒烟抛 ENOENT
+  // （那样报的是「冒烟脚本崩了」，读不出「收口没实现」这个真因）。
+  const readOrFail = (rel) => {
+    try {
+      return readFileSync(resolve(ROOT, rel), 'utf8')
+    } catch (error) {
+      fail(`缺少承载文件 ${rel}：${error?.code ?? error?.message ?? error}`)
+      return ''
+    }
+  }
+  const closureSrc = readOrFail('src/triad/memory/engine/todo-closure.ts')
+  const memoryApiSrc = readOrFail('src/triad/memory/api.ts')
+  const clientApiSrc = readOrFail('src/client/triad/memory/api.ts')
   for (const key of ['teamInjectLabel', 'teamInjectHint']) {
     need(clientLocales.includes(`${key}:`), `locales 定义 ${key}`)
     need(clientToggle.includes(`t('${key}')`), `Toggle 取用 ${key}`)
   }
   need(clientToggle.includes(`pushChannel('teamEnabled'`), 'Toggle 写 team 通道走 teamEnabled 键')
+
+  // ── 回合结束自动收口（todo-closure） ────────────────────────────────
+  // 它不是「注入通道」（不往上下文里塞任何文本），而是**行为通道**：回合结束时
+  // 把残留 in_progress 降级为 pending，让任务卡不再挂着假进行中。因此它不进
+  // 上面那条「四条内置通道」的条数断言，单开一段钉。
+  if (route !== undefined) {
+    const call3 = async (method, url) => {
+      const captured = { status: 0, body: null }
+      const res = {
+        writeHead: (status) => { captured.status = status },
+        end: (payload) => { try { captured.body = JSON.parse(payload) } catch { captured.body = null } },
+      }
+      route.handler({ method, url, socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:3080' } }, res)
+      await new Promise((r) => setTimeout(r, 60))
+      return captured
+    }
+    const got = await call3('GET', '/api/dsh-memory/todo-closure-state')
+    need(got.status === 200, `GET /todo-closure-state answers 200（实得 ${got.status}）`)
+    need(typeof got.body?.enabled === 'boolean', 'todo-closure-state returns a boolean enabled')
+    // 默认开：这条兜底治的是「模型没在收尾时回写清单」这个实测 35% 的行为缺口，
+    // 默认关等于大多数人永远碰不到它（见 types.ts 字段注释）。
+    need(got.body?.enabled === true, `自动收口默认开（实得 ${JSON.stringify(got.body)}）`)
+    need(got.body?.builtin === true, 'todo-closure-state is tagged builtin (无卸载入口)')
+    const is = await call3('GET', '/api/dsh-memory/inject-state?sessionId=smoke-closure')
+    need(typeof is.body?.todoClosureEnabled === 'boolean', 'GET /inject-state 顺带回传 todoClosureEnabled')
+  }
+  /*
+   * ── 收口的行为验证（真跑监听器，不扫源码字符串）────────────────────
+   *
+   * 为什么整段改掉原来的正则断言：正则只能证明「源码里出现过某个串」，
+   * 证明不了行为。实测这些正则有多处假阳性——把写入载荷换成 filter 子集
+   * （会静默删用户任务）`/todos\.map\(/` 照样通过；把整个降级逻辑删掉
+   * `/in_progress/` 照样通过；`/agent\/turn-stopping/` 命中的其实是模块头
+   * **注释**（真正注册它的 index.ts 根本没被扫）。断言段于是提供了虚假的
+   * 安全感——这正是本次审计的结论。
+   *
+   * 改法：从 listeners 里取出真实注册的监听器直接调用，验它对投影做了什么。
+   * 这样「注册点写错事件名」「载荷被截断」「开关没生效」三类缺陷都会当场失败。
+   */
+  const stopping = listeners.get('agent/turn-stopping') ?? []
+  need(stopping.length === 1,
+    `agent/turn-stopping 上恰好挂 1 个收口监听器（实得 ${stopping.length}）`)
+
+  // 剥注释后的源码：下面几处「有没有某个调用」的判定必须看代码本体，
+  // 否则模块头注释里解释「为什么不用 session/event」会被当成违规。
+  const closureSrcNoComment = closureSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+
+  /** 造一个可观测的假 session：记录每次 append 的类型与载荷。 */
+  const makeSession = () => {
+    const appended = []
+    return {
+      id: 'smoke-closure-session',
+      appended,
+      append: (type, data) => { appended.push({ type, data }); return { type } },
+    }
+  }
+
+  if (stopping.length === 1) {
+    const closureListener = stopping[0]
+
+    // ① 有 in_progress → 恰好写一次，整表长度不变，只改 status。
+    // **两条** in_progress：只放一条时，「只降级第一条」这类缺陷区分不出来
+    // （实测该变异能逃逸），而真实清单确实允许多条并行（config 的
+    // allowParallelInProgress 默认 true）。
+    projectionTodos = [
+      { content: '已完成的事', status: 'completed' },
+      { content: '正在做的事甲', status: 'in_progress' },
+      { content: '正在做的事乙', status: 'in_progress' },
+      { content: '还没做的事', status: 'pending' },
+    ]
+    const s1 = makeSession()
+    await closureListener({ agent: { id: 'a1', session: s1 } })
+    need(s1.appended.length === 1,
+      `有 in_progress 时恰好 append 一次（实得 ${s1.appended.length}）`)
+    const write1 = s1.appended[0]
+    need(write1?.type === 'todo/write', `append 的事件类型是 todo/write（实得 ${write1?.type}）`)
+    const out1 = write1?.data?.todos
+    need(Array.isArray(out1) && out1.length === 4,
+      `写入载荷是**全量**清单、长度 4（实得 ${Array.isArray(out1) ? out1.length : out1}）——载荷用 filter 子集会把未改动项静默删掉`)
+    need(out1?.[1]?.status === 'pending' && out1?.[2]?.status === 'pending',
+      `**每一条** in_progress 都被降级为 pending（实得 ${out1?.[1]?.status} / ${out1?.[2]?.status}）——只改第一条会漏掉并行任务的其余项`)
+    need(out1?.[0]?.status === 'completed' && out1?.[3]?.status === 'pending',
+      '未改动的项状态原样保留（completed / pending 不被波及）')
+    need(out1?.[0]?.content === '已完成的事' && out1?.[1]?.content === '正在做的事甲' && out1?.[2]?.content === '正在做的事乙',
+      'content 一字未动（invariant 的非空/trim/不重复天然满足）')
+    // 投影返回的数组不得被原地改写（上游可能持有同一引用）。
+    need(projectionTodos[1].status === 'in_progress' && projectionTodos[2].status === 'in_progress',
+      '不原地修改投影返回的数组（原数组仍是 in_progress）')
+
+    // ② 没有 in_progress → 不写。无意义的整表快照只会污染会话日志。
+    projectionTodos = [
+      { content: '已完成的事', status: 'completed' },
+      { content: '还没做的事', status: 'pending' },
+    ]
+    const s2 = makeSession()
+    await closureListener({ agent: { id: 'a2', session: s2 } })
+    need(s2.appended.length === 0, `无 in_progress 时不 append（实得 ${s2.appended.length}）`)
+
+    // ③ 投影为空（回合刚开始、还没写过清单）→ 不写。
+    for (const empty of [null, []]) {
+      projectionTodos = empty
+      const s3 = makeSession()
+      await closureListener({ agent: { id: 'a3', session: s3 } })
+      need(s3.appended.length === 0,
+        `投影为 ${JSON.stringify(empty)} 时不 append（实得 ${s3.appended.length}）`)
+    }
+
+    /*
+     * ④ 形状不符的项不得被丢掉：整表替换下少带一条 = 删掉用户的任务。
+     *
+     * 这一条必须用**真的过不了 isTodoItemLike 的项**（status 不在三值枚举里），
+     * 否则区分不出正确实现与「拿 filter 子集当载荷」的缺陷——实测：用
+     * `{extra:1}` 这种仍合法（content+status 都对）的项时，变异成 `items.map`
+     * 依然全绿，断言等于没有。未来 DSH 给 TodoItem 加状态值就会踩到这个坑。
+     */
+    projectionTodos = [
+      { content: '正常项', status: 'in_progress' },
+      { content: '未来版本的新状态项', status: 'unknown_future_status' },
+      { content: '正常待办', status: 'pending' },
+    ]
+    const s4 = makeSession()
+    await closureListener({ agent: { id: 'a4', session: s4 } })
+    const out4 = s4.appended[0]?.data?.todos
+    need(Array.isArray(out4) && out4.length === 3,
+      `形状不符的项不被丢弃、整表长度仍是 3（实得 ${Array.isArray(out4) ? out4.length : out4}）——拿 filter 子集当载荷会静默删掉用户的任务`)
+    need(out4?.[1]?.content === '未来版本的新状态项' && out4?.[1]?.status === 'unknown_future_status',
+      '形状不符的项原样搬运（不改写、不丢弃）')
+    need(out4?.[0]?.status === 'pending', '合法项的降级不受形状不符项影响')
+
+    /*
+     * ④b content 本身不合法的项也必须原样搬运。
+     *
+     * 这条防的是「放宽 isTodoItemLike + 拿 filter 子集当载荷」的**组合**变异：
+     * 单放宽守卫是等价变异（改写条件仍只认 in_progress，行为不变，不该被抓）；
+     * 单换载荷已被 ④ 抓住；但两者叠加时，status 非法的项会被放宽后的守卫收进
+     * items，于是 ④ 的用例区分不出来——只有 content 非法（守卫无论如何都拒）
+     * 的项能暴露它。当前 invariant 保证 content 非空 string，所以这是**防御
+     * 未来形状漂移**，不是现存缺陷。
+     */
+    projectionTodos = [
+      { content: '正常项', status: 'in_progress' },
+      { content: null, status: 'pending' },
+    ]
+    const s4b = makeSession()
+    await closureListener({ agent: { id: 'a4b', session: s4b } })
+    const out4b = s4b.appended[0]?.data?.todos
+    need(Array.isArray(out4b) && out4b.length === 2,
+      `content 非法的项也不被丢弃、整表长度仍是 2（实得 ${Array.isArray(out4b) ? out4b.length : out4b}）`)
+
+    // ⑤ append 被拒（例如 turn 已关闭、invariant 拦下）→ 监听器必须仍 resolve。
+    // turn-stopping 是 serial + awaited，抛错会把用户的整个回合打成 error。
+    projectionTodos = [{ content: '正在做的事', status: 'in_progress' }]
+    const s5 = makeSession()
+    s5.append = () => { throw new Error('invariant: todo/write appended outside any open turn') }
+    let threw = false
+    try {
+      await closureListener({ agent: { id: 'a5', session: s5 } })
+    } catch { threw = true }
+    need(!threw, 'append 抛错时监听器仍然 resolve（绝不把用户的回合打成 error）')
+
+    /*
+     * ⑥ 开关真的生效——**行为断言**，不是「源码里有 isTodoClosureEnabled」。
+     *
+     * 为什么必须有这条：只断言「读了开关」会漏掉最恶劣的一种缺陷——读了但
+     * 不用（`const enabled = await ...` 后面忘了 `if (!enabled) return`）。
+     * 那种情况下面板显示「已关闭」而行为照旧，是**假状态**，用户点开关看不出
+     * 任何区别。实测该变异能逃过所有静态断言。
+     *
+     * 安全性：本脚本顶部已把 DSH_HOME 隔离到工作区 _tmp/，这里的写回只落在
+     * 隔离目录，碰不到用户的真实 state.json。
+     *
+     * 走 state.json 而不是伪造 POST 请求体：路由层已由上面的 GET 断言覆盖，
+     * 而这里要验的是「store 里的开关值真的影响行为」这条链路。
+     */
+    projectionTodos = [{ content: '正在做的事', status: 'in_progress' }]
+    const statePath = resolve(SMOKE_DSH_HOME, 'memories', 'dsh-memory', 'store', 'state.json')
+    const { mkdirSync, writeFileSync } = await import('node:fs')
+    const setClosureSwitch = (enabled) => {
+      const raw = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) : {}
+      raw.todoClosureEnabled = enabled
+      mkdirSync(dirname(statePath), { recursive: true })
+      writeFileSync(statePath, JSON.stringify(raw))
+    }
+
+    let switchWritable = true
+    try {
+      setClosureSwitch(false)
+    } catch (error) {
+      switchWritable = false
+      fail(`无法在隔离目录写 state.json（${error?.message ?? error}）`)
+    }
+    if (switchWritable) {
+      const s6 = makeSession()
+      await closureListener({ agent: { id: 'a6', session: s6 } })
+      need(s6.appended.length === 0,
+        `开关关闭时监听器完全不 append（实得 ${s6.appended.length}）——读了开关却不用会让面板显示假状态`)
+
+      // 复原为开，确认开关双向可用（否则「写死关闭」也能过上面那条）。
+      setClosureSwitch(true)
+      const s7 = makeSession()
+      await closureListener({ agent: { id: 'a7', session: s7 } })
+      need(s7.appended.length === 1,
+        `开关打开时监听器恢复写入（实得 ${s7.appended.length}）——防「写死关闭」蒙混过关`)
+
+      /*
+       * ⑦ 三态的 **fallback 分支**：state.json 里**没有**该字段时（用户从未
+       * 拨过这个开关），行为要跟随 `config.todoClosureDefaultEnabled`。
+       *
+       * 上面两条用例总是显式写字段，永远走不到 fallback —— 于是把
+       * `config.todoClosureDefaultEnabled !== false` 硬编码成 `true` 的变异能
+       * 全绿逃逸，而真实后果是：用户在 config.json 里关掉默认收口后它照样收口
+       * （三态语义的 fallback 透传被破坏）。实测该变异确实逃逸过。
+       *
+       * 这里先删掉字段（制造「从未拨过」的状态）验证 fallback 被走到且取到真值。
+       * 注意：`config` 在插件装配时就已冻结，运行时改不了它，所以「config 为
+       * false 时不收口」这条只能靠下面的**表达式精确断言**兜住，不能靠行为。
+       */
+      try {
+        const raw = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) : {}
+        delete raw.todoClosureEnabled
+        mkdirSync(dirname(statePath), { recursive: true })
+        writeFileSync(statePath, JSON.stringify(raw))
+        const s8 = makeSession()
+        await closureListener({ agent: { id: 'a8', session: s8 } })
+        need(s8.appended.length === 1,
+          `state 里没有开关字段时走 config fallback、默认开 → 照常收口（实得 ${s8.appended.length}）`)
+      } catch (error) {
+        fail(`fallback 用例失败：${error?.message ?? error}`)
+      }
+    }
+    projectionTodos = null
+  }
+
+  /*
+   * ⑦b fallback 表达式必须**透传 config**，不能硬编码。
+   *
+   * 这条只能静态钉：`config` 是装配期冻结值，运行时无法构造「config 为 false」
+   * 的场景。但硬编码成 `true` 正是实测逃逸过的变异，后果是用户在 config.json
+   * 里关掉默认后仍被收口——静默失效，且面板显示成关（假状态）。
+   */
+  need(/isTodoClosureEnabled\(\s*config\.todoClosureDefaultEnabled\s*!==\s*false\s*\)/.test(closureSrcNoComment),
+    '收口的开关 fallback 透传 config.todoClosureDefaultEnabled（硬编码 true 会让 config 关闭失效）')
+
+  // 收口不得注册到 session/event：那里是 append 的发布边界内，重入会被
+  // dsh-session 的守卫拒绝、且错误被吞成 warn（静默失效）。扫的是**真实注册表**，
+  // 不是源码文本——源码注释里必然要解释为什么不用它。
+  need(listeners.has('agent/turn-stopping'), '收口注册在 agent/turn-stopping（turn 仍 open 的唯一合法补写点）')
+  need(!/(?:ctx\.)?\.?on\(\s*['"]session\/event['"]/.test(closureSrcNoComment),
+    '收口模块自身不注册 session/event（会撞 append 重入检查且静默失败）')
+  need(/isTodoClosureEnabled/.test(storeSrc) && /setTodoClosureEnabled/.test(storeSrc),
+    'store 提供自动收口开关的读写')
+  // 卸载后不再动作：dispose 是插件的资源回收契约（ctx.effect 登记）。
+  // 这条行为影响很小（只关系卸载后的多余 append），但它是插件契约的一部分，
+  // 静态钉一下成本为零。
+  need(/if\s*\(disposed\)\s*return/.test(closureSrcNoComment),
+    '收口监听器尊重 dispose（卸载后不再动作）')
+  need(/todoClosureEnabled/.test(memoryApiSrc), 'host api 回传/写入 todoClosureEnabled')
+  need(/todoClosureEnabled/.test(clientApiSrc), 'client api 声明 todoClosureEnabled')
+  // client 侧默认开的通道必须用 `!== false` 兜底；写成 `=== true`（html/team 那种
+  // 默认关口径）会让 host 未升级时开关显示成关——这类错不编译失败，只静默错。
+  need(/todoClosureEnabled: res\.todoClosureEnabled !== false/.test(clientToggle),
+    'client 回包映射用 !== false 兜底（默认开通道的正确口径）')
+  for (const key of ['todoClosureLabel', 'todoClosureHint']) {
+    need(clientLocales.includes(`${key}:`), `locales 定义 ${key}`)
+    need(clientToggle.includes(`t('${key}')`), `Toggle 取用 ${key}`)
+  }
+  need(clientToggle.includes(`pushChannel('todoClosureEnabled'`),
+    'Toggle 写自动收口走 todoClosureEnabled 键')
+  // 任务卡口径：自动收口把 in_progress 改成 pending 之后，若卡片仍只认
+  // in_progress，兜底标签会静默消失（永远不触发）。钉住判定表达式本身
+  // （不是变量名存在），否则把 stalled 改回旧口径也能蒙混过关。
+  //
+  // 三层都要钉：整卡判定（stalled）→ 行级判定（rowStalled）→ 渲染消费点。
+  // 只钉前两层时，把渲染条件改回 `isInProgress` 仍会全绿，而 pending 行
+  // 恰恰是收口后最该被标出来的那批（实测该变异能逃逸）。
+  const taskCard = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrTaskOverviewCard.tsx'), 'utf8')
+  const taskCardCode = taskCard.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  need(/unfinishedCount\s*=\s*tasks\.filter\(\(t\)\s*=>\s*t\.status\s*!==\s*'completed'\)/.test(taskCardCode),
+    '任务卡按「非完成项」计算未完成数（只认 in_progress 会让收口后的 pending 行静默裸奔）')
+  need(/stalled\s*=\s*!isRunning\s*&&\s*unfinishedCount\s*>\s*0/.test(taskCardCode),
+    '任务卡停滞判定真的用了 unfinishedCount（变量名存在不算）')
+  // 行级判定必须与整卡同口径：`!isCompleted` 而非 `isInProgress`。
+  need(/rowStalled\s*=\s*!isRunning\s*&&\s*!isCompleted/.test(taskCardCode),
+    '任务卡行级判定覆盖全部非完成行（写成 isInProgress 会让 pending 行不标）')
+  // 渲染消费点：标签必须挂在 rowStalled 上，而不是回退到 isInProgress。
+  need(/\{rowStalled\s*&&\s*\(/.test(taskCardCode),
+    '任务卡把「未完成」标签挂在 rowStalled 上（挂回 isInProgress 等于只标旧口径）')
+  need(/unfinishedCount\s*>\s*0\s*\?\s*\(stalled\s*\?\s*'[^']*未完成'/.test(taskCardCode),
+    '任务卡 meta 文案按 stalled 出「未完成」（回退成「进行中」会让收口后的残留看着像在跑）')
+  need(/未完成/.test(taskCardCode), '任务卡用「未完成」文案（收口后 pending 行也标）')
+  need(!/未收口/.test(taskCardCode), '任务卡渲染文案不再用已过时的「未收口」（注释里的改口记录不算）')
 }
 
 const warns = logs.filter(([lvl]) => lvl === 'warn')

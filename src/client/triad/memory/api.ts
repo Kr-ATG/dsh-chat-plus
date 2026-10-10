@@ -196,6 +196,16 @@ export interface InjectStateView {
    * 的真实值，不改变缺字段兜底口径。
    */
   teamEnabled?: boolean
+  /**
+   * 回合结束自动收口内置通道是否开启（残留 in_progress 改写为 pending）。
+   *
+   * 与 team 刻意不同口径：它是**默认开**的通道（host 侧
+   * config.todoClosureDefaultEnabled 默认 true），缺字段兜底照 zh / soul 的
+   * `!== false`。若照 html / team 的 `=== true` 兜底，client 已更新、host 还没
+   * 重启的那段窗口里开关会显示成「关」，host 一重启又变「开」——同一个用户
+   * 什么都没做，看到开关自己跳了一下。
+   */
+  todoClosureEnabled?: boolean
 }
 
 /**
@@ -356,6 +366,14 @@ export interface MemoryApi {
   /** 团队协作内置通道开关（全局单值，与主开关无联动）。 */
   getTeamInjectState: () => Promise<ZhInjectStateView>
   setTeamInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
+  /**
+   * 回合结束自动收口开关（全局单值，与主开关无联动）。
+   *
+   * 它不改提示词、也不属于「内置提示词通道」那一族，只是被放在同一张卡里
+   * 顺手管理；默认开，回包缺字段时按开兜底（见 InjectStateView.todoClosureEnabled）。
+   */
+  getTodoClosureState: () => Promise<ZhInjectStateView>
+  setTodoClosureState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
   consolidate: (scope?: 'all' | 'global' | 'project', projectHash?: string) => Promise<{ ok: boolean; results: ConsolidateResultView[] }>
   revisions: () => Promise<{ revisions: RevisionView[] }>
   rollback: (revisionId: string) => Promise<{ ok: boolean }>
@@ -417,6 +435,8 @@ export function createMemoryApi(): MemoryApi {
     setSoulInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/soul/state', { enabled }),
     getTeamInjectState: () => getJson<ZhInjectStateView>('/team-inject-state'),
     setTeamInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/team-inject-state', { enabled }),
+    getTodoClosureState: () => getJson<ZhInjectStateView>('/todo-closure-state'),
+    setTodoClosureState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/todo-closure-state', { enabled }),
     consolidate: (scope = 'all', projectHash) => sendJson<{ ok: boolean; results: ConsolidateResultView[] }>('/consolidate', { scope, projectHash }),
     revisions: () => getJson<{ revisions: RevisionView[] }>('/revisions'),
     rollback: (revisionId) => sendJson<{ ok: boolean }>('/rollback', { revisionId }),

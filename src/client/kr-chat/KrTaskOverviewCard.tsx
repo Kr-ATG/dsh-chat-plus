@@ -12,10 +12,14 @@
  *    那一帧所有 key 全变 → React 整列表重挂载 → 入场动画重播，表现为
  *    「任务列表闪一下重新铺开」。key 按 content 归一化后，同一任务跨数据
  *    源保持同 key，节点复用、动画不重播。
- * 2. 未收口兜底。官方 todos 存在「回合结束仍停在进行中」的已知问题
- *    （DSH Discussions #3424）。轮次已停（isRunning=false）却仍有
- *    in_progress 项时，按「未收口」弱化态渲染——灰点线圈不转 + 灰标签，
- *    不再冒充活体；meta 文案同步从「进行中」改口「已停滞」。
+ * 2. 未完成兜底。官方 todos 存在「回合结束仍留着未完成项」的已知问题
+ *    （DSH Discussions #3424）。轮次已停（isRunning=false）却仍有非完成项时，
+ *    按「未完成」弱化态渲染——灰点线圈不转 + 灰标签，不再冒充活体；
+ *    meta 文案同步从「进行中」改口「未完成」。
+ *    2026-10-10 扩口径：原先只认 in_progress。host 侧新增「回合结束自动收口」
+ *    （`agent/turn-stopping` 把残留 in_progress 降级为 pending）之后，回合结束
+ *    的清单里不再有 in_progress，只认它会让这条兜底永不触发。改为认「非完成
+ *    项」，语义也更准：回合都结束了还挂着的，就是没做完。
  * 3. 列表全量常展，不做已完成区收拢（按用户要求：任务不折叠）。曾试过
  *    长列表把已完成项折进摘要行，被否——清单就是给人逐条核对的，收起来
  *    等于藏信息。长清单的垂直代价由右栏滚动承担。
@@ -130,14 +134,25 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
    */
   const empty = !tasks || tasks.length === 0
   const doneCount = tasks.filter((t) => t.status === 'completed').length
-  const activeCount = tasks.filter((t) => t.status === 'in_progress').length
+  /**
+   * 回合结束后仍未收口的项数。
+   *
+   * 2026-10-10 扩口径：原先只数 `in_progress`，但 host 侧新增的「回合结束自动
+   * 收口」（`agent/turn-stopping` 把残留 in_progress 改写为 pending）上线后，
+   * 回合结束的清单里**不会再有** in_progress——只数 in_progress 会让这条兜底
+   * 判定永远不触发，标签静默消失。
+   *
+   * 新口径 = 回合已停 且 非完成项（in_progress 或 pending）都算未收口。
+   * 语义是自洽的：回合都结束了还挂着的未完成项，就是没做完。
+   */
+  const unfinishedCount = tasks.filter((t) => t.status !== 'completed').length
   const allDone = !empty && doneCount === tasks.length
   const percent = empty ? 0 : Math.round((doneCount / tasks.length) * 100)
   /**
-   * 停滞：轮次已经停了，清单里却还挂着「进行中」——官方收口问题的兜底
+   * 停滞：轮次已经停了，清单里却还挂着未完成项——官方收口问题的兜底
    * （文件头第 2 条）。空态与全完成态都不算停滞。
    */
-  const stalled = !isRunning && activeCount > 0
+  const stalled = !isRunning && unfinishedCount > 0
 
   // content 归一化 key（与 tasks 同引用周期，memo 依赖即够）。
   const keys = useMemo(() => buildStableKeys(tasks), [tasks])
@@ -218,7 +233,9 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
   ) : (
     <>
       <RollNum value={doneCount} />/<RollNum value={tasks.length} /> 完成
-      {activeCount > 0 ? (stalled ? ' · 已停滞' : ' · 进行中') : ''}
+      {/* 收口后的清单里已无 in_progress，只剩 pending——文案要能覆盖这一态，
+          否则「· 未完成」在自动收口之后永远不出现。 */}
+      {unfinishedCount > 0 ? (stalled ? ' · 未完成' : ' · 进行中') : ''}
     </>
   )
 
@@ -229,8 +246,14 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
     const { key, task } = entry
     const isCompleted = task.status === 'completed'
     const isInProgress = task.status === 'in_progress'
-    // 行级停滞：整卡停滞且这一行正是挂着「进行中」的那条。
-    const rowStalled = isInProgress && !isRunning
+    /*
+     * 行级停滞：整卡停滞（回合已停 + 还有未完成项）且这一行不是已完成。
+     *
+     * 与整卡判定同步扩口径：自动收口把 in_progress 改成 pending 之后，只有
+     * `isInProgress` 的行会挂标签会让 pending 行静默裸奔——那些恰恰是收口后
+     * 最该被看见的行。
+     */
+    const rowStalled = !isRunning && !isCompleted
     const justDone = justDoneKeys.has(key)
 
     return (
@@ -253,17 +276,20 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
         </div>
 
         {/* 仅在进行中时提供微小状态标识，已完成依靠对勾图标自然传达，杜绝视觉垃圾。
-            停滞行换灰色「未收口」：说清事实，但不是错误——下一轮模型收口后会自愈。 */}
-        {isInProgress && (
-          rowStalled ? (
-            <span className="kr-task-item__tag kr-task-item__tag--stalled">
-              未收口
-            </span>
-          ) : (
-            <span className="kr-task-item__tag kr-task-item__tag--running">
-              进行中
-            </span>
-          )
+            停滞行换灰色「未完成」：说清事实，但不是错误——下一轮模型收口后会自愈。
+            2026-10-10：从「未收口」改口「未完成」并扩到 pending 行。原因是自动收口
+            会把残留 in_progress 降级成 pending，此时说「未收口」已不准确——它已经
+            被收口过了，只是**没做完**。
+            两个分支互斥：回合在跑 → 进行中；回合停了 → 未完成（含 pending 行）。 */}
+        {isInProgress && !rowStalled && (
+          <span className="kr-task-item__tag kr-task-item__tag--running">
+            进行中
+          </span>
+        )}
+        {rowStalled && (
+          <span className="kr-task-item__tag kr-task-item__tag--stalled">
+            未完成
+          </span>
         )}
 
         {/* 完成瞬间的一次性底色淡闪。覆盖层子元素承担动画（文件头第 4 条），
