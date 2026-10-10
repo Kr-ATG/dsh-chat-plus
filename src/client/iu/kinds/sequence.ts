@@ -488,7 +488,7 @@ const CSS = [
   /* 工具条：pill 手法与 diff 一致 */
   '.dtt-iu__seq-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 6px 0 8px; }',
   '.dtt-iu__seq-pill { border: 1px solid ' + BORDER + '; background: transparent; color: inherit;',
-  '  font: inherit; font-size: calc(11.5px * var(--iu-text-scale, 1)); border-radius: 999px;',
+  '  font: inherit; font-size: calc(11.5px * var(--iu-text-scale, 1)); border-radius: 8px;',
   '  padding: 2px 11px; cursor: pointer; opacity: .58; line-height: 1.7; white-space: nowrap;',
   '  transition: opacity .18s ease, background-color .18s ease, transform .18s ease, border-color .18s ease, color .18s ease; }',
   '.dtt-iu__seq-pill:hover { opacity: 1; transform: translateY(-1px); }',
@@ -507,7 +507,8 @@ const CSS = [
   '.dtt-iu__seq-life { stroke: ' + INK2 + '; stroke-width: 1; stroke-dasharray: 4 4; opacity: .32; }',
   /* 头盒：tone 四色（描边/文字语义色，底色 color-mix 淡化） */
   '.dtt-iu__seq-head rect { fill: ' + PAPER + '; stroke: var(--iu-seq-tone); stroke-width: 1.4; rx: 7;',
-  '  transition: filter .18s ease, stroke-width .18s ease; filter: drop-shadow(0 1px 2px rgba(0,0,0,.08)); }',
+  '  transition: filter .18s ease, stroke-width .18s ease;',
+  '  filter: drop-shadow(0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary, #2d3142) 12%, transparent)); }',
   '.dtt-iu__seq-head text { fill: var(--iu-seq-tone); font-weight: 600; text-anchor: middle; letter-spacing: -.01em;',
   '  font-size: calc(12px * var(--iu-text-scale, 1)); }',
   '.dtt-iu__seq-head--foot rect { opacity: .85; }',

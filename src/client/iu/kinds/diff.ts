@@ -377,7 +377,7 @@ const CSS = [
   '/* diff：工具条（pill 切换）+ 等宽行级对比 + split 两栏 */',
   '.dtt-iu__diff-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 6px 0 8px; }',
   '.dtt-iu__diff-pill { border: 1px solid ' + BORDER + '; background: transparent; color: inherit;',
-  '  font: inherit; font-size: calc(11.5px * var(--iu-text-scale, 1)); border-radius: 999px;',
+  '  font: inherit; font-size: calc(11.5px * var(--iu-text-scale, 1)); border-radius: 8px;',
   '  padding: 2px 11px; cursor: pointer; opacity: .58; line-height: 1.7; white-space: nowrap;',
   '  transition: opacity .18s ease, background-color .18s ease, transform .18s ease, border-color .18s ease, color .18s ease; }',
   '.dtt-iu__diff-pill:hover { opacity: 1; transform: translateY(-1px); }',
@@ -388,7 +388,7 @@ const CSS = [
   '.dtt-iu__diff-stat { margin-left: auto; font-size: calc(11px * var(--iu-text-scale, 1));',
   '  font-variant-numeric: tabular-nums; opacity: .6; white-space: nowrap; padding-left: 6px; }',
   '.dtt-iu__diff-lang { font-size: calc(10.5px * var(--iu-text-scale, 1)); opacity: .5;',
-  '  border: 1px solid currentColor; border-radius: 999px; padding: 0 7px; line-height: 16px; white-space: nowrap; }',
+  '  border: 1px solid currentColor; border-radius: 8px; padding: 0 7px; line-height: 16px; white-space: nowrap; }',
 
   '/* 对比容器：等宽字体，行铺满；unified 与 split 共用同一套边框 / 圆角 / 字号。 */',
   '.dtt-iu__diff, .dtt-iu__diff--split { border: 1px solid ' + BORDER + '; border-radius: 8px;',
