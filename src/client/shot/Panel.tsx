@@ -20,6 +20,8 @@ import {
   type ShotQuality, type WidthPreset,
 } from '../../shot/presets.ts'
 import { canvasPad } from '../../shot/theme.ts'
+// 截图要跟随对话流里选的缩放档位（与 iu / html 卡片同源，同一份 localStorage）。
+import { readIuZoom } from '../iu/prefs.ts'
 import { cls } from './styles.ts'
 
 const RANGE_LABEL: Record<ShotRange, string> = {
