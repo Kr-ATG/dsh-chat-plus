@@ -23,6 +23,9 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { HtmlSpec } from './parse.ts'
 import { assembleHtmlDocument, BRIDGE_TO_FRAME, BRIDGE_TO_HOST, MAX_FRAME_HEIGHT, MIN_FRAME_HEIGHT } from './bridge.ts'
+import {
+  HE_ZOOM_DEFAULT, nextHeZoom, readHeZoom, writeHeZoom, type HeZoom,
+} from '../iu/prefs.ts'
 
 /** 主题属性（与官方 ui-theme boot 脚本一致）。 */
 const THEME_ATTR = 'data-ds-dark-theme'
@@ -117,11 +120,13 @@ function CloseIcon(): JSX.Element {
  * `fullscreen` 只影响尺寸策略：全屏时高度铺满容器，不再跟随内容高度上报
  * （那个高度是为对话流里的内联卡片服务的）。
  */
-function SandboxFrame({ doc, dark, fullscreen, reloadKey, onHeight, onFill }: {
+function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, onHeight, onFill }: {
   readonly doc: string
   readonly dark: boolean
   readonly fullscreen: boolean
   readonly reloadKey: number
+  /** 内容缩放档位（下发到 iframe 内部应用，见 bridge.ts 的 applyZoom）。 */
+  readonly zoom: number
   readonly onHeight?: ((height: number) => void) | undefined
   readonly onFill?: ((text: string) => boolean) | undefined
 }): JSX.Element {
@@ -153,6 +158,24 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, onHeight, onFill }: {
     }
   }, [])
 
+  /**
+   * 把内容缩放推给 iframe。
+   *
+   * 与主题同理：挂载那一刻直接推不可靠（srcDoc 异步解析，消息常常早于 iframe 内
+   * 脚本注册监听），所以除了 zoom 变化时推，还要在收到 ready 时补推一次。
+   */
+  const zoomRef = useRef(zoom)
+  zoomRef.current = zoom
+  const pushZoom = useCallback((value: number): void => {
+    const win = frameRef.current?.contentWindow
+    if (win === null || win === undefined) return
+    try {
+      win.postMessage({ source: BRIDGE_TO_FRAME, kind: 'zoom', zoom: value }, '*')
+    } catch {
+      // 同上：缩放同步失败不该影响渲染。
+    }
+  }, [])
+
   // 高度上报 + ready 握手 + fill 回写：三重校验后才接受，fill 只取 text 一个字段。
   const onFillRef = useRef(onFill)
   onFillRef.current = onFill
@@ -165,9 +188,10 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, onHeight, onFill }: {
       if (data === null || typeof data !== 'object') return
       // ② 命名空间标记，避免把模型页面自己的 postMessage 当成桥消息。
       if (data.source !== BRIDGE_TO_HOST) return
-      // ③ ready：iframe 脚本就绪，此刻推主题才收得到。
+      // ③ ready：iframe 脚本就绪，此刻推主题与缩放才收得到。
       if (data.kind === 'ready') {
         pushTheme(darkRef.current)
+        pushZoom(zoomRef.current)
         return
       }
       // ④ fill 回写：卡片内调用 window.__dshFill(text) 把结果推给输入草稿。
@@ -188,10 +212,13 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, onHeight, onFill }: {
     }
     window.addEventListener('message', onMessage)
     return () => { window.removeEventListener('message', onMessage) }
-  }, [onHeight, pushTheme])
+  }, [onHeight, pushTheme, pushZoom])
 
   // dark 变化时主动推一次（iframe 已在运行，这条不会丢）。
   useEffect(() => { pushTheme(dark) }, [dark, pushTheme, reloadKey])
+
+  // zoom 变化时同样主动推（含重载后补推）。
+  useEffect(() => { pushZoom(zoom) }, [zoom, pushZoom, reloadKey])
 
   return (
     <iframe
@@ -269,6 +296,20 @@ export const HtmlCard = memo(function HtmlCard({ spec, pending = false, onFill }
   const [reloadKey, setReloadKey] = useState(0)
   const [fullscreen, setFullscreen] = useState(false)
   const [copied, setCopied] = useState(false)
+  /*
+   * 内容缩放：纯呈现偏好，走 localStorage（刷新即记住，不需要动 host）。
+   * 实际缩放由 iframe 内部应用（见 bridge.ts 的 applyZoom）——外层缩放会与
+   * 高度桥上报的 px 对不上。
+   */
+  const [zoom, setZoom] = useState<HeZoom>(() => readHeZoom())
+
+  const cycleZoom = useCallback((): void => {
+    setZoom((prev) => {
+      const next = nextHeZoom(prev)
+      writeHeZoom(next)
+      return next
+    })
+  }, [])
 
   const doc = useMemo(() => assembleHtmlDocument(spec.html), [spec.html])
 
@@ -302,7 +343,7 @@ export const HtmlCard = memo(function HtmlCard({ spec, pending = false, onFill }
   }, [spec.html])
 
   const frame = (
-    <SandboxFrame doc={doc} dark={dark} fullscreen={fullscreen} reloadKey={reloadKey} onHeight={onHeight} onFill={onFill} />
+    <SandboxFrame doc={doc} dark={dark} fullscreen={fullscreen} reloadKey={reloadKey} zoom={zoom} onHeight={onHeight} onFill={onFill} />
   )
 
   /*
@@ -343,6 +384,15 @@ export const HtmlCard = memo(function HtmlCard({ spec, pending = false, onFill }
           </button>
           <button
             type="button"
+            className={zoom === HE_ZOOM_DEFAULT ? 'dtt-he__btn' : 'dtt-he__btn dtt-he__btn--active'}
+            title={`缩放：${Math.round(zoom * 100)}%（点击切下一档）`}
+            aria-label={`当前缩放 ${Math.round(zoom * 100)}%，点击切换`}
+            onClick={cycleZoom}
+          >
+            <span className="dtt-he__zoom-num">{Math.round(zoom * 100)}%</span>
+          </button>
+          <button
+            type="button"
             className="dtt-he__btn"
             title="重新加载"
             onClick={() => { setReloadKey(prev => prev + 1) }}
@@ -379,6 +429,14 @@ export const HtmlCard = memo(function HtmlCard({ spec, pending = false, onFill }
             <span className="dtt-he__actions">
               <button
                 type="button"
+                className={zoom === HE_ZOOM_DEFAULT ? 'dtt-he__btn' : 'dtt-he__btn dtt-he__btn--active'}
+                title={`缩放：${Math.round(zoom * 100)}%（点击切下一档）`}
+                onClick={cycleZoom}
+              >
+                <span className="dtt-he__zoom-num">{Math.round(zoom * 100)}%</span>
+              </button>
+              <button
+                type="button"
                 className="dtt-he__btn"
                 title="重新加载"
                 onClick={() => { setReloadKey(prev => prev + 1) }}
@@ -396,7 +454,7 @@ export const HtmlCard = memo(function HtmlCard({ spec, pending = false, onFill }
             </span>
           </div>
           <div className="dtt-he__overlay-stage">
-            <SandboxFrame doc={doc} dark={dark} fullscreen reloadKey={reloadKey} onFill={onFill} />
+            <SandboxFrame doc={doc} dark={dark} fullscreen reloadKey={reloadKey} zoom={zoom} onFill={onFill} />
           </div>
         </div>,
         document.body,

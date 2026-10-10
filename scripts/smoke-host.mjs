@@ -454,12 +454,16 @@ if (!/lang\.trim\(\)\.toLowerCase\(\) === 'iu'/.test(mdSrc)) {
     reasons.push('IU_CSS 必须拼上 iuKindsCss()（否则截图里 kind 专属样式全丢）')
   }
   // ⑤ 每个 kind 的纯逻辑模块必须自带 snapshot 且转义模型文本（esc/escAttr），
-  //    React 体与快照必须同源（chart/gauge/tree/diff/table 等靠共用纯函数）。
+  //    React 体与快照必须同源（gauge/tree/diff/table 等靠共用纯函数）。
   //    安全面：卡片页在 --disable-web-security 的无头 Chrome 里打开，
   //    模型文本逃出标签上下文 = 任意脚本读本地文件。
+  //
+  //    数量下限：图形类（graph/arch/sequence）与 chart 已下线，现存 12 种。
+  //    这个数字只在「kind 被误删」时有意义，故意卡在**当前实际值**——
+  //    少一个就报，加 kind 时同步上调（漏改只会让断言偏松，不会误报）。
   const kindFiles = readdirSync(resolve(ROOT, 'src/client/iu/kinds'))
     .filter(f => f.endsWith('.ts') && !['core.ts', 'contract.ts', 'registry.ts', 'types.ts', 'bodies.ts'].includes(f))
-  if (kindFiles.length < 13) reasons.push(`kinds 目录应有 ≥13 个纯逻辑模块，实得 ${kindFiles.length}`)
+  if (kindFiles.length < 12) reasons.push(`kinds 目录应有 ≥12 个纯逻辑模块，实得 ${kindFiles.length}`)
   for (const f of kindFiles) {
     const src = stripComments(srcOf(`src/client/iu/kinds/${f}`))
     const kind = f.replace(/\.ts$/, '')
@@ -481,14 +485,15 @@ if (!/lang\.trim\(\)\.toLowerCase\(\) === 'iu'/.test(mdSrc)) {
     if (!new RegExp(`\\b${kind}Kind\\b`).test(registrySrc)) reasons.push(`registry.ts 缺 ${kind}Kind 注册`)
     if (!new RegExp(`'${kind}'`).test(bodiesSrc)) reasons.push(`bodies.ts 缺 '${kind}' 的 React 体注册`)
   }
-  // ⑦ chart 的几何仍必须单点来自 geometry.ts（柱子高度/刻度两处同源）。
-  const chartSrc = stripComments(srcOf('src/client/iu/kinds/chart.ts'))
-  if (!/from '\.\.\/geometry\.ts'/.test(chartSrc) || !/chartLayout\(/.test(chartSrc)) {
-    reasons.push('chart.ts 的快照必须调用 geometry.ts 的 chartLayout（几何单点）')
+  // ⑦ 几何必须单点来自 geometry.ts（对话流与截图两处同源，否则坐标漂移）。
+  //    现存唯一的几何类 kind 是 piano（chart 已随图形类下线）。
+  const pianoSrc = stripComments(srcOf('src/client/iu/kinds/piano.ts'))
+  if (!/from '\.\.\/geometry\.ts'/.test(pianoSrc) || !/pianoLayout\(/.test(pianoSrc)) {
+    reasons.push('piano.ts 的快照必须调用 geometry.ts 的 pianoLayout（几何单点）')
   }
-  const chartBodySrc = stripComments(srcOf('src/client/iu/kinds/chart.body.tsx'))
-  if (!/chartLayout\(/.test(chartBodySrc)) {
-    reasons.push('chart.body.tsx 必须调用同一个 chartLayout（否则截图与对话流坐标漂移）')
+  const pianoBodySrc = stripComments(srcOf('src/client/iu/kinds/piano.body.tsx'))
+  if (!/pianoLayout\(/.test(pianoBodySrc)) {
+    reasons.push('piano.body.tsx 必须调用同一个 pianoLayout（否则截图与对话流琴键宽度漂移）')
   }
   if (reasons.length > 0) fail('iu 截图与对话流同源契约：' + reasons.join('；'))
   else pass(`iu 截图与对话流同源：注册表委派 + ${kindFiles.length} 个 kind 模块自带 snapshot/css/doc + 转义齐备 + 几何单点`)

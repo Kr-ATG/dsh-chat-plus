@@ -19,7 +19,6 @@
 
 import type { IuKind, IuSpecBase, IuState } from './contract.ts'
 import { sliderKind } from './slider.ts'
-import { chartKind } from './chart.ts'
 import { checklistKind } from './checklist.ts'
 import { tabsKind } from './tabs.ts'
 import { pianoKind } from './piano.ts'
@@ -49,7 +48,6 @@ import { quizKind } from './quiz.ts'
  */
 export const IU_KINDS = [
   sliderKind,
-  chartKind,
   tableKind,
   checklistKind,
   tabsKind,

@@ -20,7 +20,6 @@
 import type { ReactNode } from 'react'
 import type { IuSetState, IuSpecBase, IuState } from './contract.ts'
 import { SliderBody } from './slider.body.tsx'
-import { ChartBody } from './chart.body.tsx'
 import { ChecklistBody } from './checklist.body.tsx'
 import { TabsBody } from './tabs.body.tsx'
 import { PianoBody } from './piano.body.tsx'
@@ -63,7 +62,6 @@ export interface IuKindBody {
  */
 export const IU_BODIES: ReadonlyMap<string, IuKindBody> = new Map<string, IuKindBody>([
   ['slider', { kind: 'slider', Body: SliderBody }],
-  ['chart', { kind: 'chart', Body: ChartBody }],
   ['checklist', { kind: 'checklist', Body: ChecklistBody }],
   ['tabs', { kind: 'tabs', Body: TabsBody }],
   ['piano', { kind: 'piano', Body: PianoBody }],

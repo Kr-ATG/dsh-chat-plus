@@ -2801,10 +2801,11 @@ if (krEnabled) {
     } else if (sCard.spec.outputs.length !== 1 || sCard.spec.outputs[0].per !== 120) {
       reasons.push('slider outputs 解析错误（per=每单位用量）')
     }
+    // chart（柱状/折线/面积）已随图形类一起下线，改由 ```html 手写 SVG 承接。
+    // 断言它**不再**被切成卡片：模型若写了 chart 围栏，应当原样回退成代码块。
     const chart = mod.splitIu('```iu\n{"kind":"chart","chart":"line","title":"趋势","labels":["A","B"],"series":[{"name":"S","values":[1,2]}]}\n```')
-    const cCard = chart.find(p => p.kind === 'iu')
-    if (cCard === undefined || cCard.spec.kind !== 'chart' || cCard.spec.chart !== 'line') {
-      reasons.push('chart 围栏未被切出卡片或 chart 类型错误')
+    if (chart.some(p => p.kind === 'iu')) {
+      reasons.push('chart kind 已下线，不该再被切成卡片（应回退成代码块）')
     }
     const check = mod.splitIu('```iu\n{"kind":"checklist","title":"清单","items":[{"label":"甲","desc":"说明"}]}\n```')
     const kCard = check.find(p => p.kind === 'iu')
@@ -3113,21 +3114,15 @@ if (krEnabled) {
   // 截图与打印则直接抓第一帧。任何把「看得见」交给动画的写法在这三种场景下都会
   // 让柱子/折线消失，只剩网格线与数字——不报错，只是看起来像坏掉的空卡。
   //
-  // 架构升级后 CSS 随 kind 走：图表动画纪律查 kinds/chart.ts、琴键反馈查
-  // kinds/piano.ts、基座兜底查 styles.ts——各查各的，谁的纪律谁自己钉。
-  const chartCss = readFileSync(resolve(ROOT, 'src/client/iu/kinds/chart.ts'), 'utf8')
-  if (/@keyframes dtt-iu-grow \{\s*from\s*\{\s*transform:/.test(chartCss)) {
-    reasons.push('柱子不得用 transform: scaleY(0) 做入场（几何尺寸必须始终在最终态）')
-  }
-  if (/stroke-dashoffset:\s*640/.test(chartCss)) {
-    reasons.push('折线不得用 stroke-dashoffset 满偏移做入场（可见性不能交给动画）')
-  }
-  if (/@keyframes dtt-iu-grow \{\s*from\s*\{\s*opacity:\s*0\s*\}/.test(chartCss)
-    || /@keyframes dtt-iu-draw \{\s*from\s*\{\s*opacity:\s*0\s*\}/.test(chartCss)) {
-    reasons.push('图表入场动画起点不得是 opacity:0（第一帧/暂停时会看不见）')
-  }
-  if (!/@keyframes dtt-iu-grow/.test(chartCss) || !/prefers-reduced-motion[\s\S]{0,700}dtt-iu__bar/.test(chartCss)) {
-    reasons.push('图表动画必须在 prefers-reduced-motion 下兜底（chart.ts 自己的 css 里）')
+  // 架构升级后 CSS 随 kind 走：琴键反馈查 kinds/piano.ts、基座兜底查 styles.ts——
+  // 各查各的，谁的纪律谁自己钉。（图表那组断言随 chart kind 下线一并移除。）
+  //
+  // 但「可见性不依赖动画」这条纪律**不随 kind 消失**：它现在是 html 卡片的约束。
+  // 断言 html 卡片文档里没有任何把可见性交给动画的写法（模型自己写的页面归它自己，
+  // 这里钉的是宿主注入的兜底样式）。
+  const htmlBridgeSrc = readFileSync(resolve(ROOT, 'src/client/html-embed/bridge.ts'), 'utf8')
+  if (/BASE_STYLE[\s\S]{0,600}opacity:\s*0/.test(htmlBridgeSrc)) {
+    reasons.push('html 卡片兜底样式不得含 opacity:0（首帧/暂停时内容会不可见）')
   }
 
   // 琴键的按下反馈不能在 reduced-motion 下被抹掉（下沉与高亮是**反馈**，

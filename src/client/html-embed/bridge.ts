@@ -30,6 +30,20 @@ export const MAX_FRAME_HEIGHT = 4000
 export const MIN_FRAME_HEIGHT = 40
 
 /**
+ * 内容缩放范围（宿主下发，iframe 内应用）。
+ *
+ * 为什么缩放必须作用在 **iframe 内部**而不是外层容器：高度桥上报的是 iframe
+ * 内部的内容高度（px），外层再用 transform/zoom 放大，报上去的 px 就与实际
+ * 占用不符 —— 放大会溢出被裁、缩小会留一大片空白。在内部缩放时，内部布局
+ * 尺寸随缩放一起变，上报的高度天然是对的。
+ *
+ * 下限 0.5 / 上限 3 是防御：这个值经 postMessage 过来，模型页面理论上也能伪造
+ * （虽然它拿不到我们的命名空间，但钳住更稳）。
+ */
+export const ZOOM_MIN = 0.5
+export const ZOOM_MAX = 3
+
+/**
  * 注入进 iframe 的 bridge 脚本（iframe 内运行，opaque origin）。
  *
  * 刻意写成 ES5 风格 + 全 try/catch：模型给的页面可能自带严格的 CSP meta
@@ -64,6 +78,18 @@ const BRIDGE_SOURCE = [
   '      );',
   '      if (!(h > 0) && d) h = Math.max(d.scrollHeight, d.offsetHeight);',
   '      if (!(h > 0)) return;',
+  '      /*',
+  '       * 内容缩放修正（实测踩中）：CSS zoom 下 scrollHeight / offsetHeight 返回的',
+  '       * 是**未缩放**的布局值，而元素实际占用的是缩放后的高度。不上报修正值的话，',
+  '       * 宿主按未缩放高度给框，放大后内容会被裁掉、缩小后留一大片空白。',
+  '       * 用 getBoundingClientRect()（返回**缩放后**的视觉尺寸）兜底，两者取大。',
+  '       */',
+  '      try {',
+  '        if (b && b.getBoundingClientRect) {',
+  '          var rectH = b.getBoundingClientRect().height;',
+  '          if (rectH > h) h = rectH;',
+  '        }',
+  '      } catch (e) {}',
   '      h = Math.ceil(h);',
   '      if (Math.abs(h - last) < 2) return;',
   '      last = h;',
@@ -113,11 +139,37 @@ const BRIDGE_SOURCE = [
   '      if (data.kind === "theme") {',
   '        applyTheme(!!data.dark);',
   '        schedule();',
+  '      } else if (data.kind === "zoom") {',
+  '        applyZoom(data.zoom);',
+  '        schedule();',
   '      } else if (data.kind === "ping") {',
   '        measure();',
   '      }',
   '    } catch (e) {}',
   '  });',
+  '  /**',
+  '   * 应用内容缩放（宿主下发的档位）。',
+  '   *',
+  '   * 用 CSS `zoom` 而不是 transform: scale：zoom 会真正参与布局，元素占位随',
+  '   * 缩放一起变，高度桥量到的就是缩放后的真实高度（transform 不改布局，量出来',
+  '   * 还是原尺寸，宿主给的框会与视觉不符）。',
+  '   *',
+  '   * 挂在 body 上而不是 html：html 上有 overflow:hidden 与背景，缩放 html 会让',
+  '   * 背景与视口对不齐；body 缩放时 html 仍是满视口，背景正常铺满。',
+  '   *',
+  '   * 钳到 [ZOOM_MIN, ZOOM_MAX]：这个值来自 postMessage，不能无条件信。',
+  '   * 非数字（NaN / 字符串 / 负数）一律**归 1**而不是忽略：忽略会让画面停在',
+  '   * 上一个档位，用户点「缩小」却没反应；归 1 至少回到可读的常态。',
+  '   */',
+  '  function applyZoom(value) {',
+  '    var b = document.body;',
+  '    if (!b) return;',
+  '    var z = Number(value);',
+  '    if (!isFinite(z) || z <= 0) z = 1;',
+  '    z = Math.min(' + ZOOM_MAX + ', Math.max(' + ZOOM_MIN + ', z));',
+  '    if (z === 1) b.style.zoom = "";',
+  '    else b.style.zoom = String(z);',
+  '  }',
   '  function applyTheme(dark) {',
   '    var root = document.documentElement;',
   '    if (!root) return;',

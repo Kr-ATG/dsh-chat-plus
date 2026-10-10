@@ -24,11 +24,29 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import type { IuSpecBase } from './kinds/contract.ts'
 import type { IuState } from './kinds/contract.ts'
 import { iuKindOf } from './kinds/registry.ts'
 import { IU_BODIES } from './kinds/bodies.ts'
 import { iuStateKey, readIuState, writeIuState } from './state.ts'
+import {
+  IU_ZOOM_DEFAULT, nextIuZoom, readIuFullscreen, readIuZoom, writeIuFullscreen, writeIuZoom,
+  type IuZoom,
+} from './prefs.ts'
+
+/** 图标：全屏（四角外扩）。 */
+function ExpandIcon(): JSX.Element {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 2.4H2.4V6" />
+      <path d="M10 13.6h3.6V10" />
+      <path d="M13.6 6V2.4H10" />
+      <path d="M2.4 10v3.6H6" />
+    </svg>
+  )
+}
 
 /** 填入输入框的回调（父组件用 inputActions.setDraft 实现，拿不到时回退剪贴板）。 */
 export type IuFillFn = (text: string) => boolean
@@ -66,12 +84,49 @@ function callFill(kind: string, spec: unknown, state: IuState): string {
   return mod.fillText(spec as never, state as never)
 }
 
-function Head({ title, tag }: { readonly title: string; readonly tag: string }): JSX.Element {
+/** 卡片动作按钮（全屏 / 缩放）。`fs` 态下不渲染全屏按钮（已在全屏里）。 */
+function CardActions({ zoom, onZoom, onFullscreen }: {
+  readonly zoom: IuZoom
+  readonly onZoom: () => void
+  readonly onFullscreen?: (() => void) | undefined
+}): JSX.Element {
+  return (
+    <span className="dtt-iu__acts">
+      <button
+        type="button"
+        className={zoom === IU_ZOOM_DEFAULT ? 'dtt-iu__act' : 'dtt-iu__act dtt-iu__act--on'}
+        title={`缩放：${Math.round(zoom * 100)}%（点击切下一档）`}
+        aria-label={`当前缩放 ${Math.round(zoom * 100)}%，点击切换`}
+        onClick={onZoom}
+      >
+        {Math.round(zoom * 100)}%
+      </button>
+      {onFullscreen !== undefined && (
+        <button
+          type="button"
+          className="dtt-iu__act"
+          title="全屏"
+          aria-label="全屏查看"
+          onClick={onFullscreen}
+        >
+          <ExpandIcon />
+        </button>
+      )}
+    </span>
+  )
+}
+
+function Head({ title, tag, actions }: {
+  readonly title: string
+  readonly tag: string
+  readonly actions?: JSX.Element | undefined
+}): JSX.Element {
   return (
     <div className="dtt-iu__head">
       <span className="dtt-iu__dot" aria-hidden />
       <span className="dtt-iu__title">{title}</span>
       <span className="dtt-iu__tag">{tag}</span>
+      {actions}
     </div>
   )
 }
@@ -203,13 +258,100 @@ function IuCardLive({ spec, onFill }: {
     })
   }, [])
 
+  /*
+   * 全屏与缩放：两项都是**纯呈现偏好**，走 localStorage（见 prefs.ts 头注释）。
+   *
+   * 全屏层复用同一份 `state` / `setState` —— 内嵌卡与全屏卡同时挂载、共享状态，
+   * 在全屏里拖看板、勾清单，退出全屏后内嵌卡立刻是同一个结果（不需要任何同步代码）。
+   */
+  const [zoom, setZoom] = useState<IuZoom>(() => readIuZoom())
+  const [fullscreen, setFullscreen] = useState<boolean>(() => readIuFullscreen())
+
+  const cycleZoom = useCallback((): void => {
+    setZoom((prev) => {
+      const next = nextIuZoom(prev)
+      writeIuZoom(next)
+      return next
+    })
+  }, [])
+
+  const enterFullscreen = useCallback((): void => {
+    setFullscreen(true)
+    writeIuFullscreen(true)
+  }, [])
+
+  const exitFullscreen = useCallback((): void => {
+    setFullscreen(false)
+    writeIuFullscreen(false)
+  }, [])
+
+  // 全屏时锁背景滚动，Esc 退出（与 html 卡片同款交互）。
+  useEffect(() => {
+    if (!fullscreen) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') exitFullscreen()
+    }
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [fullscreen, exitFullscreen])
+
   if (mod === undefined || bodyMod === undefined) return null
   const Body = bodyMod.Body
+  /** 缩放经 CSS 变量下发（基座把 --iu-zoom 乘进 --iu-text-scale，全 kind 跟随）。 */
+  const style = { '--iu-zoom': String(zoom) } as CSSProperties
+  const bodyNode = (
+    <Body spec={spec as never} state={state} setState={setState} onFill={onFill} />
+  )
   return (
-    <figure className="dtt-iu">
-      <Head title={spec.title} tag={mod.label} />
-      <Body spec={spec as never} state={state} setState={setState} onFill={onFill} />
-      <FillRow onFill={onFill} text={() => mod.fillText(spec as never, state as never)} />
-    </figure>
+    <>
+      <figure className="dtt-iu" style={style}>
+        <Head
+          title={spec.title}
+          tag={mod.label}
+          actions={<CardActions zoom={zoom} onZoom={cycleZoom} onFullscreen={enterFullscreen} />}
+        />
+        {bodyNode}
+        <FillRow onFill={onFill} text={() => mod.fillText(spec as never, state as never)} />
+      </figure>
+      {fullscreen && typeof document !== 'undefined' && createPortal(
+        <div className="dtt-iu-fs" role="dialog" aria-modal="true" aria-label={spec.title}>
+          <div className="dtt-iu-fs__bar">
+            <span className="dtt-iu-fs__title">{spec.title}</span>
+            <span className="dtt-iu-fs__acts">
+              <button
+                type="button"
+                className="dtt-iu-fs__btn"
+                title={`缩放：${Math.round(zoom * 100)}%（点击切下一档）`}
+                onClick={cycleZoom}
+              >
+                {Math.round(zoom * 100)}%
+              </button>
+              <button
+                type="button"
+                className="dtt-iu-fs__btn"
+                title="关闭（Esc）"
+                onClick={exitFullscreen}
+              >
+                关闭
+              </button>
+            </span>
+          </div>
+          <div className="dtt-iu-fs__stage">
+            {/* 全屏里再渲染一份卡片：与内嵌卡共享 state，改一边两边同步。 */}
+            <figure className="dtt-iu dtt-iu--fs" style={style}>
+              <Head title={spec.title} tag={mod.label} />
+              {bodyNode}
+              <FillRow onFill={onFill} text={() => mod.fillText(spec as never, state as never)} />
+            </figure>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   )
 }

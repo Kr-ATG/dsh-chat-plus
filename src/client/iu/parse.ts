@@ -28,7 +28,6 @@ import { parseIuSpec, IU_KIND_NAMES } from './kinds/registry.ts'
 // 现在类型定义迁到了各 kind 模块，这里原样转出，调用方零改动。
 export type { IuSpec } from './kinds/types.ts'
 export type { IuSliderSpec, IuSliderOutput } from './kinds/slider.ts'
-export type { IuChartSpec, IuChartSeries } from './kinds/chart.ts'
 export type { IuChecklistSpec, IuCheckItem } from './kinds/checklist.ts'
 export type { IuTabsSpec, IuTabsTab } from './kinds/tabs.ts'
 export type { IuPianoSpec, IuPianoWave } from './kinds/piano.ts'

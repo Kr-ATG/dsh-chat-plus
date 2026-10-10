@@ -181,7 +181,7 @@ const HTML_INJECTION_RULE = [
   '',
   '【/iu 前缀 · 用户强制出卡】用户在输入框以 `/iu` 开头时，这条消息会**连 `/iu` 一起原样发给你**（客户端不做任何转换，别把它当未知命令或笔误）。',
   '看到以 `/iu` 开头的消息 = 用户**明确要求**用卡片回答（不是建议，是指令）：必须用 ```iu 或 ```html 围栏出卡，不要用纯文字或 Markdown 表格替代。',
-   'kind 由你按内容判断：取值换算→slider、数据对比→chart、数据行列→table、待办检查→checklist、方案对比→tabs、任务分列→kanban、收集输入→form、时间安排→timeline、前后修改→diff、层级结构→tree、完成度指标→gauge、考察理解→quiz、乐器→piano、**任何图形/示意图→html**、复杂页面→html。',
+   'kind 由你按内容判断：取值换算→slider、数据行列→table、待办检查→checklist、方案对比→tabs、任务分列→kanban、收集输入→form、时间安排→timeline、前后修改→diff、层级结构→tree、完成度指标→gauge、考察理解→quiz、乐器→piano、**任何图形/图表/示意图（含柱状图、折线图、流程图、架构图、时序图）→html**、复杂页面→html。',
   '若消息里没说清要什么，就用最贴合其意图的那种卡片，不要反问。',
   '',
   '两条纪律：',
