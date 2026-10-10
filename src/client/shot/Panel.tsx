@@ -16,12 +16,14 @@ import { render, reveal, save, type RenderResult, type ShotTheme } from './api.t
 import type { ShotMessage, ShotRange } from './collect.ts'
 // 宽度预设/画质档位表与 host 端 presets.ts 共用（纯数据，client 打包时内联）。
 import {
-  DEFAULT_WIDTH, QUALITY_LABEL, WIDTH_LABELS, WIDTH_PRESETS, qualityScale,
-  type ShotQuality, type WidthPreset,
+  QUALITY_LABEL, WIDTH_LABELS, WIDTH_MAX, WIDTH_MIN, WIDTH_PRESETS, qualityScale,
+  type ShotQuality,
 } from '../../shot/presets.ts'
 import { canvasPad } from '../../shot/theme.ts'
 // 截图要跟随对话流里选的缩放档位（与 iu / html 卡片同源，同一份 localStorage）。
 import { readIuZoom } from '../iu/prefs.ts'
+// 面板选项的持久化（纯客户端偏好，走 localStorage）。
+import { DEFAULT_LABEL, patchShotPrefs, readShotPrefs } from './prefs.ts'
 import { cls } from './styles.ts'
 
 const RANGE_LABEL: Record<ShotRange, string> = {
@@ -70,6 +72,13 @@ export interface ShotPanelProps {
   cwd?: string
   /** 初始范围，默认 reply */
   initialRange?: ShotRange
+  /**
+   * 本次截图针对的消息 id（锚定「用户改过的标题」属于哪条消息）。
+   *
+   * 标题默认值是「本次对话标题」，每条消息都不同；不做锚定的话，给 A 消息起的
+   * 标题会跑到 B 消息的面板里。缺省空串 = 不做锚定（老调用方行为不变）。
+   */
+  messageKey?: string
 }
 
 /** 可编辑文案输入框：blur / Enter 提交，Esc 还原。 */
@@ -105,17 +114,23 @@ function EditableText(props: {
 }
 
 /** 面板主体：选项条 + 预览台 + 底栏操作。 */
-export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, sessionTitle, cwd = '', initialRange }: ShotPanelProps): JSX.Element {
-  const [range, setRange] = useState<ShotRange>(() => initialRange ?? 'reply')
-  const [theme, setTheme] = useState<ShotTheme>(() => currentTheme())
-  const [cardWidth, setCardWidth] = useState<number>(DEFAULT_WIDTH)
-  const [widthDraft, setWidthDraft] = useState<string>(String(DEFAULT_WIDTH))
-  const [quality, setQuality] = useState<ShotQuality>('2k')
-  const [titleText, setTitleText] = useState(title)
+export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, sessionTitle, cwd = '', initialRange, messageKey = '' }: ShotPanelProps): JSX.Element {
+  // 打开时读一次持久化偏好（只在挂载时读：面板存活期间以本地 state 为准）。
+  const saved = useMemo(() => readShotPrefs(), [])
+  const [range, setRange] = useState<ShotRange>(() => initialRange ?? saved.range)
+  // 主题：用户选过就用选的，没选过跟随当前界面主题（外观一变就该跟着变）。
+  const [theme, setTheme] = useState<ShotTheme>(() => saved.theme ?? currentTheme())
+  const [cardWidth, setCardWidth] = useState<number>(saved.width)
+  const [widthDraft, setWidthDraft] = useState<string>(String(saved.width))
+  const [quality, setQuality] = useState<ShotQuality>(saved.quality)
+  // 标题：只在这条消息上认自己改过的那份，换消息回落当前对话标题。
+  const [titleText, setTitleText] = useState(
+    () => (saved.title !== null && saved.titleFor === messageKey ? saved.title : title),
+  )
   // 用户是否手动编辑过标题：未改动时允许切换范围时在「本次对话」与「会话标题」间自动跟随
-  const userEditedTitleRef = useRef(false)
-  // 徽章固定默认「Kr」（用户要求）；仍可在输入框里随手改。
-  const [labelText, setLabelText] = useState('Kr')
+  const userEditedTitleRef = useRef(saved.title !== null && saved.titleFor === messageKey)
+  // 徽章固定默认「Kr」（用户要求）；仍可在输入框里随手改，改过就记住。
+  const [labelText, setLabelText] = useState(saved.label ?? DEFAULT_LABEL)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<RenderResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -406,6 +421,7 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
 
   const switchRange = useCallback((next: ShotRange): void => {
     setRange(next)
+    patchShotPrefs({ range: next })
     // 用户未手动编辑过标题时，切换范围在「本次对话标题」与「会话标题」间自动跟随
     if (!userEditedTitleRef.current) {
       if (next === 'all') {
@@ -419,6 +435,25 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
       }
     }
   }, [dialogueTitle, sessionTitle])
+
+  /** 改宽度（预设或自定义都走这里）：同步草稿、落盘偏好。 */
+  const applyWidth = useCallback((next: number): void => {
+    setCardWidth(next)
+    setWidthDraft(String(next))
+    patchShotPrefs({ width: next })
+  }, [])
+
+  /** 改主题：用户选过之后就不再跟随界面外观（记为「已选」）。 */
+  const applyTheme = useCallback((next: ShotTheme): void => {
+    setTheme(next)
+    patchShotPrefs({ theme: next })
+  }, [])
+
+  /** 改画质档。 */
+  const applyQuality = useCallback((next: ShotQuality): void => {
+    setQuality(next)
+    patchShotPrefs({ quality: next })
+  }, [])
 
   const onSave = useCallback((): void => {
     if (result === null) return
@@ -492,30 +527,27 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
                   className={cardWidth === w ? `${cls.segItem} ${cls.segItemOn}` : cls.segItem}
                   aria-pressed={cardWidth === w}
                   onClick={() => {
-                    setCardWidth(w)
-                    setWidthDraft(String(w))
+                    applyWidth(w)
                   }}
                 >
                   {WIDTH_LABELS[w]}
                 </button>
               ))}
             </div>
-            <div className={cls.widthBox} title="自定义宽度 (360~2560 px)">
+            <div className={cls.widthBox} title={`自定义宽度 (${WIDTH_MIN}~${WIDTH_MAX} px)`}>
               <input
                 type="number"
                 className={cls.widthInput}
                 value={widthDraft}
-                min={360}
-                max={2560}
+                min={WIDTH_MIN}
+                max={WIDTH_MAX}
                 step={10}
                 aria-label="自定义卡片宽度"
                 onChange={(event) => { setWidthDraft(event.target.value) }}
                 onBlur={() => {
                   const parsed = parseInt(widthDraft, 10)
                   if (!Number.isNaN(parsed)) {
-                    const clamped = Math.max(360, Math.min(2560, parsed))
-                    setCardWidth(clamped)
-                    setWidthDraft(String(clamped))
+                    applyWidth(Math.max(WIDTH_MIN, Math.min(WIDTH_MAX, parsed)))
                   } else {
                     setWidthDraft(String(cardWidth))
                   }
@@ -541,7 +573,7 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
                   type="button"
                   className={item === quality ? `${cls.segItem} ${cls.segItemOn}` : cls.segItem}
                   aria-pressed={item === quality}
-                  onClick={() => { setQuality(item) }}
+                  onClick={() => { applyQuality(item) }}
                 >
                   {QUALITY_LABEL[item]}
                 </button>
@@ -555,7 +587,7 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
               value={theme}
               aria-label="截图主题"
               disabled={editing}
-              onChange={(event) => { setTheme(event.target.value as ShotTheme) }}
+              onChange={(event) => { applyTheme(event.target.value as ShotTheme) }}
             >
               {(Object.keys(THEME_LABEL) as ShotTheme[]).map(item => (
                 <option key={item} value={item}>{THEME_LABEL[item]}</option>
@@ -572,13 +604,17 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
             onCommit={(val) => {
               userEditedTitleRef.current = true
               setTitleText(val)
+              patchShotPrefs({ title: val, titleFor: messageKey })
             }}
           />
           <EditableText
             label="徽章"
             value={labelText}
             placeholder="如：Kr"
-            onCommit={setLabelText}
+            onCommit={(val) => {
+              setLabelText(val)
+              patchShotPrefs({ label: val })
+            }}
           />
           <span className={cls.meta}>输出宽约 {cardWidth * scale} px</span>
         </div>

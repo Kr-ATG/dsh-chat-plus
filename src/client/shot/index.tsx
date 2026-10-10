@@ -117,6 +117,7 @@ export function AssistantScreenshotAction(
           dialogueTitle={dialogueTitle}
           sessionTitle={sessionTitle}
           cwd={cwd}
+          messageKey={String(messageId)}
         />
       )}
     </>

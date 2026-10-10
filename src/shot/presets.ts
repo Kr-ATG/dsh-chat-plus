@@ -75,16 +75,21 @@ export const SHOT_PRESETS: Record<ShotDevice, Record<ShotQuality, ShotPreset>> =
 }
 
 /**
- * 宽度档位预设（5 档）：
+ * 宽度档位预设（6 档）：
  *  - 540：手机竖屏（紧凑窄幅，适合聊天转发不横向缩放）；
  *  - 720：小窗/紧凑文档；
  *  - 960：标准默认（均衡阅读节奏，适合发群/贴文档）；
  *  - 1200：宽屏（适合横向代码/表格/对比场景）；
- *  - 1440：超宽屏（大幅展示场景）。
+ *  - 1440：超宽屏（大幅展示场景）；
+ *  - 1920：全宽（1080P 满幅宽度；宽表格/多列对比/整页看板不再被横向压缩）。
  */
-export const WIDTH_PRESETS = [540, 720, 960, 1200, 1440] as const
+export const WIDTH_PRESETS = [540, 720, 960, 1200, 1440, 1920] as const
 export type WidthPreset = (typeof WIDTH_PRESETS)[number]
 export const DEFAULT_WIDTH = 960
+
+/** 自定义宽度的合法区间（CSS px，host 与面板共用，避免两处各写一份）。 */
+export const WIDTH_MIN = 360
+export const WIDTH_MAX = 2560
 
 /** 宽度档位中文标签。 */
 export const WIDTH_LABELS: Record<WidthPreset, string> = {
@@ -93,6 +98,7 @@ export const WIDTH_LABELS: Record<WidthPreset, string> = {
   960: '960 标准',
   1200: '1200 宽屏',
   1440: '1440 超宽',
+  1920: '1920 全宽',
 }
 
 /** 根据画质档与排版宽度计算 deviceScaleFactor 缩放倍率。 */
@@ -119,7 +125,7 @@ export function resolveShotPreset(widthInput: unknown, qualityInput: unknown): S
     : (typeof widthInput === 'string' && /^\d+$/.test(widthInput)
       ? parseInt(widthInput, 10)
       : (widthInput === 'phone' ? 540 : DEFAULT_WIDTH))
-  width = Math.max(360, Math.min(2560, width))
+  width = Math.max(WIDTH_MIN, Math.min(WIDTH_MAX, width))
   const q: ShotQuality = qualityInput === '1080p' || qualityInput === '4k' ? qualityInput : '2k'
   const scale = qualityScale(q, width)
   return {
