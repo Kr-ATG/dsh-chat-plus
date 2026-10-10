@@ -235,13 +235,18 @@ export function graphLegendItems(spec: IuGraphSpec): GraphLegendItem[] {
 /**
  * svg 的内联尺寸样式（Body 与 snapshot 共用同一份计算）。
  *
- * fit：贴卡宽但不放大超过 1:1（max-width = vbW），也不缩到不可读
- *      （min-width = vbW × FIT_MIN_SCALE，比容器窄时由 wrap 横向滚动）；
+ * fit：**铺满容器宽度**（max-width:100%），只在过窄时兜底横向滚动
+ *      （min-width = vbW × FIT_MIN_SCALE，比容器窄时由 wrap 滚动）。
  * large：由高度驱动放大，横向滚动看图。
+ *
+ * ⚠ 历史 bug（实测抓出）：fit 原先写 `max-width: vbW px`——那等于**禁止放大**。
+ * 简单的图 viewBox 只有 308px 宽，在 660px 的卡片里只占 47%，两侧 350px 全空，
+ * 看起来「图缩在中间、又小又空」。SVG 是矢量的，放大到容器宽不会糊，文字反而
+ * 更清晰。现在放开上限，靠 `height:auto` + viewBox 保持等比。
  */
 export function graphSvgStyle(lay: GraphLayout, mode: 'fit' | 'large'): { readonly maxWidth: string; readonly minWidth: string } {
   if (mode === 'large') return { maxWidth: 'none', minWidth: '0' }
-  return { maxWidth: `${lay.vbW}px`, minWidth: `${Math.ceil(lay.vbW * FIT_MIN_SCALE)}px` }
+  return { maxWidth: '100%', minWidth: `${Math.ceil(lay.vbW * FIT_MIN_SCALE)}px` }
 }
 
 /* ------------------------------------------------------------------ */
