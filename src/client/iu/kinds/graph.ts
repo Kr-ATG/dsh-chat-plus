@@ -689,7 +689,7 @@ const CSS = [
   '   所以动画被关（reduced-motion / 无头截图）时内容照常完整可见。 */',
   '.dtt-iu__graph-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 6px 0 8px; }',
   '.dtt-iu__graph-pill { border: 1px solid ' + BORDER + '; background: transparent; color: inherit;',
-  '  font: inherit; font-size: calc(11.5px * var(--iu-text-scale, 1)); border-radius: 999px;',
+  '  font: inherit; font-size: calc(11.5px * var(--iu-text-scale, 1)); border-radius: 8px;',
   '  padding: 2px 11px; cursor: pointer; opacity: .58; line-height: 1.7; white-space: nowrap;',
   '  transition: opacity .18s ease, background-color .18s ease, transform .18s ease, border-color .18s ease, color .18s ease; }',
   '.dtt-iu__graph-pill:hover { opacity: 1; transform: translateY(-1px); }',

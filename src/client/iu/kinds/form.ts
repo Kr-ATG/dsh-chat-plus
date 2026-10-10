@@ -229,7 +229,7 @@ const CSS = [
   '  font-size: calc(13px * var(--iu-text-scale, 1));',
   '  background: var(--dsw-alias-bg-layer-2, rgba(127,127,127,.06));',
   '  border: 1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.25));',
-  '  border-radius: 8px; padding: 7px 9px;',
+  '  border-radius: 10px; padding: 7px 9px;',
   '  transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease; }',
   '.dtt-iu__textarea { resize: vertical; min-height: 56px; line-height: 1.55; }',
   '.dtt-iu__select { cursor: pointer; }',

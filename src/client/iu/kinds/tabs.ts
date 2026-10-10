@@ -64,11 +64,11 @@ function snapshot(spec: IuTabsSpec): string {
 
 const CSS = [
   '/* tabs：胶囊切换 + 面板淡入 */',
-  '.dtt-iu__tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0;',
+  '.dtt-iu__tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 6px;',
   '  background: var(--dsw-alias-bg-layer-2, rgba(127,127,127,.1));',
-  '  border-radius: 999px; padding: 3px; width: fit-content; max-width: 100%; }',
+  '  border-radius: 10px; padding: 4px; width: fit-content; max-width: 100%; }',
   '.dtt-iu__tab { border: 0; background: transparent; color: inherit; font: inherit;',
-  '  font-size: calc(12px * var(--iu-text-scale, 1)); font-weight: 500; border-radius: 999px; padding: 4px 13px;',
+  '  font-size: calc(12px * var(--iu-text-scale, 1)); font-weight: 500; border-radius: 8px; padding: 5px 14px;',
   '  cursor: pointer; opacity: .6; transition: opacity .18s ease, background-color .18s ease, transform .18s ease, box-shadow .18s ease; }',
   '.dtt-iu__tab:hover { opacity: 1; transform: translateY(-1px); }',
   '.dtt-iu__tab:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #4176e6); outline-offset: 2px; }',
