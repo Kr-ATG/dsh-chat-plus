@@ -23,7 +23,7 @@ import {
   DEFAULT_CHROME_CANDIDATES, findFreePort, killChrome, launchChrome,
   resolveChromePath, type ChromeRuntime,
 } from '../browser/chrome.ts'
-import { MERMAID_FILE, MERMAID_HOOK } from './card.ts'
+import { MERMAID_FILE, MERMAID_HOOK, SETTLE_QUIET_MS, SHOT_FRAME_MAX_HEIGHT } from './card.ts'
 import { stitchPng, MAX_STITCH_PIXELS, type PngTile } from './stitch.ts'
 
 /**
@@ -338,20 +338,36 @@ async function waitMermaid(session: CdpSession): Promise<void> {
  * 等内嵌 ```html 围栏的高度桥上报落地（每个 iframe 至多等 FENCE_WAIT_MS）。
  *
  * srcdoc iframe 的解析与首帧上报通常在几百毫秒内完成，但模型页面里若有字体/
- * 图片会二次上报。这里轮询「所有 figure 的行内高度都已脱离兜底值 320px 或超时」，
- * 超时不抛：宁可截一张高度没撑准的，也不让整张截图失败。
+ * 图片、或 JS 渲染的图表，高度会在首帧之后继续长。这里轮询「所有 figure 的高度
+ * 都已稳定或超时」，超时不抛：宁可截一张高度没撑准的，也不让整张截图失败。
+ *
+ * 判定用 iframe 上的 `data-settled` 标记，但**它的语义是「高度已停止变化」而不是
+ * 「收到过上报」**（见 card.ts 的 embedBoot）：桥在 DOMContentLoaded 就立刻量一次，
+ * 那时图片/字体还没落地、报的是偏矮值；一收到上报就放行会拿这个偏矮值定格整图，
+ * 而 iframe 带 `scrolling="no"` + 内部 `overflow:hidden`，晚到的内容既不可见也
+ * 不可滚动 —— 等于静默裁掉（实测踩中：初始 300px、300ms 后追加 1200px 的卡片，
+ * 追加部分整块消失）。
+ *
+ * 也不用「行内高度 ≠ 320px」：内容真高恰好等于兜底值 320px 时它永远不成立，
+ * 只能白等到超时。
+ *
+ * FENCE_WAIT_MS 必须显著大于 SETTLE_QUIET_MS（静默窗口），否则正常内容也判不出
+ * 稳定、每次都走超时分支。这里 6000 > 700，留了 8 倍余量。
  */
 const FENCE_WAIT_MS = 6000
+if (!(FENCE_WAIT_MS > SETTLE_QUIET_MS * 2)) {
+  throw new Error(`FENCE_WAIT_MS(${FENCE_WAIT_MS}) 必须显著大于 SETTLE_QUIET_MS(${SETTLE_QUIET_MS})，否则判不出稳定`)
+}
 async function waitFenceHeights(session: CdpSession): Promise<void> {
   await evaluateJson(
     session,
     `(async () => {
-  var figures = Array.prototype.slice.call(document.querySelectorAll('figure.htmlfence iframe'));
-  if (figures.length === 0) return 'empty';
+  var frames = Array.prototype.slice.call(document.querySelectorAll('figure.htmlfence iframe'));
+  if (frames.length === 0) return 'empty';
   var deadline = Date.now() + ${FENCE_WAIT_MS};
   function settled() {
-    for (var i = 0; i < figures.length; i += 1) {
-      if (figures[i].style.height === '320px') return false;
+    for (var i = 0; i < frames.length; i += 1) {
+      if (frames[i].getAttribute('data-settled') !== '1') return false;
     }
     return true;
   }
@@ -553,8 +569,13 @@ async function captureTiled(
  *
  * 截图里内嵌本地 HTML 用的是 file:// iframe（卡片页自己也是 file://，相对
  * 资源能正常解析），但跨源的 iframe 读不到内部 DOM，高度只能事先单独量：
- * 复用常驻实例导航到该文件 → 等稳定 → 量 scrollHeight → 夹进 [160, 2400]。
- * 任何失败都回兜底高度，绝不因为一张嵌入页量不到而让整张截图失败。
+ * 复用常驻实例导航到该文件 → 等稳定 → 量 scrollHeight → 夹进
+ * [160, SHOT_FRAME_MAX_HEIGHT]。任何失败都回兜底高度，绝不因为一张嵌入页
+ * 量不到而让整张截图失败。
+ *
+ * 上限与 ```html 围栏那条路径共用 `SHOT_FRAME_MAX_HEIGHT`：两条都是「往截图里
+ * 内嵌一整页」，载体同样是长图，卡在历史值 2400 会把长页腰斩。**两处必须同源**，
+ * 否则同一张长页走文件内嵌与走围栏内嵌会得到不同结果。
  * @param fileUrl - 目标页面的 file:// 地址。
  * @param cssWidth - 与 iframe 一致的排版宽度（CSS px）。
  * @param fallback - 量不到时的兜底高度。
@@ -567,7 +588,7 @@ export async function probePageHeight(fileUrl: string, cssWidth: number, fallbac
       await navigateAndWait(target.session, fileUrl, 8000, true)
       await evaluateJson(target.session, settleJs(1500), true, 4000).catch(() => null)
       const measured = await measureHeight(target.session)
-      return Math.max(160, Math.min(2400, measured > 0 ? measured : fallback))
+      return Math.max(160, Math.min(SHOT_FRAME_MAX_HEIGHT, measured > 0 ? measured : fallback))
     } catch {
       return fallback
     } finally {

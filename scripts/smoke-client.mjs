@@ -2714,6 +2714,91 @@ if (krEnabled) {
     const noHead = mod.assembleHtmlDocument('<html><body><p>y</p></body></html>')
     if (!noHead.includes(mod.BRIDGE_TO_HOST)) reasons.push('无 head 的完整文档也必须注入 bridge')
     if (!(mod.MAX_FRAME_HEIGHT > mod.MIN_FRAME_HEIGHT)) reasons.push('高度上下限不合法')
+    // ⑦-2 截图定格：截图管线只等字体/图片，**不等动画**。带入场动画
+    // （opacity:0 + animation-delay）的卡片抓帧时元素还停在起始帧 → 截图缺内容
+    // 且无任何报错（实测五段动画只出现第一段）。所以截图路径必须能把动画推到终态。
+    const settled = mod.assembleHtmlDocument('<div>x</div>', 'f0', { settleAnimations: true })
+    const plain = mod.assembleHtmlDocument('<div>x</div>', 'f0')
+    // 默认（对话流）绝不能带定格样式：那里的卡片是活的，动效必须保留。
+    if (/animation-duration\s*:\s*1ms/.test(plain)) {
+      reasons.push('默认装配不得注入定格样式（对话流卡片要保持真实动效）')
+    }
+    if (!/animation-duration\s*:\s*1ms/.test(settled)) {
+      reasons.push('settleAnimations 必须把 animation-duration 压到 1ms（否则截图抓不到终态）')
+    }
+    // 定格不能靠 animation:none —— 那会让 opacity:0 的元素**永久**不可见，比原问题更糟。
+    if (/animation\s*:\s*none/.test(settled)) {
+      reasons.push('定格必须让动画「立刻跑完」而不是 animation:none（后者会让 opacity:0 永久不可见）')
+    }
+    // 必须同时收住 delay 与 infinite：前者决定起跑，后者决定抓帧落点是否随机。
+    if (!/animation-delay\s*:\s*0s/.test(settled)) reasons.push('定格必须把 animation-delay 归零')
+    if (!/animation-iteration-count\s*:\s*1/.test(settled)) {
+      reasons.push('定格必须把 animation-iteration-count 收到 1（否则 infinite 动画会疯狂闪烁）')
+    }
+    // 模型样式通常写在 body 里、位置靠后；不带 !important 会被压回去，定格失效。
+    if (!/animation-duration\s*:\s*1ms\s*!important/.test(settled)) {
+      reasons.push('定格样式必须带 !important（模型样式在文档里更靠后，否则压不住）')
+    }
+    // 定格样式要排在模型样式之后（与 bridge 同处文档尾部），否则同样被覆盖。
+    if (settled.indexOf('animation-duration:1ms') < settled.indexOf('<div>x</div>')) {
+      reasons.push('定格样式必须排在正文之后（模型样式之后），否则被覆盖')
+    }
+  }
+
+  // ⑦-3 截图内嵌 iframe 的高度上限：与对话流分开取值。
+  // 对话流是视口内滚动容器（4000 合理）；截图是长图载体，管线自身允许到 14000，
+  // 卡在 2400 会把一张 3000px 的卡片腰斩（实测 y=2000 之后内容消失）。
+  {
+    const cardSrc = readFileSync(resolve(ROOT, 'src/shot/card.ts'), 'utf8')
+    const m = /const SHOT_FRAME_MAX_HEIGHT = (\d+)/.exec(cardSrc)
+    if (m === null) {
+      reasons.push('缺少 SHOT_FRAME_MAX_HEIGHT（截图内嵌高度上限）')
+    } else {
+      const limit = Number(m[1])
+      if (!(limit > 2400)) reasons.push(`截图内嵌高度上限必须大于历史值 2400（当前 ${limit}，会把长图腰斩）`)
+      if (limit > 14000) reasons.push(`截图内嵌高度上限不得超过管线自身上限 14000（当前 ${limit}）`)
+    }
+    if (!/MIN_FRAME_HEIGHT\s*,\s*Math\.min\(MAX_H/.test(cardSrc) && !/Math\.max\(MIN_H/.test(cardSrc)) {
+      reasons.push('截图内嵌高度必须钳到 [MIN_FRAME_HEIGHT, SHOT_FRAME_MAX_HEIGHT]')
+    }
+    // 已上报判定必须靠显式标记：内容真高恰好等于兜底 320px 时，
+    // 「高度 ≠ 320px」永远不成立，会白等到超时。
+    const rendererSrc = readFileSync(resolve(ROOT, 'src/shot/renderer.ts'), 'utf8')
+    if (!/data-settled/.test(cardSrc)) reasons.push('内嵌 iframe 上报后必须打 data-settled 标记')
+    if (/style\.height === '320px'/.test(rendererSrc)) {
+      reasons.push('等待判定不得用「高度 ≠ 320px」（真高恰为 320 时会白等到超时），必须用 data-settled')
+    }
+    // data-settled 的语义必须是「高度已停止变化」而不是「收到过上报」。
+    // 桥在 DOMContentLoaded 就立刻量一次（图片/字体还没落地 → 偏矮值），
+    // 一收到上报就放行会拿偏矮值定格整图；而 iframe 带 scrolling="no" +
+    // 内部 overflow:hidden，晚到内容既不可见也不可滚动 → 静默裁掉。
+    // 实测：初始 300px、300ms 后追加 1200px 的卡片，追加部分整块消失。
+    if (!/SETTLE_QUIET_MS/.test(cardSrc)) {
+      reasons.push('data-settled 必须靠静默窗口判定（SETTLE_QUIET_MS），不能一收到上报就标记')
+    }
+    if (!/removeAttribute\('data-settled'\)/.test(cardSrc)) {
+      reasons.push('收到新高度时必须先摘掉 data-settled（否则 renderer 会拿中途值就走）')
+    }
+    // 等待上限必须显著大于静默窗口，否则正常内容也判不出稳定、每次白等到超时。
+    const quietMatch = /const SETTLE_QUIET_MS = (\d+)/.exec(cardSrc)
+    const waitMatch = /const FENCE_WAIT_MS = (\d+)/.exec(rendererSrc)
+    if (quietMatch === null || waitMatch === null) {
+      reasons.push('缺少 SETTLE_QUIET_MS / FENCE_WAIT_MS 常量')
+    } else if (!(Number(waitMatch[1]) > Number(quietMatch[1]) * 2)) {
+      reasons.push(`FENCE_WAIT_MS(${waitMatch[1]}) 必须显著大于 SETTLE_QUIET_MS(${quietMatch[1]})，否则判不出稳定`)
+    }
+    // 本地 HTML 文件内嵌走 probePageHeight（先单独导航量高），与围栏内嵌是两条路径。
+    // 上限必须同源：否则同一张长页走文件内嵌与走围栏内嵌会得到两种结果（一处腰斩）。
+    if (!/SHOT_FRAME_MAX_HEIGHT/.test(rendererSrc)) {
+      reasons.push('probePageHeight 必须与围栏内嵌共用 SHOT_FRAME_MAX_HEIGHT（否则文件内嵌那条路仍会腰斩）')
+    }
+    if (/Math\.min\(2400/.test(rendererSrc)) {
+      reasons.push('probePageHeight 不得再写死 2400（应改用 SHOT_FRAME_MAX_HEIGHT）')
+    }
+    // 常量必须从 card.ts 导出（renderer 复用），不能各写一份字面量。
+    if (!/export const SHOT_FRAME_MAX_HEIGHT/.test(cardSrc)) {
+      reasons.push('SHOT_FRAME_MAX_HEIGHT 必须从 card.ts 导出供 renderer 复用')
+    }
   }
 
   // ⑧ 主题同步：亮色必须**移除属性**而不是设成 "false"。

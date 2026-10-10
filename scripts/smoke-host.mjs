@@ -396,6 +396,18 @@ if (/src="\$\{embed\.fileUrl\}"/.test(cardSrc) || /title="\$\{escapeHtml\(name\)
   pass('截图卡片的属性上下文全部用 escapeAttr（属性逃逸面已封）')
 }
 
+// 截断不得静默：截图范围选「整段会话」而条数超过 MAX_MESSAGES 时，超出部分
+// 不进图。若页脚只报截断后的条数，用户会看到一个自洽的「60 条消息」统计，
+// 无从知道原本有 100 条 —— 这是最纯粹的静默丢内容。
+const shotIndexSrc = stripComments(srcOf('src/shot/index.ts'))
+if (!/omitted/.test(shotIndexSrc) || !/omitted\s*\+=\s*1/.test(shotIndexSrc)) {
+  fail('parseMessages 必须统计被丢弃的条数（否则整段会话截断后无任何提示）')
+} else if (!/omitted/.test(cardSrc)) {
+  fail('卡片页脚必须展示被丢弃的条数（omitted）')
+} else {
+  pass('截图条数截断不静默：parseMessages 统计 omitted + 页脚如实说明')
+}
+
 // iu 围栏的截图快照：**必须在进 shiki 之前短路**。
 //
 // shiki 不认识 `iu` 这个语言（实测抛 Language 'iu' not found），异常被 catch 吞掉

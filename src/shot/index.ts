@@ -184,20 +184,25 @@ function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   })
 }
 
-/** 规整请求里的消息数组（丢弃空文本与非法角色，超量截断）。 */
-function parseMessages(input: unknown): ShotMessage[] {
-  if (!Array.isArray(input)) return []
+/** 规整请求里的消息数组（丢弃空文本与非法角色，超量截断）。
+ *  同时回报被丢弃的条数，供卡片页脚如实说明（截断不能静默）。 */
+function parseMessages(input: unknown): { messages: ShotMessage[]; omitted: number } {
+  if (!Array.isArray(input)) return { messages: [], omitted: 0 }
   const out: ShotMessage[] = []
+  let omitted = 0
   for (const item of input) {
     if (item === null || typeof item !== 'object') continue
     const record = item as Record<string, unknown>
     const role = record.role === 'user' || record.role === 'assistant' ? record.role : null
     const text = typeof record.text === 'string' ? record.text : ''
     if (role === null || text.trim() === '') continue
+    if (out.length >= MAX_MESSAGES) {
+      omitted += 1
+      continue
+    }
     out.push({ role, text })
-    if (out.length >= MAX_MESSAGES) break
   }
-  return out
+  return { messages: out, omitted }
 }
 
 /** 规整主题（未知值回退浅色）。 */
@@ -244,7 +249,7 @@ async function handleRender(req: IncomingMessage, res: ServerResponse): Promise<
     return
   }
   const editedHtml = typeof body.html === 'string' && body.html.trim() !== '' ? body.html : null
-  const messages = parseMessages(body.messages)
+  const { messages, omitted } = parseMessages(body.messages)
   if (editedHtml === null && messages.length === 0) {
     json(res, 400, { ok: false, error: '没有可截图的消息内容' })
     return
@@ -268,7 +273,7 @@ async function handleRender(req: IncomingMessage, res: ServerResponse): Promise<
     const card = editedHtml !== null
       ? null
       : await buildCardHtml({
-        messages, theme, width: preset.cssWidth, minHeight: cardMinHeight, embeds,
+        messages, theme, width: preset.cssWidth, minHeight: cardMinHeight, embeds, omitted,
         title: typeof body.title === 'string' && body.title.trim() !== ''
           ? body.title.trim()
           : deriveTitle(messages[0]!.text, messages[0]!.role),

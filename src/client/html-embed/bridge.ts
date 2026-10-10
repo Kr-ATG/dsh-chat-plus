@@ -242,6 +242,47 @@ const BASE_STYLE = [
 ].join('')
 
 /**
+ * 截图定格样式：把 CSS 动画与过渡一次性推到终态。
+ *
+ * **为什么需要**：截图管线只等字体与图片（见 `src/shot/renderer.ts` 的 settleJs），
+ * **不等动画**。卡片正文里但凡有入场动画（`opacity:0` + `animation-delay`），抓帧时
+ * 元素还停在起始帧，截出来就是「内容缺了一大半」——实测一张五段入场动画的卡片只
+ * 出现第一段，其余四段连同图形整块消失，而且没有任何报错（管线只关心字体与图片）。
+ *
+ * **为什么不是 `animation:none`**：那会让 `opacity:0` 的元素**永久不可见**——动画
+ * 正是唯一让它显现的机制，砍掉动画等于把「暂时的透明」变成「永久的透明」，比原问题
+ * 更严重。正确做法是让动画**立刻跑完**：delay 归零 + duration 压到 1ms + 只跑一遍 +
+ * forwards 停在终态，最终视觉状态与用户在对话流里看到的一致，只是省掉了时间轴。
+ *
+ * `iteration-count:1` 用来收住 `infinite` 的装饰动画（呼吸点、流光）：不限的话 1ms
+ * 周期会疯狂闪烁，抓帧落在哪一帧全看运气；限制后停在终态，画面是静止的。
+ * `transition-duration:0s` 同理——过渡中途的半透明也是一种「没渲染完」。
+ *
+ * 必须带 `!important`：模型自己的样式表通常写在 body 里，位置比这里靠前；不带
+ * `!important` 会被同 specificity 的后者压回去，定格就失效了。
+ */
+const SETTLE_STYLE = [
+  '*,*::before,*::after{',
+  'animation-delay:0s !important;',
+  'animation-duration:1ms !important;',
+  'animation-iteration-count:1 !important;',
+  'animation-fill-mode:forwards !important;',
+  'transition-duration:0s !important;',
+  'transition-delay:0s !important;',
+  '}',
+].join('')
+
+/** `assembleHtmlDocument` 的装配选项。 */
+export interface AssembleOptions {
+  /**
+   * 截图定格模式：把 CSS 动画/过渡一次性推到终态，保证抓帧时内容已全部可见。
+   *
+   * 只有截图管线该传 true —— 对话流里的卡片是活的，动效必须原样保留。
+   */
+  readonly settleAnimations?: boolean
+}
+
+/**
  * 把围栏正文拼成完整 iframe 文档。
  *
  * 分支处理：
@@ -253,18 +294,25 @@ const BASE_STYLE = [
  * 写的 `body{margin:...}`——那是它的设计意图，不该被我们的兜底压掉。而 bridge
  * 必须在 body 末尾，否则 `document.body` 还不存在，第一帧量不到高度。
  *
+ * 定格样式（`settleAnimations`）是唯一的例外，它**刻意**排在文档最后（与 bridge
+ * 同位置）：它的职责就是压过模型样式，位置靠后 + `!important` 双保险。
+ *
  * `<base target="_blank">` 是刻意加的：opaque origin 下页面内点击链接会尝试在
  * iframe 自身导航，用户点一下就永久失去卡片内容且回不去。target=_blank 把导航
  * 交给宿主浏览器的新标签页（需要 sandbox 的 allow-popups）。
  *
  * @param fid 帧 id：写进 bridge 的高度/ready 上报，供多内嵌宿主（截图页）按 id
  *   定位来源。对话流单帧传空串即可；**必须**替换占位符，否则 bridge 直接语法错。
+ * @param options 装配选项（截图定格见 `AssembleOptions`）。
  */
-export function assembleHtmlDocument(html: string, fid = ''): string {
+export function assembleHtmlDocument(html: string, fid = '', options: AssembleOptions = {}): string {
   const base = '<base target="_blank">'
   const style = '<style>' + BASE_STYLE + '</style>'
   const script = '<script>' + BRIDGE_SOURCE.replace('__DSH_FRAME_ID__', JSON.stringify(fid)) + '<\/script>'
+  // 定格样式与 bridge 一起放文档最后：bridge 需要在 body 末尾，定格需要压过模型样式。
+  const settle = options.settleAnimations === true ? '<style>' + SETTLE_STYLE + '</style>' : ''
   const head = base + style
+  const tail = settle + script
 
   if (/<html[\s>]/i.test(html)) {
     // head 里插兜底（靠前，可被模型样式覆盖）；没有 head 就退到 <html> 之后。
@@ -272,11 +320,12 @@ export function assembleHtmlDocument(html: string, fid = ''): string {
     if (/<head[^>]*>/i.test(out)) out = out.replace(/<head[^>]*>/i, (match) => match + head)
     else if (/<html[^>]*>/i.test(out)) out = out.replace(/<html[^>]*>/i, (match) => match + head)
     else out = head + out
-    // bridge 放 body 末尾，拿不到 body 就放 </html> 前，再不行直接追加。
-    if (/<\/body>/i.test(out)) return out.replace(/<\/body>/i, script + '</body>')
-    if (/<\/html>/i.test(out)) return out.replace(/<\/html>/i, script + '</html>')
-    return out + script
+    // tail 放 body 末尾，拿不到 body 就放 </html> 前，再不行直接追加。
+    // 一律用函数式替换：tail 里若出现 `$&` 之类的字符，字符串形式会被当成替换模式。
+    if (/<\/body>/i.test(out)) return out.replace(/<\/body>/i, () => tail + '</body>')
+    if (/<\/html>/i.test(out)) return out.replace(/<\/html>/i, () => tail + '</html>')
+    return out + tail
   }
   return '<!doctype html><html><head><meta charset="utf-8">' + head
-    + '</head><body>' + html + script + '</body></html>'
+    + '</head><body>' + html + tail + '</body></html>'
 }

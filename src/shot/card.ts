@@ -13,7 +13,7 @@ import { escapeHtml, hasDiagramFence, renderMarkdown } from './markdown.ts'
 import { escapeAttr } from '../shared/sanitize-html.ts'
 import { buildCardCss, mermaidConfigJson, baseOf, type ShotTheme } from './theme.ts'
 import { deriveTitle } from '../shared/title.ts'
-import { assembleHtmlDocument } from '../client/html-embed/bridge.ts'
+import { assembleHtmlDocument, MIN_FRAME_HEIGHT } from '../client/html-embed/bridge.ts'
 import { splitHtml } from '../client/html-embed/parse.ts'
 import { splitIu } from '../client/iu/parse.ts'
 import { iuKindOf } from '../client/iu/kinds/registry.ts'
@@ -69,10 +69,52 @@ export interface ShotCardInput {
    * 用户在 150% 下看着正好，截出来却是 100% 的小字。
    */
   zoom?: number
+  /**
+   * 因条数上限被丢弃的消息数（缺省 0）。
+   *
+   * 存在的唯一理由是**不静默**：截图范围选「整段会话」而会话超过上限时，
+   * 超出部分不会进图。页脚必须如实说明「另有 N 条未包含」，否则用户看到
+   * 一个自洽的「60 条消息」统计，无从知道原本有 100 条。
+   */
+  omitted?: number
 }
 
 /** 单条消息文本上限，超出截断（避免超长图与内存尖峰）。 */
 const MAX_TEXT_LEN = 80000
+
+/**
+ * 截图里内嵌 iframe 的高度上限（CSS px）。
+ *
+ * 与对话流的 `MAX_FRAME_HEIGHT`（4000）分开取值，因为两者的载体根本不同：
+ *  - 对话流是**视口内的滚动容器**，iframe 太高会把消息流撑得没法读，4000 是
+ *    给阅读体验设的闸；
+ *  - 截图是**长图**，本来就靠「往下长」承载整段内容，管线自己也允许到
+ *    14000px（renderer.ts 的 maxCssHeight）。这里卡在 2400（历史值）意味着
+ *    一张 3000px 的卡片图会被腰斩，而截图这个载体完全没有「太长」的问题——
+ *    截出来的图本来就是给长图场景看的。
+ *
+ * 取值 6000：给绝大多数单页图表留足空间（实测常见可视化在 1500~3500），
+ * 同时远小于管线自身的 14000 上限，不至于让一张内嵌页把整张截图顶到合成
+ * 表面临界（renderer.ts 会按需分段，但段数越多越慢）。
+ *
+ * 导出给 renderer.ts 的 `probePageHeight` 共用：本地 HTML 文件内嵌走的是另一条
+ * 路径（先单独导航量高），上限必须同源，否则同一张长页走文件内嵌与走围栏内嵌
+ * 会得到两种结果。
+ */
+export const SHOT_FRAME_MAX_HEIGHT = 6000
+
+/**
+ * 内嵌 iframe 判定「高度已稳定」所需的静默窗口（ms）。
+ *
+ * 含义：最后一次高度变化之后，连续这么久没有新上报，才认为长完了。
+ * 桥的 tick 间隔是 250ms，窗口取它的两倍以上才能把「连续几次 tick 都没变」与
+ * 「还没测到」区分开；同时远小于 renderer 的 FENCE_WAIT_MS（6000），不会把每次
+ * 截图都拖慢。实测：900ms 后追加内容的页面，700ms 窗口能在总等待 1600ms 左右
+ * 拿到最终高度；若只等「收到过上报」（旧逻辑）则会拿首帧的偏矮值把内容裁掉。
+ *
+ * 导出供 renderer 的等待上限校验共用（等待上限必须大于静默窗口，否则永远判不出稳定）。
+ */
+export const SETTLE_QUIET_MS = 700
 
 // ── DeepSeek 鲸鱼 logo（官方 FishLogo 的 path）─────────────────────────────
 
@@ -188,6 +230,11 @@ const BLOCK_END = /<\/(?:p|li|h[1-4]|blockquote|td|th|dd|dt)>/
  * iframe 同为 file:// 且引擎带 --allow-file-access-from-files，srcdoc 的
  * about:srcdoc 能正常加载并回传高度。
  *
+ * **截图定格**（settleAnimations=true）是必须的：截图管线只等字体与图片，不等
+ * 动画。卡片正文里的入场动画（`opacity:0` + `animation-delay`）在抓帧时往往还没
+ * 播完，元素停在起始帧 → 截图缺内容且无任何报错。实测一张五段入场动画的卡片只
+ * 出现第一段。定格样式让动画立刻跑完、停在终态（详见 bridge.ts 的 SETTLE_STYLE）。
+ *
  * 安全：srcdoc 属性值走 escapeAttr（引号/反引号全转义）——模型正文里的 `"`
  * 若裸着会闭合属性，而这张卡片页是在带 --disable-web-security 的无头 Chrome
  * 里打开的，注入的事件处理器有读本地文件的能力。
@@ -196,7 +243,7 @@ function fenceFigureOf(fence: ShotHtmlFence, index: number): string {
   // fid 写进 bridge 上报 + figure 的 data-fid：截图页按 id 配对，不靠 contentWindow
   // 比对（无头 Chrome 里 srcdoc iframe 的窗口引用比对实测不可靠）。
   const fid = 'f' + index
-  const doc = assembleHtmlDocument(fence.html, fid)
+  const doc = assembleHtmlDocument(fence.html, fid, { settleAnimations: true })
   const title = escapeAttr(fence.title)
   return `<figure class="htmlfence" data-fid="${fid}"><iframe srcdoc="${escapeAttr(doc)}" title="${title}" scrolling="no" loading="eager" sandbox="allow-scripts allow-popups allow-forms allow-modals allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" style="height:320px"></iframe></figure>`
 }
@@ -274,16 +321,44 @@ function injectFences(body: string, fences: readonly ShotHtmlFence[]): string {
  *  2. 高度落地：等每个内嵌 iframe 的高度桥上报，把 figure 撑到真实高度。按桥
  *     上报里的 fid 与 figure 的 data-fid 配对（**不**用 contentWindow 比对——
  *     无头 Chrome 里 srcdoc iframe 的窗口引用比对实测不可靠，高度永远停在兜底）；
- *     钳到 [40, 2400] 后写行内高度；首帧 320px 兜底，量不到就保持兜底，绝不让
- *     整张截图失败。
+ *     钳到 [MIN_FRAME_HEIGHT, SHOT_FRAME_MAX_HEIGHT] 后写行内高度；首帧 320px
+ *     兜底，量不到就保持兜底，绝不让整张截图失败。
+ *  3. 稳定标记：`data-settled` 表示「该 iframe 的高度已经不再变化」，供 renderer
+ *     判断可以量总高了。**必须是「静默 QUIET_MS 无新上报」而不是「收到过上报」**：
+ *     桥在 DOMContentLoaded 时就立刻量并上报一次，那时图片/字体往往还没落地、
+ *     报的是偏矮值；此后高度还会长（桥自己挂着 load / fonts.ready / 250ms tick）。
+ *     若一收到上报就放行，renderer 会拿这个偏矮值定格整图高度，而 iframe 带
+ *     `scrolling="no"`、内部 `html{overflow:hidden}` —— 晚到的那截内容既不可见
+ *     也不可滚动，等于被静默裁掉（实测：初始 300px、300ms 后追加 1200px 的卡片，
+ *     追加部分整块消失）。
+ *
+ *     静默窗口取 700ms：桥的 tick 间隔是 250ms，窗口大于它的两倍才能把「连续
+ *     几次 tick 都没再变」与「还没测到」区分开；同时又远小于 FENCE_WAIT_MS 的
+ *     6000ms 总上限，不会把每次截图都拖慢。
  */
 function embedBoot(theme: ShotTheme): string {
   const dark = baseOf(theme) === 'dark'
   return `<script>
 (function () {
   var DARK = ${dark ? 'true' : 'false'};
+  var MIN_H = ${MIN_FRAME_HEIGHT};
+  var MAX_H = ${SHOT_FRAME_MAX_HEIGHT};
+  var QUIET_MS = ${SETTLE_QUIET_MS};
   var figures = Array.prototype.slice.call(document.querySelectorAll('figure.htmlfence'));
   var last = {};
+  var quiet = {};
+  /**
+   * 重置静默计时器。收到新高度就先把 settled 摘掉：renderer 是轮询的，
+   * 摘掉之后它会继续等，而不是拿一个中途值就走。
+   */
+  function scheduleSettle(fid, frame) {
+    if (quiet[fid]) clearTimeout(quiet[fid]);
+    frame.removeAttribute('data-settled');
+    quiet[fid] = setTimeout(function () {
+      quiet[fid] = null;
+      frame.setAttribute('data-settled', '1');
+    }, QUIET_MS);
+  }
   addEventListener('message', function (event) {
     var data = event.data;
     if (!data || typeof data !== 'object' || data.source !== 'dsh-html-card') return;
@@ -294,13 +369,18 @@ function embedBoot(theme: ShotTheme): string {
     if (data.kind !== 'height') return;
     var h = data.height;
     if (typeof h !== 'number' || !isFinite(h) || typeof data.id !== 'string') return;
-    h = Math.max(40, Math.min(2400, Math.round(h)));
+    h = Math.max(MIN_H, Math.min(MAX_H, Math.round(h)));
+    // 高度没变（桥的去重阈值是 2px）就不算「有新变化」，不必重置静默窗口——
+    // 否则桥每 250ms 一次的 tick 会让计时器永远重置，白等到超时。
     if (last[data.id] === h) return;
     last[data.id] = h;
     for (var i = 0; i < figures.length; i += 1) {
       if (figures[i].getAttribute('data-fid') === data.id) {
         var frame = figures[i].querySelector('iframe');
-        if (frame) frame.style.height = h + 'px';
+        if (frame) {
+          frame.style.height = h + 'px';
+          scheduleSettle(data.id, frame);
+        }
         break;
       }
     }
@@ -456,7 +536,10 @@ export async function buildCardHtml(input: ShotCardInput): Promise<ShotCardOutpu
       ? `<section class="seg"><div class="seg-role">${message.role === 'user' ? '我' : 'AI'}</div>${body}</section>`
       : body)
   }
-  const note = `${multi ? `${messages.length} 条消息 · ` : ''}${chars.toLocaleString('zh-CN')} 字`
+  const omitted = Math.max(0, Math.floor(input.omitted ?? 0))
+  // 被截断时必须说出来：只说「60 条消息」会让用户以为整段会话都在图里。
+  const omittedNote = omitted > 0 ? ` · 另有 ${omitted} 条未包含（超出单次上限）` : ''
+  const note = `${multi ? `${messages.length} 条消息 · ` : ''}${chars.toLocaleString('zh-CN')} 字${omittedNote}`
   // 只有 assistant 正文走 Markdown 管线，user 是纯文本（围栏不会成图）。
   const needsMermaid = messages.some(m => m.role === 'assistant' && hasDiagramFence(clamp(m.text)))
   // 多条消息时段与段之间加细线与角色标签（单条不需要额外分隔）。
