@@ -31,9 +31,6 @@ import { timelineKind } from './timeline.ts'
 import { treeKind } from './tree.ts'
 import { gaugeKind } from './gauge.ts'
 import { quizKind } from './quiz.ts'
-import { graphKind } from './graph.ts'
-import { archKind } from './arch.ts'
-import { sequenceKind } from './sequence.ts'
 
 /**
  * 已注册的全部 kind（顺序即注入文档里的出现顺序）。
@@ -44,6 +41,11 @@ import { sequenceKind } from './sequence.ts'
  * 内部享受完整类型检查），收进数组后统一擦除成 AnyKind。擦除是安全的——运行期
  * parse 产出的 spec 只会流回同一个 kind 的 initState / fillText / snapshot，
  * 不会跨 kind 串门（路由按 spec.kind 查表，见 parseIuSpec）。
+ *
+ * 历史：graph / arch / sequence（流程图 / 架构图 / 时序图）三个 kind 已删除，
+ * 图形改由 ```html 围栏承接（见 inject.ts 的图形选型规则）。原因：iu 的图形
+ * 只能画「算法排版的拓扑图」，视觉上限被 SVG 组件锁死；而图形恰恰是最需要
+ * 设计感的一类内容，模型手写内联 SVG 的上限高得多。
  */
 export const IU_KINDS = [
   sliderKind,
@@ -58,9 +60,6 @@ export const IU_KINDS = [
   treeKind,
   gaugeKind,
   quizKind,
-  graphKind,
-  archKind,
-  sequenceKind,
   pianoKind,
 ] as const
 
