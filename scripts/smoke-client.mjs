@@ -2391,10 +2391,72 @@ if (krEnabled) {
   if (!/collectLatestSessionTasks\(snap\)/.test(panelSrc2)) {
     reasons.push('任务回溯口径必须是整场会话（传 displayTurn 会让没写过 todo 的历史轮次翻空）')
   }
+  /*
+   * 4. **跨会话归属校验**（2026-10-10 用户报「新对话还显示上个对话的任务概览」）。
+   *
+   * 根因是**发布点把旧对象贴上了新会话 id**：KrTodoBridge 的两个 effect 依赖都含
+   * sessionId，切会话时必然重跑，而那一帧 snap / todos 仍是上一会话的对象
+   * （useChat / useProjection 要等下一次更新才换引用）。于是旧数据被再发布一次，
+   * 把 setLatestChatSessionId 刚做的清空当场撤销；新会话又没有第二个发布者纠正，
+   * 误显示是**持久**的。
+   *
+   * 拦法必须是**引用指纹**（sessionId 变 + 数据引用没变 = 旧对象被复用）。
+   * 试过在写入处按 owner 拒绝，但新会话**自己的**第一份数据同样是「owner 还是
+   * 上一会话」的形状，无法区分 —— 拦了会把合法发布一起拒掉，新会话永远空白。
+   * 这条教训值得钉住，否则后人很容易「简化」回那个错做法。
+   */
+  if (!/lastPublishRef/.test(bridgeSrc)) {
+    reasons.push('座位必须有发布指纹 ref（否则旧对象贴新 id 的误发无法识别）')
+  }
+  /*
+   * 三条断言各钉**自己那一路**的指纹字段：snapSessionId / todosSessionId。
+   * 早先这里写的是单指纹 `prev.sessionId`——源码改成双指纹后（两条 effect 各记
+   * 各的，共用一份会互相污染，见 kr-todo-bridge.ts 的长注释），这三条正则全部
+   * 失配，于是「断言红、行为对」地卡住构建。字段名必须与源码逐字一致。
+   */
+  if (!/prev\.snapSessionId !== sessionId && prev\.snap === snap/.test(bridgeSrc)) {
+    reasons.push('快照发布必须按「sessionId 变 + 引用未变」拦截（否则新会话显示上一会话内容）')
+  }
+  if (!/prev\.todosSessionId !== sessionId && prev\.todos === todos/.test(bridgeSrc)) {
+    reasons.push('todos 发布必须按「sessionId 变 + 引用未变」拦截（否则任务概览显示上个对话的清单）')
+  }
+  if (!/prev\.todosSessionId !== sessionId && prev\.todos === todosRef\.current/.test(bridgeSrc)) {
+    reasons.push('身份登记回填也必须做同样拦截（回填是最容易漏的一条路径）')
+  }
+  if (!/latestChatSnapshotOwner/.test(shadowSrc)) {
+    reasons.push('快照必须记会话归属（读取口兜底校验要用）')
+  }
+  if (!/export function getCurrentChatSnapshot/.test(shadowSrc)) {
+    reasons.push('必须提供带归属校验的快照读取口（裸读 latestChatSnapshot 会跨会话）')
+  }
+  if (!/export function leaveCurrentChatSession/.test(shadowSrc)) {
+    reasons.push('必须有统一的「离开会话」清空口（各路径各写一遍必漏）')
+  }
+  if (!/liveTodosOwner/.test(bridgeSrc)) {
+    reasons.push('liveTodos 必须记会话归属（模块级全局，清理漏跑就会跨会话泄漏）')
+  }
+  if (!/getLatestChatSessionId\(\)/.test(bridgeSrc)) {
+    reasons.push('liveTodos 读取口必须比对当前会话身份')
+  }
+  if (!/leaveCurrentChatSession\(\)/.test(bridgeSrc)) {
+    reasons.push('座位卸载必须走统一离开口（setLatestChatSessionId(null) 会被幂等短路跳过清理）')
+  }
+  // 消费方不得裸读全局快照：跨会话时会拿到上一个会话的内容。
+  const rawSnapshotReads = (panelSrc2.match(/latestChatSnapshot\s*\|\|/g) ?? []).length
+  if (rawSnapshotReads > 0) {
+    reasons.push(`KrAgentPanel 仍有 ${rawSnapshotReads} 处裸读 latestChatSnapshot（须走 getCurrentChatSnapshot）`)
+  }
+  if (!/getCurrentChatSnapshot\(\)/.test(panelSrc2)) {
+    reasons.push('KrAgentPanel 必须走带归属校验的快照读取口')
+  }
+  // 无会话身份时不得回退 actStore：上一会话的轮次数据会从缓存里流出来。
+  if (!/if \(latestChatSessionId === null\) return EMPTY_TURN_DATA/.test(panelSrc2)) {
+    reasons.push('无会话身份时不得回退 actStore（否则缓存里的上一会话轮次会漏出来）')
+  }
   if (reasons.length > 0) {
     fail('任务/操作面板取数回退：' + reasons.join('；'))
   } else {
-    pass('任务取数：PTC 内层穿透 + 按 seq 取最新 + 切会话立即回填 live todos')
+    pass('任务取数：PTC 内层穿透 + 按 seq 取最新 + 切会话立即回填 + 跨会话引用指纹拦截')
   }
 }
 
@@ -2456,30 +2518,50 @@ if (krEnabled) {
   if (!/prefers-reduced-motion[\s\S]{0,600}dsh-soul-whale/.test(soulCss)) {
     reasons.push('鲸鱼动效必须在 prefers-reduced-motion 下关闭')
   }
-  // 灵魂三区（用户 2026-10-06 要求「左侧预览、右侧修改、上面 1/3 预设」）：
-  //   上 = 预设区（高度上限 1/3），下 = stage 里左预览 / 右修改。
-  // 断言锁住三件容易「顺手改回去」的事：上面的预设区、下面左右两栏、以及
-  // 上面那格必须是**高度上限**而不是内容自然高度或写死的比例。
-  // 注意 soulCss 在本块上方才声明——把这条断言写在其声明之前会触发 TDZ 直接崩掉脚本。
+  // 灵魂页形态（2026-10 统摄改版，取代 2026-10-06 的三区契约）：
+  //   用户原话「我要的是相当于把他们都替换掉，而不是又一个新的这么冗余」。
+  //   旧的三区（上预设区 / 左下预览 / 右下修改）把「换人格」拆到三个地方讲；
+  //   现在**一条角色画廊统摄全页**：主档 + 档案 + 预设并排成一排卡，点一下就换；
+  //   卡片区搬进激活卡的肚子里（「我用的是谁」与「这份人设里有什么」同一视线）；
+  //   预设区与左列人格核心卡被画廊吸收，不再单独存在。
+  //
+  // 断言随之改写：**旧契约的每条意图都要在新形态里有对应物**，不能只是删掉。
+  //   · 「预设要有入口」→ 预设并进画廊（presets 仍驱动 roles，且套用/合并两条路都在）
+  //   · 「卡片区要在」→ 卡片区进画廊的 cardsSlot
+  //   · 「全文预览要渲染富文本」→ 保留（下面那条断言不变）
+  //   · 「三区顺序」→ 换成「画廊必须排在卡片区之前」（角色是这一页第一件事）
+  // 判据同样用源码顺序：起点跳到 `const body = (` 之后，避开 import 段的同名标识符。
   const soulPanelSrc = readFileSync(resolve(ROOT, 'src/client/triad/soul/SoulPanel.tsx'), 'utf8')
-  // 判据用「六段的源码顺序」而不是正则跨度：三区之间隔着区头、段控等一堆 JSX，
-  // 任何字数上限都会随着后续加功能被顶破（写死 2600 就在第一次加区头时失效了）。
-  // 起点必须跳到 `const body = (` 之后——import 段里也有 PresetsSection / CardsSection，
-  // 从文件头搜会让它们排在 css.presetsTop 之前，顺序判据直接误判。
   const bodyStart = soulPanelSrc.indexOf('const body = (')
-  const zoneOrder = ['css.presetsTop', 'PresetsSection', 'css.stage', 'css.panePreview', 'CardsSection', 'css.paneEdit']
-    .map(marker => soulPanelSrc.indexOf(marker, bodyStart))
-  if (bodyStart < 0 || zoneOrder.some(index => index < 0) || zoneOrder.some((index, i) => i > 0 && index < zoneOrder[i - 1])) {
-    reasons.push('灵魂必须是三区：上预设区 / 左下预览（卡片）/ 右下修改')
+  // 只看 body 之后的**可执行代码**：注释里提到某个标识符（例如「SoulPersonaCard 已被
+  // 取代」这种说明）不算它还在渲染。逐行剥掉行注释与块注释再判断，
+  // 否则一条解释性注释就会把断言判成「旧结构回来了」（第一版就踩了这个坑）。
+  const bodyCode = soulPanelSrc.slice(bodyStart)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+  // 真实顺序：画廊（ProfileGallery，body 里最先出现的重块）→ 全文预览（SoulMarkdown）
+  // → 我的资料 → 深改区。卡片区不是顶层块，它作为 cardsSlot 的**值**嵌在画廊那一段里，
+  // 所以它的位置必然落在 ProfileGallery 与 SoulMarkdown 之间 —— 这正是「卡片进了画廊
+  // 肚子」这条结构事实，用它当判据比单看三个 marker 的先后更准。
+  const iGallery = bodyCode.indexOf('ProfileGallery')
+  const iSlot = bodyCode.indexOf('cardsSlot')
+  const iMd = bodyCode.indexOf('SoulMarkdown')
+  if (bodyStart < 0 || iGallery < 0 || iSlot < 0 || iMd < 0 || !(iGallery < iSlot && iSlot < iMd)) {
+    reasons.push('灵魂页必须是统摄式画廊：卡片区作为 cardsSlot 嵌在画廊里，全文预览在其后')
   }
-  // fit-content(33%) = 内容高度为准、最多吃到 1/3。不能写死 1fr/2fr：预设只有 4 条时
-  // 格子仍占满 1/3，预设卡片与下面两栏之间会空出一条带子（用户 2026-10-06 点名
-  // 反馈「上面和左右侧布局中间不要留这么大空白」）。
-  if (!/\.dsh-soul-work\s*\{[\s\S]{0,200}grid-template-rows:fit-content\(33%\)/.test(soulCss)) {
-    reasons.push('上面那格必须是高度上限 fit-content(33%)：内容少时不留空白，多了也不超 1/3')
+  // 旧三区被吸收后，这些标识符**必须不再出现在 body 的代码里**——它们回来就等于
+  // 旧结构回来了（左侧核心卡 / 顶部预设区 / 独立卡片区），那正是用户点名要拆的冗余。
+  const absorbed = ['SoulPersonaCard', 'PresetsSection', 'css.presetsTop']
+    .filter(marker => bodyCode.includes(marker))
+  if (absorbed.length > 0) {
+    reasons.push(`被统摄式画廊吸收的块不该再单独渲染：${absorbed.join(' / ')}`)
   }
-  if (!/\.dsh-soul-stage\s*\{[\s\S]{0,200}grid-template-columns:minmax\(0,1fr\) minmax\(0,1fr\)/.test(soulCss)) {
-    reasons.push('下方必须是左预览 / 右修改两栏，并在窄面板下折叠成单列')
+  // 画廊里的卡必须能区分「可激活的人格」与「可套用的预设」两种来源：前者点一下换人，
+  // 后者点一下把一套卡片套进当前人格。两者混成一个入口会让用户以为
+  // 「点预设 = 切到某个叫工程搭档的人格」，而那个档案根本不存在。
+  if (!/source === 'preset'/.test(readFileSync(resolve(ROOT, 'src/client/triad/soul/ProfileGallery.tsx'), 'utf8'))) {
+    reasons.push('画廊必须区分角色来源（预设 = 套用卡片，不是切换人格）')
   }
   // 折叠按钮已删（用户 2026-10-06：「这个折叠去掉」）。锁住它不再回来：修改区内容
   // 常驻，右栏顶部不该再出现一枚「整段正文 / 身份字段 / 档案 / 蒸馏」的纯标签。
@@ -2487,8 +2569,10 @@ if (krEnabled) {
     reasons.push('修改区外层折叠按钮已废弃（用户要求去掉），别再挂回来')
   }
   // 「全文」预览必须渲染富文本：直接把 markdown 原文铺出来会被用户判为
-  // 「非要做技术的才看得懂」。判据：预览走 SoulMarkdown，且裸渲染的 css.preview 不再用于正文。
-  if (!/previewTab === 'text'[\s\S]{0,600}SoulMarkdown/.test(soulPanelSrc)) {
+  // 「非要做技术的才看得懂」。判据：预览走 SoulMarkdown。
+  // 统摄改版后这一栏只剩全文（卡片预览搬进了画廊的激活卡），段控随之删除，
+  // 所以判据不再依赖 previewTab，只要求这一栏仍由 SoulMarkdown 渲染。
+  if (!/data-soul-section="preview-text"[\s\S]{0,400}SoulMarkdown/.test(soulPanelSrc)) {
     reasons.push('「全文」预览必须渲染 markdown 富文本（SoulMarkdown），不能直接铺原文')
   }
   // path 在源码里是**分段拼接**的（只为可读性），判据必须取「常量声明到常量结束」
@@ -2714,6 +2798,7 @@ if (krEnabled) {
     const noHead = mod.assembleHtmlDocument('<html><body><p>y</p></body></html>')
     if (!noHead.includes(mod.BRIDGE_TO_HOST)) reasons.push('无 head 的完整文档也必须注入 bridge')
     if (!(mod.MAX_FRAME_HEIGHT > mod.MIN_FRAME_HEIGHT)) reasons.push('高度上下限不合法')
+
     // ⑦-2 截图定格：截图管线只等字体/图片，**不等动画**。带入场动画
     // （opacity:0 + animation-delay）的卡片抓帧时元素还停在起始帧 → 截图缺内容
     // 且无任何报错（实测五段动画只出现第一段）。所以截图路径必须能把动画推到终态。
@@ -2798,6 +2883,8 @@ if (krEnabled) {
     // 常量必须从 card.ts 导出（renderer 复用），不能各写一份字面量。
     if (!/export const SHOT_FRAME_MAX_HEIGHT/.test(cardSrc)) {
       reasons.push('SHOT_FRAME_MAX_HEIGHT 必须从 card.ts 导出供 renderer 复用')
+    }
+
     // ⑦-4 围栏落点必须按**内容哈希**定位，不能按序号。
     // 两侧的围栏识别规则不可能完全一致（markdown-it 认 ` ```html title=x `、不认
     // 缩进围栏；splitHtml 的正则反之），数序号必然漂移 → 卡片插到非法围栏的位置。
@@ -2859,7 +2946,6 @@ if (krEnabled) {
     const shotIndexSrc2 = readFileSync(resolve(ROOT, 'src/shot/index.ts'), 'utf8')
     if (!/omittedEmbeds:\s*collected\.omitted/.test(shotIndexSrc2)) {
       reasons.push('collectEmbeds 的丢弃张数必须传给卡片（omittedEmbeds）')
-    }
     }
   }
 

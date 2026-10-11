@@ -50,8 +50,7 @@ import {
 } from './api.js'
 import type { SoulCard, SoulCardsResponse, SoulPreset } from './api.js'
 import { CardsSection } from './CardsSection.js'
-import { SoulPersonaCard } from './PersonaCard.js'
-import { PresetsSection } from './PresetsSection.js'
+import { ProfileGallery, type RoleCard } from './ProfileGallery.js'
 import { SoulMarkdown } from './Markdown.js'
 import { WhaleLogo } from './WhaleLogo.js'
 import { makeSoulT, SOUL_CHAR_LIMIT, type SoulT } from './locales.js'
@@ -73,6 +72,15 @@ const NOTICE_MS = 2400
 
 /** 灵魂档案数量上限（host 侧不设限，但 UI 只服务「几种人格」这种量级）。 */
 const PROFILE_LIMIT = 20
+
+/**
+ * 非激活角色卡里最多预览几张卡片标题。
+ *
+ * 为什么要有上限：一排卡里只有一张是展开的，其余窄条/次宽卡的预览区高度有限；
+ * 一张预设可能有十几张卡，全列出来会把卡撑得比激活卡还高，一排卡的节奏就乱了。
+ * 超出部分由「还有 N 张」收尾。
+ */
+const PREVIEW_CARDS = 4
 
 /** 保存按钮的三种反馈态。 */
 type SaveFeedback = 'idle' | 'busy' | 'done'
@@ -250,13 +258,8 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
   const [dirty, setDirty] = useState(false)
   const [saveState, setSaveState] = useState<SaveFeedback>('idle')
 
-  /**
-   * 左栏预览的两种视图（2026-10-06 三区改版）：
-   *   cards = 卡片列表（灵魂的权威形态，一眼看清现在生效的是什么）
-   *   text  = 注入全文（由卡片拼出，或用户在右栏直接改的正文；跟随草稿实时重算）
-   * 默认 cards：卡片是权威，全文是它的投影。
-   */
-  const [previewTab, setPreviewTab] = useState<'cards' | 'text'>('cards')
+  // 注：原先这里有个 previewTab（卡片 / 全文 两视图）。统摄改版后卡片预览搬进了
+  // 画廊的激活卡，这一栏只剩「注入全文」，段控失去意义 —— 状态随之删除。
 
   // ── 蒸馏 ──
   const [distilling, setDistilling] = useState(false)
@@ -264,10 +267,16 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
   const [stats, setStats] = useState<SoulDistillStats | null>(null)
   const [applying, setApplying] = useState(false)
 
-  // ── 档案新建 ──
-  const [newOpen, setNewOpen] = useState(false)
-  const [newName, setNewName] = useState('')
+  // ── 档案（角色）──
+  // 新建表单的名字 / 定位 / 标签草稿现在由 ProfileGallery 自己持有（表单与卡片同排，
+  // 状态跟着卡片走更近）；面板这边只留两个「有请求在飞」的标志位。
   const [profileBusy, setProfileBusy] = useState(false)
+  /** 角色头像请求在飞（与切换/新建分开：同时点两张卡的头像不该互相禁用）。 */
+  const [profileAvatarBusy, setProfileAvatarBusy] = useState(false)
+  /** 预设套用/删除在飞（带 id + 模式，让按钮内能转圈）。 */
+  const [presetBusy, setPresetBusy] = useState<{ presetId: string; mode: 'replace' | 'merge' } | null>(null)
+  /** 「存为预设」保存请求在飞。 */
+  const [presetSaving, setPresetSaving] = useState(false)
 
   /**
    * 「我的资料」（用户侧身份，2026-10-09 补回）。
@@ -534,33 +543,166 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
       .finally(() => { setProfileBusy(false) })
   }, [adopt, flash, profileBusy, profiles, t])
 
-  /** 新建档案：以当前灵魂为种子，避免新档案是一片空白。 */
-  const createProfile = useCallback((): void => {
-    const name = newName.trim()
+  /**
+   * 保存角色卡的展示件（desc / tag）。
+   *
+   * 走 `save` 的**独立路径**：只带 desc/tag、不带 content/identity，host 侧因此
+   * 不重算卡片、不 bump 版本号（见 host router.ts:196-204 的 metaOnly 分支）。
+   * 改一句定位不该被当成「改了人格」——版本号一动，注入缓存与卡片投影全部重算。
+   */
+  const saveProfileMeta = useCallback((profileId: string | null, meta: { desc?: string; tag?: string }): void => {
+    if (profileBusy) return
+    setProfileBusy(true)
+    void apiRef.current.save({ profileId, ...meta })
+      .then(response => { adopt(response.soul, response.profiles ?? profiles) })
+      .catch((reason: unknown) => {
+        if (apiRef.current.isHostStale(reason)) { setStatus('stale'); return }
+        flash({ kind: 'err', text: t('soulProfileMetaSaveFailed', { reason: errorText(reason) }) })
+      })
+      .finally(() => { setProfileBusy(false) })
+  }, [adopt, flash, profileBusy, profiles, t])
+
+  /** 角色头像上传（dataUrl 已由画廊读好；这里只负责发请求与回包校准）。 */
+  const uploadProfileAvatar = useCallback((profileId: string | null, dataUrl: string): void => {
+    setProfileAvatarBusy(true)
+    void apiRef.current.uploadAvatar(profileId, dataUrl)
+      .then(response => {
+        if (response.avatar === null) {
+          flash({ kind: 'err', text: t('soulProfileAvatarFailed', { reason: 'host rejected' }) })
+          return
+        }
+        // 头像换图后路径不变，必须重取一次视图拿新的 bust 值（否则旧脸留在缓存里）。
+        return apiRef.current.load().then(next => { adopt(next.soul, next.profiles) })
+      })
+      .catch((reason: unknown) => {
+        flash({ kind: 'err', text: t('soulProfileAvatarFailed', { reason: errorText(reason) }) })
+      })
+      .finally(() => { setProfileAvatarBusy(false) })
+  }, [adopt, flash, t])
+
+  /** 移除角色头像。 */
+  const removeProfileAvatar = useCallback((profileId: string | null): void => {
+    setProfileAvatarBusy(true)
+    void apiRef.current.removeAvatar(profileId)
+      .then(() => apiRef.current.load().then(next => { adopt(next.soul, next.profiles) }))
+      .catch((reason: unknown) => {
+        flash({ kind: 'err', text: t('soulProfileAvatarFailed', { reason: errorText(reason) }) })
+      })
+      .finally(() => { setProfileAvatarBusy(false) })
+  }, [adopt, flash, t])
+
+  /** 头像被前端拦下（体积超限 / 读失败）——与「我的资料」同一套文案。 */
+  const rejectProfileAvatar = useCallback((reason: 'tooLarge' | 'readFailed', detail: string): void => {
+    flash({
+      kind: 'err',
+      text: reason === 'tooLarge'
+        ? t('soulAvatarTooLarge', { size: detail })
+        : t('soulAvatarReadFailed'),
+    })
+  }, [flash, t])
+
+  /**
+   * 套用预设（画廊里预设卡的动作）。
+   *
+   * 与 activate 是两条完全不同的路径：预设没有 profile id，套用它不改变「现在用的
+   * 是哪份人格」，只把一套卡片替换/合并进当前人格。混成一个入口会让用户以为
+   * 「点预设 = 切到某个叫工程搭档的人格」，而那个档案根本不存在。
+   *
+   * 回包只有 cards（host `/presets/apply` 的契约），所以卡片区要单独刷新一次；
+   * 同时重读一次 soul —— 写卡片会连带重算生效层的正文（store.writeCards 的语义）。
+   */
+  const applyPreset = useCallback((presetId: string, mode: 'replace' | 'merge'): void => {
+    if (presetBusy !== null) return
+    setPresetBusy({ presetId, mode })
+    void apiRef.current.applyPreset(presetId, mode)
+      .then(response => {
+        onCards(response)
+        flash({ kind: 'ok', text: t('soulPresetApplied') })
+        // 卡片写入会重算生效层正文，重新读一次让预览与卡片区同步。
+        return apiRef.current.load().then(next => { adopt(next.soul, next.profiles) })
+      })
+      .catch((reason: unknown) => {
+        if (apiRef.current.isHostStale(reason)) { setCardsAvailable(false); return }
+        flash({ kind: 'err', text: t('soulPresetApplyFailed', { reason: errorText(reason) }) })
+      })
+      .finally(() => { setPresetBusy(null) })
+  }, [adopt, flash, onCards, presetBusy, t])
+
+  /** 删除自定义预设（内置的不给入口）。 */
+  const removePreset = useCallback((presetId: string): void => {
+    if (presetBusy !== null) return
+    setPresetBusy({ presetId, mode: 'merge' })
+    void apiRef.current.deletePreset(presetId)
+      .then(next => { setPresets(next) })
+      .catch((reason: unknown) => {
+        if (apiRef.current.isHostStale(reason)) { setCardsAvailable(false); return }
+        flash({ kind: 'err', text: t('soulPresetDeleteFailed', { reason: errorText(reason) }) })
+      })
+      .finally(() => { setPresetBusy(null) })
+  }, [flash, presetBusy, t])
+
+  /**
+   * 把当前卡片存成新预设。
+   *
+   * 落点原本在预设区（PresetsSection），预设并进画廊后那块整块消失 —— 表单必须
+   * 跟着搬到画廊末尾，否则「存为预设」按钮点了只是置状态、界面上什么都没发生。
+   */
+  const savePreset = useCallback((input: { name: string; desc: string }): void => {
+    if (presetSaving) return
+    setPresetSaving(true)
+    void apiRef.current.createPreset({ name: input.name, desc: input.desc, cards: [...cards] })
+      .then(response => {
+        if (response.preset !== null) setPresets(current => [...current, response.preset as SoulPreset])
+        setSaveAs(null)
+        flash({ kind: 'ok', text: t('soulPresetSaved', { name: input.name }) })
+      })
+      .catch((reason: unknown) => {
+        if (apiRef.current.isHostStale(reason)) { setCardsAvailable(false); return }
+        flash({ kind: 'err', text: t('soulPresetSaveFailed', { reason: errorText(reason) }) })
+      })
+      .finally(() => { setPresetSaving(false) })
+  }, [cards, flash, presetSaving, t])
+
+  /**
+   * 新建档案：以当前灵魂为种子，避免新档案是一片空白。
+   *
+   * desc / tag 由画廊表单一起收上来（与名字同一趟），走 host 的 cardMeta 参数落盘；
+   * 分开两次请求会让「新建」这个动作在面板上闪两次。
+   */
+  const createProfile = useCallback((input: { name: string; desc: string; tag: string }): void => {
+    const name = input.name.trim()
     if (name === '') { flash({ kind: 'err', text: t('soulProfileNameRequired') }); return }
     if (profileBusy) return
     setProfileBusy(true)
-    void apiRef.current.createProfile(name, { content: draftText, identity: toIdentity(draftIdentity) })
+    void apiRef.current.createProfile(name, {
+      content: draftText,
+      identity: toIdentity(draftIdentity),
+      desc: input.desc.trim(),
+      tag: input.tag.trim(),
+    })
       .then(response => {
         adopt(response.soul, response.profiles ?? profiles)
-        setNewName('')
-        setNewOpen(false)
       })
       .catch((reason: unknown) => {
         if (apiRef.current.isHostStale(reason)) { setStatus('stale'); return }
         flash({ kind: 'err', text: t('soulProfileSwitchFailed', { reason: errorText(reason) }) })
       })
       .finally(() => { setProfileBusy(false) })
-  }, [adopt, draftIdentity, draftText, flash, newName, profileBusy, t])
+  }, [adopt, draftIdentity, draftText, flash, profileBusy, profiles, t])
 
-  /** 删除档案。契约里没有删除端点，host 若不认 remove 字段会原样忽略——以回包为准渲染。 */
-  const removeProfile = useCallback((profile: ProfileView): void => {
+  /**
+   * 删除档案。契约里没有删除端点，host 若不认 remove 字段会原样忽略——以回包为准渲染。
+   *
+   * 入参只收 id（+ 展示用的 name / active），不收整份 ProfileView：删除这个动作
+   * 真正需要的就只有「删谁」，以及回包回来时核对「它还在不在」。
+   */
+  const removeProfile = useCallback((target: { id: string; name: string; active: boolean }): void => {
     if (profileBusy) return
     setProfileBusy(true)
-    void apiRef.current.removeProfile(profile.id)
+    void apiRef.current.removeProfile(target.id)
       .then(response => {
         adopt(response.soul, response.profiles ?? profiles)
-        if (response.profiles !== null && response.profiles.some(item => item.id === profile.id)) {
+        if (response.profiles !== null && response.profiles.some(item => item.id === target.id)) {
           // host 忽略了 remove 字段（尚未支持）：如实告知，不本地假装删掉。
           flash({ kind: 'err', text: t('soulProfileSwitchFailed', { reason: 'host ignored remove' }) })
         }
@@ -692,7 +834,127 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
 
   const charCount = draftText.length
 
-  // ── 加载态 ──
+  /**
+   * 画廊里的角色列表：**主档 + 全部档案**，同级同形。
+   *
+   * 主档没有 profile id，但它在「切谁就注入谁」这件事上与档案完全同类，只是恰好
+   * 没有 id（见 host store.view 的两个分支）。把它单列成一段会让用户以为它是另一种
+   * 东西；放进同一排、同样可点，语义才对。
+   *
+   * 主档的展示字段只能从**当前 soul 视图**取：soul.identity 描述的就是「现在生效
+   * 的那份人格」。所以主档卡片在**非激活**状态下，铭牌显示的是「当前生效人格」的
+   * 语气/语言，而不是主档自己那份——这是数据面的既有约束（ProfileView 只列档案、
+   * 不含主档），不在这里造假数据；激活主档后它自然就准了。
+   *
+   * **必须放在下面所有 early return 之前**：它是个 Hook，而 loading / stale / error
+   * 三个分支会提前 return。Hook 落在 return 之后就违反 Hooks 规则——那三个分支下
+   * 少执行一个 Hook，React 直接抛 error #310（Rendered fewer hooks than expected），
+   * 整页被错误边界兜住变空白。实测踩过：加载态一闪过，工作台整页崩。
+   */
+  const roles = useMemo<RoleCard[]>(() => {
+    /**
+     * 主档卡的数据源。
+     *
+     * soul.* 描述的是**当前生效的那份人格**：激活档案时，回包里的 identity / desc /
+     * tag / avatar 全是那份档案的，主档自己的这些值 host 根本没回（view() 在档案
+     * 分支不读 base）。所以主档卡只有在**它自己就是激活态**（profileId === null）
+     * 时才照抄 soul.*；否则一律退化成占位——不然主档卡会顶别人的名字和脸，
+     * 画廊里出现两张同名卡（端到端实测踩过）。
+     */
+    const baseActive = soul.profileId === null
+    const base: RoleCard = {
+      id: null,
+      source: 'base',
+      presetId: null,
+      name: baseActive
+        ? (soul.identity.name === '' ? t('soulProfileMain') : soul.identity.name)
+        : t('soulProfileMain'),
+      active: baseActive,
+      updatedAt: baseActive ? soul.updatedAt : null,
+      desc: baseActive ? soul.desc : '',
+      tag: baseActive ? soul.tag : '',
+      avatar: baseActive ? soul.avatar : null,
+      role: baseActive ? soul.identity.role : '',
+      tone: baseActive ? soul.identity.tone : '',
+      language: baseActive ? soul.identity.language : '',
+      principles: baseActive ? soul.identity.principles.length : 0,
+      // 卡片统计来自 cards 接口，与「哪份人格在生效」无关，主档随时可显示。
+      cardsOn: cards.filter(card => card.enabled).length,
+      cardsTotal: cards.length,
+      version: baseActive ? soul.version : 0,
+      detailKnown: baseActive,
+      builtin: false,
+      // 激活时预览就是本尊的卡片；非激活时卡片接口给的是「生效层」的，
+      // 与主档无关，故不冒充（detailKnown 已表达这层诚实）。
+      cardTitles: baseActive ? cards.slice(0, PREVIEW_CARDS).map(card => card.title) : [],
+    }
+    const rest: RoleCard[] = profiles.map(profile => ({
+      id: profile.id,
+      source: 'profile',
+      presetId: null,
+      name: profile.name,
+      active: profile.active,
+      updatedAt: profile.updatedAt,
+      desc: profile.desc,
+      tag: profile.tag,
+      avatar: profile.avatar,
+      // 这三个字段由 host profileViews 提供（2026-10 新增展示件）；旧 host 不回时
+      // 归一化成空串/0，卡片铭牌退化成「—」，不崩也不编。
+      role: profile.role,
+      tone: profile.tone,
+      language: profile.language,
+      principles: profile.principles,
+      cardsOn: profile.cardsOn,
+      cardsTotal: profile.cardsTotal,
+      version: 0,
+      // 档案的详情 host 总是给（它就是 profile JSON 本身），与激活态无关。
+      detailKnown: true,
+      builtin: false,
+      // 激活档案时 cards 就是它的卡片（host cards() 读生效层）；非激活档案
+      // 拿不到它的卡片标题（ProfileView 不带），预览留空 —— 不编。
+      cardTitles: profile.active ? cards.slice(0, PREVIEW_CARDS).map(card => card.title) : [],
+    }))
+    /**
+     * 预设也进这一排。
+     *
+     * 它们本来就是「一个角色」（工程搭档 / 严谨分析师 / 罗莉…），用户心里点它就是
+     * 「换个人」。上一版把预设单独摆在另一块网格里，等于同一件事两个入口 ——
+     * 正是用户说的「又一个新的这么冗余」。
+     *
+     * 但**语义必须可分辨**：预设没有 profile id，点它不是 activate 而是
+     * applyPreset（把一套卡片套进当前人格）。所以它们带 source='preset' 与
+     * presetId，动作按钮走「合并 / 替换」而不是「启用」。
+     *
+     * 排序刻意放在主档与档案之后：可激活的人格在前（那是「我在用谁」），
+     * 现成模板在后（那是「我想变成谁」）。
+     */
+    const presetCards: RoleCard[] = presets.map(preset => ({
+      id: null,
+      source: 'preset',
+      presetId: preset.id,
+      name: preset.name,
+      // 预设不是「当前生效的人格」，永远不可能是激活态。
+      active: false,
+      updatedAt: null,
+      desc: preset.desc,
+      tag: '',
+      avatar: null,
+      // 预设的「身份」由它那套卡片决定，这里没有独立字段可读 —— 留空，
+      // 铭牌走 detailKnown=false 的「—」，不编。
+      role: '',
+      tone: '',
+      language: '',
+      principles: 0,
+      cardsOn: preset.cards.filter(card => card.enabled).length,
+      cardsTotal: preset.cards.length,
+      version: 0,
+      detailKnown: false,
+      builtin: preset.builtin,
+      cardTitles: preset.cards.slice(0, PREVIEW_CARDS).map(card => card.title),
+    }))
+    return [base, ...rest, ...presetCards]
+  }, [cards, presets, profiles, soul, t])
+
   if (status === 'loading') {
     return (
       <div className={css.root}>
@@ -752,26 +1014,14 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
     )
   }
 
+
   const body = (
     <>
-      {/* ── 人格核心卡（效果图 Editorial Split 左列）：大鲸鱼 + 名字 + 定位 + 铭牌 ── */}
-      <SoulPersonaCard
-        soul={soul}
-        cardsOn={cards.filter(card => card.enabled).length}
-        cardsTotal={cards.length}
-        /* 卡面状态位（v12 / 字数 / 注入开关）：这些值原先散在右侧三张卡里，
-           核心卡作为门面一眼看不到「现在用的是哪一版、超没超限、注没注入」。
-           数据全从已有 state 取，不新增请求。 */
-        version={soul.version}
-        charCount={charCount}
-        charLimit={SOUL_CHAR_LIMIT}
-        injectOn={injectOn}
-        injectKnown={injectKnown}
-        dirty={dirty}
-      />
-
-      {/* ── 头部：会动的 DSH 鲸鱼在最上面，下面是「灵魂」标题与状态胶囊 ──
-          （工作台内由 theme.ts 隐藏：核心卡已承担门面；composer 浮层里仍显示） ── */}
+      {/* ── 头部：会动的 DSH 鲸鱼 + 标题 ──
+          左列那枚「人格核心卡」（SoulPersonaCard）已被统摄式画廊取代：它显示的名字 /
+          角色 / 语气 / 语言 / 准则 / 卡片统计，现在就在画廊的激活卡上，而且**可切换**
+          —— 同一份信息摆在两处、其中一处还不能操作，正是用户说的冗余。
+          鲸鱼本身留着（它是这一层的门面，不是重复信息），跟着标题行。 */}
       <div className={css.header}>
         <div className={css.brand}>
           <span className={css.hero} aria-label={t('soulWhaleLabel')} role="img">
@@ -869,59 +1119,73 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
         </section>
       )}
 
-      {/* ── 三区骨架（2026-10-06 用户要求「左侧预览、右侧修改、上面 1/3 预设」）──
-          上 1/3：预设区（成套人格）。套用预设是最高频的起点，放最上面意味着
-              「打开就能换一套」，不用先滚过卡片列表；横宽矮的形状改用多列网格。
-          左下：**预览**。默认给卡片列表（灵魂的权威形态：每张卡一行，种类 + 字数
-              + 开关，一眼看清现在生效的是什么），可切到「全文」看注入的整段文本
-              （跟随右侧编辑实时重算）。
-          右下：**修改**。整段正文 / 身份字段 / 档案 / 蒸馏——低频但深改的入口。
-          头部、通知、蒸馏草案仍是跨区通栏的（草案的 diff 是两列对比，塞进半栏读不了）。 */}
+      {/* ── 角色画廊：**这一页唯一的角色入口**（2026-10 统摄改版）────────────
+          用户原话：「我要的是相当于把他们都替换掉，而不是又一个新的这么冗余」。
+          上一版画廊只是并列加进来的第三块（左列人格核心卡 / 右列卡片区 / 右列预设区
+          之外又多一块），等于把「换人格」这件事拆到四个地方讲。
+
+          现在它吃掉三块：
+            · 左列**人格核心卡**（大鲸鱼 + 名字 + 铭牌）—— 画廊宽卡就是它，而且能切
+            · 右列**卡片区**（那 5 张卡）—— 搬进激活卡的肚子里（cardsSlot），
+              「我切的人格里有什么」与「我用的是谁」在同一个视线里
+            · 右列**预设区**（8 套）—— 预设本来就是「一个角色」，并进同一排卡，
+              点一下套用；它们的动作是「套进当前人格」而不是「换人」，
+              靠来源徽标（虚线边框）与按钮（合并/替换）区分
+
+          保留在主列之外的：蒸馏草案（跨栏 diff）、我的资料（用户自己的身份，
+          与「我是谁」无关）、深改区（正文/身份/开关，低频）。 */}
+      <ProfileGallery
+        api={apiRef.current}
+        roles={roles}
+        onActivate={activate}
+        busy={profileBusy}
+        onSaveMeta={saveProfileMeta}
+        onUploadAvatar={uploadProfileAvatar}
+        onAvatarRejected={rejectProfileAvatar}
+        onRemoveAvatar={removeProfileAvatar}
+        onCreate={createProfile}
+        onRemove={removeProfile}
+        atLimit={profiles.length >= PROFILE_LIMIT}
+        avatarBusy={profileAvatarBusy}
+        onApplyPreset={applyPreset}
+        presetBusy={presetBusy}
+        onRemovePreset={removePreset}
+        onSaveAsPreset={() => { setSaveAs(cards) }}
+        saveAsOpen={saveAs !== null}
+        onSaveAsPresetDone={() => { setSaveAs(null) }}
+        onSavePreset={savePreset}
+        presetSaving={presetSaving}
+        cardsAvailable={cardsAvailable}
+        cardsSlot={cardsAvailable
+          ? (
+            <CardsSection
+              api={apiRef.current}
+              cards={cards}
+              presets={presets}
+              onCards={onCards}
+              onPresets={setPresets}
+              onStale={() => { setCardsAvailable(false) }}
+              onError={message => { flash({ kind: 'err', text: tRef.current('soulCardsSaveFailed', { reason: message }) }) }}
+              onSaveAsPreset={next => { setSaveAs(next) }}
+              t={t}
+            />
+          )
+          : null}
+        t={t}
+      />
+
+      {/* ── 预览区（2026-10 统摄改版后只剩「全文」）─────────────────────────
+          卡片预览搬进了画廊的激活卡（cardsSlot）——「这份人格里有什么」现在紧贴着
+          「我用的是谁」。这里只留**注入全文**：它是卡片装配的投影，用途不同
+          （核对最终注入模型的字面文本、看有没有超预算），所以独立成一块。
+          段控只剩一个 Tab 时不再需要，直接以区头表达。 */}
       <div className={css.work}>
-        {/* host 未更新时预设区没有内容：整格隐藏并把高度全让给下面两栏，
-            否则顶部会留一块 1/3 屏的空白（「上 1/3」是给内容用的，不是给空气）。 */}
-        <div className={css.presetsTop} data-soul-zone="presets" data-empty={cardsAvailable ? undefined : '1'}>
-
-      {/* ── 预设区：默认几套 + 自定义（整体替换 / 合并应用） ── */}
-      {cardsAvailable && (
-        <PresetsSection
-          api={apiRef.current}
-          presets={presets}
-          cards={cards}
-          saveAs={saveAs}
-          onSaveAsDone={() => { setSaveAs(null) }}
-          onCards={onCards}
-          onPresets={setPresets}
-          onStale={() => { setCardsAvailable(false) }}
-          onError={message => { flash({ kind: 'err', text: tRef.current('soulPresetApplyFailed', { reason: message }) }) }}
-          t={t}
-        />
-      )}
-
-        </div>
-
         <div className={css.stage}>
           <div className={`${css.pane} ${css.panePreview}`} data-soul-zone="preview">
-            {/* 预览区标题栏：区名 + 卡片/全文 段控 + 保存状态呼吸点（头部那枚
-                状态点搬到这里——它描述的是「预览里的这份灵魂有没有改动」。） */}
             <div className={css.paneHead}>
-              <span className={css.paneTitle}><SoulIcon size={14} />{t('soulZonePreview')}</span>
-              <div className={css.tabs} role="tablist">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={previewTab === 'cards'}
-                  className={previewTab === 'cards' ? `${css.tab} ${css.tabActive}` : css.tab}
-                  onClick={() => { setPreviewTab('cards') }}
-                >{t('soulPreviewCardsTab')}</button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={previewTab === 'text'}
-                  className={previewTab === 'text' ? `${css.tab} ${css.tabActive}` : css.tab}
-                  onClick={() => { setPreviewTab('text') }}
-                >{t('soulPreviewTextTab')}</button>
-              </div>
+              <span className={css.paneTitle}><SoulIcon size={14} />{t('soulPreviewTextTab')}</span>
+              <span className={css.paneHint} title={t('soulPreviewRendered')}>{t('soulPreviewRendered')}</span>
+              <span className={css.paneHint} />
               <span
                 className={dirty ? `${css.state} ${css.stateDirty}` : `${css.state} ${css.stateSaved}`}
                 title={[
@@ -936,7 +1200,6 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
               </span>
             </div>
 
-      {previewTab === 'text' && (
         <section className={css.card} data-soul-section="preview-text">
           {draftText.trim() === ''
             ? <span className={css.previewEmpty}>{t('soulPreviewEmpty')}</span>
@@ -948,11 +1211,16 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
             </span>
           </div>
         </section>
-      )}
+          </div>
 
-      {previewTab === 'cards' && (
-        <>
-      {/* ── 卡片区：灵魂的权威形态（每张卡单独开关 / 编辑 / 排序） ── */}
+          <div className={`${css.pane} ${css.paneEdit}`} data-soul-zone="edit">
+            <div className={css.paneHead}>
+              <span className={css.paneTitle}><SoulIcon size={14} />{t('soulZoneEdit')}</span>
+              <span className={css.paneHint} title={t('soulZoneEditHint')}>{t('soulZoneEditHint')}</span>
+            </div>
+
+      {/* host 未更新（/soul/cards 不存在）时卡片层整块不可用：画廊里那块编辑槽
+          会是空的，这里给一句诚实说明 + 重试，而不是让用户对着空白猜。 */}
       {!cardsAvailable && (
         <div className={`${css.empty} ${css.stale}`} role="status" data-soul-section="cards-stale">
           <span className={css.emptyIcon}><SoulIcon size={24} /></span>
@@ -963,28 +1231,8 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
           </div>
         </div>
       )}
-      {cardsAvailable && (
-        <CardsSection
-          api={apiRef.current}
-          cards={cards}
-          presets={presets}
-          onCards={onCards}
-          onPresets={setPresets}
-          onStale={() => { setCardsAvailable(false) }}
-          onError={message => { flash({ kind: 'err', text: tRef.current('soulCardsSaveFailed', { reason: message }) }) }}
-          onSaveAsPreset={next => { setSaveAs(next) }}
-          t={t}
-        />
-      )}
-        </>
-      )}
 
           </div>
-          <div className={`${css.pane} ${css.paneEdit}`} data-soul-zone="edit">
-            <div className={css.paneHead}>
-              <span className={css.paneTitle}><SoulIcon size={14} />{t('soulZoneEdit')}</span>
-              <span className={css.paneHint} title={t('soulZoneEditHint')}>{t('soulZoneEditHint')}</span>
-            </div>
 
       {/* ── 我的资料（用户侧身份：称呼 + 个人档案 + 头像） ──────────────
           2026-10-09 补回。host 端点（GET/POST /soul/user）、client api、
@@ -1089,6 +1337,8 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
           </div>
         </div>
       </section>
+
+
 
       {/* ── 修改区：整段正文 / 身份字段 / 档案 / 蒸馏 ──
           2026-10-06 二轮：外层那枚「整段正文 / 身份字段 / 档案 / 蒸馏」折叠按钮
@@ -1221,121 +1471,6 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
         </div>
 
         <div className={css.sideCol}>
-          {/* ── 灵魂档案 ── */}
-          <section className={css.card}>
-            <div className={css.cardTitle}><SoulIcon size={14} />{t('soulProfiles')}</div>
-            <span className={css.cardHint}>{t('soulProfilesHint')}</span>
-            <div className={css.profiles}>
-              {/* 主档：soul.md 本体 */}
-              <div
-                className={soul.profileId === null
-                  ? `${css.profileRow} ${css.profileRowActive}`
-                  : css.profileRow}
-              >
-                <span className={css.profileMain}>
-                  <span className={css.profileName}>
-                    {t('soulProfileMain')}
-                    {soul.profileId === null && <span className={`${css.badge} ${css.badgeOn}`}>{t('soulProfileActive')}</span>}
-                  </span>
-                  <span className={css.profileMeta}>
-                    {soul.updatedAt === null ? t('soulNeverSaved') : t('soulSavedAt', { time: formatTime(soul.updatedAt) })}
-                  </span>
-                </span>
-                {soul.profileId !== null && (
-                  <span className={css.profileActions}>
-                    <button
-                      type="button"
-                      className={`${css.btn} ${css.btnGhost}`}
-                      disabled={profileBusy}
-                      onClick={() => { activate(null) }}
-                    >{t('soulProfileActivate')}</button>
-                  </span>
-                )}
-              </div>
-
-              {profiles.map((profile, index) => (
-                <div
-                  key={profile.id}
-                  className={[
-                    css.profileRow,
-                    profile.active ? css.profileRowActive : '',
-                    css.profileRowIn,
-                  ].filter(Boolean).join(' ')}
-                  style={{ animationDelay: `${String(Math.min(index, 6) * 30)}ms` }}
-                >
-                  <span className={css.profileMain}>
-                    <span className={css.profileName}>
-                      {profile.name}
-                      {profile.active && <span className={`${css.badge} ${css.badgeOn}`}>{t('soulProfileActive')}</span>}
-                    </span>
-                    <span className={css.profileMeta}>
-                      {profile.updatedAt === null ? t('soulNeverSaved') : t('soulSavedAt', { time: formatTime(profile.updatedAt) })}
-                    </span>
-                  </span>
-                  <span className={css.profileActions}>
-                    {!profile.active && (
-                      <button
-                        type="button"
-                        className={`${css.btn} ${css.btnGhost}`}
-                        disabled={profileBusy}
-                        onClick={() => { activate(profile.id) }}
-                      >{t('soulProfileActivate')}</button>
-                    )}
-                    <button
-                      type="button"
-                      className={`${css.btn} ${css.btnIcon} ${css.btnDanger}`}
-                      aria-label={`${t('soulProfileDelete')} ${profile.name}`}
-                      disabled={profileBusy}
-                      onClick={() => { removeProfile(profile) }}
-                    >×</button>
-                  </span>
-                </div>
-              ))}
-
-              {profiles.length === 0 && !newOpen && (
-                <span className={css.cardHint}>{t('soulProfileEmpty')}</span>
-              )}
-
-              {newOpen
-                ? (
-                  <div className={css.profileNewRow}>
-                    <input
-                      className={css.input}
-                      aria-label={t('soulProfileNew')}
-                      placeholder={t('soulProfileNamePlaceholder')}
-                      value={newName}
-                      autoFocus
-                      onChange={event => { setNewName(event.currentTarget.value) }}
-                      onKeyDown={event => {
-                        if (event.key === 'Enter') { event.preventDefault(); createProfile() }
-                        if (event.key === 'Escape') { setNewOpen(false); setNewName('') }
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className={`${css.btn} ${css.btnPrimary}`}
-                      disabled={profileBusy}
-                      onClick={createProfile}
-                    >{t('soulProfileCreate')}</button>
-                    <button
-                      type="button"
-                      className={`${css.btn} ${css.btnGhost}`}
-                      onClick={() => { setNewOpen(false); setNewName('') }}
-                    >{t('soulProfileCancel')}</button>
-                  </div>
-                )
-                : (
-                  <div className={css.profileNew}>
-                    <button
-                      type="button"
-                      className={css.btn}
-                      disabled={profiles.length >= PROFILE_LIMIT}
-                      onClick={() => { setNewOpen(true) }}
-                    >+ {t('soulProfileNew')}</button>
-                  </div>
-                )}
-            </div>
-          </section>
 
           {/* ── 注入开关 ── */}
           <section className={css.card}>
@@ -1399,7 +1534,6 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
       </details>
       </div>
         </div>
-      </div>
 
       {/* ── 空态提示：还没有灵魂时给一句引导（不挡编辑区） ── */}
       {!hasContent && !dirty && (

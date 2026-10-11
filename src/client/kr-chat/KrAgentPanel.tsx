@@ -4,7 +4,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { ChatNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { activityStore } from '../tool-summary/activity-drawer.tsx'
-import { latestChatSnapshot, latestChatSessionId, collectTurnNodes, collectLatestSessionTasks, subscribeLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
+import { getCurrentChatSnapshot, latestChatSessionId, collectTurnNodes, collectLatestSessionTasks, subscribeLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
 import { callDurationMs, callName, formatDuration, isRunning } from '../tool-summary/tool-stats.ts'
 import { rowSummary, classifyCategory, toolArgsRaw, argFields, resultParagraphs, rawResultJson, executionFacts } from '../tool-summary/activity-view-model.ts'
 import { useNow } from '../tool-summary/use-now.ts'
@@ -52,6 +52,18 @@ interface TurnDataView {
   readonly turnEnd?: number | undefined
   readonly durationMs?: number | undefined
 }
+
+/**
+ * 空轮次数据：**共享同一个冻结实例**，不是每次新建对象。
+ *
+ * 下面 turnData 的 memo 带指纹稳定化，靠引用比较复用上一次结果；每次返回新的
+ * 空对象会让指纹虽然相同、但下游拿到的引用每次都变，memo 链照样被击穿。
+ */
+const EMPTY_TURN_DATA: TurnDataView = Object.freeze({
+  tools: Object.freeze([]) as readonly ChatNode<'tool-call'>[],
+  reasoning: Object.freeze([]) as readonly { readonly text: string }[],
+  tasks: Object.freeze([]) as readonly { readonly id: string; readonly content: string; readonly status: string }[],
+})
 
 /**
  * 内容指纹：判断「这一轮的数据真的变了没有」。
@@ -117,7 +129,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   useOfficialWidthHandleFix()
 
   // 动态计算当前会话真实的最新轮次（以会话快照与 DOM 节点为准，绝不被历史缓存干扰）
-  const snapshot = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)
+  const snapshot = getCurrentChatSnapshot()
   const snapTurns = snapshot?.navigation?.current?.map((n: any) => n.turn).filter((n: any) => typeof n === 'number' && n > 0) || []
   const domTurns = typeof document !== 'undefined'
     ? Array.from(document.querySelectorAll('[data-chat-turn]')).map(el => parseInt(el.getAttribute('data-chat-turn') || '0', 10)).filter(n => Number.isFinite(n) && n > 0)
@@ -188,7 +200,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   const turnDataCacheRef = useRef<{ sig: string; data: TurnDataView } | null>(null)
   const turnData = useMemo<TurnDataView>(() => {
     const raw = ((): TurnDataView => {
-      const snap = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)
+      const snap = getCurrentChatSnapshot()
       if (snap) {
         try {
           const collected = collectTurnNodes(snap, displayTurn)
@@ -204,6 +216,17 @@ export const KrAgentPanel = memo(function KrAgentPanel({
           console.warn('[kr-agent-panel] collectTurnNodes error', err)
         }
       }
+      /*
+       * 回退到活动抽屉缓存。**必须带会话守卫**：
+       *
+       * 上面的快照读取口现在会因「快照属于别的会话」而返回 null（跨会话误发
+       * 已被拒绝）。若这里无条件回退 actStore，那条拒绝就白做了 —— 上一会话的
+       * 轮次数据会从缓存里原样流出来，任务概览照样显示上个对话的清单。
+       *
+       * 判据：只有**已登记会话身份**时才允许回退。身份为 null 意味着「当前不在
+       * 任何会话里」（刚点新会话 / 已离开），此时右栏该走干净空态，不该翻缓存。
+       */
+      if (latestChatSessionId === null) return EMPTY_TURN_DATA
       return actStore.get(displayTurn)
     })()
     const sig = fingerprintTurnData(raw)
@@ -228,7 +251,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
    */
   const outputsCacheRef = useRef<{ sig: string; data: OutputsView } | null>(null)
   const outputs = useMemo<OutputsView>(() => {
-    const snap = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)
+    const snap = getCurrentChatSnapshot()
     let next: OutputsView
     try {
       next = collectOutputs(collectSessionToolNodes(snap))
@@ -401,7 +424,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
      * 什么，不代表当前推进中的清单应该消失。有本轮的优先用本轮的，没有就退回
      * 会话最近一次。
      */
-    const snap = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)
+    const snap = getCurrentChatSnapshot()
     if (snap) {
       const fallbackTasks = collectLatestSessionTasks(snap)
       if (fallbackTasks && fallbackTasks.length > 0) {
@@ -654,12 +677,14 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   }, [dragging, store])
 
   const collectForShot = useCallback((range: ShotRange): ShotMessage[] => {
-    if (!latestChatSnapshot) return []
-    return collectMessages(latestChatSnapshot, displayTurn, range)
+    // 走归属校验的读取口：截图不该把上一会话的对话内容截进来。
+    const snap = getCurrentChatSnapshot()
+    if (!snap) return []
+    return collectMessages(snap, displayTurn, range)
   }, [displayTurn])
 
   const dialogueTitle = useMemo(() => {
-    const snap = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)
+    const snap = getCurrentChatSnapshot()
     // 1. 优先直接从官方快照的 navigation.current 提取真实提问 Prompt
     if (snap?.navigation?.current && Array.isArray(snap.navigation.current)) {
       const navItem = snap.navigation.current.find((n: any) => n.turn === displayTurn)

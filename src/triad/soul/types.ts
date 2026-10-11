@@ -123,6 +123,36 @@ export interface ProfileView {
    * 塞进 profiles 列表会让每次 GET /soul 都背着几 MB 的 base64。
    */
   avatar: string | null
+  /**
+   * 身份三件套（2026-10-07 新增，角色画廊形态）。
+   *
+   * 为什么列表里要带身份：档案区从竖排卡片改成横向画廊后，**非激活**角色也要在
+   * 自己的卡上显示「什么脾气」——只有名字和一句定位的窄条根本看不出两份人格的区别，
+   * 而画廊存在的意义就是让用户一眼选人。这些字段全部是**展示件**：只影响卡片长相，
+   * 不参与注入（注入内容永远只由 cards 装配）。全部可选 = 向后兼容，老调用方不读
+   * 不受影响，取不到时按空串降级。
+   */
+  role?: string
+  /** 语气（identity.tone）。空串 = 未设置。 */
+  tone?: string
+  /** 语言（identity.language）。空串 = 未设置。 */
+  language?: string
+  /**
+   * 行为准则**条数**（identity.principles.length）。
+   *
+   * 注意与 SoulIdentity.principles 同名不同型：那边是条目正文数组（给编辑面板），
+   * 这里是画廊卡片上的一个数字铭牌。列表里回正文等于把整份人格塞进每次 GET /soul，
+   * 而卡片只需要「3 条」这个量级。0 = 未设置。
+   */
+  principles?: number
+  /**
+   * 该档案卡片快照的启用数 / 总数（profile.cards 缺失时两个都是 0）。
+   *
+   * 刻意**不**在这里触发卡片迁移：读路径必须无副作用（见 store.readProfile 的注释），
+   * 画廊每渲染一次就写一次盘是不可接受的。老档案先显示 0/0，等用户真正编辑时才迁移。
+   */
+  cardsOn?: number
+  cardsTotal?: number
 }
 
 /** 落盘的档案完整结构（profiles/<id>.json）。 */

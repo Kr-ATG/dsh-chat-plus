@@ -196,10 +196,28 @@ async function handle(deps: SoulRouterDeps, req: IncomingMessage, res: ServerRes
       // 只改展示件（面板上改一句定位 / 一个小标签）：走独立路径，不重算卡片、
       // 不改正文、不 bump 版本号。放在 content/identity 的 400 判定**之前**——
       // 这条请求本来就不带内容，按「nothing to save」拒掉会让标签永远存不下来。
+      //
+      // 主档与档案都要走这条：展示件存在两个地方（主档在 active.json 的 base、
+      // 档案在档案 JSON 自己身上），但「改标签不动人设」这条契约对两者是同一条。
+      // 早先只认 profileId === null，档案便落到下面的 writeProfile —— 那会把
+      // version +1 并重算卡片，改一句定位被当成改了人格。
       const metaOnly = Object.keys(cardMeta).length > 0
       if (content === undefined && identity === undefined) {
         if (metaOnly && profileId === null) {
           json(res, 200, { ok: true, soul: await deps.soul.setBaseCardMeta(cardMeta), profiles: await deps.soul.profileViews() })
+          return
+        }
+        if (metaOnly && profileId !== null) {
+          if (!isValidProfileId(profileId)) {
+            json(res, 400, { ok: false, error: `档案 id 非法（仅允许小写字母/数字/短横/下划线）：${profileId}` })
+            return
+          }
+          const updated = await deps.soul.setProfileCardMeta(profileId, cardMeta)
+          if (updated === null) {
+            json(res, 404, { ok: false, error: `档案不存在：${profileId}` })
+            return
+          }
+          json(res, 200, { ok: true, soul: await deps.soul.view(), profiles: await deps.soul.profileViews() })
           return
         }
         if (!metaOnly) {

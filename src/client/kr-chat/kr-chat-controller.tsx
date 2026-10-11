@@ -17,7 +17,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { getKrChatStore } from './kr-chat-store.ts'
 import { KrAgentPanel } from './KrAgentPanel.tsx'
 import { activityStore } from '../tool-summary/activity-drawer.tsx'
-import { latestChatSnapshot, latestChatSessionId, clearLatestChatSnapshot, subscribeLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
+import { getCurrentChatSnapshot, latestChatSessionId, leaveCurrentChatSession, subscribeLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
 
 let isSwitchingToKr = false
 
@@ -57,7 +57,7 @@ interface KrControllerHandle {
  * 绝不能沿用上一会话遗留的轮次号。数据源优先取实时快照，其次 DOM。
  */
 function resolveLatestTurn(): number {
-  const snap = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)
+  const snap = getCurrentChatSnapshot()
   const snapTurns = snap?.navigation?.current?.map((n: any) => n.turn).filter((n: any) => typeof n === 'number' && n > 0) || []
   if (snapTurns.length > 0) return Math.max(...snapTurns)
   const domTurns = typeof document !== 'undefined'
@@ -74,7 +74,7 @@ function resolveLatestTurn(): number {
  * 只有旧 host 读不到 timeline 时才回退到「active 卡 / assistant running」DOM。
  */
 function isCurrentTurnRunning(turn: number): boolean {
-  const snap = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)
+  const snap = getCurrentChatSnapshot()
   try {
     const turns = snap?.timeline?.turns
     const timing = turns?.get ? turns.get(turn) : turns?.[turn]
@@ -105,7 +105,7 @@ function isCurrentTurnRunning(turn: number): boolean {
  */
 function hasConversationContent(): boolean {
   if (typeof document === 'undefined') return false
-  const snap = latestChatSnapshot || (typeof window !== 'undefined' ? (window as any).__dshLatestChatSnapshot__ : null)
+  const snap = getCurrentChatSnapshot()
   if (snap?.navigation?.current && snap.navigation.current.length > 0) return true
   if (snap?.order && snap.order.length > 0) return true
   if (document.querySelector('header:not(.wb-header) [role="tablist"]')) return true
@@ -332,7 +332,8 @@ export function mountKrChatController(): void {
     if (!target) return
     const btn = target.closest('button, div, span, a')
     if (btn && btn.textContent?.trim() === '新会话') {
-      try { clearLatestChatSnapshot() } catch {}
+      // 走统一离开口：只清快照会漏掉 liveTodos 与 activityStore 的上一会话残留。
+      try { leaveCurrentChatSession() } catch {}
       setTimeout(syncDom, 0)
       setTimeout(syncDom, 50)
       setTimeout(syncDom, 200)

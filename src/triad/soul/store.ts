@@ -327,6 +327,10 @@ export class SoulStore {
       // 索引里存的是**扩展名**（见 writeAvatar），对外契约要的是**文件名**：
       // 直接回扩展名会让面板拿到一个 "png" 当头像标识，看着像有图、实际拼不出路径。
       const ext = avatars[profile.id]
+      // 画廊形态的展示件：非激活角色也要画出「什么脾气」，所以身份字段跟着列表一起回
+      // （逐份再发一次 GET /soul 拿详情 = 首屏 N+1 次请求）。这里只读不写：
+      // profile.cards 缺省（老档案）时统计给 0，绝不顺手触发迁移。
+      const cards = profile.cards
       return {
         id: profile.id,
         name: profile.name,
@@ -335,6 +339,12 @@ export class SoulStore {
         desc: profile.desc,
         tag: profile.tag,
         avatar: ext === undefined ? null : `${profile.id}.${ext}`,
+        role: profile.identity.role,
+        tone: profile.identity.tone,
+        language: profile.identity.language,
+        principles: profile.identity.principles.length,
+        cardsOn: cards === undefined ? 0 : cards.filter(card => card.enabled).length,
+        cardsTotal: cards === undefined ? 0 : cards.length,
       }
     })
   }
@@ -686,6 +696,28 @@ export class SoulStore {
     if (tag !== '') base.tag = tag
     await atomicWriteJson(this.activeFile(), { profileId: active.profileId, base })
     return this.view()
+  }
+
+  /**
+   * 只改**某份档案**的角色卡展示件（不动正文、不动卡片、不 bump 版本）。
+   *
+   * 与 setBaseCardMeta 对称：主档的展示件存在 active.json 的 base 里，档案的存在
+   * 档案 JSON 自己身上。没有这条路径时，面板改档案的一句定位会落到 writeProfile ——
+   * 而它会重算卡片、重写正文、并把 version +1，等于「调个标签却动了注入内容」，
+   * 与「展示件不参与注入」这条契约直接冲突（改标签后模型看到的还是同一份人设，
+   * 但版本号变了，用户无从理解）。
+   *
+   * 档案不存在时返回 null，由调用方回 404 —— 不静默新建一份空档案。
+   */
+  async setProfileCardMeta(id: string, meta: { desc?: string; tag?: string }): Promise<SoulProfile | null> {
+    if (!isValidProfileId(id)) return null
+    const existing = await this.readProfile(id)
+    if (existing === null) return null
+    const desc = meta.desc !== undefined ? meta.desc.trim().slice(0, PROFILE_DESC_MAX) : existing.desc
+    const tag = meta.tag !== undefined ? meta.tag.trim().slice(0, PROFILE_TAG_MAX) : existing.tag
+    const next: SoulProfile = { ...existing, desc, tag }
+    await atomicWriteJson(this.profileFile(id), next)
+    return next
   }
 
   /**

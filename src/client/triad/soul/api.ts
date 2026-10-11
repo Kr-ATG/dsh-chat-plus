@@ -102,6 +102,26 @@ export interface ProfileView {
   tag: string
   /** 头像文件名；null = 未上传。取图走 avatarUrl()。 */
   avatar: string | null
+  /**
+   * 身份三件套 + 两个统计（host ProfileView 镜像，但描述的是**归一化之后**的形状）。
+   *
+   * 画廊要画**非激活**角色：窄条上也得有「什么脾气」，否则用户看不出两份人格的区别。
+   *
+   * 刻意**非可选**（与 host 侧那份可选相反）：host 那份描述「线上回包长什么样」，
+   * 可能缺字段；这份描述「normalizeProfile 之后长什么样」，六个字段保证有值。
+   * 让每个消费方自己写 `profile.role ?? ''` 等于把同一套容错在每张卡片上再抄一遍，
+   * 漏抄一处就是把 undefined 渲染进 UI。容错只在边界做一次（见 normalizeProfile）。
+   */
+  role: string
+  /** 语气。空串 = 未设置。 */
+  tone: string
+  /** 语言。空串 = 未设置。 */
+  language: string
+  /** 行为准则条数（不是正文数组，见 host 侧注释）。0 = 未设置。 */
+  principles: number
+  /** 卡片快照的启用数 / 总数；老档案（host 尚未迁移）两个都是 0。 */
+  cardsOn: number
+  cardsTotal: number
 }
 
 /** GET /soul 回包。 */
@@ -277,8 +297,15 @@ export interface SoulApi {
   distill: (input?: { provider?: string; model?: string; projectHash?: string }) => Promise<SoulDistillResult>
   /** 采用草案（落盘）。 */
   apply: (draft: SoulDraft) => Promise<{ ok: boolean; soul: SoulView }>
-  /** 新建档案：以当前灵魂为种子，写到新 id 下。 */
-  createProfile: (name: string, seed?: { content?: string; identity?: SoulIdentity }) => Promise<SoulWriteResponse>
+  /**
+   * 新建档案：以当前灵魂为种子，写到新 id 下。
+   *
+   * seed 带上 desc / tag：新建角色时用户会同时填「名字 + 一句定位 + 小标签」，
+   * 分两次请求落盘会留下「档案已建好、卡片说明还没写上」的中间态（第二次失败就永久
+   * 停在那里）。实现里 ...seed 直接展开进 SoulPatch，而 SoulPatch 本就有这两个字段，
+   * 所以这里只是把能力写进类型签名，不改实现。
+   */
+  createProfile: (name: string, seed?: { content?: string; identity?: SoulIdentity; desc?: string; tag?: string }) => Promise<SoulWriteResponse>
   /** 删除档案（依赖 host 支持 remove 字段，见 SoulPatch.remove）。 */
   removeProfile: (profileId: string) => Promise<SoulWriteResponse>
   /** 切换激活档案；null = 回到主档 soul.md。 */
@@ -407,6 +434,15 @@ function normalizeProfile(raw: unknown, index: number): ProfileView {
     desc: str(src.desc),
     tag: str(src.tag),
     avatar: typeof src.avatar === 'string' && src.avatar !== '' ? src.avatar : null,
+    // 身份三件套与卡片统计同理，而且是**双半身部署纪律**的典型场景：插件更新后浏览器
+    // 刷新即生效、host 要重启 DSH 才换新，这段窗口里 host 根本不回这些字段。字符串走
+    // str()、数字缺省 0，面板据此把那一格画成「—」，而不是拿到 undefined 崩掉或显示 NaN。
+    role: str(src.role),
+    tone: str(src.tone),
+    language: str(src.language),
+    principles: typeof src.principles === 'number' && Number.isFinite(src.principles) ? src.principles : 0,
+    cardsOn: typeof src.cardsOn === 'number' && Number.isFinite(src.cardsOn) ? src.cardsOn : 0,
+    cardsTotal: typeof src.cardsTotal === 'number' && Number.isFinite(src.cardsTotal) ? src.cardsTotal : 0,
   }
 }
 

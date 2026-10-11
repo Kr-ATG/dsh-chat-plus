@@ -112,18 +112,72 @@ export const css = {
   spin: 'dsh-soul-spin',
   check: 'dsh-soul-check',
 
-  profiles: 'dsh-soul-profiles',
-  profileRow: 'dsh-soul-profile-row',
-  profileRowActive: 'dsh-soul-profile-row-active',
-  profileRowIn: 'dsh-soul-profile-row-in',
-  profileMain: 'dsh-soul-profile-main',
-  profileName: 'dsh-soul-profile-name',
-  profileMeta: 'dsh-soul-profile-meta',
-  profileActions: 'dsh-soul-profile-actions',
-  profileNew: 'dsh-soul-profile-new',
-  profileNewRow: 'dsh-soul-profile-new-row',
   badge: 'dsh-soul-badge',
   badgeOn: 'dsh-soul-badge-on',
+
+  // ── 角色画廊（2026-10）：档案从行式列表改成横排角色卡 ──
+  // 行式列表那批 key（profiles / profileRow / profileRowActive / profileRowIn /
+  // profileMain / profileName / profileMeta / profileActions / profileNew /
+  // profileNewRow）已随 SoulPanel 改版整批删除：SoulPanel 与 theme.ts 里对它们的
+  // 引用都归零了，留着只会让后人以为还有第二个渲染路径。
+  profileGallery: 'dsh-soul-profile-gallery',
+  profileRail: 'dsh-soul-profile-rail',
+  profileCard: 'dsh-soul-profile-card',
+  profileCardOn: 'dsh-soul-profile-card-active',
+  profileCardIn: 'dsh-soul-profile-card-in',
+  profileAvatar: 'dsh-soul-profile-avatar',
+  profileAvatarImg: 'dsh-soul-profile-avatar-img',
+  profileAvatarBusy: 'dsh-soul-profile-avatar-busy',
+  profileInitial: 'dsh-soul-profile-initial',
+  profileDot: 'dsh-soul-profile-dot',
+  profileDotOn: 'dsh-soul-profile-dot-on',
+  profileVName: 'dsh-soul-profile-vname',
+  profileVNameText: 'dsh-soul-profile-vname-text',
+  profileBody: 'dsh-soul-profile-body',
+  profileBadges: 'dsh-soul-profile-badges',
+  profileBadge: 'dsh-soul-profile-badge',
+  profileBadgeOn: 'dsh-soul-profile-badge-on',
+  profileBadgePending: 'dsh-soul-profile-badge-pending',
+  profileTag: 'dsh-soul-profile-tag',
+  profileNameBig: 'dsh-soul-profile-name-big',
+  profileRole: 'dsh-soul-profile-role',
+  // 主档在非激活态时的角色行占位（host 回包不含主档自己的身份，如实说「切过来才可见」）。
+  profileRoleUnknown: 'dsh-soul-profile-role-unknown',
+  profileQuote: 'dsh-soul-profile-quote',
+  profilePlates: 'dsh-soul-profile-plates',
+  profilePlate: 'dsh-soul-profile-plate',
+  profilePlateK: 'dsh-soul-profile-plate-k',
+  profilePlateV: 'dsh-soul-profile-plate-v',
+  profileFoot: 'dsh-soul-profile-foot',
+  profileFootSpacer: 'dsh-soul-profile-foot-spacer',
+  profileBar: 'dsh-soul-profile-bar',
+  profileBarFill: 'dsh-soul-profile-bar-fill',
+  profileKbd: 'dsh-soul-profile-kbd',
+  profileEdit: 'dsh-soul-profile-edit',
+  profileEditRow: 'dsh-soul-profile-edit-row',
+  profileAdd: 'dsh-soul-profile-add',
+  profileAddPlus: 'dsh-soul-profile-add-plus',
+  profileAddText: 'dsh-soul-profile-add-text',
+  profileAddForm: 'dsh-soul-profile-add-form',
+  profileDel: 'dsh-soul-profile-del',
+
+  // ── 统摄式画廊扩容（2026-10 二轮）：画廊占满整页，宽卡内直接管这份人格的卡片 ──
+  // 上一轮画廊只是右列里的第三块，等于在「人格核心卡 / 卡片区 / 预设区」之外又加
+  // 一层冗余。这一轮画廊跨满整页成为唯一角色入口，激活那张宽卡的肚子里放这份
+  // 人格的卡片列表——所以下面这批 key 全部是**新增**，上面那批 profile* 形态不动。
+  profileFull: 'dsh-soul-profile-full',
+  profileCards: 'dsh-soul-profile-cards',
+  profileCardsHead: 'dsh-soul-profile-cards-head',
+  profileCardsTitle: 'dsh-soul-profile-cards-title',
+  profileCardsHint: 'dsh-soul-profile-cards-hint',
+  profileCardsBody: 'dsh-soul-profile-cards-body',
+  profileCardsEmpty: 'dsh-soul-profile-cards-empty',
+  profilePreview: 'dsh-soul-profile-preview',
+  profilePreviewItem: 'dsh-soul-profile-preview-item',
+  profilePreviewMore: 'dsh-soul-profile-preview-more',
+  profileSource: 'dsh-soul-profile-source',
+  profileSourcePreset: 'dsh-soul-profile-source-preset',
+  profileActionsRow: 'dsh-soul-profile-actions-row',
 
   draft: 'dsh-soul-draft',
   draftHead: 'dsh-soul-draft-head',
@@ -361,6 +415,8 @@ const SHEET = `
   --s-whale-glow:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 26%,transparent);
   /* 浮层卡片底色（开关圆点要用它做反色） */
   --s-card-bg:var(--dsw-static-neutral-bluish-00,#fff);
+  /* 角色画廊的主转场曲线（宽度伸缩专用，与面板其余微交互的 ease 区分开） */
+  --s-gallery-ease:cubic-bezier(.22,.61,.36,1);
   color:var(--s-text);
 }
 
@@ -549,22 +605,206 @@ const SHEET = `
 .dsh-soul-spin{display:inline-flex;animation:dsh-soul-rotate .9s linear infinite}
 @keyframes dsh-soul-rotate{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 
-/* ── 灵魂档案 ─────────────────────────────────────────────────────── */
-.dsh-soul-profiles{display:flex;flex-direction:column;gap:6px}
-.dsh-soul-profile-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--s-border-2);border-radius:10px;background:var(--s-layer);box-sizing:border-box;transition:border-color .18s ease,background .18s ease,transform .16s cubic-bezier(.2,.8,.2,1)}
-.dsh-soul-profile-row:hover{border-color:color-mix(in srgb,var(--s-primary) 45%,transparent);transform:translateY(-1px)}
-.dsh-soul-profile-row-active,.dsh-soul-profile-row-active:hover{border-color:color-mix(in srgb,var(--s-primary) 55%,transparent);background:var(--s-primary-soft)}
-.dsh-soul-profile-row-in{animation:dsh-soul-row-in .22s cubic-bezier(.2,.8,.2,1) backwards}
-@keyframes dsh-soul-row-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-.dsh-soul-profile-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.dsh-soul-profile-name{display:flex;align-items:center;gap:6px;min-width:0;font-size:12.5px;font-weight:600;line-height:19px;color:var(--s-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-soul-profile-meta{font-size:11px;line-height:16px;color:var(--s-text-3);font-variant-numeric:tabular-nums}
-.dsh-soul-profile-actions{flex:none;display:flex;align-items:center;gap:2px}
+/* ── 灵魂档案（角色画廊见下方「角色画廊」一节） ─────────────────────────
+   行式列表那批规则（.dsh-soul-profiles / -profile-row / -row-active / -row-in /
+   -main / -name / -meta / -actions / -new / -new-row）已随 2026-10 画廊改版删除：
+   SoulPanel 不再渲染那种结构，留着就是死代码。keyframes dsh-soul-row-in 保留——
+   画廊卡片、卡片区、预设行都还在复用它。 */
 .dsh-soul-badge{flex:none;padding:0 6px;border-radius:999px;background:color-mix(in srgb,var(--s-text-3) 14%,transparent);color:var(--s-text-3);font-size:10px;font-weight:600;line-height:16px}
 .dsh-soul-badge-on{background:var(--s-primary-chip);color:var(--s-primary)}
-.dsh-soul-profile-new{display:flex;align-items:center;gap:6px}
-.dsh-soul-profile-new-row{display:flex;align-items:center;gap:6px;animation:dsh-soul-row-in .2s cubic-bezier(.2,.8,.2,1) backwards}
-.dsh-soul-profile-new-row .dsh-soul-input{flex:1;min-width:0}
+@keyframes dsh-soul-row-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ── 角色画廊（2026-10）：一排角色卡横滑，当前那张横向展开 ─────────────
+   行式列表每行只回答「有哪些档案」，回答不了「这些档案分别是谁」——用户要的是
+   一眼看见几个「人」。所以档案区改成画廊：窄条竖排名字、激活那张展开成完整
+   角色信息卡。形态取自 _tmp/soul-roles.html 原型，数值直接沿用。
+
+   **时长破例说明**（本文件通则 160–260ms，见文件头）：这里唯一的 640ms 是
+   卡片的**宽度伸缩**（flex-basis / flex-grow）与随之同步的头像位移、边框提亮、
+   投影。理由：宽度变化幅度最大（68px ↔ 620px），是这一整块的主转场而不是微交互；
+   260ms 内走完会像「卡片被抽走」而不是「一张卡让位展开」，且同一帧内 5 张卡同时
+   重排会糊成一团。给足 640ms 才读得出「谁让位、谁展开」。其余全部照纪律：
+   hover 提亮/上浮 220–260ms、竖排名字淡出 260ms、信息区淡入 260ms、
+   切换进度条 380ms（网络请求的进行指示，不是反馈动画，同样破例但注释在规则处）。 */
+.dsh-soul-profile-gallery{display:flex;flex-direction:column;gap:10px;min-width:0}
+/* rail 的上下内距是给 hover 的 translateY(-4px) 与宽态大投影留的：overflow-y:hidden
+   会把贴边的内容直接裁掉，不给内距的话悬浮上移的那 4px 会被切平。 */
+.dsh-soul-profile-rail{display:flex;gap:12px;align-items:stretch;height:434px;box-sizing:border-box;padding:8px 2px 10px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;scroll-behavior:smooth;-ms-overflow-style:none}
+.dsh-soul-profile-rail::-webkit-scrollbar{display:none}
+.dsh-soul-profile-rail:focus-visible{outline:none}
+
+.dsh-soul-profile-card{position:relative;flex:0 0 68px;min-width:0;border-radius:17px;overflow:hidden;cursor:pointer;outline:none;box-sizing:border-box;border:1px solid var(--s-border);background:linear-gradient(170deg,var(--s-soft),var(--s-layer) 60%);transition:flex-basis 640ms var(--s-gallery-ease),flex-grow 640ms var(--s-gallery-ease),border-color 640ms var(--s-gallery-ease),box-shadow 640ms var(--s-gallery-ease),filter 260ms var(--s-gallery-ease),transform 220ms var(--s-gallery-ease)}
+/* 斜向高光：hover 时浮起来的那层「玻璃感」，不额外加边框 */
+.dsh-soul-profile-card::after{content:'';position:absolute;inset:0;pointer-events:none;opacity:0;border-radius:17px;background:linear-gradient(158deg,color-mix(in srgb,var(--s-text) 9%,transparent),transparent 46%);transition:opacity 260ms var(--s-gallery-ease)}
+.dsh-soul-profile-card:hover::after{opacity:.8}
+/* 激活卡：flex-grow 吃掉剩余宽度，但**必须有 min-width 保底**。
+   实测踩过：预设并进这一排后变成 9 张卡，8 张窄条 ×68px + 8×12px gap = 640px，
+   1090px 的容器只剩 450px 给激活卡，而它内部有头像 + 四格铭牌 + 卡片区 ——
+   被压到 114px 时整张卡的文字挤成一列一个字（窄条 96px 那版更糟：只剩 226px）。
+   给 min-width 后容器装不下就横向滚动（rail 本来就是 overflow-x:auto），
+   而不是把激活卡压扁。 */
+.dsh-soul-profile-card-active,.dsh-soul-profile-card-active:hover{flex:1 1 620px;min-width:420px;border-color:var(--s-border-3);box-shadow:0 24px 56px -26px rgba(0,0,0,.5),inset 0 0 0 1px var(--s-border)}
+.dsh-soul-profile-card-active::after{opacity:1}
+/* 窄态压暗：一排卡里只有一张是「当前」，其余靠去饱和表达，不靠降透明度
+   （降透明度会让窄条在深色底上糊成一片）。 */
+.dsh-soul-profile-card:not(.dsh-soul-profile-card-active){filter:saturate(.34) brightness(.74)}
+.dsh-soul-profile-card:not(.dsh-soul-profile-card-active):hover{filter:saturate(.72) brightness(.96);transform:translateY(-4px)}
+/* 焦点环走 outline 而不是本文件统一的 box-shadow：宽态已经吃掉 box-shadow
+   （大投影 + 内描边），再叠一层会被覆盖掉，反而看不见焦点。 */
+.dsh-soul-profile-card:focus-visible{outline:2px solid var(--s-primary);outline-offset:2px}
+/* 入场错峰：animationDelay 由 JSX 内联给，与面板其余列表同节奏 */
+.dsh-soul-profile-card-in{animation:dsh-soul-row-in .22s cubic-bezier(.2,.8,.2,1) backwards}
+
+/* 头像：窄态居中的小方块 → 宽态左上角的大方块，位置尺寸全部走主转场时长，
+   否则宽度在 640ms 里伸缩、头像却先一步跳到终点，看起来像两块不同的东西。
+   它同时是「点击传图」的按钮（组件里就是 <button>），所以重置掉 UA 按钮样式。 */
+.dsh-soul-profile-avatar{position:absolute;left:50%;top:20px;transform:translateX(-50%);width:40px;height:40px;padding:0;border-radius:13px;display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;box-sizing:border-box;appearance:none;background:linear-gradient(160deg,var(--s-soft),var(--s-layer));border:1px solid var(--s-border-3);color:var(--s-text-2);font-family:inherit;font-size:15px;font-weight:640;letter-spacing:.02em;cursor:pointer;transition:width 640ms var(--s-gallery-ease),height 640ms var(--s-gallery-ease),top 640ms var(--s-gallery-ease),left 640ms var(--s-gallery-ease),transform 640ms var(--s-gallery-ease),border-radius 640ms var(--s-gallery-ease),color 640ms var(--s-gallery-ease),box-shadow 640ms var(--s-gallery-ease),border-color .2s ease}
+.dsh-soul-profile-card-active .dsh-soul-profile-avatar{left:30px;top:28px;transform:none;width:56px;height:56px;border-radius:18px;color:var(--s-primary);box-shadow:0 0 0 1px color-mix(in srgb,var(--s-primary) 24%,transparent),0 12px 30px -14px color-mix(in srgb,var(--s-primary) 55%,transparent)}
+.dsh-soul-profile-avatar:hover{border-color:color-mix(in srgb,var(--s-primary) 45%,transparent)}
+.dsh-soul-profile-avatar:focus-visible{outline:2px solid var(--s-primary);outline-offset:2px}
+.dsh-soul-profile-avatar:disabled{cursor:default}
+.dsh-soul-profile-avatar-img{display:block;width:100%;height:100%;object-fit:cover}
+/* 无头像时的首字方块：与图片互斥，两者都撑满头像内容区 */
+.dsh-soul-profile-initial{display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:15px;font-weight:640;transition:font-size 640ms var(--s-gallery-ease)}
+.dsh-soul-profile-card-active .dsh-soul-profile-initial{font-size:21px}
+/* 头像上传中：盖一层磨砂遮罩，转圈由 css.spin 提供（组件里传的是 SpinIcon） */
+.dsh-soul-profile-avatar-busy{position:absolute;inset:0;z-index:2;display:flex;align-items:center;justify-content:center;color:var(--s-text-2);background:color-mix(in srgb,var(--s-layer) 72%,transparent);backdrop-filter:blur(2px)}
+
+/* 窄态竖排名字：圆点 + 竖排文字。writing-mode 挂在文字本体上，外层是列容器
+   （圆点与文字要一起居中，挂在容器上圆点也会被转 90°）。 */
+.dsh-soul-profile-vname{position:absolute;left:0;right:0;bottom:20px;display:flex;flex-direction:column;align-items:center;gap:9px;transition:opacity 260ms var(--s-gallery-ease) 140ms}
+.dsh-soul-profile-card-active .dsh-soul-profile-vname{opacity:0;transition-delay:0ms}
+.dsh-soul-profile-dot{flex:none;width:5px;height:5px;border-radius:50%;background:var(--s-text-3);transition:background .2s ease,box-shadow .2s ease}
+.dsh-soul-profile-dot-on{background:var(--s-primary);box-shadow:0 0 8px var(--s-primary)}
+.dsh-soul-profile-vname-text{writing-mode:vertical-rl;font-size:11.5px;line-height:1;letter-spacing:.3em;color:var(--s-text-2);max-height:196px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;transition:color 260ms var(--s-gallery-ease)}
+.dsh-soul-profile-card:not(.dsh-soul-profile-card-active):hover .dsh-soul-profile-vname-text{color:var(--s-text)}
+
+/* 宽态信息区：等宽度铺开之后再淡入上移（延迟 160ms），不然文字会在还没铺满的
+   卡片里先挤成一团再散开。 */
+.dsh-soul-profile-body{position:absolute;inset:0;box-sizing:border-box;padding:28px 30px 22px;display:flex;flex-direction:column;min-width:0;opacity:0;transform:translateY(12px);pointer-events:none;transition:opacity 260ms var(--s-gallery-ease) 160ms,transform 260ms var(--s-gallery-ease) 160ms}
+.dsh-soul-profile-card-active .dsh-soul-profile-body{opacity:1;transform:none;pointer-events:auto}
+/* 徽标行左侧空出 82px 给头像（56px 宽 + 30px 左距），整行高度与头像对齐 */
+.dsh-soul-profile-badges{display:flex;align-items:center;gap:7px;margin-left:82px;min-height:56px;flex-wrap:wrap;min-width:0}
+.dsh-soul-profile-badge{font-size:10.5px;line-height:16px;border-radius:999px;padding:3px 10px;border:1px solid var(--s-border);color:var(--s-text-3);background:var(--s-layer);letter-spacing:.02em;white-space:nowrap}
+.dsh-soul-profile-badge-on{color:var(--s-primary);border-color:color-mix(in srgb,var(--s-primary) 40%,transparent);background:var(--s-primary-chip)}
+/* 切换中：虚线边框，与实线的「使用中」一眼区分 */
+.dsh-soul-profile-badge-pending{color:var(--s-text-2);border-style:dashed}
+/* 小标签：与徽标同底同框，只做「更小 + 大写 + 拉字距」的修饰 */
+.dsh-soul-profile-tag{text-transform:uppercase;letter-spacing:.1em;font-size:9.5px}
+
+.dsh-soul-profile-name-big{display:flex;align-items:center;gap:12px;margin:14px 0 0;min-width:0;font-size:29px;font-weight:670;letter-spacing:-.4px;line-height:1.14;color:var(--s-text);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.dsh-soul-profile-name-big::before{content:'';flex:none;width:3px;height:26px;border-radius:2px;background:var(--s-primary)}
+.dsh-soul-profile-role{margin:9px 0 0;font-size:13px;line-height:19px;font-weight:520;color:var(--s-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 主档非激活时的角色行占位：弱化到「说明」而非「身份」，避免被误读成真角色名 */
+.dsh-soul-profile-role-unknown{margin:9px 0 0;font-size:11.5px;line-height:17px;font-style:italic;color:var(--s-text-3)}
+.dsh-soul-profile-quote{margin:14px 0 0;font-size:12.5px;line-height:1.85;color:var(--s-text-3);max-width:58ch;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+/* 四格铭牌：顶部分隔线 + 4 列网格，用 margin-top:auto 钉在卡片底部
+   （信息少时不会让铭牌浮在中间）。 */
+.dsh-soul-profile-plates{margin-top:auto;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;border-top:1px solid var(--s-border)}
+.dsh-soul-profile-plate{padding:12px 2px 0;min-width:0}
+.dsh-soul-profile-plate-k{display:block;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--s-text-3);margin-bottom:5px}
+.dsh-soul-profile-plate-v{display:block;font-size:11.5px;line-height:1.5;color:var(--s-text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 底部行：时间在左、动作按钮在右。
+   必须允许换行（flex-wrap）并把时间那一段设为「可截断不换行」：
+   卡宽在 96↔620px 之间伸缩，窄到 320px 时这一行塞不下「更新于 10-11 11:06」+
+   「编辑定位」+「← → 切换」+ 删除，不给 wrap 的话 flex 会把文字压成逐字竖排
+   （实测：时间被压成四行「更新/于/10-/11」）。 */
+.dsh-soul-profile-foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px 9px;margin-top:13px;padding-top:12px;border-top:1px solid var(--s-border);min-width:0;font-size:11px;line-height:16px;color:var(--s-text-3)}
+.dsh-soul-profile-foot>span:first-child{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
+.dsh-soul-profile-foot-spacer{flex:1 1 0;min-width:0}
+.dsh-soul-profile-kbd{flex:none;font-size:10.5px;line-height:16px;border:1px solid var(--s-border);border-radius:6px;padding:2px 7px;color:var(--s-text-2);background:var(--s-layer);white-space:nowrap}
+
+/* 切换进度条：activate 是一次网络请求，点击后到列表刷新之间有一段时间空档，
+   不给指示用户会以为点空了。380ms 是**请求进行中的进度指示**（不是反馈动画），
+   所以不套 160–260ms 的反馈纪律；真请求超过它时条子停在满格等结果。 */
+.dsh-soul-profile-bar{position:absolute;left:0;right:0;bottom:0;height:2px;background:transparent;overflow:hidden}
+.dsh-soul-profile-bar-fill{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--s-primary),color-mix(in srgb,var(--s-primary) 62%,#fff));transition:width 380ms var(--s-gallery-ease)}
+.dsh-soul-profile-card[data-busy='1'] .dsh-soul-profile-bar-fill{width:100%}
+
+/* 宽态底部的编辑 / 删除 / 新建：都在卡片之外，用与面板其余部分同源的字段与按钮 */
+.dsh-soul-profile-edit{display:flex;flex-direction:column;gap:10px;margin-top:10px;padding:12px 14px;box-sizing:border-box;border:1px solid var(--s-border-2);border-radius:12px;background:var(--s-layer)}
+.dsh-soul-profile-edit-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0}
+/* 新建角色：与卡片同排的一个「空卡槽」（放到列表下方会让整排高度跳动）。
+   默认 align-self:stretch，跟卡片一样吃满 rail 高度。 */
+.dsh-soul-profile-add{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;width:68px;padding:0 6px;box-sizing:border-box;appearance:none;border:1px dashed var(--s-border-3);border-radius:17px;background:transparent;color:var(--s-text-3);font-family:inherit;font-size:11.5px;line-height:16px;cursor:pointer;transition:border-color .2s ease,color .2s ease,background .2s ease,transform .22s var(--s-gallery-ease)}
+.dsh-soul-profile-add:hover:not(:disabled){border-color:color-mix(in srgb,var(--s-primary) 45%,transparent);background:var(--s-primary-soft);color:var(--s-primary);transform:translateY(-4px)}
+.dsh-soul-profile-add:focus-visible{outline:2px solid var(--s-primary);outline-offset:2px}
+.dsh-soul-profile-add:disabled{opacity:.45;cursor:default}
+/* 「+」与文字拆成两个节点（组件里要分别控制）：加号固定不被压缩，文字负责截断 */
+.dsh-soul-profile-add-plus{flex:none;font-size:17px;line-height:1;font-weight:600;color:var(--s-text-3);transition:color .2s ease}
+.dsh-soul-profile-add:hover:not(:disabled) .dsh-soul-profile-add-plus{color:var(--s-primary)}
+.dsh-soul-profile-add-text{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-soul-profile-add-form{flex:none;display:flex;flex-direction:column;gap:9px;width:250px;max-width:100%;padding:14px;box-sizing:border-box;border:1px solid var(--s-border-2);border-radius:17px;background:var(--s-layer);overflow-y:auto;animation:dsh-soul-row-in .22s cubic-bezier(.2,.8,.2,1) backwards}
+.dsh-soul-profile-del{flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;box-sizing:border-box;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--s-text-3);font-family:inherit;font-size:14px;line-height:1;cursor:pointer;transition:color .18s ease,background .18s ease,border-color .18s ease}
+.dsh-soul-profile-del:hover{border-color:color-mix(in srgb,var(--s-err) 40%,transparent);background:var(--s-err-bg);color:var(--s-err)}
+
+/* ── 统摄式画廊（2026-10 二轮）：画廊占满整页，宽卡里直接管这份人格的卡片 ──
+   上一轮画廊只是右列里的第三块（左人格核心 / 右卡片 / 右预设之外又一块），
+   用户原话「我要的是相当于把他们都替换掉，而不是又一个新的这么冗余」。
+   这一轮它跨满整页、成为唯一角色入口：窄条回答「有哪些人」，激活那张宽卡
+   同时回答「这个人是谁」与「这份人格里有什么卡」——切换与内容是同一个视线的
+   两半，不用再在页面两处之间来回看。
+
+   形态只在**有卡片区时**才变（:has 兜底）：组件可能还没挂 profileFull 类，
+   而「激活卡肚子里真有卡片区」才是真正需要额外高度的条件。434px 只够放身份
+   信息，卡片列表会被裁成半行；560px 是「四格铭牌 + 卡片区露三四行」的实测值。 */
+/* 有卡片区时整排要更高：560px 只够「身份信息 + 卡片区露一两行」（实测截图里
+   卡片列表被压到只剩一张半，用户得在小窗口里滚）。卡片区是这个页面的内容主体，
+   它必须能一眼看到三张以上 —— 实测 680px 是「铭牌 + 三张卡 + 底部动作行」的值。 */
+.dsh-soul-profile-full,
+.dsh-soul-profile-gallery:has(.dsh-soul-profile-cards){width:100%;min-width:0}
+.dsh-soul-profile-full .dsh-soul-profile-rail,
+.dsh-soul-profile-gallery:has(.dsh-soul-profile-cards) .dsh-soul-profile-rail{height:680px}
+
+/* 宽卡内的卡片区：**复用** .dsh-soul-card-row 系列外观，这里只负责装它的盒子
+   （标题行 + 限高滚动），不另造一套卡片长相——两套卡片外观等于让用户学两遍。
+   限高放在 body 而不是整个区：标题行与提示要常驻，滚走的只有卡片列表本身。 */
+/* 卡片区高度：flex 分配 + **min-height 保底**。
+   只靠 flex:1 会被上面的头像/名字/铭牌挤到很矮（实测只剩一张半卡片的高度，
+   用户以为「我的卡丢了」）。min-height 保证至少露出两张卡的高度，
+   再多由 max-height 限住、内部滚动。 */
+.dsh-soul-profile-cards{flex:1 1 auto;display:flex;flex-direction:column;gap:7px;min-width:0;min-height:180px;width:100%;margin-top:12px;padding-top:12px;border-top:1px solid var(--s-border)}
+/* 有卡片区时铭牌不再吃 margin-top:auto：剩余空间让给卡片列表（列表因此能长到
+   宽卡底部、在内部滚动）。没有卡片区时保持既有形态——铭牌贴底。 */
+.dsh-soul-profile-card-active:has(.dsh-soul-profile-cards) .dsh-soul-profile-plates{margin-top:14px}
+.dsh-soul-profile-cards-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.dsh-soul-profile-cards-title{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;line-height:19px;color:var(--s-text);white-space:nowrap}
+.dsh-soul-profile-cards-title svg{color:var(--s-primary)}
+.dsh-soul-profile-cards-hint{font-size:11px;line-height:16px;color:var(--s-text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-soul-profile-cards-body{flex:1 1 auto;min-height:0;max-height:260px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
+/* 卡片区若直接嵌的是卡片区组件（带自己那层 section 壳），剥掉它的壳：
+   宽卡已经是「卡」，卡里再套一张同款描边卡就是双层边框（与右列预览区
+   剥壳同款处理）。只剥壳，里面的 .dsh-soul-card-row 外观原样复用。 */
+.dsh-soul-profile-cards .dsh-soul-card{background:transparent;border:none;box-shadow:none;padding:0;gap:6px}
+.dsh-soul-profile-cards .dsh-soul-card-hint{display:none}
+.dsh-soul-profile-cards-empty{padding:10px 2px;font-size:11.5px;line-height:17px;color:var(--s-text-3)}
+
+/* 只读预览（未激活角色 / 预设）：单行「标题 + 字数」，无开关无按钮。
+   视觉上必须是「预览」不是「可操作」——所以不给卡片描边、不给色块，只留小字号
+   灰字；可编辑的卡片行有边框、有开关、有 hover 提亮，两者一眼分得开。
+   （未激活角色本来也改不了：卡片接口读写的永远是生效层。） */
+.dsh-soul-profile-preview{display:flex;flex-direction:column;gap:1px;margin-top:12px;padding-top:10px;border-top:1px solid var(--s-border);min-width:0;min-height:0;max-height:168px;overflow-y:auto;overscroll-behavior:contain}
+.dsh-soul-profile-preview-item{display:flex;align-items:baseline;gap:10px;min-width:0;padding:4px 8px;border-radius:7px;font-size:11.5px;line-height:17px;color:var(--s-text-3);transition:background .18s ease,color .18s ease,transform .18s var(--s-gallery-ease)}
+.dsh-soul-profile-preview-item>span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 第二个 span 才是「字数」；只有一个 span 时不抢走标题的 flex:1 */
+.dsh-soul-profile-preview-item>span:last-child:not(:first-child){flex:none;font-variant-numeric:tabular-nums;opacity:.72}
+.dsh-soul-profile-preview-item:hover{background:var(--s-hover);color:var(--s-text-2);transform:translateX(2px)}
+.dsh-soul-profile-preview-more{padding:3px 8px;font-size:11px;line-height:16px;color:var(--s-text-3);text-align:right}
+
+/* 来源徽标（主档 / 档案 / 预设）：三种来源的**动作语义不同**，长相也得不同。
+   预设点一下是「套用这套现成卡片」，不是「切换人格」——所以它的徽标走虚线，
+   与实线的「使用中 / 点击切换」区分开。虚线在本面板是一贯语义
+   （.dsh-soul-card-row-off 的「不参与注入」、.dsh-soul-profile-add 的「空槽」）。 */
+.dsh-soul-profile-source{flex:none;font-size:10.5px;line-height:16px;border-radius:999px;padding:3px 10px;border:1px solid var(--s-border);color:var(--s-text-3);background:var(--s-layer);letter-spacing:.02em;white-space:nowrap;transition:border-color .2s ease,color .2s ease}
+.dsh-soul-profile-source-preset{border-style:dashed;border-color:var(--s-border-3);color:var(--s-text-2);background:transparent}
+
+/* 宽卡底部动作行（启用 / 替换 / 合并 / 存为预设）：与 .dsh-soul-profile-foot 同源，
+   但只装按钮、不带时间戳，所以更紧更小——它在卡片最下方，是「看完内容再动手」的
+   地方，不该跟正文抢高度。 */
+.dsh-soul-profile-actions-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 9px;margin-top:10px;padding-top:11px;border-top:1px solid var(--s-border);min-width:0}
+.dsh-soul-profile-actions-row .dsh-soul-btn{height:28px;padding:0 11px;font-size:11.5px;border-radius:8px}
+.dsh-soul-profile-actions-row .dsh-soul-btn-icon{width:28px;padding:0}
 
 /* ── 蒸馏草案（位移 + 淡入落位） ──────────────────────────────────── */
 .dsh-soul-draft{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid color-mix(in srgb,var(--s-primary) 45%,transparent);border-radius:12px;background:var(--s-layer);box-sizing:border-box;box-shadow:0 4px 18px color-mix(in srgb,var(--s-primary) 12%,transparent);animation:dsh-soul-draft-in .26s cubic-bezier(.2,.8,.2,1) backwards}
@@ -1021,6 +1261,51 @@ body[data-ds-dark-theme] .dsh-soul-toggle-row{--s-card-bg:var(--dsw-static-neutr
 @container soulpanel (max-width: 900px){
   .dsh-soul-work{display:flex;flex-direction:column;gap:14px;min-height:0}
   .dsh-soul-presets-top,.dsh-soul-pane{overflow:visible;min-height:0}
+  /* 角色画廊在窄面板下**保持横滑**，不改单列堆叠：单列会把 5 张卡排成 5 行、
+     整块涨到 2200px 高，而这块本来就挂在整页滚动里，用户得翻过一整屏才看到下面
+     的卡片区。横滑保留「一排人」的形态语义，激活卡在窄屏只吃到 320px（够放
+     四格铭牌），其余窄条照样可点；宽度伸缩转场继续成立。
+     高度只在下面「窄屏：卡片区不内部滚动」那条里改（height:auto + min-height），
+     这里不再钉死 400px —— 宽卡肚子里多了卡片区，固定高会把内容裁掉。 */
+  .dsh-soul-profile-rail{gap:10px}
+  .dsh-soul-profile-card-active,.dsh-soul-profile-card-active:hover{flex-basis:320px}
+  .dsh-soul-profile-card,.dsh-soul-profile-add{flex-basis:56px;width:56px}
+  .dsh-soul-profile-add-form{width:230px}
+  .dsh-soul-profile-body{padding:22px 20px 18px}
+  /* 徽标行仍要给左上角的头像让位（20px 左距 + 48px 头像 + 12px 间隙），
+     只是留白比宽态小；min-height 跟着头像高度走，不再钉 56px。 */
+  .dsh-soul-profile-badges{margin-left:80px;min-height:48px}
+  .dsh-soul-profile-avatar{top:14px}
+  .dsh-soul-profile-card-active .dsh-soul-profile-avatar{left:20px;top:18px;width:48px;height:48px;border-radius:15px}
+  .dsh-soul-profile-name-big{font-size:23px;margin-top:10px}
+  .dsh-soul-profile-quote{margin-top:10px}
+  .dsh-soul-profile-plates{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:10px}
+  /* 窄屏宽卡只有 320px：键盘提示（← → 切换）与「编辑定位」并排会把底部行挤爆，
+     提示本身在窄屏也用不上（触屏），直接收掉。 */
+  .dsh-soul-profile-kbd{display:none}
+  /* ── 窄屏：卡片区不内部滚动，整块跟随页面高度 ──────────────────────
+     320px 宽的卡里再套一个 260px 高的滚动区，等于给「一张卡」叠两层滚动，
+     触屏上手指滑哪一层都别扭；窄屏本来就整页滚动（见本块开头），让内容长开、
+     滚动只发生一次。
+
+     但「长开」有个前提：卡片高度得由内容决定。宽卡的 body 在宽屏是
+     position:absolute + inset:0（两态对齐靠它），绝对定位不撑高父级——所以
+     这里必须把**激活卡**的 body 改回文档流，卡片才会被内容顶高，rail 的
+     height:auto 才成立。只改激活卡：非激活卡的 body 保持绝对定位（它本来就
+     opacity:0 不可见），否则所有窄条都会被撑成宽卡那么高，一排竖条全散架。
+     （本表是模板字符串，注释里不能出现反引号——会提前闭合字符串。） */
+  .dsh-soul-profile-card-active .dsh-soul-profile-body{position:relative;inset:auto}
+  /* 宽卡的 body 一旦回到文档流，左下角的竖排名字容器（absolute，bottom:20px）
+     会改以「文档流高度」定位，宽卡上浮到 rail 顶部、窄条则贴底——实测一排
+     卡的名字基线参差。激活卡的竖排名字本来就 opacity:0（见上面那条），
+     这里直接摘掉，别让它参与定位。 */
+  .dsh-soul-profile-card-active .dsh-soul-profile-vname{display:none}
+  .dsh-soul-profile-cards-body{max-height:none;overflow:visible}
+  .dsh-soul-profile-cards-hint{display:none}
+  .dsh-soul-profile-preview{max-height:none;overflow:visible}
+  .dsh-soul-profile-rail,
+  .dsh-soul-profile-full .dsh-soul-profile-rail,
+  .dsh-soul-profile-gallery:has(.dsh-soul-profile-cards) .dsh-soul-profile-rail{height:auto;min-height:400px}
 }
 /* ── 右栏（预设）在半宽下的降级 ──────────────────────────────────────
    预设区现在横宽铺满顶部：4~6 条预设排成多列网格，比原来一列纵向排省一半高度。
@@ -1057,6 +1342,10 @@ body[data-ds-dark-theme] .dsh-soul-toggle-row{--s-card-bg:var(--dsw-static-neutr
   .dsh-soul-work{display:flex;flex-direction:column}
   .dsh-soul-presets-top,.dsh-soul-pane{overflow:visible}
   .dsh-soul-preset-list{grid-template-columns:minmax(0,1fr)}
+  /* 卡片区的「不内部滚动」在容器查询里已写一份；这里给没有容器查询的宿主
+     同一套降级，否则老 WebView 下会落回「宽卡内再套一层 260px 滚动区」。 */
+  .dsh-soul-profile-cards-body{max-height:none;overflow:visible}
+  .dsh-soul-profile-cards-hint{display:none}
 }
 @media (max-width: 720px){
   .dsh-soul-field-row{grid-template-columns:minmax(0,1fr)}
@@ -1071,22 +1360,28 @@ body[data-ds-dark-theme] .dsh-soul-toggle-row{--s-card-bg:var(--dsw-static-neutr
 @media (prefers-reduced-motion:reduce){
   .dsh-soul-whale-body,.dsh-soul-whale:hover .dsh-soul-whale-body{animation:none}
   .dsh-soul-whale-sweep,.dsh-soul-whale-glow{animation:none;display:none}
-  .dsh-soul-root>*,.dsh-soul-draft,.dsh-soul-profile-row-in,.dsh-soul-profile-new-row{animation:none}
+  .dsh-soul-root>*,.dsh-soul-draft,.dsh-soul-profile-card-in{animation:none}
   .dsh-soul-presets-top,.dsh-soul-pane,.dsh-soul-preview{animation:none}
   .dsh-soul-spin,.dsh-soul-check,.dsh-soul-btn-done{animation:none}
   .dsh-soul-skeleton-row{animation:none}
   .dsh-soul-state-dirty .dsh-soul-state-dot{animation:none}
-  .dsh-soul-card-row-in,.dsh-soul-card-row-landed,.dsh-soul-preset-row-in,.dsh-soul-new-card,.dsh-soul-card-row-drop::before{animation:none}
+  .dsh-soul-card-row-in,.dsh-soul-card-row-landed,.dsh-soul-preset-row-in,.dsh-soul-new-card,.dsh-soul-card-row-drop::before,.dsh-soul-profile-card-in{animation:none}
   .dsh-soul-deck-card-on,.dsh-soul-deck-card-busy::after,.dsh-soul-persona-avatar-img,.dsh-soul-banner-main{animation:none}
   .dsh-soul-card-row-leaving{transform:none}
-  .dsh-soul-btn,.dsh-soul-profile-row,.dsh-soul-notice,.dsh-soul-input,.dsh-soul-textarea,.dsh-soul-tab,.dsh-soul-switch,.dsh-soul-switch::after,
+  .dsh-soul-btn,.dsh-soul-notice,.dsh-soul-input,.dsh-soul-textarea,.dsh-soul-tab,.dsh-soul-switch,.dsh-soul-switch::after,
   .dsh-soul-card-row,.dsh-soul-card-row::after,.dsh-soul-card-editor,.dsh-soul-card-editor-inner,.dsh-soul-caret,
   .dsh-soul-card-grips,.dsh-soul-card-row-actions,.dsh-soul-state,
   .dsh-soul-preset-row,.dsh-soul-preset-actions,.dsh-soul-preset-form,.dsh-soul-preset-form-inner,.dsh-soul-kind-chip,.dsh-soul-card-kind,
   .dsh-soul-deck-card,.dsh-soul-deck-face,.dsh-soul-deck-delete,.dsh-soul-persona-avatar,.dsh-soul-persona-avatar-edit,
   .dsh-soul-banner-bg,.dsh-soul-advanced,.dsh-soul-advanced-inner,.dsh-soul-advanced-head,.dsh-soul-advanced-caret,
   .dsh-soul-nav-item,.dsh-soul-quick-card,.dsh-soul-chip-btn,.dsh-soul-hero-card-avatar,.dsh-soul-me-avatar,
-  .dsh-soul-mode-btn,.dsh-soul-rule-item,.dsh-soul-rule-del{transition:none}
+  .dsh-soul-mode-btn,.dsh-soul-rule-item,.dsh-soul-rule-del,
+  /* 角色画廊：宽度伸缩、头像位移、信息区淡入、进度条全部瞬时到位 */
+  .dsh-soul-profile-card,.dsh-soul-profile-card::after,.dsh-soul-profile-avatar,.dsh-soul-profile-initial,
+  .dsh-soul-profile-vname,.dsh-soul-profile-vname-text,.dsh-soul-profile-body,.dsh-soul-profile-bar-fill,
+  .dsh-soul-profile-del,.dsh-soul-profile-dot,.dsh-soul-profile-add,.dsh-soul-profile-add-plus,
+  /* 统摄式画廊新增：来源徽标与只读预览行的过渡（宽度伸缩本身由上面那条覆盖） */
+  .dsh-soul-profile-source,.dsh-soul-profile-preview-item{transition:none}
 }
 `
 

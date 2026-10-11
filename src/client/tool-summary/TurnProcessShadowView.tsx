@@ -36,6 +36,40 @@ export let latestChatSnapshot: any = null
  * 于是上一会话的快照被一直沿用、右侧大盘显示的是上一次对话的内容。
  */
 export let latestChatSessionId: string | null = null
+/**
+ * 当前这份快照**属于哪个会话**。
+ *
+ * 这是「新会话还显示上一会话任务概览」的正解所在。快照对象自身不带会话
+ * 身份，而发布路径有两条，其中一条会跨会话误发：
+ *
+ *   KrTodoBridge 的 `useEffect(..., [snap, sessionId])` —— 切会话时它重新
+ *   触发，把手上那份**仍属于上一会话**的 snap 以**新会话 id** 再发布一次。
+ *   于是 latestChatSnapshot 里躺着旧会话的内容，而 latestChatSessionId 已是
+ *   新会话；面板的 `collectLatestSessionTasks(snap)` 就从上个会话的节点里抽出
+ *   任务清单，右栏「任务概览」显示上一轮对话的清单。
+ *
+ *   之所以是**持久**误显示而非一闪而过：新会话还没有 assistant-step，没有第二个
+ *   发布者来覆盖它，错误快照会一直留到新会话首次产出节点为止。
+ *
+ * 所以给快照记上 owner：消费者只认「owner === 当前会话」的快照，跨会话一律
+ * 视为无快照（回退到干净空态）。null 表示来源未声明归属（如截图/思考视图的
+ * 无参发布），此时按「不限制」处理，避免把既有路径一刀切坏。
+ */
+let latestChatSnapshotOwner: string | null = null
+
+/**
+ * 读取当前快照，**仅在它属于当前会话时**返回，否则返回 null。
+ *
+ * 消费方一律走这个函数而不是直接读 `latestChatSnapshot` / window 镜像——
+ * 后者不知道快照归属，跨会话时会拿到上一个会话的内容。
+ */
+export function getCurrentChatSnapshot(): any {
+  if (latestChatSnapshot === null || latestChatSnapshot === undefined) return null
+  // owner 未声明（无参发布路径）时不做归属校验，保持既有行为。
+  if (latestChatSnapshotOwner === null) return latestChatSnapshot
+  if (latestChatSessionId === null) return null
+  return latestChatSnapshotOwner === latestChatSessionId ? latestChatSnapshot : null
+}
 const snapshotListeners = new Set<() => void>()
 let currentSessionKey: string | null = null
 let notifyScheduled = false
@@ -76,6 +110,41 @@ function resetSessionCaches(): void {
 }
 
 /**
+ * 「离开当前会话」的统一清空口：注销会话身份 + 丢弃快照 + 清掉三类缓存。
+ *
+ * 给「点侧边栏『新会话』」这类**主动离开**的路径用。那些路径原本只调
+ * clearLatestChatSnapshot()，于是 liveTodos（模块级全局）与 activityStore 的
+ * 上一会话残留都留着 —— 新会话第一帧仍会读到旧的任务清单。
+ *
+ * 与 setLatestChatSessionId(null) 的差别：这里不依赖「id 必须变化」。
+ * setLatestChatSessionId 首行是 `if (id === latestChatSessionId) return`，
+ * 若身份本就是 null（或重复离开），它会提前返回、跳过全部清理 —— 主动离开
+ * 的语义是「无论如何都要清干净」，不能受这个幂等短路影响。
+ */
+export function leaveCurrentChatSession(): void {
+  latestChatSessionId = null
+  if (typeof window !== 'undefined') {
+    (window as any).__dshLatestChatSessionId__ = null
+  }
+  /*
+   * 与 setLatestChatSessionId 同口径：清内容、**保留 owner**。
+   *
+   * 主动离开同样会紧跟着来一次「手上那份旧快照以新身份发布」的误发
+   * （离开会话 → 新会话座位挂载 → effect 用旧 snap 再发一次）。保留 owner
+   * 才能让 setLatestChatSnapshot 的归属判定认出它并丢弃。
+   *
+   * 这里不再调 clearLatestChatSnapshot()：那个口是给「显式丢弃快照」用的，
+   * 会连 owner 一起清掉，正好破坏上面这条防线。
+   */
+  latestChatSnapshot = null
+  if (typeof window !== 'undefined') {
+    (window as any).__dshLatestChatSnapshot__ = null
+  }
+  resetSessionCaches()
+  scheduleNotify()
+}
+
+/**
  * 登记（或切换）当前会话身份。id 变化即视为「新建 / 切换 / 离开会话」：
  * 立刻丢弃旧快照并清掉缓存，右侧大盘不得复用上一会话的数据。
  *
@@ -94,14 +163,28 @@ export function setLatestChatSessionId(id: string | null): void {
     // 诊断镜像：控制台可直接查当前已登记的会话 id。
     (window as any).__dshLatestChatSessionId__ = id
   }
-  clearLatestChatSnapshot()
+  /*
+   * 清空快照内容，但**刻意保留 owner**（与 clearLatestChatSnapshot 不同）。
+   *
+   * owner 是识别「跨会话误发」的唯一依据：切会话后 KrTodoBridge 的 effect 会
+   * 用手里那份仍属于**上一会话**的 snap 以新 id 再发一次（见 setLatestChatSnapshot
+   * 的归属判定）。若这里把 owner 也清成 null，那条判定会以为「来源未声明归属」
+   * 而放行，旧内容重新写回 —— 清空等于白做（实测场景 1 就是这么失败的）。
+   *
+   * 保留 owner 后，紧随其后的误发会被认出来（owner=A、当前=B）并丢弃。
+   */
+  latestChatSnapshot = null
+  if (typeof window !== 'undefined') {
+    (window as any).__dshLatestChatSnapshot__ = null
+  }
   resetSessionCaches()
   scheduleNotify()
 }
 
-/** 显式清空快照（不改会话身份）。 */
+/** 显式清空快照（不改会话身份）。归属一并清掉，避免残留 owner 指向已丢弃的快照。 */
 export function clearLatestChatSnapshot(): void {
   latestChatSnapshot = null
+  latestChatSnapshotOwner = null
   if (typeof window !== 'undefined') {
     (window as any).__dshLatestChatSnapshot__ = null
   }
@@ -114,6 +197,24 @@ if (typeof window !== 'undefined') {
 }
 
 export function setLatestChatSnapshot(snapshot: any, sessionId?: string | null): void {
+  /*
+   * 归属语义（两次踩坑后的定论，别再改）：
+   *
+   * **误发只能由发布点识别**（kr-todo-bridge 比对数据引用是否换过）。这里做不到：
+   * 「旧数据贴新 id」与「新会话自己的第一份数据」在形状上完全相同，任何基于
+   * 形状的拒绝都会把合法发布一起拒掉（实测：新会话永远空白）。
+   *
+   * 所以这里只做**廉价兜底**：owner 标记「这份内容是从哪个会话来的」，且**只在
+   * owner 尚未确立时写入**。它能防的是「身份切了但数据没清干净」的残留；误发
+   * 由发布点负责。
+   *
+   * 为什么 owner 不能每次覆写成当前身份：那样读取校验会被自我满足（owner 恒等于
+   * 当前会话），形同虚设 —— 变异测试里「去掉读取口校验」能逃逸就是这个原因。
+   *
+   * 为什么 owner 会在身份切换时被清成 null：数据同时被清空了（见
+   * setLatestChatSessionId），owner 随之失效才自洽；新会话的第一份数据到达时
+   * owner 为 null，于是被正确标记为新会话。
+   */
   // 会话身份优先走显式参数。座位先登记 id、节点视图随后发布快照；
   // 若节点视图先于座位 effect 到达，这里就地采纳该 id（避免空面板）。
   if (sessionId !== undefined && sessionId !== null && sessionId !== latestChatSessionId) {
@@ -121,6 +222,24 @@ export function setLatestChatSnapshot(snapshot: any, sessionId?: string | null):
   }
 
   latestChatSnapshot = snapshot
+  /*
+   * owner 记「发布这一刻的身份」，**每次覆写**。
+   *
+   * 三种状态里有一种天然无法区分：「新会话自己的第一份数据」与「没清干净的旧
+   * 残留」形状完全相同（都是 owner=旧会话、当前=新会话）。所以 owner 不能承担
+   * 「拒绝跨会话」的职责 —— 那样会把新会话自己的第一份数据一起拒掉，表现为
+   * 新会话永远空白（比原 bug 更严重）。
+   *
+   * 分工：
+   *   · **跨会话误发的识别归发布点**（kr-todo-bridge 比对数据引用是否换过）。
+   *     这是主防线，也是唯一能区分两者的信号。
+   *   · owner 只做廉价兜底：标记「这份内容属于谁」，让读取口能挡住
+   *     「身份已是 null（离开会话）却还在读」这类情况。
+   *
+   * 曾经试过「只在 owner 为 null 时写入」以求兜住残留，结果误杀合法发布
+   * （实测：新会话的数据读不出来）。别再改回去。
+   */
+  latestChatSnapshotOwner = latestChatSessionId
   if (typeof window !== 'undefined') {
     (window as any).__dshLatestChatSnapshot__ = snapshot
   }

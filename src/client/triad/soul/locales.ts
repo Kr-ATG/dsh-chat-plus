@@ -61,7 +61,9 @@ export const zh = {
   soulVersion: 'v{n}',
 
   soulProfiles: '灵魂档案',
-  soulProfilesHint: '一份档案 = 一套人格。主档是 soul.md 本体，档案可随时切换。',
+  // 画廊统一入口后，「怎么用画廊」只由 soulGalleryHint 讲；这里退成「档案是什么」，
+  // 免得面板里出现两套入口说法，也免得把「档案/预设」写成并列关系（用户明确反对）。
+  soulProfilesHint: '档案是你自建的人格，卡片独立、随时切换。',
   soulProfileNew: '新建档案',
   soulProfileNamePlaceholder: '档案名（如：工作 / 写作）',
   soulProfileCreate: '创建',
@@ -74,6 +76,45 @@ export const zh = {
   soulProfileNameRequired: '档案名不能为空',
   soulProfileEmpty: '还没有备用人格',
   soulProfileSwitchFailed: '切换档案失败：{reason}',
+
+  // ── 角色画廊（2026-10-07）：卡片徽标与键盘提示。
+  // 卡上的字段标签（一句定位 / 小标签）、头像动作、启用按钮、更新时间全部复用既有 key：
+  // 同一个语义只留一处文案，否则面板里会出现两套说法。
+  soulProfileClickSwitch: '点击切换',
+  soulProfileSwitching: '切换中…',
+  soulProfileDescLabel: '一句定位',
+  soulProfileDescPlaceholder: '例如：均衡的助手',
+  soulProfileTagLabel: '小标签',
+  soulProfileTagPlaceholder: '例如：MOOD',
+  soulProfileKeyHint: '← → 切换',
+  soulProfileEditMeta: '编辑定位',
+  soulProfileLimit: '角色数量已达上限',
+  soulProfileCardsPlate: '{on} / {total} 启用中',
+  soulProfileMetaSaveFailed: '保存角色卡信息失败：{reason}',
+  soulProfileAvatarFailed: '角色头像操作失败：{reason}',
+  // 主档在**非激活**时，host 回包只描述「当前生效的那份人格」，主档自己的名字/
+  // 语气/定位无从得知（见 SoulPanel roles 的注释）。此时如实说「切过来才看得到」，
+  // 而不是照抄别人的身份——那会让画廊里出现两张同名卡。
+  soulProfileDetailHidden: '主档详情：切换过来即显示',
+
+  // ── 统摄式角色画廊（2026-10-07）：画廊吸收原「卡片区 / 预设区」两块，
+  // 全页只剩这一个入口，所以这里不再提「卡片」「预设」各自成区，只讲角色。
+  // 卡有两种来源、两种点击结果，必须说清：档案 = 换人，预设 = 不换人只换卡片。
+  soulGalleryTitle: '角色',
+  soulGalleryHint: '一排角色，点一下就换人。展开的那张就是当前生效的人设。',
+  soulRoleSourceBase: '主档',
+  soulRoleSourceProfile: '档案',
+  soulRoleSourcePreset: '预设',
+  soulRoleEnable: '启用这个角色',
+  soulRoleCardsTitle: '这份人格的卡片',
+  soulRoleCardsHint: '逐张开关，关掉的卡保留但不注入。',
+  soulRoleCardsReadonly: '启用后即可编辑这份人格的卡片',
+  soulRoleCardsEmpty: '这份人格还没有卡片',
+  soulRolePreviewMore: '还有 {n} 张',
+  // 「点一下」的结果说「套进当前人格」而不是「换掉人设」：预设走的是
+  // applyPreset，router 缺省 mode=merge，档案不动、只把卡片并进来。
+  soulRolePresetHint: '预设是一套现成卡片，点一下套进当前人格，不换人。',
+  soulRoleNewTitle: '新建角色',
 
   // ── 角色卡形态（2026-10-07）：左列身份区 + 档案卡组 + 说明横幅 ──
   soulCardDeck: '人格',
@@ -201,6 +242,9 @@ export const zh = {
   soulCardsSaveFailed: '卡片保存失败：{reason}',
   soulPresetApplyFailed: '应用预设失败：{reason}',
   soulPresetSaveFailed: '保存预设失败：{reason}',
+  // 「存为预设」成功后的提示：预设并进画廊后表单落在画廊末尾，用户点完需要一句
+  // 回执告诉他存下来了（与 soulPresetApplied「已应用」区分：那是套用、这是保存）。
+  soulPresetSaved: '已存为预设「{name}」',
   soulPresetDeleteFailed: '删除预设失败：{reason}',
   soulWhaleLabel: 'DSH 鲸鱼',
 
@@ -298,7 +342,9 @@ export const en = {
   soulVersion: 'v{n}',
 
   soulProfiles: 'Soul profiles',
-  soulProfilesHint: 'One profile = one persona. The main profile is soul.md itself; profiles switch at any time.',
+  // The gallery is the single entry point now, so "how to use it" lives only in
+  // soulGalleryHint; this one drops back to "what a profile is".
+  soulProfilesHint: 'Profiles are personas you build yourself — separate cards, switchable any time.',
   soulProfileNew: 'New profile',
   soulProfileNamePlaceholder: 'Profile name (e.g. work / writing)',
   soulProfileCreate: 'Create',
@@ -311,6 +357,42 @@ export const en = {
   soulProfileNameRequired: 'Profile name is required',
   soulProfileEmpty: 'No alternate personas yet',
   soulProfileSwitchFailed: 'Failed to switch profile: {reason}',
+
+  // ── Role gallery (2026-10-07): card badges and keyboard hint.
+  // Field labels (one-line role / tag), avatar actions, the activate button and the
+  // updated-at stamp all reuse existing keys — one wording per meaning.
+  soulProfileClickSwitch: 'Click to switch',
+  soulProfileSwitching: 'Switching…',
+  soulProfileDescLabel: 'One-line summary',
+  soulProfileDescPlaceholder: 'e.g. A balanced assistant',
+  soulProfileTagLabel: 'Short tag',
+  soulProfileTagPlaceholder: 'e.g. MOOD',
+  soulProfileKeyHint: '← → to switch',
+  soulProfileEditMeta: 'Edit summary',
+  soulProfileLimit: 'Persona limit reached',
+  soulProfileCardsPlate: '{on} / {total} live',
+  soulProfileMetaSaveFailed: 'Failed to save persona card: {reason}',
+  soulProfileAvatarFailed: 'Persona avatar failed: {reason}',
+  soulProfileDetailHidden: 'Main profile details appear once it is active',
+
+  // ── One gallery over the whole page (2026-10-07): it absorbs the old card and
+  // preset sections, so the wording never treats "cards" or "presets" as sections.
+  // Two card sources, two outcomes — profiles switch persona, presets do not.
+  soulGalleryTitle: 'Roles',
+  soulGalleryHint: 'A row of roles — click one to switch. The expanded card is the persona in effect.',
+  soulRoleSourceBase: 'Main',
+  soulRoleSourceProfile: 'Profile',
+  soulRoleSourcePreset: 'Preset',
+  soulRoleEnable: 'Make this role active',
+  soulRoleCardsTitle: "This persona's cards",
+  soulRoleCardsHint: 'Toggle each card; disabled ones stay but are not injected.',
+  soulRoleCardsReadonly: 'Activate this role to edit its cards',
+  soulRoleCardsEmpty: 'This persona has no cards yet',
+  soulRolePreviewMore: '{n} more',
+  // Says "drops into" rather than "replaces": presets go through applyPreset,
+  // which defaults to merge — the active profile stays, only its cards change.
+  soulRolePresetHint: 'A preset is a ready-made card set — one click drops it into the current persona, no switch.',
+  soulRoleNewTitle: 'New role',
 
   // ── Character-card layout (2026-10-07) ──
   soulCardDeck: 'Personas',
@@ -438,6 +520,7 @@ export const en = {
   soulCardsSaveFailed: 'Failed to save card: {reason}',
   soulPresetApplyFailed: 'Failed to apply preset: {reason}',
   soulPresetSaveFailed: 'Failed to save preset: {reason}',
+  soulPresetSaved: 'Saved as preset "{name}"',
   soulPresetDeleteFailed: 'Failed to delete preset: {reason}',
   soulWhaleLabel: 'DSH whale',
 
@@ -465,6 +548,7 @@ export const en = {
   soulUserPreferencesHint: 'Tell the assistant your background or preferences to personalize collaboration',
   soulActivePersonaBadge: 'Active',
   soulDeckTitle: 'Personas',
+  soulDeckSub: 'Create several independent personas and switch between them in one click',
   soulPromptTitle: 'Assistant Persona & Instructions',
   soulPromptSub: 'Describe the AI personality, habits and tone in plain natural language',
   soulPromptPlaceholder: 'E.g. You are a professional, rigorous and patient AI partner.\nBe concise and direct, prioritize runnable code solutions.\nBreak down complex questions step-by-step; admit uncertainties frankly.',
