@@ -206,6 +206,38 @@ export interface InjectStateView {
    * 什么都没做，看到开关自己跳了一下。
    */
   todoClosureEnabled?: boolean
+  /**
+   * Agent 邮箱（dsh-mail）能力声明是否**真正生效**。
+   *
+   * 这是唯一一条跨插件的通道：它由 dsh-mail 模块的注入器承载，闸门是
+   * `mail.enabled && mail.injectEnabled`。所以这里回传的是**实际生效值**，
+   * 而不是用户在某个界面上的意图——两者在历史上曾经不一致：邮箱工作台总开关
+   * （`mail.enabled`）是启动期装配开关，用户在面板上关掉它之后，邮箱设置页里
+   * 「对话里自动声明邮箱能力」仍然显示成开，而注入一次都没跑过。
+   *
+   * 旧 host 不回该字段 → undefined：不显示这一行（那版 host 没有这个跨模块
+   * 的回传），绝不猜一个值出来。
+   */
+  mailEnabled?: boolean
+  /**
+   * 邮箱是否已授权（能真的收发）。
+   *
+   * 未授权时注入会静默跳过（把「你有邮箱」说成假的比不说更糟），所以这一行
+   * 要能把「开关开着但没授权」讲清楚，而不是让用户对着一个开着却无作用的
+   * 开关发呆。undefined = 旧 host 没回该字段。
+   */
+  mailAuthorized?: boolean
+  /** 本 Agent 的邮箱地址（未授权/未探测到时为 null）。 */
+  mailAddress?: string | null
+  /**
+   * 邮箱模块是否挂上了（false/undefined = 该 host 没有这个跨模块回传）。
+   *
+   * 与 mailEnabled 分开：`mailEnabled:false` 可能是「模块在、但开关关着」，
+   * 也可能是「模块根本没挂」；前者该显示一个能拨的开关，后者该显示「不可用」。
+   */
+  mailAvailable?: boolean
+  /** 邮箱工作台总开关；关着时上面那条必然也是 false。 */
+  mailWorkbenchEnabled?: boolean
 }
 
 /**
@@ -219,6 +251,36 @@ export interface ZhInjectStateView {
   /** 中文偏好记忆是否独立注入。 */
   enabled: boolean
   /** 恒为 true：该能力内置于插件，无卸载入口。旧 host 缺字段时按 true 兜底。 */
+  builtin?: boolean
+}
+
+/**
+ * Agent 邮箱能力声明的开关状态（跨插件，全局单值）。
+ *
+ * 比 ZhInjectStateView 多带工作台与授权状态：这条通道的闸门是两道
+ * （`mail.enabled && mail.injectEnabled`），只回一个 `enabled` 的话，用户看到
+ * 开关是关的也无从知道该去动哪个——总开关关着时点这一行应该能把工作台打开。
+ */
+export interface MailInjectStateView {
+  /** 声明是否**真正生效**（两道闸门都开）。 */
+  enabled: boolean
+  /**
+   * 邮箱模块是否挂上了。
+   *
+   * false = 该 host 没有这个跨模块回传（旧版），或邮箱模块装配失败。
+   * 与 enabled 分开：enabled:false 可能是「模块在、但开关关着」（该显示一个
+   * 能拨的开关），也可能是「模块根本没挂」（该显示「不可用」）。
+   */
+  available?: boolean
+  /** 邮箱工作台总开关（`mail.enabled`）。 */
+  workbenchEnabled: boolean
+  /** 声明开关（`mail.injectEnabled`）。 */
+  injectEnabled?: boolean
+  /** 邮箱是否已授权（未授权时注入静默跳过）。 */
+  authorized: boolean
+  /** 本 Agent 的邮箱地址（未探测到时 null）。 */
+  address: string | null
+  /** 恒为 true：能力内置于插件，无卸载入口。 */
   builtin?: boolean
 }
 
@@ -374,6 +436,17 @@ export interface MemoryApi {
    */
   getTodoClosureState: () => Promise<ZhInjectStateView>
   setTodoClosureState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
+  /**
+   * Agent 邮箱能力声明的开关（跨插件：写的是 dsh-mail 的 `mail.injectEnabled`）。
+   *
+   * 与其它内置通道不同，这条通道的闸门有两道（`mail.enabled && mail.injectEnabled`），
+   * 所以写它只改第二道；总开关关着时 host 会回 `enabled:false` 与工作台状态，
+   * 由卡片给用户一个「去打开工作台」的动作，而不是让开关假装生效。
+   */
+  getMailInjectState: () => Promise<MailInjectStateView>
+  setMailInjectState: (enabled: boolean) => Promise<MailInjectStateView & { ok: boolean }>
+  /** 打开/关闭邮箱工作台总开关（跨插件：写的是 `mail.enabled`）。 */
+  setMailWorkbench: (enabled: boolean) => Promise<MailInjectStateView & { ok: boolean }>
   consolidate: (scope?: 'all' | 'global' | 'project', projectHash?: string) => Promise<{ ok: boolean; results: ConsolidateResultView[] }>
   revisions: () => Promise<{ revisions: RevisionView[] }>
   rollback: (revisionId: string) => Promise<{ ok: boolean }>
@@ -437,6 +510,9 @@ export function createMemoryApi(): MemoryApi {
     setTeamInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/team-inject-state', { enabled }),
     getTodoClosureState: () => getJson<ZhInjectStateView>('/todo-closure-state'),
     setTodoClosureState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/todo-closure-state', { enabled }),
+    getMailInjectState: () => getJson<MailInjectStateView>('/mail-inject-state'),
+    setMailInjectState: (enabled) => sendJson<MailInjectStateView & { ok: boolean }>('/mail-inject-state', { enabled }),
+    setMailWorkbench: (enabled) => sendJson<MailInjectStateView & { ok: boolean }>('/mail-inject-state', { workbench: enabled }),
     consolidate: (scope = 'all', projectHash) => sendJson<{ ok: boolean; results: ConsolidateResultView[] }>('/consolidate', { scope, projectHash }),
     revisions: () => getJson<{ revisions: RevisionView[] }>('/revisions'),
     rollback: (revisionId) => sendJson<{ ok: boolean }>('/rollback', { revisionId }),

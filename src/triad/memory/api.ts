@@ -12,6 +12,7 @@ import { compileAll } from './engine/compile.js'
 import { consolidateAll, consolidateScope } from './engine/consolidate.js'
 import { searchEntries } from './engine/retrieval.js'
 import { localDate, mergeTags, nowIso, projectHashOf, entryIdOf, summarize, type MemoryStore } from './engine/store.js'
+import { getMailStatusSource } from '../../mail/registry.js'
 
 /** Minimal service-shaped view of the webserver route register. */
 declare module '@deepseek-ai/cordis' {
@@ -271,7 +272,28 @@ async function handle(
       const teamEnabled = await store.isTeamInjectEnabled(config.teamInjectDefaultEnabled !== false)
       // 自动收口同理并进回包（同一理由：开关浮层一次 hover 要知道全部通道状态）。
       const todoClosureEnabled = await store.isTodoClosureEnabled(config.todoClosureDefaultEnabled !== false)
-      json(res, 200, { enabled: explicit ?? defaultEnabled, defaultEnabled, explicit, zhEnabled, htmlEnabled, soulEnabled, teamEnabled, todoClosureEnabled })
+      // Agent 邮箱（跨模块）也并进回包：卡片一 hover 就要显示它的状态，
+      // 另开一个 GET 等于把 composer 的轮询量翻倍（历史上打过一分钟 498 次）。
+      const mailSource = getMailStatusSource()
+      const mailSnapshot = mailSource === null ? null : mailSource.snapshot()
+      if (mailSource !== null) void mailSource.refresh().catch(() => undefined)
+      json(res, 200, {
+        enabled: explicit ?? defaultEnabled,
+        defaultEnabled,
+        explicit,
+        zhEnabled,
+        htmlEnabled,
+        soulEnabled,
+        teamEnabled,
+        todoClosureEnabled,
+        // mailEnabled 是**实际生效值**（两道闸门都开），不是用户意图——
+        // 旧 host 不回这几个字段时 client 不显示该行（见 client api 的注释）。
+        mailEnabled: mailSnapshot === null ? false : mailSnapshot.workbenchEnabled && mailSnapshot.injectEnabled,
+        mailAvailable: mailSnapshot !== null,
+        mailWorkbenchEnabled: mailSnapshot?.workbenchEnabled ?? false,
+        mailAuthorized: mailSnapshot?.authorized === true,
+        mailAddress: mailSnapshot?.address ?? null,
+      })
       return
     }
     if (method === 'POST' && rest === '/inject-state') {
@@ -350,6 +372,74 @@ async function handle(
       const enabled = body.enabled !== false
       await store.setTodoClosureEnabled(enabled)
       json(res, 200, { ok: true, enabled, builtin: true })
+      return
+    }
+
+    // ── Agent 邮箱能力声明的开关（跨模块：dsh-mail 的 mail.enabled / injectEnabled）──
+    //
+    // 这条通道由 dsh-mail 模块承载，状态也住在那边，本路由只是把它转出来给
+    // composer 那张卡片用（用户要求：不想每次都得进邮箱设置页去拨那个开关）。
+    //
+    // 回的是**实际生效值**而不是用户意图：`enabled` = 两道闸门都开。历史缺陷
+    // 正是这里脱节——邮箱设置页的「对话里自动声明邮箱能力」显示成开，而工作台
+    // 总开关关着，注入一次都没跑过（用户按着开着的开关，功能是哑的）。
+    // 所以这里把 workbenchEnabled 一并回传，卡片才能在开关是关的时候说清
+    // 「是哪个开关关的」，并给一个一键打开的动作。
+    if (method === 'GET' && rest === '/mail-inject-state') {
+      const source = getMailStatusSource()
+      if (source === null) {
+        // 邮箱模块没挂上（总开关从没开过 / 装配失败）：如实说「不可用」，
+        // 而不是回一个 enabled:false 让用户以为「关着、可以打开」。
+        json(res, 200, { available: false, enabled: false, workbenchEnabled: false, authorized: false, address: null })
+        return
+      }
+      // 顺带触发一次后台探测（10 分钟节流，卡片 hover 不会打成请求风暴）。
+      void source.refresh().catch(() => undefined)
+      const snapshot = source.snapshot()
+      json(res, 200, {
+        available: true,
+        enabled: snapshot.workbenchEnabled && snapshot.injectEnabled,
+        workbenchEnabled: snapshot.workbenchEnabled,
+        injectEnabled: snapshot.injectEnabled,
+        authorized: snapshot.authorized === true,
+        address: snapshot.address,
+        builtin: true,
+      })
+      return
+    }
+    if (method === 'POST' && rest === '/mail-inject-state') {
+      const source = getMailStatusSource()
+      if (source === null) {
+        json(res, 200, { ok: false, available: false, error: '邮箱模块未挂载' })
+        return
+      }
+      const body = await readBody(req) as Record<string, unknown>
+      const patch: { enabled?: boolean; injectEnabled?: boolean } = {}
+      if (typeof body.enabled === 'boolean') patch.injectEnabled = body.enabled
+      // 总开关单独一个字段：卡片上「工作台关着」那条提示带一个一键打开的动作。
+      if (typeof body.workbench === 'boolean') patch.enabled = body.workbench
+      if (Object.keys(patch).length === 0) {
+        json(res, 400, { ok: false, error: 'enabled or workbench required' })
+        return
+      }
+      try {
+        await source.updateConfig(patch)
+      } catch (error) {
+        json(res, 200, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        return
+      }
+      await source.refresh().catch(() => undefined)
+      const snapshot = source.snapshot()
+      json(res, 200, {
+        ok: true,
+        available: true,
+        enabled: snapshot.workbenchEnabled && snapshot.injectEnabled,
+        workbenchEnabled: snapshot.workbenchEnabled,
+        injectEnabled: snapshot.injectEnabled,
+        authorized: snapshot.authorized === true,
+        address: snapshot.address,
+        builtin: true,
+      })
       return
     }
 

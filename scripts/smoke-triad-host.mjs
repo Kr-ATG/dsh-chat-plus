@@ -843,6 +843,111 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
   need(!/未收口/.test(taskCardCode), '任务卡渲染文案不再用已过时的「未收口」（注释里的改口记录不算）')
 }
 
+/*
+ * ── Agent 邮箱通道（跨模块：dsh-mail 的声明 + 记忆卡片的开关）─────────────
+ *
+ * 这次修的是一个「两个开关套在一起、用户开的那个被吞掉」的静默失效：
+ * 邮箱工作台总开关（mail.enabled）是启动期装配开关，用户关掉它之后，邮箱
+ * 设置页里「对话里自动声明邮箱能力」照样显示成开，而注入一次都没跑过。
+ * 用户的实际感受是「每次注册都要我提醒你用邮箱」。
+ *
+ * 三条断言各钉一个失效面：
+ *  1. 注入器**必须现读闸门**（构造期拿一次布尔 = 拨开关不生效）；
+ *  2. 声明文本必须写死「不要就邮箱向用户提问」（旧文案只写了「不要问用户要
+ *     个人邮箱」，模型于是改问「你有邮箱吗」——对用户是同一个问题被反复问）；
+ *  3. 工作台开关必须**运行时**可改（工具动态挂/卸），否则面板拨了要重启。
+ */
+{
+  const mailInjectSrc = readFileSync(resolve(ROOT, 'src/mail/inject.ts'), 'utf8')
+  const mailIndexSrc = readFileSync(resolve(ROOT, 'src/mail/index.ts'), 'utf8')
+  const mailRegistrySrc = readFileSync(resolve(ROOT, 'src/mail/registry.ts'), 'utf8')
+
+  // ① 闸门现读：注入器拿的是回调而不是构造期布尔。
+  need(/isEnabled:\s*\(\)\s*=>/.test(mailIndexSrc) || /isEnabled\s*\(\s*\)/.test(mailIndexSrc),
+    'mail 注入器的闸门是回调（现读配置），不是构造期布尔——否则拨开关不生效')
+  need(/gate\.isEnabled\(\)/.test(mailInjectSrc),
+    '注入器在每次 pre-step 现读闸门（构造期拿一次 = 运行中改配置不生效）')
+
+  // ② 声明强度：必须点名「不要就邮箱向用户提问」，并给出例外（用户指定了自己的邮箱）。
+  //    只写「不要问用户要个人邮箱」时，模型会改问「你有邮箱吗 / 要不要用你的邮箱注册」，
+  //    用户体感仍是同一个问题被反复问。
+  for (const [needle, why] of [
+    ['不要就「用哪个邮箱」向用户提问', '禁止就邮箱征求许可（旧文案只禁「要个人邮箱」，模型改问「你有邮箱吗」）'],
+    ['你有邮箱吗', '把模型会改口的那几种问法逐一点名'],
+    ['要不要用你的邮箱注册', '同上（这是实测里最像的一句）'],
+    ['用户当轮明确说了', '给出唯一例外：用户指定了自己的邮箱'],
+  ]) {
+    need(mailInjectSrc.includes(needle), `邮箱声明必须写清「${why}」（缺 ${needle}）`)
+  }
+
+  // ③ 工作台开关运行时生效：service 要有配置变更订阅，装配层要订阅它。
+  need(/onConfigChange/.test(readFileSync(resolve(ROOT, 'src/mail/service.ts'), 'utf8')),
+    'MailService 提供 onConfigChange（工具动态挂/卸的订阅口）')
+  need(/service\.onConfigChange\(/.test(mailIndexSrc),
+    '装配层订阅配置变更（不订阅 = 面板拨总开关要重启 DSH 才生效）')
+  need(/registerMailTools\(ctx, service\)/.test(mailIndexSrc) && /toolsDispose\?\.\(\)/.test(mailIndexSrc),
+    '工具随 enabled 动态注册与注销（只注册不注销 = 关掉后模型仍能调 mail_*）')
+  /*
+   * `ctx.effect(cb)` 是**立即执行** cb、拿返回值当 disposer。写成
+   * `ctx.effect(() => { toolsDispose?.(); toolsDispose = null })` 会在注册的
+   * 下一行就把刚挂上的工具全注销 —— 而且是静默的（模型看不见 mail_*，路由却
+   * 一切正常）。这个 bug 本次真的写出来过，由「11 个 mail_* 都注册」那条断言
+   * 当场抓到，所以在这里再钉一道静态防线：注销必须包在内层函数里。
+   */
+  need(/ctx\.effect\(\(\)\s*=>\s*\(\)\s*=>\s*\{[^}]*toolsDispose/.test(mailIndexSrc),
+    'ctx.effect 的注销回调必须包一层（外层立即执行，裸写会在注册下一行就把工具注销掉）')
+  // watchEnabled 是独立键：只拨它时不能被 enabled 的「未变化」早退吞掉。
+  need(/mountedWatch/.test(mailIndexSrc),
+    'watchEnabled 单独跟踪（只拨铃铛时不会被 enabled 未变的早退吞掉）')
+
+  // ④ 跨模块状态槽位：记忆卡片读邮箱状态不能走 ctx 赋值（cordis 会 throw）。
+  need(/setMailStatusSource/.test(mailIndexSrc) && /clearMailStatusSource/.test(mailIndexSrc),
+    'mail 模块装配时写入状态槽位、卸载时清空')
+  need(/getMailStatusSource/.test(readFileSync(resolve(ROOT, 'src/triad/memory/api.ts'), 'utf8')),
+    '记忆路由经槽位读邮箱状态（不这样做就得把实例挂 ctx，cordis 会 throw）')
+  need(!/ctx\.(mailStatusSource|mailStatus)\s*=/.test(mailRegistrySrc + mailIndexSrc),
+    '不得把邮箱实例挂到 ctx 属性上（未 declare 的属性赋值会让插件树 boot 失败）')
+
+  // ⑤ 端点回的是**实际生效值**（两道闸门都开），不是用户意图。
+  const mailRoute = routes.get('/api/dsh-memory')
+  if (mailRoute !== undefined) {
+    const callMail = async (method, url) => {
+      const captured = { status: 0, body: null }
+      const res = {
+        writeHead: (status) => { captured.status = status },
+        end: (payload) => { try { captured.body = JSON.parse(payload) } catch { captured.body = null } },
+      }
+      const req = { method, url, socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:3080' } }
+      mailRoute.handler(req, res)
+      await new Promise((r) => setTimeout(r, 80))
+      return captured
+    }
+    const got = await callMail('GET', '/api/dsh-memory/mail-inject-state')
+    need(got.status === 200, `GET /mail-inject-state answers 200（实得 ${got.status}）`)
+    // 冒烟把 mail.enabled 钉成 true（见上面 apply 的注释），所以这里应生效。
+    need(got.body?.enabled === true,
+      `声明默认生效（实得 ${JSON.stringify(got.body)}）——enabled 必须是两道闸门都开的结果`)
+    need(typeof got.body?.workbenchEnabled === 'boolean', '回传工作台总开关状态（卡片据此给「打开工作台」动作）')
+    // inject-state 合并回包也要带上，否则卡片一次 hover 拿不到邮箱状态。
+    const is = await callMail('GET', '/api/dsh-memory/inject-state?sessionId=smoke-mail')
+    need(typeof is.body?.mailEnabled === 'boolean', 'GET /inject-state 顺带回传 mailEnabled')
+    need(typeof is.body?.mailAvailable === 'boolean', 'GET /inject-state 顺带回传 mailAvailable（区分「关着」与「没挂」）')
+  }
+  // client 侧：三态渲染的消费点必须都在（缺任何一个都会退化成「拨不动的开关」）。
+  const clientToggleMail = readFileSync(resolve(ROOT, 'src/client/triad/memory/Toggle.tsx'), 'utf8')
+  const mailLocales = readFileSync(resolve(ROOT, 'src/client/triad/memory/locales.ts'), 'utf8')
+  for (const key of ['mailInjectLabel', 'mailInjectHint', 'mailInjectUnavailable', 'mailInjectWorkbenchOff', 'mailInjectUnauthorized', 'mailInjectEnableWorkbench']) {
+    need(mailLocales.includes(`${key}:`), `locales 定义 ${key}`)
+    need(clientToggleMail.includes(`t('${key}')`), `Toggle 取用 ${key}`)
+  }
+  need(/mailAvailable/.test(clientToggleMail) && /mailWorkbenchOn/.test(clientToggleMail),
+    '卡片按「模块是否挂 + 工作台是否开」分态渲染（只认一个 mailEnabled 会退化成拨不动的开关）')
+  need(/pushMail\(\{\s*workbench:\s*true\s*\}\)/.test(clientToggleMail),
+    '工作台关着时给「一键打开工作台」的动作（只把开关画成关、点了仍无效就是同一个坑）')
+  need(/const anyOn = [^\n]*mailOn/.test(clientToggleMail),
+    '按钮开态把邮箱算进来（它是实打实的注入通道）')
+}
+
 const warns = logs.filter(([lvl]) => lvl === 'warn')
 if (warns.length > 0) {
   console.log('\n  warnings during apply:')

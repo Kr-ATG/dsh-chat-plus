@@ -108,6 +108,8 @@ export class MailService {
   private readonly store: MailStore
   private config: MailConfig
   private readonly overrides: Partial<MailConfig> | undefined
+  /** 配置变更订阅者（装配层用它动态挂/卸工具与 watch）。 */
+  private readonly configListeners = new Set<(config: MailConfig) => void>()
 
   constructor(store: MailStore, config: MailConfig, overrides?: Partial<MailConfig>) {
     this.store = store
@@ -121,6 +123,20 @@ export class MailService {
   }
 
   /**
+   * 订阅配置变更（装配层用它动态挂/卸工具与 watch）。
+   *
+   * 为什么需要：`enabled` 曾经是**启动期装配开关**——面板上拨它，运行中的
+   * 进程什么都不变，要重启 DSH 才生效。用户按了开关、界面显示已启用、功能
+   * 却一动不动，这就是假阳性开关。改成装配层订阅变更后，拨动立即生效。
+   *
+   * @returns 退订函数。
+   */
+  onConfigChange(listener: (config: MailConfig) => void): () => void {
+    this.configListeners.add(listener)
+    return () => { this.configListeners.delete(listener) }
+  }
+
+  /**
    * 运行时改配置（面板设置区）。
    *
    * `downloadDir` 的特殊语义：传**空串** = 清除覆盖、回到工厂默认目录。
@@ -128,6 +144,11 @@ export class MailService {
    * 半截输入把已有设置冲掉），所以这里显式删键 —— 否则设置页的「恢复默认」
    * 会写下一个空串覆盖层，重启后又变成「有覆盖但值为空」，`defaultDownloadDir`
    * 每轮都要多判一次空。
+   *
+   * **改完必须通知订阅者**（见 onConfigChange）：装配层靠这个回调动态挂/卸
+   * 工具与 watch。漏掉这一行的话，面板拨开关只改内存与磁盘、进程里的能力
+   * 一动不动 —— 那正是本次要修的那个「界面显示已启用、功能是哑的」。
+   * 通知放在最后（配置已落盘且 this.config 已更新），订阅者读到的一定是新值。
    */
   async updateConfig(patch: Partial<MailConfig>): Promise<MailConfig> {
     const { applyMailConfigOverrides } = await import('./types.js')
@@ -140,6 +161,13 @@ export class MailService {
     }
     await this.store.writeConfig(merged)
     this.config = next
+    // 订阅者抛错绝不能把「配置已改成功」这件事变成一次失败的写入：
+    // 各自 try/catch，一条订阅者出错不影响其余。
+    for (const listener of this.configListeners) {
+      try {
+        listener(next)
+      } catch { /* 订阅者自己的问题，不该回滚配置 */ }
+    }
     return next
   }
 

@@ -1279,7 +1279,7 @@ function SettingsView({ config, account, onClose, onSave, onVerifyDir, onPickDir
         <div className={css.settingRow}>
           <div>
             <div className={css.settingLabel}>启用邮箱工作台</div>
-            <div className={css.settingDesc}>关掉后模型工具与对话注入都不注册（路由保留，面板仍可打开）</div>
+            <div className={css.settingDesc}>关掉后模型工具与对话注入都不注册（路由保留，面板仍可打开）。拨动立即生效，不用重启 DSH</div>
           </div>
           <button
             type="button"
@@ -1295,7 +1295,9 @@ function SettingsView({ config, account, onClose, onSave, onVerifyDir, onPickDir
           <div>
             <div className={css.settingLabel}>对话里自动声明邮箱能力</div>
             <div className={css.settingDesc}>
-              每个会话首步注入一次「本 Agent 有专属邮箱」的说明 —— 注册第三方服务、收验证码时模型会直接用这个邮箱，不再问你要邮箱
+              每个会话首步注入一次「本 Agent 有专属邮箱」的说明 —— 注册第三方服务、收验证码时模型会直接用这个邮箱，不再问你要邮箱。
+              注意：这一项生效的前提是上面「启用邮箱工作台」开着（关着时这里显示的开是无效的）。
+              同一个开关也在对话框左端「内置提示词通道」卡片里，两处改的是同一个值。
             </div>
           </div>
           <button
