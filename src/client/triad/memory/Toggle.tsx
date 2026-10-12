@@ -75,7 +75,7 @@ const HIDE_DELAY_MS = 120
  */
 const FALLBACK_STATE: InjectStateView = {
   enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, htmlEnabled: true, soulEnabled: true, teamEnabled: false, todoClosureEnabled: true,
-  mailEnabled: false, mailAvailable: false, mailWorkbenchEnabled: false, mailAuthorized: false, mailAddress: null,
+  mailEnabled: false, mailAvailable: false, mailWorkbenchEnabled: false, mailToolsMounted: false, mailAuthorized: false, mailAddress: null,
 }
 
 /** 把 host 回包收敛成本地状态形状（缺字段按默认处理）。 */
@@ -99,11 +99,11 @@ function toState(res: InjectStateView): InjectStateView {
     // 通道，缺字段按开。写成 === true 的话，client 已更新、host 还没重启的那段
     // 窗口里开关会显示成关，host 一重启又跳成开。
     todoClosureEnabled: res.todoClosureEnabled !== false,
-    // 邮箱四个字段全是「缺字段即不可用」：跨模块回传，旧 host 没有。
-    // 显示一个能拨的开关却注不进去，正是这次要修的那个假阳性。
+    // 邮箱字段全是「缺字段即不可用/关」：跨模块回传，旧 host 没有。
     mailEnabled: res.mailEnabled === true,
     mailAvailable: res.mailAvailable === true,
     mailWorkbenchEnabled: res.mailWorkbenchEnabled === true,
+    mailToolsMounted: res.mailToolsMounted === true,
     mailAuthorized: res.mailAuthorized === true,
     mailAddress: typeof res.mailAddress === 'string' ? res.mailAddress : null,
   }
@@ -182,6 +182,7 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           mailAvailable: res.available !== false,
           mailEnabled: res.enabled === true,
           mailWorkbenchEnabled: res.workbenchEnabled === true,
+          mailToolsMounted: res.toolsMounted === true,
           mailAuthorized: res.authorized === true,
           mailAddress: typeof res.address === 'string' ? res.address : null,
         }))
@@ -481,29 +482,28 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
   // 自动收口与 zh / soul 同口径（默认开）：缺字段按开，别抄 html / team 的 === true。
   const todoClosureOn = state.todoClosureEnabled !== false
   /*
-   * Agent 邮箱：唯一一条**跨模块**通道（承载在 dsh-mail，闸门是
-   * `mail.enabled && mail.injectEnabled`）。三态显示是刻意的：
+   * Agent 邮箱：唯一一条**跨模块**通道（承载在 dsh-mail）。
    *
-   *  - 模块没挂（mailAvailable=false，旧 host 或邮箱从未启用过）→ 显示「不可用」，
-   *    不显示开关。给一个拨不动的开关等于骗人。
-   *  - 工作台关着（mailWorkbenchEnabled=false）→ 开关显示「关」，并给一个
-   *    「打开邮箱工作台」的动作。这正是本次要修的坑：以前用户开着的那个
-   *    「对话里自动声明邮箱能力」被总开关吞掉，界面却显示成开。
-   *  - 开着但没授权 → 副说明写明「未授权，先去邮箱页扫码」，因为注入此时
-   *    会静默跳过（把「你有邮箱」说成假的比不说更糟）。
+   * 两道开关**解耦**（用户明确要求：工作台关着、只要注入开关开着就照常注入）：
+   *   · 声明开关（injectEnabled）→ 决定 `mailOn`，也就是这一行拨的是什么；
+   *   · 工作台总开关（enabled）  → 决定 `mailToolsMounted`，即 `mail_*` 工具在不在。
+   *
+   * 工作台关着**不是**错误状态：注入照常发生，只是文本改走 `agently-cli`
+   * 命令行。所以副说明只如实交代「走命令行」，不把这一行画成关、也不逼用户
+   * 去开工作台 —— 开关本身仍然可拨，拨的就是声明。
    */
   const mailAvailable = state.mailAvailable === true
   const mailOn = state.mailEnabled === true
-  const mailWorkbenchOn = state.mailWorkbenchEnabled === true
+  const mailToolsMounted = state.mailToolsMounted === true
   const mailAuthorized = state.mailAuthorized === true
   const mailAddress = typeof state.mailAddress === 'string' && state.mailAddress !== '' ? state.mailAddress : null
   const mailHint = !mailAvailable
     ? t('mailInjectUnavailable')
-    : !mailWorkbenchOn
-      ? t('mailInjectWorkbenchOff')
-      : !mailAuthorized
-        ? t('mailInjectUnauthorized')
-        : (mailAddress === null ? t('mailInjectHint') : t('mailInjectHintWithAddress', { address: mailAddress }))
+    : !mailAuthorized
+      ? t('mailInjectUnauthorized')
+      : mailToolsMounted
+        ? (mailAddress === null ? t('mailInjectHint') : t('mailInjectHintWithAddress', { address: mailAddress }))
+        : (mailAddress === null ? t('mailInjectHintCli') : t('mailInjectHintCliWithAddress', { address: mailAddress }))
   /*
    * 总结卡外框：纯显示偏好，不走 host，状态在 localStorage（见 reply-card-chrome）。
    *
@@ -582,14 +582,15 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
           hint={t('teamInjectHint')}
           onToggle={() => { pushChannel('teamEnabled', !teamOn) }}
         />
-        {/* Agent 邮箱：**唯一一条跨模块通道**——能力与开关都住在 dsh-mail 模块
-            （`mail.enabled` + `mail.injectEnabled` 两道闸门），这里只是把它转出来，
-            让用户不必再为了拨它跑一趟邮箱设置页。
+        {/* Agent 邮箱：**唯一一条跨模块通道**——开关与能力都住在 dsh-mail 模块，
+            这里只是把它转出来，让用户不必再为了拨它跑一趟邮箱设置页。
 
-            三态渲染是这次修的核心：模块没挂 → 不给开关（拨不动的开关是骗人）；
-            工作台关着 → 开关显示关 + 一个「打开工作台」的动作（以前这里显示成
-            开，而实际一次都没注入，用户按着开着的开关对着哑链路）；开着但未授权
-            → 副说明写明要先去扫码。 */}
+            两道开关解耦：这一行拨的是**声明**（injectEnabled），与邮箱工作台
+            总开关（决定 mail_* 工具注册不注册）互不牵连。工作台关着时注入照常
+            发生，只是文本改走 agently-cli 命令行——副说明如实交代这一点，
+            而不是把这一行画成关、逼用户去开工作台。
+
+            模块没挂（旧 host / 装配失败）时才不给开关：拨不动的开关是骗人。 */}
         {mailAvailable
           ? (
             <SwitchRow
@@ -612,18 +613,6 @@ export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.
               </span>
             </div>
           )}
-        {/* 工作台关着时，光把开关画成「关」还不够：用户点它会显示「已开启」而
-            实际仍是哑的（闸门有两道）。所以直接给一键打开工作台的动作。 */}
-        {mailAvailable && !mailWorkbenchOn && (
-          <button
-            type="button"
-            className={css.injectFollow}
-            disabled={busy}
-            onClick={() => { pushMail({ workbench: true }) }}
-          >
-            {t('mailInjectEnableWorkbench')}
-          </button>
-        )}
         {/* 回合结束自动收口：不是注入通道（一个字都不进 prompt），只是同属「插件
             内置、全局单值、无卸载入口」这一类能力，所以并排放在同一张卡里。
             默认开（host 侧 config.todoClosureDefaultEnabled 默认 true）；关掉后

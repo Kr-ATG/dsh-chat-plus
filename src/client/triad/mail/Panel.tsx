@@ -1296,7 +1296,7 @@ function SettingsView({ config, account, onClose, onSave, onVerifyDir, onPickDir
             <div className={css.settingLabel}>对话里自动声明邮箱能力</div>
             <div className={css.settingDesc}>
               每个会话首步注入一次「本 Agent 有专属邮箱」的说明 —— 注册第三方服务、收验证码时模型会直接用这个邮箱，不再问你要邮箱。
-              注意：这一项生效的前提是上面「启用邮箱工作台」开着（关着时这里显示的开是无效的）。
+              与上面「启用邮箱工作台」**互不影响**：工作台关着时这一项照样生效，只是模型改走 agently-cli 命令行收发。
               同一个开关也在对话框左端「内置提示词通道」卡片里，两处改的是同一个值。
             </div>
           </div>

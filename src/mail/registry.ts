@@ -17,10 +17,17 @@
 
 /** 邮箱状态的同步快照（读取方零等待）。 */
 export interface MailStatusSnapshot {
-  /** 邮箱工作台总开关（`mail.enabled`）。 */
+  /** 邮箱工作台总开关（`mail.enabled`）——决定 `mail_*` 工具注册不注册。 */
   workbenchEnabled: boolean
-  /** 声明开关（`mail.injectEnabled`）。 */
+  /**
+   * 声明开关（`mail.injectEnabled`）——决定「模型知不知道有这个邮箱」。
+   *
+   * 与 workbenchEnabled **解耦**：工作台关着、这一项开着时，声明照常注入，
+   * 只是文本改走 `agently-cli` 命令行（见 inject.ts 的 MAIL_CLI_FALLBACK_RULE）。
+   */
   injectEnabled: boolean
+  /** `mail_*` 工具当前是否已注册（= 工作台开着）。决定注入文本走工具还是命令行。 */
+  toolsMounted: boolean
   /**
    * 是否已授权（null = 尚未探测出来）。
    *

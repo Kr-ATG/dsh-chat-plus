@@ -207,13 +207,11 @@ export interface InjectStateView {
    */
   todoClosureEnabled?: boolean
   /**
-   * Agent 邮箱（dsh-mail）能力声明是否**真正生效**。
+   * Agent 邮箱（dsh-mail）能力声明是否生效。
    *
-   * 这是唯一一条跨插件的通道：它由 dsh-mail 模块的注入器承载，闸门是
-   * `mail.enabled && mail.injectEnabled`。所以这里回传的是**实际生效值**，
-   * 而不是用户在某个界面上的意图——两者在历史上曾经不一致：邮箱工作台总开关
-   * （`mail.enabled`）是启动期装配开关，用户在面板上关掉它之后，邮箱设置页里
-   * 「对话里自动声明邮箱能力」仍然显示成开，而注入一次都没跑过。
+   * **只看声明开关 `mail.injectEnabled`**，与邮箱工作台总开关解耦：工作台关着
+   * 时这一项照样可以是 true，注入照常发生，只是文本改走 `agently-cli` 命令行
+   * （`mail_*` 工具此时没注册）。
    *
    * 旧 host 不回该字段 → undefined：不显示这一行（那版 host 没有这个跨模块
    * 的回传），绝不猜一个值出来。
@@ -236,8 +234,16 @@ export interface InjectStateView {
    * 也可能是「模块根本没挂」；前者该显示一个能拨的开关，后者该显示「不可用」。
    */
   mailAvailable?: boolean
-  /** 邮箱工作台总开关；关着时上面那条必然也是 false。 */
+  /** 邮箱工作台总开关（`mail.enabled`）——决定 `mail_*` 工具注册不注册。 */
   mailWorkbenchEnabled?: boolean
+  /**
+   * `mail_*` 工具当前是否已注册（= 工作台开着）。
+   *
+   * 与 mailEnabled **不是一回事**：声明可以开着而工具不在（那时注入文本走
+   * `agently-cli` 命令行）。卡片据此把副说明写成「走命令行」，而不是让用户
+   * 以为工具还在。
+   */
+  mailToolsMounted?: boolean
 }
 
 /**
@@ -262,7 +268,7 @@ export interface ZhInjectStateView {
  * 开关是关的也无从知道该去动哪个——总开关关着时点这一行应该能把工作台打开。
  */
 export interface MailInjectStateView {
-  /** 声明是否**真正生效**（两道闸门都开）。 */
+  /** 声明是否生效（= `mail.injectEnabled`，与工作台总开关解耦）。 */
   enabled: boolean
   /**
    * 邮箱模块是否挂上了。
@@ -276,6 +282,8 @@ export interface MailInjectStateView {
   workbenchEnabled: boolean
   /** 声明开关（`mail.injectEnabled`）。 */
   injectEnabled?: boolean
+  /** `mail_*` 工具当前是否已注册（= 工作台开着）。 */
+  toolsMounted?: boolean
   /** 邮箱是否已授权（未授权时注入静默跳过）。 */
   authorized: boolean
   /** 本 Agent 的邮箱地址（未探测到时 null）。 */

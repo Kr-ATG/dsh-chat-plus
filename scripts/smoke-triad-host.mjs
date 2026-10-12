@@ -868,6 +868,34 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
   need(/gate\.isEnabled\(\)/.test(mailInjectSrc),
     '注入器在每次 pre-step 现读闸门（构造期拿一次 = 运行中改配置不生效）')
 
+  /*
+   * ①b **声明与工具解耦**（用户明确要求）。
+   *
+   * 关掉邮箱工作台往往只是想省下 11 个工具每轮占的 schema，不该因此让模型
+   * 忘掉自己有个邮箱——那样每次注册又要用户提醒一遍，正是这次要修的痛点。
+   * 所以闸门只能读 `injectEnabled`，**绝不能**把 `enabled` 也相与进来。
+   * 这条断言钉的就是那个相与（它曾经真的写在那里）。
+   */
+  need(/isEnabled:\s*\(\)\s*=>\s*service\.getConfig\(\)\.injectEnabled/.test(mailIndexSrc),
+    '注入闸门只读 injectEnabled（与工作台总开关解耦）')
+  need(!/isEnabled:\s*\(\)\s*=>\s*\{[\s\S]{0,200}?&&[\s\S]{0,80}?injectEnabled/.test(mailIndexSrc),
+    '注入闸门不得把 enabled 与 injectEnabled 相与（那会让工作台一关、声明跟着哑掉）')
+  // 工具缺席时注入文本必须换一份（走 agently-cli），否则声明了却无能力可用。
+  need(/MAIL_CLI_FALLBACK_RULE/.test(mailInjectSrc),
+    '工具缺席时注入文本走 agently-cli 命令行版本（否则声明了却让模型去调不存在的工具）')
+  need(/toolsAvailable/.test(mailInjectSrc) && /toolsAvailable:\s*\(\)\s*=>/.test(mailIndexSrc),
+    '注入器按「工具在不在」二选一文本（toolsAvailable 回调）')
+  // CLI 命令必须是本机实测过的那几条（写错一条模型就跑不通）。
+  for (const [needle, why] of [
+    ['agently-cli message +list', '列邮件命令（实测可用）'],
+    ['agently-cli message +read --id', '读邮件命令'],
+    ['agently-cli message +send', '发信命令'],
+    ['--confirmation-token', 'CLI 侧的两阶段确认第二段'],
+    ['绝不臆造验证码', '轮询收码时的诚实底线'],
+  ]) {
+    need(mailInjectSrc.includes(needle), `CLI 兜底声明必须写清「${why}」（缺 ${needle}）`)
+  }
+
   // ② 声明强度：必须点名「不要就邮箱向用户提问」，并给出例外（用户指定了自己的邮箱）。
   //    只写「不要问用户要个人邮箱」时，模型会改问「你有邮箱吗 / 要不要用你的邮箱注册」，
   //    用户体感仍是同一个问题被反复问。
@@ -908,7 +936,7 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
   need(!/ctx\.(mailStatusSource|mailStatus)\s*=/.test(mailRegistrySrc + mailIndexSrc),
     '不得把邮箱实例挂到 ctx 属性上（未 declare 的属性赋值会让插件树 boot 失败）')
 
-  // ⑤ 端点回的是**实际生效值**（两道闸门都开），不是用户意图。
+  // ⑤ 端点语义：`enabled` 只跟声明开关走，与工作台总开关**解耦**。
   const mailRoute = routes.get('/api/dsh-memory')
   if (mailRoute !== undefined) {
     const callMail = async (method, url) => {
@@ -924,26 +952,32 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
     }
     const got = await callMail('GET', '/api/dsh-memory/mail-inject-state')
     need(got.status === 200, `GET /mail-inject-state answers 200（实得 ${got.status}）`)
-    // 冒烟把 mail.enabled 钉成 true（见上面 apply 的注释），所以这里应生效。
-    need(got.body?.enabled === true,
-      `声明默认生效（实得 ${JSON.stringify(got.body)}）——enabled 必须是两道闸门都开的结果`)
-    need(typeof got.body?.workbenchEnabled === 'boolean', '回传工作台总开关状态（卡片据此给「打开工作台」动作）')
+    // 冒烟把 mail.enabled 与 injectEnabled 都钉成 true，所以这里应为真。
+    need(got.body?.enabled === true, `声明默认生效（实得 ${JSON.stringify(got.body)}）`)
+    // 解耦的**行为**证据：enabled 必须与 injectEnabled 逐字一致，而不是与
+    // 「工作台 && 声明」一致。把两者相与正是要修的那个坑。
+    need(got.body?.enabled === got.body?.injectEnabled,
+      'enabled 必须等于 injectEnabled（与工作台总开关解耦，不是两者相与）')
+    need(typeof got.body?.workbenchEnabled === 'boolean', '回传工作台总开关状态')
+    need(typeof got.body?.toolsMounted === 'boolean', '回传 toolsMounted（卡片据此说「走命令行」）')
     // inject-state 合并回包也要带上，否则卡片一次 hover 拿不到邮箱状态。
     const is = await callMail('GET', '/api/dsh-memory/inject-state?sessionId=smoke-mail')
     need(typeof is.body?.mailEnabled === 'boolean', 'GET /inject-state 顺带回传 mailEnabled')
     need(typeof is.body?.mailAvailable === 'boolean', 'GET /inject-state 顺带回传 mailAvailable（区分「关着」与「没挂」）')
+    need(typeof is.body?.mailToolsMounted === 'boolean', 'GET /inject-state 顺带回传 mailToolsMounted')
   }
-  // client 侧：三态渲染的消费点必须都在（缺任何一个都会退化成「拨不动的开关」）。
+  // client 侧：解耦后的消费点必须都在。
   const clientToggleMail = readFileSync(resolve(ROOT, 'src/client/triad/memory/Toggle.tsx'), 'utf8')
   const mailLocales = readFileSync(resolve(ROOT, 'src/client/triad/memory/locales.ts'), 'utf8')
-  for (const key of ['mailInjectLabel', 'mailInjectHint', 'mailInjectUnavailable', 'mailInjectWorkbenchOff', 'mailInjectUnauthorized', 'mailInjectEnableWorkbench']) {
+  for (const key of ['mailInjectLabel', 'mailInjectHint', 'mailInjectHintCli', 'mailInjectUnavailable', 'mailInjectUnauthorized']) {
     need(mailLocales.includes(`${key}:`), `locales 定义 ${key}`)
     need(clientToggleMail.includes(`t('${key}')`), `Toggle 取用 ${key}`)
   }
-  need(/mailAvailable/.test(clientToggleMail) && /mailWorkbenchOn/.test(clientToggleMail),
-    '卡片按「模块是否挂 + 工作台是否开」分态渲染（只认一个 mailEnabled 会退化成拨不动的开关）')
-  need(/pushMail\(\{\s*workbench:\s*true\s*\}\)/.test(clientToggleMail),
-    '工作台关着时给「一键打开工作台」的动作（只把开关画成关、点了仍无效就是同一个坑）')
+  // 工作台关着时副说明必须换成「走命令行」那一版，而不是把开关画成关。
+  need(/mailToolsMounted/.test(clientToggleMail) && /mailInjectHintCli/.test(clientToggleMail),
+    '工具缺席时副说明换「走命令行」版（画成关/逼用户开工作台都是错的）')
+  need(!/mailInjectWorkbenchOff|mailInjectEnableWorkbench/.test(clientToggleMail),
+    '不再有「工作台关着 → 声明不注入」的旧文案与「打开工作台」按钮（两者已解耦）')
   need(/const anyOn = [^\n]*mailOn/.test(clientToggleMail),
     '按钮开态把邮箱算进来（它是实打实的注入通道）')
 }

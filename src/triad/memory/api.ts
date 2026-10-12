@@ -286,11 +286,15 @@ async function handle(
         soulEnabled,
         teamEnabled,
         todoClosureEnabled,
-        // mailEnabled 是**实际生效值**（两道闸门都开），不是用户意图——
+        // mailEnabled 只跟**声明开关**走（injectEnabled），与工作台总开关解耦：
+        // 工作台关着时声明照常生效，只是注入文本改走 agently-cli 命令行。
+        // 相与是错的——那正是「用户开着声明、却被工作台吞掉」那个坑。
         // 旧 host 不回这几个字段时 client 不显示该行（见 client api 的注释）。
-        mailEnabled: mailSnapshot === null ? false : mailSnapshot.workbenchEnabled && mailSnapshot.injectEnabled,
+        mailEnabled: mailSnapshot === null ? false : mailSnapshot.injectEnabled,
         mailAvailable: mailSnapshot !== null,
         mailWorkbenchEnabled: mailSnapshot?.workbenchEnabled ?? false,
+        // toolsMounted 让卡片把副说明写成「走命令行」而不是假装工具还在。
+        mailToolsMounted: mailSnapshot?.toolsMounted ?? false,
         mailAuthorized: mailSnapshot?.authorized === true,
         mailAddress: mailSnapshot?.address ?? null,
       })
@@ -380,17 +384,20 @@ async function handle(
     // 这条通道由 dsh-mail 模块承载，状态也住在那边，本路由只是把它转出来给
     // composer 那张卡片用（用户要求：不想每次都得进邮箱设置页去拨那个开关）。
     //
-    // 回的是**实际生效值**而不是用户意图：`enabled` = 两道闸门都开。历史缺陷
-    // 正是这里脱节——邮箱设置页的「对话里自动声明邮箱能力」显示成开，而工作台
-    // 总开关关着，注入一次都没跑过（用户按着开着的开关，功能是哑的）。
-    // 所以这里把 workbenchEnabled 一并回传，卡片才能在开关是关的时候说清
-    // 「是哪个开关关的」，并给一个一键打开的动作。
+    // **两道开关是解耦的**（用户明确要求）：
+    //   · `injectEnabled`（声明开关）→ 决定 `enabled`：模型知不知道有这个邮箱；
+    //   · `enabled`（工作台总开关）  → 决定 `toolsMounted`：`mail_*` 工具注册不注册。
+    // 工作台关着、声明开着时**照常注入**，只是注入文本改走 `agently-cli` 命令行。
+    // 所以这里的 `enabled` 只跟 injectEnabled 走，绝不与工作台相与——相与正是
+    // 「用户开着声明、却被工作台吞掉」那个坑。
+    // workbenchEnabled / toolsMounted 一并回传，卡片才能在工具缺席时说清
+    // 「声明走命令行」，而不是假装工具还在。
     if (method === 'GET' && rest === '/mail-inject-state') {
       const source = getMailStatusSource()
       if (source === null) {
-        // 邮箱模块没挂上（总开关从没开过 / 装配失败）：如实说「不可用」，
-        // 而不是回一个 enabled:false 让用户以为「关着、可以打开」。
-        json(res, 200, { available: false, enabled: false, workbenchEnabled: false, authorized: false, address: null })
+        // 邮箱模块没挂上（装配失败）：如实说「不可用」，而不是回一个
+        // enabled:false 让用户以为「关着、可以打开」。
+        json(res, 200, { available: false, enabled: false, workbenchEnabled: false, toolsMounted: false, authorized: false, address: null })
         return
       }
       // 顺带触发一次后台探测（10 分钟节流，卡片 hover 不会打成请求风暴）。
@@ -398,9 +405,10 @@ async function handle(
       const snapshot = source.snapshot()
       json(res, 200, {
         available: true,
-        enabled: snapshot.workbenchEnabled && snapshot.injectEnabled,
+        enabled: snapshot.injectEnabled,
         workbenchEnabled: snapshot.workbenchEnabled,
         injectEnabled: snapshot.injectEnabled,
+        toolsMounted: snapshot.toolsMounted,
         authorized: snapshot.authorized === true,
         address: snapshot.address,
         builtin: true,
@@ -416,7 +424,7 @@ async function handle(
       const body = await readBody(req) as Record<string, unknown>
       const patch: { enabled?: boolean; injectEnabled?: boolean } = {}
       if (typeof body.enabled === 'boolean') patch.injectEnabled = body.enabled
-      // 总开关单独一个字段：卡片上「工作台关着」那条提示带一个一键打开的动作。
+      // 工作台总开关单独一个字段：卡片上「工作台关着」那条提示带一个一键打开的动作。
       if (typeof body.workbench === 'boolean') patch.enabled = body.workbench
       if (Object.keys(patch).length === 0) {
         json(res, 400, { ok: false, error: 'enabled or workbench required' })
@@ -433,9 +441,10 @@ async function handle(
       json(res, 200, {
         ok: true,
         available: true,
-        enabled: snapshot.workbenchEnabled && snapshot.injectEnabled,
+        enabled: snapshot.injectEnabled,
         workbenchEnabled: snapshot.workbenchEnabled,
         injectEnabled: snapshot.injectEnabled,
+        toolsMounted: snapshot.toolsMounted,
         authorized: snapshot.authorized === true,
         address: snapshot.address,
         builtin: true,

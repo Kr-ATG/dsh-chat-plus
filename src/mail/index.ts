@@ -128,17 +128,21 @@ export async function applyMailHost(ctx: MailHostContext, input: MailHostConfig 
   /*
    * ── 对话注入（每会话首步一次，常驻注册）────────────────────────────
    *
-   * 与上面不同，注入器**恒注册**，开关在每次 pre-step 现读（见 inject.ts 的
-   * MailInjectGate）。理由：注册/注销监听器是有时序成本的，而闸门是一次
-   * 布尔读；更要紧的是「先关后开」的场景——运行中打开总开关后，本会话
-   * 后续的新会话必须立刻能拿到声明，不能等插件重载。
+   * 注入器**恒注册**，闸门在每次 pre-step 现读（见 inject.ts 的 MailInjectGate）。
+   * 两个理由：
+   *
+   *  1. 注册/注销监听器有时序成本，而闸门只是一次布尔读；
+   *  2. 更要紧的是**声明与工具解耦**：`injectEnabled` 开着就注入，哪怕邮箱
+   *     工作台总开关（`enabled`）关着、`mail_*` 工具没注册 —— 那时文本改走
+   *     `agently-cli` 命令行。所以注入器的注册**不能**挂在 `enabled` 之下，
+   *     否则工作台一关，模型连「自己有邮箱」都不知道了。
    */
   try {
     const injector = createMailInjector(service, ctx.logger, {
-      isEnabled: () => {
-        const current = service.getConfig()
-        return current.enabled && current.injectEnabled
-      },
+      // 只看声明开关（injectEnabled）：与工具面无关。
+      isEnabled: () => service.getConfig().injectEnabled,
+      // 工具在不在，决定注入文本走工具还是走命令行。
+      toolsAvailable: () => toolsDispose !== null,
     })
     ctx.on('agent/pre-step', ((
       payload: { agent: { id: string; session: { id: string } }; messages: unknown[]; signal: AbortSignal },
@@ -195,6 +199,7 @@ export async function applyMailHost(ctx: MailHostContext, input: MailHostConfig 
     snapshot: () => ({
       workbenchEnabled: service.getConfig().enabled,
       injectEnabled: service.getConfig().injectEnabled,
+      toolsMounted: toolsDispose !== null,
       authorized,
       address,
     }),

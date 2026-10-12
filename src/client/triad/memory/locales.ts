@@ -102,14 +102,15 @@ export const zh = {
   teamInjectOff: '团队协作注入：关',
   teamInjectBuiltin: '内置',
   // ── Agent 邮箱（跨模块：开关与能力都在 dsh-mail 模块里）──
-  // 副说明分四种，按「哪道闸门没过」显示，绝不显示一个开着却无作用的开关。
+  // 声明与工具**解耦**：工作台关着时注入照常发生，只是文本改走命令行，
+  // 所以副说明要如实交代这一点，而不是把这一行画成关。
   mailInjectLabel: 'Agent 邮箱',
   mailInjectHint: '注册第三方服务、收验证码时直接用本 Agent 的专属邮箱，不再问你',
   mailInjectHintWithAddress: '注册第三方服务、收验证码时直接用 {address}，不再问你',
-  mailInjectUnavailable: '邮箱模块未挂载（邮箱工作台从未启用过）',
-  mailInjectWorkbenchOff: '邮箱工作台总开关关着，声明不会注入；点下面的按钮打开',
+  mailInjectHintCli: '注册第三方服务、收验证码时直接用本 Agent 的专属邮箱，不再问你。邮箱工作台关着，模型走 agently-cli 命令行收发',
+  mailInjectHintCliWithAddress: '注册第三方服务、收验证码时直接用 {address}，不再问你。邮箱工作台关着，模型走 agently-cli 命令行收发',
+  mailInjectUnavailable: '邮箱模块未挂载（本机没有可用的邮箱能力）',
   mailInjectUnauthorized: '邮箱尚未授权：在本机终端跑 agently-cli auth login 扫码，授权后才会注入',
-  mailInjectEnableWorkbench: '打开邮箱工作台',
   mailInjectBadgeUnavailable: '不可用',
   mailInjectOn: 'Agent 邮箱声明：开',
   mailInjectOff: 'Agent 邮箱声明：关',
@@ -435,10 +436,10 @@ export const en = {
   mailInjectLabel: 'Agent mailbox',
   mailInjectHint: 'Use this agent\'s own mailbox to sign up for third-party services and fetch codes — no more asking you',
   mailInjectHintWithAddress: 'Use {address} to sign up for third-party services and fetch codes — no more asking you',
-  mailInjectUnavailable: 'Mail module not mounted (the mailbox workbench was never enabled)',
-  mailInjectWorkbenchOff: 'The mailbox workbench master switch is off, so nothing is injected; use the button below to turn it on',
+  mailInjectHintCli: 'Use this agent\'s own mailbox to sign up for third-party services and fetch codes — no more asking you. The mailbox workbench is off, so the model uses the agently-cli command line',
+  mailInjectHintCliWithAddress: 'Use {address} to sign up for third-party services and fetch codes — no more asking you. The mailbox workbench is off, so the model uses the agently-cli command line',
+  mailInjectUnavailable: 'Mail module not mounted (no usable mailbox capability on this machine)',
   mailInjectUnauthorized: 'Mailbox not authorized: run agently-cli auth login in a terminal and scan the code; injection starts afterwards',
-  mailInjectEnableWorkbench: 'Enable mailbox workbench',
   mailInjectBadgeUnavailable: 'Unavailable',
   mailInjectOn: 'Agent mailbox declaration: on',
   mailInjectOff: 'Agent mailbox declaration: off',
