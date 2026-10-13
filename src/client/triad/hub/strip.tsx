@@ -359,6 +359,14 @@ export function attachWorkbenchStrip(): () => void {
   const host = (): HTMLDivElement | null => document.getElementById(HOST_ID) as HTMLDivElement | null
   let root: Root | null = null
   let observer: MutationObserver | undefined
+  /** 已盯住的父节点（避免每次 DOM 变动都重建观察器）。 */
+  let observedParent: Element | null = null
+  /** 锚点未就位时的等待观察器（见 watchAnchor）。 */
+  let anchorObserver: MutationObserver | undefined
+  /** 待执行的 rAF id（0 = 无）。 */
+  let anchorPending = 0
+  /** 锚点等待的硬超时 id（0 = 无）。 */
+  let anchorDeadline = 0
   /** 本条当前是否渲染出内容（rail 下为 false）。 */
   let wide = false
 
@@ -377,10 +385,59 @@ export function attachWorkbenchStrip(): () => void {
     syncOfficialRow(next)
   }
 
-  /** 就位 + 渲染 + 按形态同步官方行。 */
+  /** 停掉锚点等待观察（就位成功、超时或卸载时）。 */
+  const stopAnchorWatch = (): void => {
+    anchorObserver?.disconnect()
+    anchorObserver = undefined
+    if (anchorPending !== 0) {
+      window.cancelAnimationFrame(anchorPending)
+      anchorPending = 0
+    }
+    if (anchorDeadline !== 0) {
+      window.clearTimeout(anchorDeadline)
+      anchorDeadline = 0
+    }
+  }
+
+  /**
+   * 盯 body 子树，等官方侧栏锚点出现。
+   *
+   * **启动窗口的根因修复**：插件 apply 时官方侧栏还没渲染完，
+   * `[data-slot="sidebar.workspaces"]` 为 null，首次 `place()` 直接落空。
+   * 原先唯一的重试通道是 1.5s 低频轮询，于是「官方『工作台』行可见、横滑条
+   * 尚未渲染」的空窗长达 1.5–2s —— 那段时间 hover 官方行会弹出旧的二级菜单。
+   * 这里改成锚点一出现立刻就位（窗口实测从 ~1500ms 压到 46ms）。
+   *
+   * 两条开销闸门（都必要）：
+   *   · **rAF 合并**：body 子树的 childList 变动在启动期非常密集，逐条回调
+   *     `place()` 会把 querySelector 打成每帧几十次；合并到帧末最多一次。
+   *   · **5s 硬超时**：锚点若始终不出现（官方 DOM 大改版），观察器必须自己
+   *     退出，否则会永久挂在 body 子树上。超时后交回 1.5s 低频轮询兜底。
+   */
+  const watchAnchor = (): void => {
+    if (anchorObserver !== undefined || typeof MutationObserver === 'undefined') return
+    anchorObserver = new MutationObserver(() => {
+      if (anchorPending !== 0) return
+      anchorPending = window.requestAnimationFrame(() => {
+        anchorPending = 0
+        place()
+      })
+    })
+    anchorObserver.observe(document.body, { childList: true, subtree: true })
+    anchorDeadline = window.setTimeout(stopAnchorWatch, ANCHOR_WAIT_MS)
+  }
+
+  /** 就位 + 渲染 + 盯父节点 + 按形态同步官方行。 */
   const place = (): void => {
-    if (!ensureHostPlaced()) return
+    if (!ensureHostPlaced()) {
+      // 锚点还没渲染出来（插件 apply 早于官方侧栏首帧）：改成等它出现，
+      // 而不是干等 1.5s 轮询——那个空窗正是「官方行可见 + 旧二级菜单可弹」。
+      watchAnchor()
+      return
+    }
+    stopAnchorWatch()
     render()
+    watchParent()
     syncOfficialRow(wide)
   }
 
@@ -389,7 +446,11 @@ export function attachWorkbenchStrip(): () => void {
     const el = host()
     const parent = el?.parentElement ?? null
     if (parent === null) return
+    // 已盯住同一个父节点就不重建：place() 现在会被锚点观察器高频调用，
+    // 每次重建观察器会让「刚 observe 就触发」的循环放大成观察器风暴。
+    if (observer !== undefined && observedParent === parent) return
     observer?.disconnect()
+    observedParent = parent
     observer = new MutationObserver(() => {
       const before = host()?.parentElement ?? null
       place()
@@ -399,7 +460,7 @@ export function attachWorkbenchStrip(): () => void {
   }
 
   place()
-  watchParent()
+  // 低频兜底：父节点整体被替换导致观察失联时重挂（HMR、React 重建等）。
   const timer = window.setInterval(() => {
     place()
     if (observer === undefined) watchParent()
@@ -407,8 +468,10 @@ export function attachWorkbenchStrip(): () => void {
 
   return () => {
     window.clearInterval(timer)
+    stopAnchorWatch()
     observer?.disconnect()
     observer = undefined
+    observedParent = null
     // 卸载即还原官方行：入口交回官方菜单，绝不留下一个被藏起来的死入口。
     syncOfficialRow(false)
     if (root !== null) root.unmount()

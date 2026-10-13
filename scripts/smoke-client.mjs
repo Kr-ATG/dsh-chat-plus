@@ -415,10 +415,6 @@ const expectedStyles = [
   // 侧栏横滑分类条（src/client/triad/hub/strip.tsx，2026-10 v4 导航定稿）：
   // 替换官方「工作台」菜单行的视觉，宽栏出六格、rail 让位还原官方图标列。
   'dsh-workbench-strip-styles',
-  // 界面字体覆盖（src/client/ui-font/font.ts）：把 --dsw-font-family /
-  // --ds-font-family-code 改写成所选字体。必须在 apply 阶段就注入（不等 React），
-  // 否则首帧会先按系统字体渲染、再闪成所选字体。
-  'dsh-chat-plus-ui-font',
   // 首 token 平均平铺读数（src/client/stats-ttft/styles.ts）：只定分隔与入场，
   // 字号颜色全部继承官方 pill。apply 阶段随桥一起注入。
   'dsh-stats-ttft-styles',
@@ -888,19 +884,20 @@ if (!code.includes('data-dsh-anim-paused') || !code.includes('animation-play-sta
   pass('global animation throttle pauses all CSS animations when the page is hidden')
 }
 
-// 十二枚槽位：对话增强六枚（turn-process / assistant-step keyed / 截图按钮 /
+// 十三枚槽位：对话增强六枚（turn-process / assistant-step keyed / 截图按钮 /
 // download toolview / kr-todo-bridge / tools-gate 胶囊）+ 融合工作台六枚
 // （记忆 / 能力 / 邮箱三个工作台各两枚：main 页 + sidebar.panellist 菜单行，
 // 共 6；composer 两枚开关 dsh-memory-builtin-toggle / dsh-memory-inject-toggle；
 // skill toolview 一枚）+ 供应商设置页一枚（settings.section / provider-hub，
 // 2026-10-05 从工作台 Tab 撤回官方设置弹窗）
 // + 首 token 平均平铺桥一枚（input.dock / dsh-stats-ttft-flat，只做 DOM 追认）。
-// 座位 id/order/locale 全部原样保留；原 automation-notifier 随自动化模块一起下线。
+// 座位 id/order/locale 全部原样保留；原 automation-notifier 随自动化模块一起下线，
+// ui-font 通用设置行随「界面字体」整块移除。
 const cell = (key) => registeredSlots.find((s) => s?.slot === 'conversation.chat.node' && s?.key === key)
-if (registeredSlots.length !== 14) {
-  fail(`expected 14 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
+if (registeredSlots.length !== 13) {
+  fail(`expected 13 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
 } else {
-  pass('registered 14 seats (6 chat-plus + 5 triad + 1 provider settings section + 1 ui-font general row + 1 ttft flat bridge)')
+  pass('registered 13 seats (6 chat-plus + 5 triad + 1 provider settings section + 1 ttft flat bridge)')
 }
 
 // 工具闸门卡片：挂在输入栏工具行**左端**（与记忆注入开关同一排），order 100。
@@ -3436,99 +3433,6 @@ if (krEnabled) {
     pass('iu 卡片：图表可见性不依赖动画（无头截图 / 全局节流下不会变空卡）')
     pass('iu 卡片：钢琴 Web Audio 懒创建 + 指数包络 + 独立振荡器 + 悬停闸门')
     pass('iu 卡片：/iu 前缀式指令（不拦不改写、原文含前缀照发、源已注册 + 行为级验证）')
-  }
-}
-
-/* ── 界面字体：选项表 / 覆盖 CSS / 座位（纯逻辑，全部可断言）─────────────
- *
- * 这四条错了都不会报错，只会静默显示成错的字体：
- *   ① 默认档不是微软雅黑 → 用户没选过却被换了字体；
- *   ② 字体栈漏掉通用回退链 → 缺字时掉成浏览器默认衬线（中文尤其明显）；
- *   ③ webfont 档的 URL 不指向 host 路由 → 404，浏览器静默回退；
- *   ④ 覆盖 CSS 不写 html 选择器 → 压不过官方 :root，改了没反应。
- */
-{
-  const fontTest = mod.uiFontTest
-  if (fontTest === undefined) {
-    fail('ui-font 纯逻辑测试面（uiFontTest）未导出')
-  } else {
-    const { FONT_OPTIONS, DEFAULT_FONT_ID, fontOptionOf, fontOverrideCss, fontFileUrl } = fontTest
-    const reasons = []
-
-    // ① 默认档必须是微软雅黑（用户点开设置看到的初始值）。
-    if (DEFAULT_FONT_ID !== 'system') reasons.push(`默认档应为 system，实得 ${DEFAULT_FONT_ID}`)
-    const system = FONT_OPTIONS.find(o => o.id === 'system')
-    if (system === undefined) reasons.push('缺少 system 档（微软雅黑）')
-    else if (!/Microsoft YaHei/.test(system.body)) reasons.push('system 档必须显式写 Microsoft YaHei')
-    else if (system.webfont !== undefined) reasons.push('system 档不该带 webfont（默认档必须零下载）')
-
-    // 下拉框恰好两个选项，且第二项是霞鹜新致宋。
-    if (FONT_OPTIONS.length !== 2) reasons.push(`下拉框应恰好 2 个选项，实得 ${FONT_OPTIONS.length}`)
-    const lx = FONT_OPTIONS.find(o => o.id === 'lxgw-neozhisong')
-    if (lx === undefined) reasons.push('缺少 lxgw-neozhisong 档')
-    else {
-      if (lx.label !== '霞鹜新致宋') reasons.push(`档位标签应为「霞鹜新致宋」，实得 ${lx.label}`)
-      if (lx.webfont === undefined) reasons.push('lxgw 档必须声明 webfont（否则永远拿不到真字体）')
-      else if (!/@font-face/.test(fontOverrideCss(lx))) reasons.push('lxgw 档的覆盖 CSS 必须带 @font-face')
-      else if (!fontFileUrl(lx.webfont.file).startsWith('/api/chat-flow/fonts/')) {
-        reasons.push(`webfont URL 必须指向 host 路由，实得 ${fontFileUrl(lx.webfont.file)}`)
-      }
-    }
-
-    // ② 每一档的正文字体栈都必须带通用回退（缺字不掉成衬线）。
-    for (const option of FONT_OPTIONS) {
-      if (!/sans-serif\s*$/.test(option.body.trim())) reasons.push(`${option.id} 的正文字体栈未以 sans-serif 收尾`)
-      if (!option.code.includes('monospace') && !/Consolas|Menlo|SF Mono/.test(option.code)) {
-        reasons.push(`${option.id} 的代码字体栈缺少等宽字体`)
-      }
-    }
-
-    // ③ 覆盖 CSS 必须用 `html:root`（压过官方 :root）且同时给两个变量。
-    //
-    // 特异性实算：官方把变量声明在 `:root`（伪类，(0,1,0)）；`html` 只有
-    // (0,0,1) —— **更低**，会被官方原值压过，表现为「字体加载成功、变量却没变」。
-    // 实机踩过一次，必须钉死。
-    const css = fontOverrideCss(FONT_OPTIONS[0])
-    if (!/^html:root\{/.test(css)) {
-      reasons.push('覆盖 CSS 必须用 html:root（html 特异性 (0,0,1) 低于官方 :root 的 (0,1,0)，会被压过）')
-    }
-    if (!css.includes('--dsw-font-family')) reasons.push('覆盖 CSS 缺少 --dsw-font-family（全站正文字体）')
-    if (!css.includes('--ds-font-family-code')) reasons.push('覆盖 CSS 缺少 --ds-font-family-code（代码块字体）')
-
-    // ④ 未知 id 必须回落默认档（localStorage 脏值不该白屏或换字体）。
-    if (fontOptionOf('nope').id !== DEFAULT_FONT_ID) reasons.push('未知 id 未回落默认档')
-    if (fontOptionOf(null).id !== DEFAULT_FONT_ID) reasons.push('null 未回落默认档')
-
-    if (reasons.length > 0) fail('界面字体契约：' + reasons.join('；'))
-    else pass('界面字体：默认微软雅黑 + 两档下拉 + 通用回退齐备 + 覆盖变量正确')
-
-    // 设置行座位：官方「通用」页的 settings.general.item，order 排在官方两行之后。
-    const fontRow = registeredSlots.find(s => s?.slot === 'settings.general.item' && s?.id === 'ui-font')
-    if (fontRow === undefined) {
-      fail(`missing ui-font settings row (settings.general.item / ui-font)，实得 ${JSON.stringify(registeredSlots.filter(s => s?.slot === 'settings.general.item'))}`)
-    } else if (fontRow.order !== 12) {
-      // 官方 appearance=10 / font-size=11，本行必须排在它们之后（同列堆叠）。
-      fail(`ui-font 行 order 应为 12（官方外观 10 / 字号 11 之后），实得 ${fontRow.order}`)
-    } else {
-      pass('ui-font 设置行座位：settings.general.item / order 12（排在官方外观与字号之后）')
-    }
-
-    // 字体覆盖必须**同步**应用（不能等 React 挂载）：apply 路径上就写 <style>。
-    // 断言实现形状：index.ts 里 applyStoredFont 必须在 ctx.effect 的同步段调用。
-    const fontIndexSrc = readFileSync(resolve(ROOT, 'src/client/ui-font/index.ts'), 'utf8')
-    if (!/initFont\(\)/.test(fontIndexSrc) || !/applyStoredFont\(\)/.test(fontIndexSrc)) {
-      fail('ui-font 入口必须同步调用 initFont() + applyStoredFont()（否则首帧会闪一下系统字体）')
-    } else if (!/settings\.general\.item/.test(fontIndexSrc)) {
-      fail('ui-font 入口必须注册 settings.general.item 座位')
-    } else {
-      pass('ui-font 在 apply 阶段同步应用（首帧即所选字体）+ 注册通用设置行')
-    }
-
-    // 失败必须可见：切换中/失败都要有状态文案，静默等待会被当成「点了没反应」。
-    const rowSrc = readFileSync(resolve(ROOT, 'src/client/ui-font/Row.tsx'), 'utf8')
-    if (!/加载失败/.test(rowSrc)) fail('字体加载失败必须给出可见提示（否则用户只会觉得字体坏了）')
-    else if (!/加载中/.test(rowSrc)) fail('4.2MB 字体下载期间必须显示「加载中」（否则像是卡死）')
-    else pass('字体状态可见：加载中 / 加载失败提示齐备')
   }
 }
 

@@ -33,13 +33,11 @@ import { admitSpillPath, spillRoots } from './spill/index.ts'
 import { applyDownloadRoutes, applyDownloadTool } from './download/index.ts'
 import { applyOpenPathRoutes } from './open-path/index.ts'
 import { applyOfficePreview } from './office/index.ts'
-import { applyFontRoutes } from './fonts/index.ts'
 import { applyTriadHost } from './triad/host.ts'
 import { applyProviderHub, providerHubServices } from './provider/index.ts'
 import { applyMailHost } from './mail/index.ts'
 import { applyToolsGate } from './tools-gate/index.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
-export { applyFontRoutes, FONT_ROUTE } from './fonts/index.ts'
 export { applyMailHost } from './mail/index.ts'
 export type { MailHostConfig, MailHostHandle } from './mail/index.ts'
 // 工具闸门（computer-use / browser-use 按需注入）：纯函数与分组表导出给 smoke，
@@ -198,10 +196,6 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
     // 对话截图：常驻无头浏览器渲染 + render/save/reveal/image/diagnose
     // （prefix 路由；applyScreenshot 内部自己挂 effect 与回收）。
     applyScreenshot(webCtx)
-    // 界面字体资产（/api/chat-flow/fonts/*）：把随包的霞鹜新致宋 woff2
-    // 与许可原文吐给浏览器。字体不内联进 client 产物——4.15MB 的资产若内联，
-    // 从不切字体的用户也要白下载一次。
-    applyFontRoutes(webCtx)
     // 下载工具的实时进度路由（GET /api/chat-flow/download/progress）。
     applyDownloadRoutes(webCtx)
     // 「用文件资源管理器打开」修复：官方那条被 windowsHide 吞了窗口。

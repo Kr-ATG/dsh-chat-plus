@@ -165,6 +165,17 @@ export function useNavSlot(name: NavSlotName): HTMLElement | null {
   return slot
 }
 
+/**
+ * 读当前侧栏折叠态（同步、不订阅）。
+ *
+ * 抽成独立函数供非 React 侧共用（如 row-flyout 的 hover 闸门）：rail 判定
+ * 只留这一份真相，两处各写一份选择器迟早会漂移。
+ */
+export function readRail(): boolean {
+  if (typeof document === 'undefined') return false
+  return document.querySelector(FRAME_SELECTOR)?.hasAttribute('data-sidebar-collapsed') ?? false
+}
+
 /** 侧边栏折叠态（rail = 只显示图标）。
  *
  * 观察挂在 body 子树上（attributeFilter 限定 data-sidebar-collapsed）：
@@ -173,12 +184,9 @@ export function useNavSlot(name: NavSlotName): HTMLElement | null {
  * 跳过渲染，轮询无额外开销。
  */
 export function useRail(): boolean {
-  const [rail, setRail] = useState(() =>
-    document.querySelector(FRAME_SELECTOR)?.hasAttribute('data-sidebar-collapsed') ?? false)
+  const [rail, setRail] = useState<boolean>(() => readRail())
   useEffect(() => {
-    const read = (): void => {
-      setRail(document.querySelector(FRAME_SELECTOR)?.hasAttribute('data-sidebar-collapsed') ?? false)
-    }
+    const read = (): void => { setRail(readRail()) }
     read()
     const observer = new MutationObserver(read)
     observer.observe(document.body, { attributes: true, attributeFilter: ['data-sidebar-collapsed'], subtree: true })

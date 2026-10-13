@@ -415,7 +415,6 @@ New-Item -ItemType Junction -Path "$env:USERPROFILE\.dsh\profiles\web\node_modul
 
 ### 设置里能改的
 
-- **设置 → 通用**：界面字体（可选内置中文字体 / 包括霞鹜新致宋等 webfont）
 - **设置 → 供应商**：上面那一节的全部内容
 - **输入框左侧**：记忆注入、提示词通道、工具闸门
 - **工作台记忆页**：总结卡外框开关（关掉后总结卡不留边框与阴影，退回纯正文）
@@ -516,14 +515,13 @@ node scripts/test-subagent-catalog.mjs
 
 ### 产物体积
 
-随包发布约 22.5 MB（`files` 字段里的 `lib` + `assets` + `scripts` + `build.mjs`）：
+随包发布约 17.5 MB（`files` 字段里的 `lib` + `assets` + `scripts` + `build.mjs`）：
 
 | 组成 | 大小 | 说明 |
 |---|---|---|
 | `lib/index.js` | 4.5 MB | host 半身，自包含 |
 | `lib/client.js` | 3.0 MB | 浏览器半身 |
 | `lib/client.js.map` | 5.7 MB | 浏览器半身的 source map（断点用） |
-| `assets/fonts/` | 5.0 MB | 随包的霞鹜新致宋 woff2（界面字体，IPA 授权） |
 | `assets/skills/` | 2.8 MB | 随包内置技能，启动时物化到 `~/.dsh/skills/` |
 | `assets/vendor/` | 0.9 MB | mermaid 引擎，预压缩 |
 | `scripts/` | 0.5 MB | 冒烟与测试脚本（已安装位置跑用） |
@@ -534,9 +532,6 @@ node scripts/test-subagent-catalog.mjs
 - **shiki 走 fine-grained**：只内联 34 种常用语法与 2 个主题，而不是全量 ~220 种（约 10 MB）。
   用纯 JS 正则引擎而非 oniguruma wasm，产物保持单文件自包含。代价是首次高亮慢一些。
   加语言在 `src/shot/markdown.ts` 的 import 列表里补一行。
-
-字体走独立路由（`/api/chat-flow/fonts/*`）而不是内联进 client 产物：默认档一个字节都不下载，
-只有主动切到「霞鹜新致宋」才拉那 5 MB，之后靠 immutable 缓存命中。
 
 `build.mjs` 内置 `assertHostExternals()`：host 产物里出现任何需要运行时解析的
 `@deepseek-ai/*` 就直接构建失败（已安装位置解析不到这些包）。
@@ -560,7 +555,6 @@ src/
 │   ├── provider/               供应商中心 + 生图/识图/生视频 + 优化提示词
 │   ├── triad/                  工作台（记忆 / 灵魂 / 用量 / 能力 / 画廊）
 │   ├── tools-gate/             工具闸门
-│   ├── ui-font/                界面字体
 │   └── sidebar-doc/            侧边栏文档预览
 ├── mail/                       邮箱工作台 host
 ├── provider/                   供应商 host（代理 / 密钥环 / 搜索）

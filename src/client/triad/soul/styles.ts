@@ -124,6 +124,7 @@ export const css = {
   profileRail: 'dsh-soul-profile-rail',
   profileCard: 'dsh-soul-profile-card',
   profileCardOn: 'dsh-soul-profile-card-active',
+  profileCardLanded: 'dsh-soul-profile-card-landed',
   profileCardIn: 'dsh-soul-profile-card-in',
   profileAvatar: 'dsh-soul-profile-avatar',
   profileAvatarImg: 'dsh-soul-profile-avatar-img',
@@ -173,11 +174,15 @@ export const css = {
   profileCardsBody: 'dsh-soul-profile-cards-body',
   profileCardsEmpty: 'dsh-soul-profile-cards-empty',
   profilePreview: 'dsh-soul-profile-preview',
+  profilePreviewTitle: 'dsh-soul-profile-preview-title',
+  profilePreviewBody: 'dsh-soul-profile-preview-body',
+  profilePreviewLine: 'dsh-soul-profile-preview-line',
   profilePreviewItem: 'dsh-soul-profile-preview-item',
   profilePreviewMore: 'dsh-soul-profile-preview-more',
   profileSource: 'dsh-soul-profile-source',
   profileSourcePreset: 'dsh-soul-profile-source-preset',
   profileActionsRow: 'dsh-soul-profile-actions-row',
+  profileConfirmText: 'dsh-soul-profile-confirm-text',
 
   draft: 'dsh-soul-draft',
   draftHead: 'dsh-soul-draft-head',
@@ -628,7 +633,12 @@ const SHEET = `
    切换进度条 380ms（网络请求的进行指示，不是反馈动画，同样破例但注释在规则处）。 */
 .dsh-soul-profile-gallery{display:flex;flex-direction:column;gap:10px;min-width:0}
 /* rail 的上下内距是给 hover 的 translateY(-4px) 与宽态大投影留的：overflow-y:hidden
-   会把贴边的内容直接裁掉，不给内距的话悬浮上移的那 4px 会被切平。 */
+   会把贴边的内容直接裁掉，不给内距的话悬浮上移的那 4px 会被切平。
+
+   align-items 保持 stretch，**不能改成 flex-start**（2026-10-13 实测教训）：
+   展开卡的 body 是 position:absolute;inset:0（两态对齐靠它），父卡片自己不含
+   内容高度 —— 一旦不 stretch，卡片高度塌成 0（实测 cardH=2px，整块内容消失）。
+   窄条的高度因此由与激活卡同高来保证，这正是原设计。 */
 .dsh-soul-profile-rail{display:flex;gap:12px;align-items:stretch;height:434px;box-sizing:border-box;padding:8px 2px 10px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;scroll-behavior:smooth;-ms-overflow-style:none}
 .dsh-soul-profile-rail::-webkit-scrollbar{display:none}
 .dsh-soul-profile-rail:focus-visible{outline:none}
@@ -637,18 +647,25 @@ const SHEET = `
 /* 斜向高光：hover 时浮起来的那层「玻璃感」，不额外加边框 */
 .dsh-soul-profile-card::after{content:'';position:absolute;inset:0;pointer-events:none;opacity:0;border-radius:17px;background:linear-gradient(158deg,color-mix(in srgb,var(--s-text) 9%,transparent),transparent 46%);transition:opacity 260ms var(--s-gallery-ease)}
 .dsh-soul-profile-card:hover::after{opacity:.8}
-/* 激活卡：flex-grow 吃掉剩余宽度，但**必须有 min-width 保底**。
-   实测踩过：预设并进这一排后变成 9 张卡，8 张窄条 ×68px + 8×12px gap = 640px，
-   1090px 的容器只剩 450px 给激活卡，而它内部有头像 + 四格铭牌 + 卡片区 ——
-   被压到 114px 时整张卡的文字挤成一列一个字（窄条 96px 那版更糟：只剩 226px）。
-   给 min-width 后容器装不下就横向滚动（rail 本来就是 overflow-x:auto），
-   而不是把激活卡压扁。 */
-.dsh-soul-profile-card-active,.dsh-soul-profile-card-active:hover{flex:1 1 620px;min-width:420px;border-color:var(--s-border-3);box-shadow:0 24px 56px -26px rgba(0,0,0,.5),inset 0 0 0 1px var(--s-border)}
+/* 激活卡：flex-grow 吃掉剩余宽度，缩不下去（flex-shrink:0）而不是靠 min-width 保底。
+   **min-width 会把展开方向的过渡整个吃掉**（2026-10-13 CDP 实测）：
+   min-width 不是可过渡属性，它在激活那一刻从 0px 直接跳到 420px；而 flex 布局里
+   min-width 是 flex-basis 的下限约束 —— 下限一帧内跳到 420，卡片当帧就被撑到 420px，
+   640ms 的 flex-basis 过渡形同虚设（实测展开方向 68→420 只出现 2 个宽度取值，
+   收起方向却正常渐变 620→68）。改成 flex-shrink:0 表达同一个意图：
+   卡片不参与收缩、容器装不下就横向滚动（rail 本来就是 overflow-x:auto），
+   于是宽度全程只由可过渡的 flex-basis 驱动，两个方向都能读出「谁让位、谁展开」。
+   实测修后：展开方向出现 18 个中间宽度值（68→77→122→…→620），且最小值仍是 68px，
+   没有被压扁。 */
+.dsh-soul-profile-card-active,.dsh-soul-profile-card-active:hover{flex:1 0 620px;border-color:var(--s-border-3);box-shadow:0 24px 56px -26px rgba(0,0,0,.5),inset 0 0 0 1px var(--s-border)}
 .dsh-soul-profile-card-active::after{opacity:1}
 /* 窄态压暗：一排卡里只有一张是「当前」，其余靠去饱和表达，不靠降透明度
    （降透明度会让窄条在深色底上糊成一片）。 */
 .dsh-soul-profile-card:not(.dsh-soul-profile-card-active){filter:saturate(.34) brightness(.74)}
 .dsh-soul-profile-card:not(.dsh-soul-profile-card-active):hover{filter:saturate(.72) brightness(.96);transform:translateY(-4px)}
+/* 按下即回弹：mousedown 到回包之间哪怕只有 40ms，也要有一下「按到了」的手感。
+   transform 不参与主转场（那是 flex-basis），所以给短的 120ms 而不是 640ms。 */
+.dsh-soul-profile-card:active{transform:translateY(-1px) scale(.985);transition-duration:120ms}
 /* 焦点环走 outline 而不是本文件统一的 box-shadow：宽态已经吃掉 box-shadow
    （大投影 + 内描边），再叠一层会被覆盖掉，反而看不见焦点。 */
 .dsh-soul-profile-card:focus-visible{outline:2px solid var(--s-primary);outline-offset:2px}
@@ -705,6 +722,10 @@ const SHEET = `
 .dsh-soul-profile-plate{padding:12px 2px 0;min-width:0}
 .dsh-soul-profile-plate-k{display:block;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--s-text-3);margin-bottom:5px}
 .dsh-soul-profile-plate-v{display:block;font-size:11.5px;line-height:1.5;color:var(--s-text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 有预览区时铭牌不再钉底：margin-top:auto 会在「名字/角色」与铭牌之间撑出一块
+   空洞 —— 预设卡的内容本来就不多，展开后中间空一大片（2026-10-13 用户截图实证）。
+   预览区一旦存在，就让内容自上而下自然堆叠，余白留在卡片底部而不是插在中间。 */
+.dsh-soul-profile-card:has(.dsh-soul-profile-preview) .dsh-soul-profile-plates{margin-top:14px}
 /* 底部行：时间在左、动作按钮在右。
    必须允许换行（flex-wrap）并把时间那一段设为「可截断不换行」：
    卡宽在 96↔620px 之间伸缩，窄到 320px 时这一行塞不下「更新于 10-11 11:06」+
@@ -721,6 +742,23 @@ const SHEET = `
 .dsh-soul-profile-bar{position:absolute;left:0;right:0;bottom:0;height:2px;background:transparent;overflow:hidden}
 .dsh-soul-profile-bar-fill{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--s-primary),color-mix(in srgb,var(--s-primary) 62%,#fff));transition:width 380ms var(--s-gallery-ease)}
 .dsh-soul-profile-card[data-busy='1'] .dsh-soul-profile-bar-fill{width:100%}
+/* 预设卡被套用中：进度条之外再给一层呼吸描边。
+   为什么单给预设加：预设的 active 恒为 false（它不是「当前人格」），既不展开也
+   不位移，光有底部进度条在窄条上不够醒目 —— 而它恰恰是画廊里最常被点的一类卡。
+   描边走 border-color 过渡而不是 animation，避免与 data-busy 的进度条抢时间轴。 */
+.dsh-soul-profile-card[data-busy='1']:not(.dsh-soul-profile-card-active){
+  border-color:color-mix(in srgb,var(--s-primary) 55%,transparent);
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--s-primary) 30%,transparent),0 6px 18px color-mix(in srgb,var(--s-primary) 16%,transparent);
+  filter:saturate(1) brightness(1.02)}
+/* 套用完成的落位回弹：与 .dsh-soul-deck-card-on 的 dsh-soul-pick 同一套语言
+   （点下去要有「确实生效了」的一下）。340ms、一次，不循环。 */
+.dsh-soul-profile-card-landed{animation:dsh-soul-land .34s cubic-bezier(.2,1.2,.4,1)}
+.dsh-soul-profile-card-landed::before{content:'';position:absolute;inset:0;pointer-events:none;border-radius:17px;background:radial-gradient(120% 90% at 50% 0%,color-mix(in srgb,var(--s-primary) 22%,transparent),transparent 70%);animation:dsh-soul-landed-glow .34s ease-out}
+@keyframes dsh-soul-landed-glow{from{opacity:1}to{opacity:0}}
+
+/* 「整体替换」的二次确认提示：与按钮同行，醒目但不抢按钮的视觉权重。
+   替换会覆盖整份人格且不可撤销，这一步必须让人看清代价才点得下去。 */
+.dsh-soul-profile-confirm-text{display:inline-flex;align-items:center;font-size:11.5px;line-height:16px;color:var(--s-warn);animation:dsh-soul-rise .18s cubic-bezier(.2,.8,.2,1) backwards}
 
 /* 宽态底部的编辑 / 删除 / 新建：都在卡片之外，用与面板其余部分同源的字段与按钮 */
 .dsh-soul-profile-edit{display:flex;flex-direction:column;gap:10px;margin-top:10px;padding:12px 14px;box-sizing:border-box;border:1px solid var(--s-border-2);border-radius:12px;background:var(--s-layer)}
@@ -751,11 +789,17 @@ const SHEET = `
    信息，卡片列表会被裁成半行；560px 是「四格铭牌 + 卡片区露三四行」的实测值。 */
 /* 有卡片区时整排要更高：560px 只够「身份信息 + 卡片区露一两行」（实测截图里
    卡片列表被压到只剩一张半，用户得在小窗口里滚）。卡片区是这个页面的内容主体，
-   它必须能一眼看到三张以上 —— 实测 680px 是「铭牌 + 三张卡 + 底部动作行」的值。 */
+   它必须能一眼看到三张以上。
+
+   2026-10-13 实测校正：卡片区内容实测 704px（5 张卡，每张 123px + 间距）。
+   原来的 680px 减去「头像/名字/铭牌/动作行」后只剩下 ~244px 给列表，内部滚动条
+   把视图卷在中间，用户看到的是「位置不对、文字叠在一起」（用户截图实证）。
+   rail 给 880px：卡片区拿到的可用高约 620px，能露出 4 张以上，滚动条只在
+   卡片更多时才出现。整排变高由页面纵向滚动承接，不再压缩内容。 */
 .dsh-soul-profile-full,
 .dsh-soul-profile-gallery:has(.dsh-soul-profile-cards){width:100%;min-width:0}
 .dsh-soul-profile-full .dsh-soul-profile-rail,
-.dsh-soul-profile-gallery:has(.dsh-soul-profile-cards) .dsh-soul-profile-rail{height:680px}
+.dsh-soul-profile-gallery:has(.dsh-soul-profile-cards) .dsh-soul-profile-rail{height:880px}
 
 /* 宽卡内的卡片区：**复用** .dsh-soul-card-row 系列外观，这里只负责装它的盒子
    （标题行 + 限高滚动），不另造一套卡片长相——两套卡片外观等于让用户学两遍。
@@ -763,7 +807,12 @@ const SHEET = `
 /* 卡片区高度：flex 分配 + **min-height 保底**。
    只靠 flex:1 会被上面的头像/名字/铭牌挤到很矮（实测只剩一张半卡片的高度，
    用户以为「我的卡丢了」）。min-height 保证至少露出两张卡的高度，
-   再多由 max-height 限住、内部滚动。 */
+   再多由 max-height 限住、内部滚动。
+
+   max-height 从 260px 放宽到 560px（2026-10-13 用户反馈「位置不对、全文显示不对」）：
+   260px 只装得下两张卡，5 张卡的内容（704px）要在一个 260px 的窗口里滚动 ——
+   滚动条停在中间时，卡片的文字被拦腰截断，看起来就是「文字叠在一起 / 位置错乱」。
+   560px 能完整露出 4 张，滚动只在卡特别多时才需要。 */
 .dsh-soul-profile-cards{flex:1 1 auto;display:flex;flex-direction:column;gap:7px;min-width:0;min-height:180px;width:100%;margin-top:12px;padding-top:12px;border-top:1px solid var(--s-border)}
 /* 有卡片区时铭牌不再吃 margin-top:auto：剩余空间让给卡片列表（列表因此能长到
    宽卡底部、在内部滚动）。没有卡片区时保持既有形态——铭牌贴底。 */
@@ -772,7 +821,7 @@ const SHEET = `
 .dsh-soul-profile-cards-title{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;line-height:19px;color:var(--s-text);white-space:nowrap}
 .dsh-soul-profile-cards-title svg{color:var(--s-primary)}
 .dsh-soul-profile-cards-hint{font-size:11px;line-height:16px;color:var(--s-text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-soul-profile-cards-body{flex:1 1 auto;min-height:0;max-height:260px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
+.dsh-soul-profile-cards-body{flex:1 1 auto;min-height:0;max-height:560px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
 /* 卡片区若直接嵌的是卡片区组件（带自己那层 section 壳），剥掉它的壳：
    宽卡已经是「卡」，卡里再套一张同款描边卡就是双层边框（与右列预览区
    剥壳同款处理）。只剥壳，里面的 .dsh-soul-card-row 外观原样复用。 */
@@ -780,16 +829,29 @@ const SHEET = `
 .dsh-soul-profile-cards .dsh-soul-card-hint{display:none}
 .dsh-soul-profile-cards-empty{padding:10px 2px;font-size:11.5px;line-height:17px;color:var(--s-text-3)}
 
-/* 只读预览（未激活角色 / 预设）：单行「标题 + 字数」，无开关无按钮。
+/* 只读预览（未激活角色 / 预设）：标题 + **完整正文**，无开关无按钮。
    视觉上必须是「预览」不是「可操作」——所以不给卡片描边、不给色块，只留小字号
    灰字；可编辑的卡片行有边框、有开关、有 hover 提亮，两者一眼分得开。
-   （未激活角色本来也改不了：卡片接口读写的永远是生效层。） */
-.dsh-soul-profile-preview{display:flex;flex-direction:column;gap:1px;margin-top:12px;padding-top:10px;border-top:1px solid var(--s-border);min-width:0;min-height:0;max-height:168px;overflow-y:auto;overscroll-behavior:contain}
-.dsh-soul-profile-preview-item{display:flex;align-items:baseline;gap:10px;min-width:0;padding:4px 8px;border-radius:7px;font-size:11.5px;line-height:17px;color:var(--s-text-3);transition:background .18s ease,color .18s ease,transform .18s var(--s-gallery-ease)}
-.dsh-soul-profile-preview-item>span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* 第二个 span 才是「字数」；只有一个 span 时不抢走标题的 flex:1 */
-.dsh-soul-profile-preview-item>span:last-child:not(:first-child){flex:none;font-variant-numeric:tabular-nums;opacity:.72}
-.dsh-soul-profile-preview-item:hover{background:var(--s-hover);color:var(--s-text-2);transform:translateX(2px)}
+   （未激活角色本来也改不了：卡片接口读写的永远是生效层。）
+
+   2026-10-13 用户要求「把全文放卡片里面可滚动查看」：预览区因此从「一行摘要」
+   升级成**可滚动的全文视图**。高度由 max-height 兜住、内部滚动，所以内容再多
+   也不会把卡片撑爆，也不会被截断。 */
+.dsh-soul-profile-preview{display:flex;flex-direction:column;gap:2px;margin-top:12px;padding-top:10px;border-top:1px solid var(--s-border);min-width:0;min-height:110px;max-height:460px;overflow-y:auto;overscroll-behavior:contain;
+  /* 滚动条常驻槽位：内容从少到多时不会因为滚动条出现而让文字横向跳动 */
+  scrollbar-gutter:stable}
+/* 每条 = 一张卡片：标题一行，正文跟在下面（多行）。 */
+.dsh-soul-profile-preview-item{display:flex;flex-direction:column;gap:2px;min-width:0;padding:7px 9px;border-radius:7px;font-size:11.5px;line-height:17px;color:var(--s-text-3);transition:background .18s ease,color .18s ease}
+/* 标题行：小字距 + 略提亮，作为分节标题读（它是分节，不是内容） */
+.dsh-soul-profile-preview-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:650;color:var(--s-text-2);font-size:11px;letter-spacing:.02em}
+/* 正文块：整段展示，按 \n 拆成一行一条（换行由 JSX 拆好）。
+   刻意**不**用 ellipsis / nowrap —— 用户要的就是能读完的全文。 */
+.dsh-soul-profile-preview-body{display:flex;flex-direction:column;gap:1px;min-width:0;font-size:11px;line-height:17px;color:var(--s-text-3);white-space:pre-wrap;word-break:break-word}
+.dsh-soul-profile-preview-line{margin:0;min-width:0;overflow-wrap:anywhere}
+/* 卡片之间一条细分隔线：全文视图里每条都可能好几行，不给分隔会糊成一片 */
+.dsh-soul-profile-preview-item+.dsh-soul-profile-preview-item{border-top:1px solid var(--s-border)}
+.dsh-soul-profile-preview-item:hover{background:var(--s-hover)}
+.dsh-soul-profile-preview-item:hover .dsh-soul-profile-preview-title{color:var(--s-text)}
 .dsh-soul-profile-preview-more{padding:3px 8px;font-size:11px;line-height:16px;color:var(--s-text-3);text-align:right}
 
 /* 来源徽标（主档 / 档案 / 预设）：三种来源的**动作语义不同**，长相也得不同。
@@ -1302,7 +1364,11 @@ body[data-ds-dark-theme] .dsh-soul-toggle-row{--s-card-bg:var(--dsw-static-neutr
   .dsh-soul-profile-card-active .dsh-soul-profile-vname{display:none}
   .dsh-soul-profile-cards-body{max-height:none;overflow:visible}
   .dsh-soul-profile-cards-hint{display:none}
-  .dsh-soul-profile-preview{max-height:none;overflow:visible}
+  /* 预览区在窄屏**保留内部滚动**（不放宽成 overflow:visible）。
+     上面卡片区的放开是因为它只有几行摘要；预览区现在是整份人格的全文（5 张卡
+     十几行起步），放开限高会让窄屏卡片长到几百 px、整页被一张卡撑爆。
+     「全文可滚动查看」在窄屏同样是这个控件自己的职责。 */
+  .dsh-soul-profile-preview{max-height:420px;overflow-y:auto}
   .dsh-soul-profile-rail,
   .dsh-soul-profile-full .dsh-soul-profile-rail,
   .dsh-soul-profile-gallery:has(.dsh-soul-profile-cards) .dsh-soul-profile-rail{height:auto;min-height:400px}
@@ -1367,6 +1433,10 @@ body[data-ds-dark-theme] .dsh-soul-toggle-row{--s-card-bg:var(--dsw-static-neutr
   .dsh-soul-state-dirty .dsh-soul-state-dot{animation:none}
   .dsh-soul-card-row-in,.dsh-soul-card-row-landed,.dsh-soul-preset-row-in,.dsh-soul-new-card,.dsh-soul-card-row-drop::before,.dsh-soul-profile-card-in{animation:none}
   .dsh-soul-deck-card-on,.dsh-soul-deck-card-busy::after,.dsh-soul-persona-avatar-img,.dsh-soul-banner-main{animation:none}
+  /* 预设套用的落位回弹：关掉动画，但**保留**底部进度条与描边（它们表达「请求进行中」，
+     属于状态而非装饰，去掉会让用户以为点了没反应） */
+  .dsh-soul-profile-card-landed,.dsh-soul-profile-card-landed::before{animation:none}
+  .dsh-soul-profile-card:active{transform:none}
   .dsh-soul-card-row-leaving{transform:none}
   .dsh-soul-btn,.dsh-soul-notice,.dsh-soul-input,.dsh-soul-textarea,.dsh-soul-tab,.dsh-soul-switch,.dsh-soul-switch::after,
   .dsh-soul-card-row,.dsh-soul-card-row::after,.dsh-soul-card-editor,.dsh-soul-card-editor-inner,.dsh-soul-caret,

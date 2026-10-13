@@ -74,13 +74,58 @@ const NOTICE_MS = 2400
 const PROFILE_LIMIT = 20
 
 /**
- * 非激活角色卡里最多预览几张卡片标题。
+ * 非激活角色卡里预览几张卡片。
  *
- * 为什么要有上限：一排卡里只有一张是展开的，其余窄条/次宽卡的预览区高度有限；
- * 一张预设可能有十几张卡，全列出来会把卡撑得比激活卡还高，一排卡的节奏就乱了。
- * 超出部分由「还有 N 张」收尾。
+ * 2026-10-13 用户要求「把全文放卡片里面可滚动查看」，上限随之上调：原先 4 张 +
+ * 「还有 N 张」是给**单行摘要**定的量；现在每条要展开显示整张卡片的正文，条数
+ * 不再决定卡高（由预览区自己的 max-height + 内部滚动兜住），所以放宽到能覆盖
+ * 绝大多数人格（内置预设最多 5 张，用户手写的通常也就几张）。真要超出，
+ * 仍由「还有 N 张」如实收尾，而不是无声截断。
  */
-const PREVIEW_CARDS = 4
+const PREVIEW_CARDS = 12
+
+/**
+ * 从一套预设卡片里**派生**展示字段（角色 / 语气 / 语言 / 准则数）。
+ *
+ * 为什么需要派生：预设只有 id / name / desc + 一组卡片，没有独立的身份字段
+ * （SoulPreset 的定义如此）。早先这里把 role/tone/language 一律留空、走
+ * detailKnown=false 的「—」占位，理由是「没有独立字段可读，不编」。但那些值
+ * **本来就在卡片正文里** —— 身份卡写着「名字：小柚 / 角色：元气满满的靠谱小搭档」，
+ * 语气卡写着「语气：软糯、元气 / 语言：简体中文」。留空不是诚实，是把已存在的
+ * 信息藏起来：用户点开一张预设卡看到的是一大片空白（2026-10-13 截图实证）。
+ *
+ * 解析口径与 host 的卡片→注入投影一致：每行 `键：值`。认不出的键就不填，
+ * 不做猜测、不编默认值 —— 认不出时仍然是「—」。
+ */
+function derivePresetMeta(cards: readonly SoulCard[]): { role: string; tone: string; language: string; principles: number } {
+  /** 取某张 kind 卡里 `标签：值` 的值（标签做包含匹配，容忍「名字」「称呼」等写法）。 */
+  const fieldOf = (kind: string, labels: readonly string[]): string => {
+    const card = cards.find(item => item.kind === kind)
+    if (card === undefined) return ''
+    for (const rawLine of card.body.split('\n')) {
+      const line = rawLine.trim().replace(/^[-*\d.、)\s]+/, '')
+      const at = line.indexOf('：') >= 0 ? line.indexOf('：') : line.indexOf(':')
+      if (at <= 0) continue
+      const key = line.slice(0, at).trim()
+      const value = line.slice(at + 1).trim()
+      if (value === '') continue
+      if (labels.some(label => key.includes(label))) return value
+    }
+    return ''
+  }
+  const principlesCard = cards.find(item => item.kind === 'principles')
+  // 准则数以**非空行**计，与 host 注入时逐行展开的口径一致（而不是数「1. 2. 3.」编号）。
+  const principles = principlesCard === undefined
+    ? 0
+    : principlesCard.body.split('\n').filter(line => line.trim() !== '').length
+  return {
+    role: fieldOf('identity', ['角色']),
+    // 语气卡里既有「语气：」也有「语言：」，两个标签都要精确匹配到各自那行。
+    tone: fieldOf('tone', ['语气']),
+    language: fieldOf('tone', ['语言']),
+    principles,
+  }
+}
 
 /** 保存按钮的三种反馈态。 */
 type SaveFeedback = 'idle' | 'busy' | 'done'
@@ -886,7 +931,10 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
       builtin: false,
       // 激活时预览就是本尊的卡片；非激活时卡片接口给的是「生效层」的，
       // 与主档无关，故不冒充（detailKnown 已表达这层诚实）。
+      // cardBodies 给**完整正文**（不是摘要）：展开卡里的预览区自己滚动，
+      // 用户要的是「能在这儿把这几张卡读完」。
       cardTitles: baseActive ? cards.slice(0, PREVIEW_CARDS).map(card => card.title) : [],
+      cardBodies: baseActive ? cards.slice(0, PREVIEW_CARDS).map(card => card.body) : [],
     }
     const rest: RoleCard[] = profiles.map(profile => ({
       id: profile.id,
@@ -913,6 +961,7 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
       // 激活档案时 cards 就是它的卡片（host cards() 读生效层）；非激活档案
       // 拿不到它的卡片标题（ProfileView 不带），预览留空 —— 不编。
       cardTitles: profile.active ? cards.slice(0, PREVIEW_CARDS).map(card => card.title) : [],
+      cardBodies: profile.active ? cards.slice(0, PREVIEW_CARDS).map(card => card.body) : [],
     }))
     /**
      * 预设也进这一排。
@@ -928,30 +977,36 @@ export function SoulPanel({ api, onClose, embedded = false, t = makeSoulT() }: S
      * 排序刻意放在主档与档案之后：可激活的人格在前（那是「我在用谁」），
      * 现成模板在后（那是「我想变成谁」）。
      */
-    const presetCards: RoleCard[] = presets.map(preset => ({
-      id: null,
-      source: 'preset',
-      presetId: preset.id,
-      name: preset.name,
-      // 预设不是「当前生效的人格」，永远不可能是激活态。
-      active: false,
-      updatedAt: null,
-      desc: preset.desc,
-      tag: '',
-      avatar: null,
-      // 预设的「身份」由它那套卡片决定，这里没有独立字段可读 —— 留空，
-      // 铭牌走 detailKnown=false 的「—」，不编。
-      role: '',
-      tone: '',
-      language: '',
-      principles: 0,
-      cardsOn: preset.cards.filter(card => card.enabled).length,
-      cardsTotal: preset.cards.length,
-      version: 0,
-      detailKnown: false,
-      builtin: preset.builtin,
-      cardTitles: preset.cards.slice(0, PREVIEW_CARDS).map(card => card.title),
-    }))
+    const presetCards: RoleCard[] = presets.map(preset => {
+      // 展示字段从卡片正文派生（见 derivePresetMeta）：预设没有独立的身份字段，
+      // 但身份卡/语气卡里写着这些值，读出来展示 —— 留空会让展开的预设卡一片空白。
+      const meta = derivePresetMeta(preset.cards)
+      return {
+        id: null,
+        source: 'preset',
+        presetId: preset.id,
+        name: preset.name,
+        // 预设不是「当前生效的人格」，永远不可能是激活态。
+        active: false,
+        updatedAt: null,
+        desc: preset.desc,
+        tag: '',
+        avatar: null,
+        role: meta.role,
+        tone: meta.tone,
+        language: meta.language,
+        principles: meta.principles,
+        cardsOn: preset.cards.filter(card => card.enabled).length,
+        cardsTotal: preset.cards.length,
+        version: 0,
+        // detailKnown 表达的是「这份角色的详情是否已知」：派生出内容后它对预设
+        // 也成立了（有则显示，无则各字段自己退化成「—」）。
+        detailKnown: true,
+        builtin: preset.builtin,
+        cardTitles: preset.cards.slice(0, PREVIEW_CARDS).map(card => card.title),
+        cardBodies: preset.cards.slice(0, PREVIEW_CARDS).map(card => card.body),
+      }
+    })
     return [base, ...rest, ...presetCards]
   }, [cards, presets, profiles, soul, t])
 

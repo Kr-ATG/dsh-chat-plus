@@ -42,6 +42,50 @@ const DESC_LIMIT = 60
 const TAG_LIMIT = 12
 
 /**
+ * 「套用中」的最小可见时长（ms）。
+ *
+ * 套用预设是一次本地 HTTP 往返，实测回包常在 45ms 内到达；而进度条过渡要 380ms。
+ * 请求比条子走得还快，条子推到 12px 就被撤掉 —— 用户看到的就是「点了没反应」。
+ * 240ms 是「能读出发生了动作、又不显得卡」的取值：低于 160ms 读不出来，
+ * 高于 300ms 会开始像卡顿。**只影响视觉，不延迟任何数据更新。**
+ */
+const PRESET_BUSY_MIN_MS = 240
+
+/**
+ * 展开态在 localStorage 里的键。
+ *
+ * 为什么必须落到 localStorage 而不是组件 state：工作台是 `activeTab === 'soul' &&`
+ * 条件渲染，切到「记忆」再切回来会把整棵 SoulPanel **卸载重建**，组件内的 state
+ * 随之清零。用户实测的体感就是「我切换了，再进来又变了」——展开的卡变回主档、
+ * rail 滚回最左（2026-10-13 复现确认）。刷一次页面同样丢。
+ *
+ * 存的是卡片 key（`base` / `profile:<id>` / `preset:<id>`），不是下标：
+ * 角色列表会因增删而变序，存下标会张冠李戴。
+ */
+const FOCUS_STORAGE_KEY = 'dsh-soul-gallery-focus'
+
+/** 读上次展开的卡（读不到 / 存了非法值就返回 null，由调用方回落到数据激活态）。 */
+function readStoredFocus(): string | null {
+  try {
+    const raw = window.localStorage.getItem(FOCUS_STORAGE_KEY)
+    return raw === null || raw === '' ? null : raw
+  } catch {
+    // 隐私模式 / 存储被禁用：静默降级成「不记忆」，不影响面板其余功能。
+    return null
+  }
+}
+
+/** 记住展开的卡（写失败同样静默）。 */
+function writeStoredFocus(key: string | null): void {
+  try {
+    if (key === null) window.localStorage.removeItem(FOCUS_STORAGE_KEY)
+    else window.localStorage.setItem(FOCUS_STORAGE_KEY, key)
+  } catch {
+    // 同上：记忆是增强，不是功能前提。
+  }
+}
+
+/**
  * 角色的来源。三类同级同形排在一排里，但**点击语义不同**：
  *
  *   base    —— 主档（soul.md 本体）。点 = 切回主档。
@@ -96,8 +140,17 @@ export interface RoleCard {
   readonly detailKnown: boolean
   /** 预设是否内置（内置不可删）。非预设恒为 false。 */
   readonly builtin: boolean
-  /** 卡片预览：该角色的卡片标题（宽卡内只读预览用，最多取前若干张）。 */
+  /** 卡片预览：该角色的卡片标题（展开卡的只读区用）。 */
   readonly cardTitles: readonly string[]
+  /**
+   * 卡片预览的**完整正文**（与 cardTitles 同序同长）。
+   *
+   * 2026-10-13 用户要求「把全文放卡片里面可滚动查看」：原先这里给的是首行摘要，
+   * 用户只能看到一行省略号，读不出这份人格到底写了什么。现在给整段正文，由预览区
+   * 自己的 max-height + overflow-y 兜住滚动 —— 卡片高度不被撑爆，内容也不截断。
+   * 保留换行（renderBody 按 \n 拆分渲染），否则准则那种一行一条的会挤成一坨。
+   */
+  readonly cardBodies: readonly string[]
 }
 
 /** ProfileGallery 属性。 */
@@ -226,6 +279,10 @@ export function ProfileGallery(props: ProfileGalleryProps): JSX.Element {
   const [uploadingId, setUploadingId] = useState<string | null | undefined>(undefined)
   /** 各卡自己的隐藏 file input（一张卡一个，避免共享 ref 时选错卡）。 */
   const fileRefs = useRef(new Map<string, HTMLInputElement | null>())
+  /** 横向滚动轨（展开卡滚进视野用）。 */
+  const railRef = useRef<HTMLDivElement | null>(null)
+  /** 各卡节点（按 role key 存；展开后要把它滚进视野）。 */
+  const cardRefs = useRef(new Map<string, HTMLElement | null>())
 
   /** 卡片 key：主档用固定串，档案用 id（Map 的 key 不能是 null）。 */
   /**
@@ -247,6 +304,131 @@ export function ProfileGallery(props: ProfileGalleryProps): JSX.Element {
     if (draft === null) return
     if (!roles.some(role => role.id === draft.id)) setDraft(null)
   }, [draft, roles])
+
+  /**
+   * 预设套用的**可见反馈状态机**。
+   *
+   * 为什么不能直接拿 presetBusy 渲染：套用是一次本地 HTTP 往返，实测回包常在
+   * 45ms 内到达，而进度条过渡本身要 380ms —— 请求结束得比条子走完还快，条子
+   * 刚推进到 12px 就被撤掉，用户眼里就是「点了没反应」（2026-10-13 CDP 实测：
+   * busy 态确实渲染了，但一帧就过去，采样都抓不稳）。
+   *
+   * 所以这里给「进行中」一个**最小可见时长**：视觉上至少亮够 PRESET_BUSY_MIN_MS，
+   * 数据更新照常即时发生，不被人为拖延。之后再播一次落位回弹。
+   * 状态完全由画廊自己持有 —— 面板侧不需要为「动画」新增任何回调契约。
+   */
+  const [presetVisual, setPresetVisual] = useState<{ id: string; phase: 'busy' | 'landed' } | null>(null)
+  /** 本次 busy 的起始时刻（算最小可见时长用）。 */
+  const presetBusyAt = useRef(0)
+  /** 上一次处于「套用中」的预设 id。 */
+  const lastPresetRef = useRef<string | null>(null)
+  /**
+   * 当前**展开**的那张卡（null = 跟随数据层的激活态）。
+   *
+   * 用户口径（2026-10-13 原话）：「点击其他的，其他的就放大，顺序不要变」。
+   * 预设卡没有激活语义（它的 active 恒为 false，代表「一套现成卡片」而不是
+   * 「当前人格」），所以以前点它宽度纹丝不动 —— 实测 68 → 68。但**展开是视觉
+   * 行为、不是数据状态**：用户点哪张，哪张就该展开给他看。
+   *
+   * 于是把「展开」从 role.active 里拆出来，由这个状态独占：
+   *   · 点档案/主档 → 同时更新它（数据层激活 + 视觉展开）
+   *   · 点预设     → 只更新它（只展开，不改激活的人格）
+   * 顺序完全不参与 —— roles 的次序由数据层决定，这个状态只影响宽度。
+   *
+   * **初值从 localStorage 读**：工作台切 Tab 会卸载重建本组件，纯 state 会让
+   * 「切走再回来」变回主档（用户实测反馈）。落盘后跨卸载、跨刷新都记得。
+   */
+  const [focusedKey, setFocusedKeyState] = useState<string | null>(() => readStoredFocus())
+  /** 写 state 的同时落盘，两处永远同步（调用方只需认这一个 setter）。 */
+  const setFocusedKey = useCallback((key: string | null): void => {
+    setFocusedKeyState(key)
+    writeStoredFocus(key)
+  }, [])
+  /**
+   * 正在等待二次确认的「整体替换」预设 id（null = 没有）。
+   *
+   * 为什么只有这颗按钮要确认：它覆盖的是整份人格的全部卡片，且**没有撤销**。
+   * 合并（merge）是幂等追加、切换人格随时能切回，都不必拦；只有它是不可逆的。
+   */
+  const [confirmReplace, setConfirmReplace] = useState<string | null>(null)
+
+  /**
+   * 数据层激活态**真的换人**时，让展开态跟随过去。
+   *
+   * 这里刻意只认「换了不同的角色」，不认「刚拿到数据」：
+   * activeKey 的初值是 null（roles 还没来），加载完成后会变成 'base'。
+   * 早先的写法是 any-change → setFocusedKey(null)，于是每次重进页面（数据重新
+   * 拉取）都把用户手动展开的那张卡清掉 —— 用户看到的正是「我切换了，再进来又变了」
+   * （2026-10-13 复现确认）。现在存上一次的值，只有**确实换了个角色**才跟随。
+   *
+   * 跟随的目标是 activeKey 本身（而不是 null）：手动展开只是「我在看这张」，
+   * 一旦用户真去点了「启用」，视线就该落到新激活的那张上。
+   */
+  const prevActiveKey = useRef<string | null | undefined>(undefined)
+  const activeRole = roles.find(role => role.active)
+  const activeKey = activeRole === undefined ? null : keyOf(activeRole)
+  useEffect(() => {
+    if (prevActiveKey.current === undefined) {
+      // 首次拿到数据：不动用户的展开态（它可能来自 localStorage）。
+      prevActiveKey.current = activeKey
+      return
+    }
+    if (prevActiveKey.current !== activeKey) {
+      prevActiveKey.current = activeKey
+      setFocusedKey(activeKey)
+    }
+  }, [activeKey, setFocusedKey])
+
+  // 展开卡换人、或套用请求起止时，清掉未确认的替换提示：
+  // 确认框不该跨卡、跨次点击残留（否则换个卡还挂着上一张的「确定？」）。
+  useEffect(() => { setConfirmReplace(null) }, [focusedKey, presetBusy])
+
+  /**
+   * 展开的卡必须**滚进视野**。
+   *
+   * 为什么需要：rail 是横向滚动容器（`overflow-x:auto`），而展开的卡有 620px 宽。
+   * 用户点第 5 张卡时，它原本只占 68px、位置靠右；展开后右半截直接落在可视区之外
+   * （2026-10-13 截图实证：卡右端的「灵魂卡片 5/5 启用中」被裁掉）。点了放大却看
+   * 不全，等于没做到位。
+   *
+   * 用 scrollIntoView 的 inline:'nearest'：已经在视野内就不动（避免每次点卡都
+   * 轰一下横向滚动），只在被裁时才贴边滚到位。block:'nearest' 同理 —— 不要因为
+   * 横向对齐把整页纵向也拽走。
+   */
+  const didMount = useRef(false)
+  useEffect(() => {
+    // 首次挂载不滚：那时展开的卡跟随数据激活态，页面刚打开不该自己动。
+    if (!didMount.current) { didMount.current = true; return }
+    if (focusedKey === null) return
+    const node = cardRefs.current.get(focusedKey)
+    if (node === null || node === undefined) return
+    // 尊重「减少动效」偏好：这类用户要的是瞬时到位，不是平滑滚动。
+    const reduce = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    node.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', inline: 'nearest', block: 'nearest' })
+  }, [focusedKey])
+
+  useEffect(() => {
+    const busyId = presetBusy === null ? null : presetBusy.presetId
+    if (busyId !== null) {
+      lastPresetRef.current = busyId
+      presetBusyAt.current = performance.now()
+      setPresetVisual({ id: busyId, phase: 'busy' })
+      return
+    }
+    // 由忙转闲：数据已经回来了。若「进行中」亮得不够久，先补齐再转落位。
+    const landed = lastPresetRef.current
+    if (landed === null) return
+    const remain = Math.max(0, PRESET_BUSY_MIN_MS - (performance.now() - presetBusyAt.current))
+    const toLanded = window.setTimeout(() => {
+      setPresetVisual({ id: landed, phase: 'landed' })
+      // 动画 340ms，350ms 后摘掉：摘晚了下次点击复用同一个 class 不会重播。
+      window.setTimeout(() => {
+        setPresetVisual(current => (current !== null && current.id === landed ? null : current))
+      }, 350)
+    }, remain)
+    return () => { window.clearTimeout(toLanded) }
+  }, [presetBusy])
 
   /** 提交展示件（无改动则静默返回，不发请求）。 */
   const commitMeta = useCallback((): void => {
@@ -309,49 +491,68 @@ export function ProfileGallery(props: ProfileGalleryProps): JSX.Element {
       </div>
       <span className={css.cardHint} title={t('soulGalleryHint')}>{t('soulGalleryHint')}</span>
 
-      <div className={css.profileRail} role="tablist" aria-label={t('soulProfiles')}>
+      <div className={css.profileRail} role="tablist" aria-label={t('soulProfiles')} ref={railRef}>
         {roles.map((role, index) => {
           const key = keyOf(role)
           const editing = draft !== null && draft.id === role.id
           const uploading = uploadingId === role.id
           const isBase = role.source === 'base'
           const isPreset = role.source === 'preset'
+          /** 这张预设卡的视觉反馈阶段（null = 无反馈）。 */
+          const presetPhase = isPreset && presetVisual !== null && presetVisual.id === role.presetId
+            ? presetVisual.phase
+            : null
+          /**
+           * 这张卡是否**展开**（宽态）。
+           *
+           * 优先级：用户手动点过哪张就展开哪张（focusedKey）；没点过时跟随数据层
+           * 的激活态。预设卡也能展开 —— 它虽然不是「当前人格」，但用户点了它就该
+           * 看到这套卡片里有什么（这正是用户要的「点其他的，其他的就放大」）。
+           */
+          const expanded = focusedKey !== null ? focusedKey === key : role.active
           return (
             <article
               key={key}
+              ref={node => {
+                if (node === null) cardRefs.current.delete(key)
+                else cardRefs.current.set(key, node)
+              }}
               className={[
                 css.profileCard,
-                role.active ? css.profileCardOn : '',
+                expanded ? css.profileCardOn : '',
+                presetPhase === 'landed' ? css.profileCardLanded : '',
                 css.profileCardIn,
               ].filter(item => item !== '').join(' ')}
               style={{ animationDelay: `${String(Math.min(index, 6) * 40)}ms` }}
-              data-busy={busy && role.active ? '1' : undefined}
+              data-busy={(busy && expanded) || presetPhase === 'busy' ? '1' : undefined}
               data-role-id={key}
               tabIndex={0}
               role="tab"
-              aria-selected={role.active}
-              aria-label={`${role.name} · ${role.active ? t('soulProfileActive') : t('soulProfileClickSwitch')}`}
+              aria-selected={expanded}
+              aria-label={`${role.name} · ${expanded ? t('soulProfileActive') : t('soulProfileClickSwitch')}`}
               onClick={() => {
-                // 点卡片 = 执行这张卡的主动作。**必须按来源分流**：
-                //   预设没有 profile id（role.id 恒为 null），若照主档/档案那条路走
-                //   onActivate(role.id) 会变成 onActivate(null) = **切回主档** ——
-                //   用户点「工程搭档」却回到了主档，看起来就是「点了没反应」。
-                //   预设的主动作是「把这套卡片套进当前人格」（replace）。
+                // 点卡片的主作用 = **放大查看**（用户口径：「点击其他的，其他的就
+                // 放大，顺序不要变」）。这一步只动视觉，不碰数据、不影响顺序。
                 if (editing) return
-                if (isPreset) {
-                  if (role.presetId !== null) onApplyPreset(role.presetId, 'replace')
-                  return
-                }
+                setFocusedKey(key)
+                // 预设卡：点击**只放大，不套用**。
+                //
+                // 这里以前是 onApplyPreset(id, 'replace') —— 点一下就把整套卡片
+                // 覆盖进当前人格。实测代价很大：验收时误点一次，用户写好的灵魂
+                // 就被整个换掉（2026-10-13 两次实测都发生了）。「看一眼这套卡长
+                // 什么样」和「把它铺进我的人格」是两种意图，不该共用同一次点击。
+                // 现在套用只走展开后的显式按钮（合并 / 替换），误触代价归零。
+                if (isPreset) return
+                // 主档 / 档案：切换人格本来就是它们的主作用（低风险、可切回），
+                // 与放大一起发生。
                 if (!role.active) onActivate(role.id)
               }}
               onKeyDown={event => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault()
                   if (editing) return
-                  if (isPreset) {
-                    if (role.presetId !== null) onApplyPreset(role.presetId, 'replace')
-                    return
-                  }
+                  setFocusedKey(key)
+                  if (isPreset) return
                   if (!role.active) onActivate(role.id)
                 }
               }}
@@ -405,6 +606,9 @@ export function ProfileGallery(props: ProfileGalleryProps): JSX.Element {
                       : role.source === 'profile' ? t('soulRoleSourceProfile') : t('soulRoleSourceBase')}
                   </span>
                   <span className={`${css.profileBadge} ${role.active ? css.profileBadgeOn : css.profileBadgePending}`}>
+                    {/* 徽标读的是**数据层激活**（role.active），不是视觉展开（expanded）：
+                        展开只是「我在看这张卡」，说成「使用中」就是在骗人。预设永远
+                        不是当前人格，所以它显示的是自己的定位标签。 */}
                     {role.source === 'preset'
                       ? t('soulPresetCustom')
                       : busy && role.active
@@ -479,13 +683,28 @@ export function ProfileGallery(props: ProfileGalleryProps): JSX.Element {
                   </div>
                 )}
 
-                {/* 非激活角色：只读预览（这份人格里有哪些卡）。预设天然是只读的
-                    —— 它还没有被套用，谈不上「它的卡片在生效」。 */}
-                {!role.active && role.cardTitles.length > 0 && (
+                {/* 非「真激活」但已展开的卡：只读全文（这份人格/预设里有哪些卡、写了什么）。
+                    预设天然是只读的 —— 它还没有被套用，谈不上「它的卡片在生效」；
+                    而 cardsSlot 编辑的永远是**生效层**，给预设卡渲染编辑区等于让用户
+                    改一份不属于它的东西。所以编辑槽只认 role.active，预览认 expanded。
+
+                    预览区是**可滚动的全文视图**（2026-10-13 用户要求）：每条给整张卡片的
+                    正文，按 \n 拆行渲染（准则那种一行一条的才读得清），高度由 CSS 的
+                    max-height 兜住、内部滚动 —— 内容多不会把卡片撑爆，也不会被截断。 */}
+                {!role.active && expanded && role.cardTitles.length > 0 && (
                   <div className={css.profilePreview}>
-                    {role.cardTitles.map(title => (
+                    {role.cardTitles.map((title, i) => (
                       <div className={css.profilePreviewItem} key={title}>
-                        <span>{title}</span>
+                        <span className={css.profilePreviewTitle}>{title}</span>
+                        {role.cardBodies[i] !== undefined && role.cardBodies[i].trim() !== '' && (
+                          <div className={css.profilePreviewBody}>
+                            {role.cardBodies[i].split('\n').map((line, j) => (
+                              <p className={css.profilePreviewLine} key={`${String(j)}`}>
+                                {line === '' ? '\u00a0' : line}
+                              </p>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                     {role.cardsTotal > role.cardTitles.length && (
@@ -495,7 +714,7 @@ export function ProfileGallery(props: ProfileGalleryProps): JSX.Element {
                     )}
                   </div>
                 )}
-                {!role.active && role.source !== 'preset' && role.cardTitles.length === 0 && (
+                {!role.active && expanded && role.source !== 'preset' && role.cardTitles.length === 0 && (
                   <span className={css.profileCardsHint}>{t('soulRoleCardsReadonly')}</span>
                 )}
 
@@ -580,17 +799,45 @@ export function ProfileGallery(props: ProfileGalleryProps): JSX.Element {
                       >{presetBusy?.presetId === role.presetId && presetBusy.mode === 'merge'
                         ? <SpinIcon size={12} />
                         : t('soulPresetApplyMerge')}</button>
-                      <button
-                        type="button"
-                        className={`${css.btn} ${css.btnPrimary}`}
-                        disabled={presetBusy !== null}
-                        onClick={event => {
-                          event.stopPropagation()
-                          onApplyPreset(role.presetId as string, 'replace')
-                        }}
-                      >{presetBusy?.presetId === role.presetId && presetBusy.mode === 'replace'
-                        ? <SpinIcon size={12} />
-                        : t('soulPresetApplyReplace')}</button>
+                      {/* 「整体替换」要有二次确认。它覆盖的是**整份人格**（当前
+                          主档或档案的全部卡片），而且没有撤销路径 —— 实测代价：
+                          2026-10-13 用户误点一次，手写的灵魂被整套预设盖掉。
+                          确认只给这一颗按钮：合并是幂等追加，切换人格随时可切回，
+                          都不需要拦。 */}
+                      {confirmReplace === role.presetId
+                        ? (
+                          <>
+                            <span className={css.profileConfirmText}>{t('soulPresetReplaceConfirm')}</span>
+                            <button
+                              type="button"
+                              className={`${css.btn} ${css.btnDanger}`}
+                              disabled={presetBusy !== null}
+                              onClick={event => {
+                                event.stopPropagation()
+                                setConfirmReplace(null)
+                                onApplyPreset(role.presetId as string, 'replace')
+                              }}
+                            >{presetBusy?.presetId === role.presetId && presetBusy.mode === 'replace'
+                              ? <SpinIcon size={12} />
+                              : t('soulPresetApplyReplace')}</button>
+                            <button
+                              type="button"
+                              className={`${css.btn} ${css.btnGhost}`}
+                              onClick={event => { event.stopPropagation(); setConfirmReplace(null) }}
+                            >{t('soulCardCancel')}</button>
+                          </>
+                        )
+                        : (
+                          <button
+                            type="button"
+                            className={`${css.btn} ${css.btnPrimary}`}
+                            disabled={presetBusy !== null}
+                            onClick={event => {
+                              event.stopPropagation()
+                              setConfirmReplace(role.presetId)
+                            }}
+                          >{t('soulPresetApplyReplace')}</button>
+                        )}
                       {!role.builtin && (
                         <button
                           type="button"

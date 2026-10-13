@@ -923,7 +923,8 @@ body[data-ds-dark-theme] .wb-root {
 @media (prefers-reduced-motion: reduce) {
   .wb2-rise, .wb2-eyebrow i, .wb2-dot-ok, .wb2-card-hero::before,
   .wb2-us-spark-line, .wb2-us-gauge-arc, .wb2-us-pie circle,
-  .dsh-soul-profile-card-in { animation: none !important; }
+  .dsh-soul-profile-card-in, .dsh-soul-profile-card-landed,
+  .dsh-soul-profile-card-landed::before { animation: none !important; }
   .wb2-card, .wb2-btn, .wb2-ibtn, .wb2-sw, .wb2-sw::after,
   .wb2-us-bar i, .wb2-us-rank-bar i,
   .dsh-soul-profile-card, .dsh-soul-profile-card::after, .dsh-soul-profile-avatar,

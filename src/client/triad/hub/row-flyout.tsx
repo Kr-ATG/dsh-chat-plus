@@ -30,6 +30,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { WorkbenchTab } from './WorkbenchPanel.js'
 import { DSH_WHALE_PATH, DSH_WHALE_VIEWBOX } from '../brand/whale-path.js'
+import { readRail } from '../sidebar-nav.js'
 import { getService } from '../../client-ctx.js'
 
 /** 侧栏行内的标记属性（图标组件渲染，委托监听据此认行）。 */
@@ -244,6 +245,16 @@ export function attachWorkbenchRowFlyout(): () => void {
   const onEnter = (event: MouseEvent): void => {
     const row = rowFrom(event.target)
     if (row === null) return
+    // 启动窗口闸门（2026-10 用户反馈「刚启动会闪出旧的『工作台』菜单」）：
+    // 横滑条首次挂载要等官方侧栏渲染完，那 1.5–2s 里官方行照常可见，
+    // hover 就会弹出用户已经不要的那套二级菜单。这里给浮层加一道闸门——
+    // **只在侧栏折叠成 rail 时**才放行（那才是浮层真正要兜底的场景：
+    // 条让位、官方行只剩图标）。
+    //
+    // 为什么不拿「条是否就位」当判据：宽栏稳态下官方行已被隐藏、根本 hover
+    // 不到，闸门在那种形态下是冗余的；而 rail 判据是单一真相（与 sidebar-nav
+    // 的 useRail 共用同一个 readRail），不需要在两个模块间同步状态。
+    if (!readRail()) return
     hoverRow = row
     cancelClose()
     openFly(row)
