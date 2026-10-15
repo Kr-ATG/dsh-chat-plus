@@ -85,7 +85,7 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "smoke": "node scripts/smoke-client.mjs && node scripts/smoke-host.mjs && node scripts/smoke-triad-client.mjs && node scripts/smoke-triad-host.mjs && node scripts/test-session-isolation.mjs && node scripts/test-browser-on-demand.mjs && node scripts/test-mail-two-phase.mjs && node scripts/test-mail-channel.mjs",
+    "smoke": "node scripts/smoke-client.mjs && node scripts/smoke-host.mjs && node scripts/smoke-triad-client.mjs && node scripts/smoke-triad-host.mjs && node scripts/test-session-isolation.mjs && node scripts/test-browser-on-demand.mjs && node scripts/test-mail-two-phase.mjs && node scripts/test-mail-channel.mjs && node scripts/test-html-card-width.mjs",
     "smoke:client": "node scripts/smoke-client.mjs",
     "smoke:host": "node scripts/smoke-host.mjs",
     "smoke:triad-client": "node scripts/smoke-triad-client.mjs",
@@ -95,7 +95,8 @@
     "test:mail-channel": "node scripts/test-mail-channel.mjs",
     "test:subagents": "node scripts/test-subagent-catalog.mjs",
     "test:session-isolation": "node scripts/test-session-isolation.mjs",
-    "test:browser-on-demand": "node scripts/test-browser-on-demand.mjs"
+    "test:browser-on-demand": "node scripts/test-browser-on-demand.mjs",
+    "test:html-card-width": "node scripts/test-html-card-width.mjs"
   },
   "engines": {
     "node": ">=22"
