@@ -2,11 +2,11 @@
  * dsh-chat-plus — 首 token 平均平铺桥（渲染空壳，只做 DOM 追认）。
  *
  * 为什么是 DOM 追认而不是重写官方座位：
- * 底部那行是官方 StatsPills（conversation.composer.dock / id stats），整行
- * 含两个 pill 与两张点开卡片。shadow 同 id 会把官方整行吃掉，之后官方每次
- * 改文案都得跟着抄；用不同 id 另起一行又会多出一行。本桥与官方同槽共存，
- * 只把算好的读数作为 flex item 追加进官方活动 pill，官方重渲染把它洗掉时由
- * MutationObserver 补回去。官方点开卡片里的那行原样保留，两处读数同一口径。
+ * 底部那行是官方 StatsPills（conversation.composer.dock，占位者 id activity
+ * 与 usage），整行含两颗 pill 与两张点开卡片。shadow 同 id 会把官方整行吃掉，
+ * 之后官方每次改文案都得跟着抄；用不同 id 另起一行又会多出一行。本桥与官方
+ * 同槽共存，只把算好的读数作为 flex item 追加进官方活动 pill，官方重渲染把它
+ * 洗掉时由 MutationObserver 补回去。官方点开卡片里的那行原样保留，同一口径。
  *
  * 锚点（0.2.1-alpha.4 起）：官方给每颗 pill 打了 `data-composer-stat`
  * （activity / usage），外面套 `[data-composer-dock]`。这里认 activity 那颗；
@@ -90,7 +90,7 @@ function syncAria(pill: HTMLElement, text: string): void {
 }
 
 /**
- * 把读数塞进官方 TimePill。幂等：已存在且文本一致时不碰 DOM，
+ * 把读数塞进官方活动 pill。幂等：已存在且文本一致时不碰 DOM，
  * 避免自己的写入又触发 observer 造成循环。
  *
  * 读数作为 pill 的直接子元素追加，**不进 label** —— 官方 label 带

@@ -1,7 +1,7 @@
 /**
  * dsh-chat-plus — 首 token 平铺读数样式（命名空间 data-dsh-ttft，幂等注入）。
  *
- * 读数追认进官方 TimePill 的 label：字号颜色全部继承 pill，
+ * 读数追认进官方活动 pill 内、作为其 flex item：字号颜色全部继承 pill，
  * 这里只补分隔点与入场淡入。字号轴变化自动跟随（不写死任何字号）。
  * 动效只有挂载那一次淡入，reduced-motion 下关闭。
  *
