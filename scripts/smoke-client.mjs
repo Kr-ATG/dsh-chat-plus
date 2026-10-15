@@ -1122,6 +1122,12 @@ if (typeof mod.ttftAverageMs !== 'function' || typeof mod.ttftFlatText !== 'func
   else if (!/foldWindowTtft/.test(bridgeSrc)) ttftReasons.push('桥在无投影时必须用窗口节点现算（与官方回退同源）')
   else if (!/MutationObserver/.test(bridgeSrc)) ttftReasons.push('官方重渲染会洗掉追认节点，桥必须有 MutationObserver 补回')
   else if (!/aria-label/.test(bridgeSrc)) ttftReasons.push('追认后必须同步按钮的 aria-label（读屏不能只念旧数）')
+  // ⑥ 锚点契约（0.2.1-alpha.4 真机实测）：官方给每颗 pill 打的是**单数**
+  // data-composer-stat，旧版整行容器才是复数 data-composer-stats。删掉单数那条
+  // 就是本次线上静默失效的复现，必须被断言拦住。
+  else if (!/data-composer-stat="activity"/.test(bridgeSrc)) ttftReasons.push('桥必须认官方 activity pill 锚点 data-composer-stat="activity"')
+  else if (!/data-composer-stats/.test(bridgeSrc)) ttftReasons.push('桥必须保留旧版整行容器锚点 data-composer-stats 作兜底')
+  else if (!/ariaLedger/.test(bridgeSrc)) ttftReasons.push('aria 基准必须存内存账本：存 data-* 属性会在官方重渲染后变陈旧、把新步数覆盖回旧值')
   if (ttftReasons.length > 0) fail('首 token 平均平铺契约：' + ttftReasons.join('；'))
   else {
     pass('首 token 平均平铺：平均/文本/回退口径正确（9.8秒样例 + 分秒分界 + 中英前缀）')
