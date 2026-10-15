@@ -188,7 +188,7 @@ const ctx = {
 try {
   // 显式传 mail.enabled=true：邮箱总开关是**用户运行时偏好**（面板设置页会把它
   // 写进 ~/.dsh/mail/dsh-mail/store/config.json），一旦用户关掉，下面的
-  // 「11 个 mail_* 工具都注册」断言就会跟着失败 —— 那是配置生效的正确行为，
+  // 「6 个 mail_* 工具都注册」断言就会跟着失败 —— 那是配置生效的正确行为，
   // 不是缺陷。冒烟测的是「插件能不能把工具挂上」，所以这里把开关钉成 true，
   // 让结果只取决于代码本身，不取决于跑测试时用户恰好把开关拨到哪边。
   mod.apply(ctx, { mail: { enabled: true, injectEnabled: true, watchEnabled: false } })
@@ -337,14 +337,18 @@ need(tools.includes('soul_cards') && tools.includes('soul_card_set') && tools.in
 }
 need(listeners.has('agent/pre-step'), 'agent/pre-step injection hooked')
 need(listeners.has('session/event'), 'session/event capture hooked')
-// 邮箱工具：11 个 mail_* 全注册（含验证码等待与附件下载）。
+// 邮箱工具：6 个 mail_* 全注册（只留查看类，写类已整块下线）。
 {
   const MAIL_TOOLS = [
-    'mail_account', 'mail_list', 'mail_search', 'mail_read', 'mail_send', 'mail_reply',
-    'mail_forward', 'mail_trash', 'mail_delete', 'mail_download_attachment', 'mail_wait_code',
+    'mail_account', 'mail_list', 'mail_search', 'mail_read',
+    'mail_download_attachment', 'mail_wait_code',
   ]
   const missing = MAIL_TOOLS.filter(name => !tools.includes(name))
   need(missing.length === 0, `mail tools registered (${MAIL_TOOLS.length} 个${missing.length > 0 ? `，缺 ${missing.join(', ')}` : ''})`)
+  // 写类不得再注册：模型这一侧必须没有写信能力，否则「裁剪」只是文案变化。
+  const WRITE_TOOLS = ['mail_send', 'mail_reply', 'mail_forward', 'mail_trash', 'mail_delete']
+  const leaked = WRITE_TOOLS.filter(name => tools.includes(name))
+  need(leaked.length === 0, `mail 写类工具不再注册（漏了 ${leaked.join(', ')}）`)
 }
 // CLI 英文报错必须翻成人话：这是「点永久删除却看到 Message does not exist or is
 // not in trash」那类故障的可读性底线（原文照旧附在括号里，翻译不吞信息）。
@@ -892,7 +896,7 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
   /*
    * ①b **声明与工具解耦**（用户明确要求）。
    *
-   * 关掉邮箱工作台往往只是想省下 11 个工具每轮占的 schema，不该因此让模型
+   * 关掉邮箱工作台往往只是想省下那些 mail_* 工具每轮占的 schema，不该因此让模型
    * 忘掉自己有个邮箱——那样每次注册又要用户提醒一遍，正是这次要修的痛点。
    * 所以闸门只能读 `injectEnabled`，**绝不能**把 `enabled` 也相与进来。
    * 这条断言钉的就是那个相与（它曾经真的写在那里）。
@@ -906,15 +910,23 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
     '工具缺席时注入文本走 agently-cli 命令行版本（否则声明了却让模型去调不存在的工具）')
   need(/toolsAvailable/.test(mailInjectSrc) && /toolsAvailable:\s*\(\)\s*=>/.test(mailIndexSrc),
     '注入器按「工具在不在」二选一文本（toolsAvailable 回调）')
-  // CLI 命令必须是本机实测过的那几条（写错一条模型就跑不通）。
+  // CLI 命令必须是本机实测过的那几条（写错一条模型就跑不通），且**只有只读命令**：
+  // 写类工具已下架，兜底说明里再出现发信命令 = 又给了模型一条写信路。
   for (const [needle, why] of [
     ['agently-cli message +list', '列邮件命令（实测可用）'],
     ['agently-cli message +read --id', '读邮件命令'],
-    ['agently-cli message +send', '发信命令'],
-    ['--confirmation-token', 'CLI 侧的两阶段确认第二段'],
     ['绝不臆造验证码', '轮询收码时的诚实底线'],
   ]) {
     need(mailInjectSrc.includes(needle), `CLI 兜底声明必须写清「${why}」（缺 ${needle}）`)
+  }
+  for (const [needle, why] of [
+    ['message +send', '发信'],
+    ['message +reply', '回信'],
+    ['message +forward', '转发'],
+    ['--confirmation-token', '两阶段确认第二段'],
+    ['--confirmed', '两阶段确认跳过'],
+  ]) {
+    need(!mailInjectSrc.includes(needle), `CLI 兜底声明不得再出现「${why}」（${needle}）`)
   }
 
   // ② 声明强度：必须点名「不要就邮箱向用户提问」，并给出例外（用户指定了自己的邮箱）。
@@ -940,7 +952,7 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
    * `ctx.effect(cb)` 是**立即执行** cb、拿返回值当 disposer。写成
    * `ctx.effect(() => { toolsDispose?.(); toolsDispose = null })` 会在注册的
    * 下一行就把刚挂上的工具全注销 —— 而且是静默的（模型看不见 mail_*，路由却
-   * 一切正常）。这个 bug 本次真的写出来过，由「11 个 mail_* 都注册」那条断言
+   * 一切正常）。这个 bug 本次真的写出来过，由「mail_* 都注册」那条断言
    * 当场抓到，所以在这里再钉一道静态防线：注销必须包在内层函数里。
    */
   need(/ctx\.effect\(\(\)\s*=>\s*\(\)\s*=>\s*\{[^}]*toolsDispose/.test(mailIndexSrc),

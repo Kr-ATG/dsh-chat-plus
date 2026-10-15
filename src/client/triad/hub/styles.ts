@@ -79,9 +79,10 @@ body[data-ds-dark-theme] .wb-root {
 }
 
 /* ── 统一工作台所有页面的工具条与次级导航（Toolbar & Subheader Archetype） ──────
-   让邮件顶栏、画廊工具条、记忆视图行在视觉上高度一致，
-   成为统一的「页面二级控制条」，不再每进一页面对不同的突兀布局。 */
-.wb-body .dsh-mail-topbar,
+   让画廊工具条、记忆视图行在视觉上高度一致，成为统一的「页面二级控制条」，
+   不再每进一页面对不同的突兀布局。
+   （邮箱顶栏曾经也吃这一条，2026-10 邮箱改成 Seeker 顶栏的只读抽屉后，
+   dsh-mail-* 这一族类名不再出现在工作台里，相关选择器一并清掉。） */
 .wb-body .tg-toolbar,
 .wb-body .dsh-memory-top-bar,
 .wb-body .wb-page-bar {
@@ -92,8 +93,6 @@ body[data-ds-dark-theme] .wb-root {
   border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.12));
   box-sizing: border-box;
 }
-.wb-body .dsh-mail-brand,
-.wb-body .dsh-mail-close { display: none !important; }
 .wb-body > div > .psh-head {
   padding: 8px 20px;
   background: transparent;
@@ -103,8 +102,7 @@ body[data-ds-dark-theme] .wb-root {
 
 /* ── 统一搜索框控件（Search Inputs） ─────────────────────────────── */
 .wb-root .tg-search__input,
-.wb-root .dsh-memory-top-input,
-.wb-root .dsh-mail-top-input {
+.wb-root .dsh-memory-top-input {
   height: 32px !important;
   border-radius: 8px !important;
   border: 1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.18)) !important;
@@ -114,8 +112,7 @@ body[data-ds-dark-theme] .wb-root {
   transition: border-color 140ms ease, box-shadow 140ms ease !important;
 }
 .wb-root .tg-search__input:focus,
-.wb-root .dsh-memory-top-input:focus,
-.wb-root .dsh-mail-top-input:focus {
+.wb-root .dsh-memory-top-input:focus {
   border-color: var(--wb-accent) !important;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--wb-accent) 25%, transparent) !important;
 }
@@ -200,15 +197,8 @@ body[data-ds-dark-theme] .wb-root {
   gap: 10px !important;
 }
 
-/* ── 画廊、邮件与记忆首页板块收敛（Coherent Surfaces） ───────────────
+/* ── 画廊与记忆首页板块收敛（Coherent Surfaces） ───────────────
    （画廊类别 Dock 的外观与位置已移交 theme.ts 的 wb2 规则，此处不再接管） ── */
-.wb-root .dsh-mail-row-active,
-.wb-root .dsh-mail-row:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.04)) !important;
-}
-.wb-root .dsh-mail-dot {
-  background: var(--wb-accent) !important;
-}
 .wb-root .dsh-memory-home .hm-card,
 .wb-root .dsh-memory-home .hm-hero,
 .wb-root .dsh-memory-home .hm-mem-card {

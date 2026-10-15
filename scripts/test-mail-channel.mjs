@@ -8,7 +8,7 @@
  *   ② **运行中**拨开工作台 → 工具立刻注册（不用重启 DSH）；
  *   ③ 拨回关 → 工具立刻注销（不会留下模型还能调的 mail_*）；
  *   ④ **声明与工具解耦**（用户明确要求）：工作台关着、只要声明开关开着，
- *      pre-step 闸门就放行——关掉工作台往往只是想省下 11 个工具每轮占的
+ *      pre-step 闸门就放行——关掉工作台往往只是想省下那些 mail_* 工具每轮占的
  *      schema，不该因此让模型忘掉自己有个邮箱（那样每次注册又要用户提醒）。
  *
  * 为什么必须有这个测试：这条通道出过一个「两个开关套在一起、用户开的那个被
@@ -51,10 +51,10 @@ try {
   process.exit(1)
 }
 
-/** 11 个 mail_* wire 工具（与 tools.ts 一致）。 */
+/** 6 个 mail_* wire 工具（与 tools.ts 一致；写类 5 个已整块下线）。 */
 const MAIL_TOOLS = [
-  'mail_account', 'mail_list', 'mail_search', 'mail_read', 'mail_send', 'mail_reply',
-  'mail_forward', 'mail_trash', 'mail_delete', 'mail_download_attachment', 'mail_wait_code',
+  'mail_account', 'mail_list', 'mail_search', 'mail_read',
+  'mail_download_attachment', 'mail_wait_code',
 ]
 
 /** 造一个足够 applyMailHost 跑起来的桩 ctx。 */

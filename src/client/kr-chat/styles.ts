@@ -5329,6 +5329,220 @@ body[data-ds-dark-theme] .kr-settings {
     transform: none;
   }
 }
+
+/* ══ 邮箱（顶栏按钮 + body 级右滑入只读抽屉）═════════════════════════════════
+ *
+ * 与上面「大盘设置」是**一对**：按钮并排在 Seeker 标签右侧（齿轮之后），
+ * 抽屉也是从右滑入。刻意复用同一套尺寸、时序与缓动 —— 两枚按钮并排读起来是
+ * 一对，两张抽屉打开时的节奏也一致，不发明第二套动效语言。
+ *
+ * 三处与设置抽屉的**刻意差异**（其余一律照抄）：
+ *
+ *  1. 抽屉挂在 **body** 上而不是右栏 .kr-split__side 里，所以定位从
+ *     position:absolute 换成 position:fixed。理由：邮箱面板要 420px，比右栏
+ *     本身还宽；而且右栏在空白会话里整块不渲染，挂进去会出现「顶栏有按钮、
+ *     点了没东西出来」。fixed 与右栏的布局/裁剪/滚动完全解耦。
+ *  2. 宽度 420px（设置抽屉 380px）：邮件是「列表 + 正文」两栏切换，比九行开关
+ *     更吃横向空间。
+ *  3. 遮罩是**全视口**的（设置抽屉的遮罩只盖右栏）。所以这里没有「遮罩左缘 <
+ *     抽屉左缘」这种同容器比较，可点区域天然是抽屉左边那一大片。
+ *
+ * z-index 取 2147482000：低于本插件的全屏 iframe/图片预览（2147483000），
+ * 高于官方弹层与本插件其它浮层 —— 邮箱抽屉开着时，官方弹窗不该盖住它。
+ */
+
+/* 顶栏「邮箱」按钮：紧跟齿轮之后（kr-chat-controller 用 afterend 插入）。
+ * 全部值对齐 .kr-panel-settings-btn。左边距这里写 -2px 只是**首帧兜底**：官方
+ * tablist 自己的 flex gap（给文字标签用的 22px）会把两枚动作按钮撑开，读起来
+ * 完全不像一对。所以真实间距由 mail-drawer.tsx 的 alignMailButtonToGear 在运行时
+ * 量着实际几何反推、写成内联 marginLeft —— 官方改 gap 也跟得上，比在这里写死一个
+ * 负值去赌官方数值稳。 */
+.kr-mail-btn {
+  position: relative;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  margin: 0 2px 0 -2px;
+  border: 0;
+  border-radius: 7px;
+  padding: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color .16s ease, color .16s ease, transform .16s cubic-bezier(.2, .8, .2, 1);
+}
+
+.kr-mail-btn:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, .06));
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 按下时缩一档：与齿轮同一份物理感。 */
+.kr-mail-btn:active {
+  transform: scale(.92);
+}
+
+.kr-mail-btn svg {
+  width: 14px;
+  height: 14px;
+  transition: transform .3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 打开态：底色常亮 + 信封轻轻抬一下（齿轮那边是转 45°；信封转角没有语义，
+ * 用「掀开一角」的位移表达同一件事：这枚按钮正是当前打开的那个面板的入口）。 */
+.kr-mail-btn[data-open="true"] {
+  background: var(--kr-hover-bg);
+  color: var(--dsw-alias-state-business-primary, #4176e6);
+}
+
+.kr-mail-btn[data-open="true"] svg {
+  transform: translateY(-1px) scale(1.06);
+}
+
+.kr-mail-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--kr-accent) 35%, transparent);
+}
+
+/* 遮罩：铺满**整个视口**（fixed），只在打开时拦截指针。
+ * 常驻 pointer-events:auto 会把整页点击吃掉 —— 抽屉明明关着，页面上却点不动
+ * 任何东西，是这类浮层最经典的 bug。 */
+.kr-mail-drawer__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 2147482000;
+  background: rgba(15, 17, 21, .18);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity .18s ease, visibility 0s linear .18s;
+}
+
+.kr-mail-drawer__scrim[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity .18s ease, visibility 0s;
+}
+
+body[data-ds-dark-theme] .kr-mail-drawer__scrim {
+  background: rgba(0, 0, 0, .42);
+}
+
+/* 抽屉本体：贴右边缘、铺满视口高度。
+ * 开合全部由 data-open 这一个属性驱动（组件不做条件渲染），所以退场动画才有得播；
+ * visibility 的延迟就是为它留的：关的时候等 260ms 过渡跑完再 hidden，否则退场
+ * 会被立刻掐断。这套写法与 .kr-settings 逐字同源。
+ *
+ * 宽度 420px / 上限 94%：上限留出遮罩余量 —— 铺满 100% 就等于没有「点外面关闭」
+ * 这条通路了（窄屏手机上这条尤其重要）。 */
+.kr-mail-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2147482001;
+  display: flex;
+  flex-direction: column;
+  width: 420px;
+  max-width: 94%;
+  box-sizing: border-box;
+  overflow: hidden;
+  /* body 上不在 .kr-split 变量作用域里，--kr-card-bg 之类取不到真值时走 fallback
+     （深色下会静默变白），所以这里重新声明一次：body 是 DSH token 的定义处，
+     在这里引用能拿到主题真值。理由同 .kr-agent-mini-shell 那段注释。 */
+  --kr-card-bg: var(--dsw-alias-bg-layer-1, #ffffff);
+  --kr-card-border: var(--dsw-alias-border-l1, rgba(0, 0, 0, .06));
+  --kr-hairline: var(--dsw-alias-border-l1, rgba(0, 0, 0, .06));
+  --kr-hover-bg: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, .06));
+  --kr-accent: var(--dsw-alias-state-business-primary, #4176e6);
+  --kr-card-shadow: 0 1px 2px rgba(15, 17, 21, .05), 0 6px 14px -8px rgba(15, 17, 21, .18);
+  background: var(--kr-card-bg);
+  border-left: 1px solid var(--kr-card-border);
+  border-radius: 14px 0 0 14px;
+  box-shadow: var(--kr-card-shadow), -10px 0 24px -16px rgba(15, 17, 21, .22);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(18px) scale(.99);
+  transform-origin: 100% 50%;
+  pointer-events: none;
+  transition: opacity .26s cubic-bezier(0.16, 1, 0.3, 1), transform .26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear .26s;
+}
+
+.kr-mail-drawer[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  pointer-events: auto;
+  transition: opacity .26s cubic-bezier(0.16, 1, 0.3, 1), transform .26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s;
+}
+
+/* 深色下浮层靠「更实的描边 + 更黑的定向落影」分层（浅色那套 4% 黑描边压在深底上
+ * 等于没有）。与 .kr-settings 同一口径。 */
+body[data-ds-dark-theme] .kr-mail-drawer {
+  --kr-card-border: rgba(255, 255, 255, 0.09);
+  border-left-color: rgba(255, 255, 255, .09);
+  box-shadow: var(--kr-card-shadow), -10px 0 26px -16px rgba(0, 0, 0, .7);
+}
+
+/* 面板容器：铺满抽屉。
+ * flex:1 1 0 + min-height:0 是「滚动子级能在 flex 列里正常收缩」的固定写法 ——
+ * 少了 min-height:0，自动最小尺寸会把容器顶到内容高度，面板内部不再滚动。 */
+.kr-mail-drawer__body {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 面板内容随抽屉一起浮现：只动 opacity/transform，不参与布局（纯合成器属性）。
+ * 动画**只挂在打开态**上，理由与 .kr-settings__row 那段完全一致：抽屉是常驻 DOM，
+ * 写在基础规则上会在挂载时就播完，等用户真点开时早已静止。 */
+.kr-mail-drawer[data-open="true"] .kr-mail-drawer__body {
+  animation: kr-mail-drawer-in .34s cubic-bezier(.2, .8, .2, 1) both;
+}
+
+@keyframes kr-mail-drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 新加的全部过渡与动画一律关掉。
+   * 关键：抽屉与遮罩的可见性由 data-open 属性选择器直接决定（opacity / visibility /
+   * pointer-events），**不依赖任何动画末帧** —— 动画掐掉后内容是「打开即完整可见」，
+   * 不会出现停在半透明或滑到一半的中间态。 */
+  .kr-mail-btn,
+  .kr-mail-btn svg,
+  .kr-mail-drawer__scrim,
+  .kr-mail-drawer__scrim[data-open="true"],
+  .kr-mail-drawer,
+  .kr-mail-drawer[data-open="true"] {
+    transition: none;
+  }
+  /* 静态形变也要归位，否则按钮会永久停在按下被压扁 / 打开被抬起的中间态。 */
+  .kr-mail-btn:active,
+  .kr-mail-btn[data-open="true"] svg {
+    transform: none;
+  }
+  .kr-mail-drawer[data-open="true"] .kr-mail-drawer__body {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
 `
 
 /**

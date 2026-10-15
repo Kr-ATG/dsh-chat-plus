@@ -1,0 +1,544 @@
+/**
+ * 邮箱入口端到端验证（真 Chrome + 真 DSH Web，2026-10-15）。
+ *
+ * 为什么必须是真浏览器脚本：本轮的核心诉求全是「错了也不报错、只看着不对」的
+ * 运行时事实 —— 按钮有没有真的插进官方标签行、顺序对不对、点了抽屉开不开、
+ * 退场动画有没有把内容卡在不可见态、抽屉是否真的铺得下邮件面板。源码正则断言
+ * （smoke-client.mjs）只能证明代码写了什么，证明不了浏览器里发生了什么。
+ *
+ * 判据：
+ *   A. 顶栏三件套顺序：Seeker 标签 → 大盘设置齿轮 → 邮箱按钮（用户点名的位置）；
+ *   B. 邮箱按钮 hover 有视觉反馈（用户偏好动效，静态按钮不算做到位）；
+ *   C. 真实鼠标点它 → 抽屉 data-open=true、可见（visibility/opacity 到位）、
+ *      宽度 ≥ 400px、遮罩左缘 < 抽屉左缘（点外面关闭这条通路还得留着）；
+ *   D. 抽屉里真的渲染了邮件面板（文件夹导航 + 列表容器），不是空壳；
+ *   E. 抽屉内**没有任何写操作 UI**（写邮件入口 / 写信容器 / 危险按钮），
+ *      本轮「邮箱只做查看」的判据本身；
+ *   F. 三条关闭通路都通：再点按钮（DOM 通路，理由见下）、Esc、点遮罩；
+ *   G. 截图存档，且截前在 DOM 层把真实邮箱地址与本地用户路径脱敏。
+ *
+ * 环境与凭据：带令牌的 DSH Web 地址从环境变量 `DSH_WEB_AUTH_URL` 读
+ * （**不把 token 写进脚本**）；环境变量缺失时回退到 DSH_HOME 下的
+ * web-auth-url.json（同样不含硬编码 token）。
+ *
+ * 用法：node scripts/test-mail-drawer.mjs
+ */
+import { spawn } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
+const ROOT = resolve(HERE, '..')
+
+const CHROME_CANDIDATES = [
+  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  '/usr/bin/google-chrome',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+]
+const chromePath = CHROME_CANDIDATES.find((p) => existsSync(p))
+if (chromePath === undefined) {
+  console.log('SKIP  mail-drawer e2e — 未找到 Chrome（本机开发请装 Chrome，否则这条等于没测）')
+  process.exit(0)
+}
+
+const OUT_DIR = 'D:/AI/Dsh/_tmp'
+const SHOT = `${OUT_DIR}/mail-drawer-open.png`
+const RESULT = `${OUT_DIR}/mail-drawer-e2e-result.txt`
+/**
+ * 每次跑都用独立端口 + 独立 user-data-dir。
+ *
+ * 不能借默认 profile：本机常年开着真 Chrome，第二个进程只是把 URL 转交给已在跑的
+ * 实例、调试端口根本不会打开（表现为「等 60s 应用没就绪」），而且会污染用户的
+ * 真实浏览器配置。端口按 pid 偏移，避免两次并发/上次残留的进程抢同一端口。
+ */
+const PORT = 9400 + (process.pid % 300)
+const PROFILE = mkdtempSync(resolve(tmpdir(), 'dsh-mail-drawer-'))
+
+/** 带令牌地址：环境变量优先，其次 DSH_HOME 下那份（都不硬编码 token）。 */
+function resolveAuthUrl() {
+  const fromEnv = process.env.DSH_WEB_AUTH_URL
+  if (typeof fromEnv === 'string' && fromEnv.trim() !== '') return fromEnv.trim()
+  const dshHome = process.env.DSH_HOME ?? resolve(homedir(), '.dsh')
+  const file = resolve(dshHome, 'web-auth-url.json')
+  if (existsSync(file)) {
+    try {
+      const parsed = JSON.parse(readFileSync(file, 'utf8'))
+      if (typeof parsed?.url === 'string' && parsed.url.trim() !== '') return parsed.url.trim()
+    } catch { /* 文件损坏 → 当没读到 */ }
+  }
+  return null
+}
+
+const authUrl = resolveAuthUrl()
+if (authUrl === null) {
+  console.log('SKIP  mail-drawer e2e — 读不到 DSH Web 带令牌地址（设 DSH_WEB_AUTH_URL，或让 DSH 写出 web-auth-url.json）')
+  process.exit(0)
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+const chrome = spawn(chromePath, [
+  '--headless=new', '--disable-gpu', '--no-sandbox',
+  `--remote-debugging-port=${PORT}`, '--window-size=1680,1000',
+  '--no-first-run', '--no-default-browser-check',
+  `--user-data-dir=${PROFILE}`,
+  authUrl,
+], { stdio: 'ignore' })
+
+function cleanupProfile() {
+  try { rmSync(PROFILE, { recursive: true, force: true }) } catch { /* 下次跑会另建一个 */ }
+}
+
+let ws = null
+let idSeq = 0
+function send(method, params = {}) {
+  return new Promise((res, rej) => {
+    const myId = ++idSeq
+    const handler = (ev) => {
+      const msg = JSON.parse(ev.data)
+      if (msg.id !== myId) return
+      ws.removeEventListener('message', handler)
+      if (msg.error !== undefined) rej(new Error(`${method}: ${JSON.stringify(msg.error).slice(0, 300)}`))
+      else res(msg.result)
+    }
+    ws.addEventListener('message', handler)
+    ws.send(JSON.stringify({ id: myId, method, params }))
+  })
+}
+async function evaluate(expression) {
+  const r = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
+  if (r.exceptionDetails !== undefined) throw new Error('page exception: ' + JSON.stringify(r.exceptionDetails).slice(0, 500))
+  return r.result.value
+}
+
+/** 真实鼠标点击（press + release），不是 DOM 的 .click()。 */
+async function realClick(x, y) {
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, buttons: 0 })
+  await sleep(60)
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 })
+  await sleep(40)
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 })
+}
+
+/** 按钮中心坐标。 */
+function buttonCenter(id) {
+  return evaluate(`(function(){
+    var el = document.getElementById(${JSON.stringify(id)});
+    if (!el) return null;
+    var r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return null;
+    return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+  })()`)
+}
+
+/** 抽屉的当前状态快照。 */
+const DRAWER_STATE = `(function(){
+  var d = document.querySelector('.kr-mail-drawer');
+  var s = document.querySelector('.kr-mail-drawer__scrim');
+  if (!d || !s) return { missing: true };
+  var db = d.getBoundingClientRect(), cb = getComputedStyle(d);
+  var navItems = d.querySelectorAll('.dsh-mail-nav-item').length;
+  return {
+    open: d.getAttribute('data-open'),
+    visibility: cb.visibility,
+    opacity: Number(cb.opacity),
+    pointerEvents: cb.pointerEvents,
+    width: Math.round(db.width),
+    height: Math.round(db.height),
+    drawerLeft: Math.round(db.left),
+    drawerRight: Math.round(db.right),
+    viewportW: window.innerWidth,
+    scrimLeft: Math.round(s.getBoundingClientRect().left),
+    scrimPE: getComputedStyle(s).pointerEvents,
+    navItems: navItems,
+    listRows: d.querySelectorAll('.dsh-mail-row').length,
+    listScroll: d.querySelectorAll('.dsh-mail-list-scroll').length,
+    hasPanel: d.querySelectorAll('.dsh-mail-panel').length,
+    bodyBlocks: d.querySelectorAll('.kr-mail-drawer__body').length,
+    composeBlocks: d.querySelectorAll('.dsh-mail-composer, .dsh-mail-composer-row, .dsh-mail-composer-foot').length,
+    dangerButtons: d.querySelectorAll('.dsh-mail-btn-danger').length,
+    writeText: (function(){
+      var t = d.textContent || '';
+      var hits = 0;
+      ['写邮件', '写信', '回复', '转发', '永久删除', '移入回收站'].forEach(function(k){ if (t.indexOf(k) >= 0) hits++; });
+      return hits;
+    })(),
+  };
+})()`
+
+async function main() {
+  const lines = []
+  const log = (s) => { lines.push(s); console.log(s) }
+  const ok = (s) => log('ok   ' + s)
+  const fail = (s) => { lines.push('FAIL ' + s); console.log('FAIL ' + s); process.exitCode = 1 }
+
+  // ── 起 Chrome、连 CDP ───────────────────────────────────────────────────
+  let page = null
+  for (let i = 0; i < 80; i += 1) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${PORT}/json/version`)
+      if (r.ok) break
+    } catch { /* 还没起来 */ }
+    await sleep(500)
+  }
+  await sleep(1200)
+  const targets = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()
+  page = targets.find((t) => t.type === 'page')
+  if (page === undefined) throw new Error('没有可用的 page target')
+  ws = new WebSocket(page.webSocketDebuggerUrl)
+  await new Promise((r) => ws.addEventListener('open', r, { once: true }))
+  await send('Page.enable')
+  await send('Runtime.enable')
+
+  // ── 等应用就绪 ─────────────────────────────────────────────────────────
+  // 分两轮：先等 client 模块表加载，再等会话壳渲染。任何一轮失败都**重试导航**
+  // 一次 —— 带令牌地址首次进入要种 cookie，偶发竞态下白屏是真实存在的一档。
+  let ready = false
+  for (let round = 0; round < 2 && !ready; round += 1) {
+    if (round > 0) {
+      await send('Page.navigate', { url: authUrl })
+      await sleep(1500)
+    }
+    for (let i = 0; i < 60; i += 1) {
+      ready = await evaluate(`Boolean(window.__dshClientCtx__ && document.querySelector('[data-conversation-content]'))`).catch(() => false)
+      if (ready) break
+      await sleep(1000)
+    }
+  }
+  log('app ready=' + ready)
+  if (!ready) {
+    fail(`DSH Web 未就绪（url=${authUrl.replace(/token=[^&]+/, 'token=***')}）——带令牌地址是否还有效？`)
+    try { ws.close() } catch { /* ignore */ }
+    chrome.kill()
+    cleanupProfile()
+    writeFileSync(RESULT, lines.join('\n'))
+    process.exit(1)
+  }
+  await sleep(2500)
+
+  // ── 进入一个已有会话（顶栏 tablist 只在会话开张后渲染）─────────────────
+  const entered = await evaluate(`(function(){
+    var ctx = window.__dshClientCtx__;
+    if (!ctx) return 'NO_CTX';
+    var ws = ctx.get('uiWorkspace');
+    if (!ws || typeof ws.openSession !== 'function') return 'NO_OPEN_SESSION';
+    var s = ctx.get('sessions');
+    var snap = s && s.list && s.list.getSnapshot ? s.list.getSnapshot() : (s && s.getSnapshot ? s.getSnapshot() : null);
+    var ids = snap && snap.byId ? Object.keys(snap.byId) : [];
+    if (ids.length === 0) return 'NO_SESSIONS';
+    var pick = ids.filter(function(id){ var t = (snap.byId[id].title || '') + ''; return t.indexOf('邮箱') >= 0 })[0]
+      || ids.filter(function(id){ var t = (snap.byId[id].title || '') + ''; return t.indexOf('大盘') >= 0 })[0]
+      || ids[0];
+    ws.openSession(pick);
+    return 'opened:' + pick;
+  })()`)
+  log('enterSession=' + entered)
+  await sleep(6000)
+
+  // ── A. 顶栏三件套顺序 ──────────────────────────────────────────────────
+  const order = await evaluate(`(function(){
+    var mail = document.getElementById('kr-mail-btn');
+    var gear = document.getElementById('kr-panel-settings-btn');
+    var seeker = document.getElementById('kr-chat-tab-btn');
+    if (!mail) return { missing: 'kr-mail-btn' };
+    if (!gear) return { missing: 'kr-panel-settings-btn' };
+    var prev = mail.previousElementSibling;
+    return {
+      mailTag: mail.tagName,
+      mailTitle: mail.title,
+      mailAria: mail.getAttribute('aria-label'),
+      mailHasSvg: mail.querySelectorAll('svg').length,
+      mailClass: mail.className,
+      prevId: prev ? prev.id : null,
+      prevPrevId: prev && prev.previousElementSibling ? prev.previousElementSibling.id : null,
+      seekerExists: Boolean(seeker),
+      gearMarginLeft: getComputedStyle(gear).marginLeft,
+      mailMarginLeft: getComputedStyle(mail).marginLeft,
+      gearW: Math.round(gear.getBoundingClientRect().width),
+      mailW: Math.round(mail.getBoundingClientRect().width),
+      gearBg: getComputedStyle(gear).backgroundColor,
+      mailBg: getComputedStyle(mail).backgroundColor,
+      gearColor: getComputedStyle(gear).color,
+      mailColor: getComputedStyle(mail).color,
+      gap: Math.round(mail.getBoundingClientRect().left - gear.getBoundingClientRect().right),
+    };
+  })()`)
+  log('ORDER=' + JSON.stringify(order))
+  if (order.missing !== undefined) {
+    fail('顶栏找不到邮箱按钮 #kr-mail-btn（控制器没注入 / 会话还没开张）')
+  } else if (order.prevId !== 'kr-panel-settings-btn') {
+    fail(`邮箱按钮的前一个兄弟是 ${order.prevId}，应为 kr-panel-settings-btn（必须紧贴在齿轮右侧）`)
+  } else if (order.prevPrevId !== 'kr-chat-tab-btn') {
+    fail(`齿轮的前一个兄弟是 ${order.prevPrevId}，应为 kr-chat-tab-btn（顺序必须是 Seeker → 齿轮 → 邮箱）`)
+  } else if (order.mailHasSvg !== 1) {
+    fail(`邮箱按钮的图标应为 1 个内联 SVG，实得 ${order.mailHasSvg}`)
+  } else if (order.mailAria !== '邮箱') {
+    fail(`邮箱按钮 aria-label 应为「邮箱」，实得 ${order.mailAria}`)
+  } else if (order.gap === null || order.gap > 8) {
+    fail(`齿轮与邮箱按钮的视觉间距 ${order.gap}px 太大（应并排读成一对；官方 tablist 的 flex gap 需被抵掉）`)
+  } else if (order.gearW !== order.mailW) {
+    fail(`两枚按钮尺寸不一致（齿轮 ${order.gearW}px / 邮箱 ${order.mailW}px），并排看不出是一对`)
+  } else if (order.gearBg !== order.mailBg || order.gearColor !== order.mailColor) {
+    fail(`两枚按钮常态配色不一致（齿轮 ${order.gearBg}/${order.gearColor}，邮箱 ${order.mailBg}/${order.mailColor}）`)
+  } else {
+    ok(`顶栏顺序正确：Seeker → 齿轮 → 邮箱（并排间距 ${order.gap}px，同尺寸 ${order.gearW}px，同配色）`)
+  }
+
+  // ── B. hover 反馈（用户偏好的微交互）───────────────────────────────────
+  const baseBg = await evaluate(`getComputedStyle(document.getElementById('kr-mail-btn')).backgroundColor`)
+  const center = await buttonCenter('kr-mail-btn')
+  if (center === null) {
+    fail('拿不到邮箱按钮坐标（按钮不可见？）')
+  } else {
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: center.x, y: center.y, buttons: 0 })
+    await sleep(400)
+    const hover = await evaluate(`(function(){
+      var el = document.getElementById('kr-mail-btn');
+      return { hovered: el.matches(':hover'), bg: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color };
+    })()`)
+    if (!hover.hovered) fail('mouseMoved 未让邮箱按钮进入 :hover（本断言前提失效）')
+    else if (hover.bg === baseBg) fail(`悬停后按钮底色未变（${baseBg}），hover 反馈缺失（用户要求带动效/微交互）`)
+    else ok(`邮箱按钮 hover 反馈在位：底色 ${baseBg} → ${hover.bg}`)
+    // 移开，别让 hover 态干扰后续断言
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 400, buttons: 0 })
+    await sleep(250)
+  }
+
+  // ── C. 真实鼠标点按钮 → 打开抽屉 ───────────────────────────────────────
+  const before = await evaluate(DRAWER_STATE)
+  if (before.missing !== true && before.open === 'true') fail('抽屉初始就已打开（state 泄漏）')
+  const clickPt = await buttonCenter('kr-mail-btn')
+  if (clickPt !== null) await realClick(clickPt.x, clickPt.y)
+  await sleep(2600)
+
+  const opened = await evaluate(DRAWER_STATE)
+  log('OPEN=' + JSON.stringify(opened))
+  if (opened.missing === true) {
+    fail('页面上没有 .kr-mail-drawer / .kr-mail-drawer__scrim（抽屉没挂上 body）')
+  } else {
+    if (opened.open !== 'true') fail('点按钮后抽屉 data-open 不是 true')
+    else if (opened.visibility !== 'visible' || opened.opacity < 0.99) {
+      fail(`抽屉 data-open=true 但不可见（visibility=${opened.visibility} opacity=${opened.opacity}）——可见性依赖了动画末帧`)
+    } else if (opened.pointerEvents !== 'auto') {
+      fail(`抽屉打开后 pointer-events=${opened.pointerEvents}，面板点不动`)
+    } else {
+      ok(`点按钮后抽屉打开且可见（visibility=visible / opacity=${opened.opacity} / pointer-events=auto）`)
+    }
+    if (opened.width < 400) fail(`抽屉宽度 ${opened.width}px < 400px（装不下邮件面板的列表+正文）`)
+    else ok(`抽屉宽度 ${opened.width}px（视口 ${opened.viewportW}px）`)
+    if (opened.drawerLeft <= opened.scrimLeft) fail('遮罩左缘没有落在抽屉左侧，外侧没有可点区域（点遮罩关闭这条通路会失效）')
+    else ok(`遮罩仍留出可点区域（遮罩左 ${opened.scrimLeft} → 抽屉左 ${opened.drawerLeft}，宽 ${opened.drawerLeft - opened.scrimLeft}px）`)
+
+    // ── D. 抽屉里真的渲染了邮件面板 ─────────────────────────────────────
+    if (opened.hasPanel !== 1) fail(`抽屉内没有 .dsh-mail-panel（实得 ${opened.hasPanel}）`)
+    else if (opened.navItems < 3) fail(`抽屉内邮件文件夹导航只有 ${opened.navItems} 项（应有收件箱/已发送/回收站/垃圾邮件）`)
+    else if (opened.listScroll < 1) fail('抽屉内没有邮件列表容器（.dsh-mail-list-scroll）')
+    else ok(`抽屉内邮件面板已渲染：文件夹 ${opened.navItems} 项 + 列表容器 ${opened.listScroll} 个 + 列表行 ${opened.listRows} 条`)
+
+    // ── E. 没有写操作 UI ────────────────────────────────────────────────
+    if (opened.composeBlocks !== 0) fail(`抽屉内仍存在写信容器（.dsh-mail-composer* × ${opened.composeBlocks}）`)
+    else if (opened.dangerButtons !== 0) fail(`抽屉内仍存在危险操作按钮（.dsh-mail-btn-danger × ${opened.dangerButtons}）`)
+    else if (opened.writeText !== 0) fail(`抽屉内文案仍出现写操作字样（命中 ${opened.writeText} 类：写邮件/写信/回复/转发/永久删除/移入回收站）`)
+    else ok('抽屉内不存在任何写操作 UI（写信容器 0 / 危险按钮 0 / 写操作文案 0）')
+  }
+
+  // ── G. 截图（截前脱敏）──────────────────────────────────────────────
+  // 脱敏范围 = 抽屉 + 顶栏 chrome（邮箱地址、本机用户路径最可能出现的两处）。
+  // 刻意不遍历对话正文：那里的文本归官方 React 管，改写它既越界也会被下一次
+  // 渲染冲掉；两处 chrome 已覆盖本次截图里所有可信的敏感面。
+  const scrubbed = await evaluate(`(function(){
+    var EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/g;
+    var USERPATH = /[A-Za-z]:\\\\\\\\Users\\\\\\\\[^\\\\\\\\\\s]+/g;
+    var roots = [document.querySelector('.kr-mail-drawer'), document.querySelector('header')].filter(Boolean);
+    if (roots.length === 0) return { changed: 0, missing: true };
+    var n = 0;
+    roots.forEach(function(root){
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      var nodes = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      nodes.forEach(function(t){
+        var before = t.nodeValue;
+        var after = before.replace(EMAIL, 'agent@example.com').replace(USERPATH, 'C:\\\\Users\\\\user');
+        if (after !== before) { t.nodeValue = after; n++; }
+      });
+    });
+    return { changed: n, roots: roots.length };
+  })()`)
+  log('SCRUB=' + JSON.stringify(scrubbed))
+
+  const shot = await send('Page.captureScreenshot', { format: 'png' })
+  writeFileSync(SHOT, Buffer.from(shot.data, 'base64'))
+  log('screenshot=' + SHOT)
+
+  // ── F1. 再点按钮 → 关闭（DOM 通路）─────────────────────────────────────
+  // 抽屉打开时遮罩铺满视口，**真实坐标点击按钮位置命中的是遮罩**（结果同样是
+  // 关闭，但走的是「点遮罩」那条通路）。要单独验证按钮自身的 toggle 通路，
+  // 这里用 DOM click 直接派发到按钮上。
+  await evaluate(`document.getElementById('kr-mail-btn').click(); 'clicked'`)
+  await sleep(700)
+  const afterBtn = await evaluate(DRAWER_STATE)
+  const btnAttr = await evaluate(`(function(){
+    var b = document.getElementById('kr-mail-btn');
+    return { open: b.getAttribute('data-open'), expanded: b.getAttribute('aria-expanded') };
+  })()`)
+  log('CLOSE_BTN=' + JSON.stringify({ ...afterBtn, btn: btnAttr }))
+  if (afterBtn.open !== 'false') fail('再点邮箱按钮后抽屉没关（store 与按钮没接上）')
+  else if (afterBtn.visibility !== 'hidden' || afterBtn.pointerEvents !== 'none') {
+    fail(`抽屉关闭后仍可见或仍拦点击（visibility=${afterBtn.visibility} pointer-events=${afterBtn.pointerEvents}）`)
+  } else if (afterBtn.opacity > 0.02) fail(`抽屉关闭后 opacity 仍有 ${afterBtn.opacity}（退场没走完 / 可见性依赖动画）`)
+  else if (btnAttr.open !== 'false' || btnAttr.expanded !== 'false') fail(`按钮打开态属性未复位：${JSON.stringify(btnAttr)}`)
+  else ok(`再点按钮关闭成：抽屉 hidden + pointer-events:none + opacity ${afterBtn.opacity}，按钮 data-open/aria-expanded 复位`)
+
+  // ── F2. Esc → 关闭 ────────────────────────────────────────────────────
+  await evaluate(`document.getElementById('kr-mail-btn').click(); 'open'`)
+  await sleep(900)
+  const reopened = await evaluate(DRAWER_STATE)
+  if (reopened.open !== 'true') fail('第二次打开失败（Esc 通路无法验证）')
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 })
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 })
+  await sleep(700)
+  const afterEsc = await evaluate(DRAWER_STATE)
+  if (afterEsc.open !== 'false') fail('按 Esc 没关掉邮箱抽屉')
+  else ok('Esc 关闭通路可用')
+
+  // ── F3. 点遮罩 → 关闭（真实鼠标）─────────────────────────────────────
+  await evaluate(`document.getElementById('kr-mail-btn').click(); 'open'`)
+  await sleep(900)
+  const forScrim = await evaluate(DRAWER_STATE)
+  if (forScrim.open !== 'true') fail('第三次打开失败（点遮罩通路无法验证）')
+  const scrimX = Math.max(8, Math.round((forScrim.scrimLeft + forScrim.drawerLeft) / 2))
+  await realClick(scrimX, Math.round(500))
+  await sleep(700)
+  const afterScrim = await evaluate(DRAWER_STATE)
+  if (afterScrim.open !== 'false') fail(`点遮罩（x=${scrimX}）没关掉抽屉`)
+  else ok(`点遮罩关闭通路可用（点 x=${scrimX}，落在抽屉左侧可点区）`)
+
+  // ── 抽屉关着时不该拦页面交互 ─────────────────────────────────────────
+  const idle = await evaluate(DRAWER_STATE)
+  if (idle.open === 'false' && (idle.scrimPE !== 'none' || idle.pointerEvents !== 'none')) {
+    fail(`抽屉关着时仍在拦指针（scrim=${idle.scrimPE} drawer=${idle.pointerEvents}）——页面上会点不动任何东西`)
+  } else {
+    ok('抽屉关闭态不拦指针（scrim/drawer 都是 pointer-events:none）')
+  }
+
+  // ── I. 两个抽屉各自独立开合（这是「不复用设置那份 store」的判据本身）──────
+  // 只查**按钮上的属性**（由各自 store 驱动），不依赖设置抽屉本体是否挂载 ——
+  // KrPanelSettings 由另一条链路装配，别把它的在途改动绑进这条断言。
+  const independence = await evaluate(`(function(){
+    var gear = document.getElementById('kr-panel-settings-btn');
+    var mail = document.getElementById('kr-mail-btn');
+    if (!gear || !mail) return { missing: true };
+    var out = {};
+    // 先确保都关着
+    if (gear.getAttribute('data-open') === 'true') gear.click();
+    if (mail.getAttribute('data-open') === 'true') mail.click();
+    out.start = { gear: gear.getAttribute('data-open'), mail: mail.getAttribute('data-open') };
+    gear.click();
+    out.afterGear = { gear: gear.getAttribute('data-open'), mail: mail.getAttribute('data-open') };
+    mail.click();
+    out.afterMail = { gear: gear.getAttribute('data-open'), mail: mail.getAttribute('data-open') };
+    mail.click();
+    out.afterMailClose = { gear: gear.getAttribute('data-open'), mail: mail.getAttribute('data-open') };
+    gear.click();
+    out.afterGearClose = { gear: gear.getAttribute('data-open'), mail: mail.getAttribute('data-open') };
+    return out;
+  })()`)
+  log('INDEPENDENCE=' + JSON.stringify(independence))
+  if (independence.missing === true) {
+    fail('拿不到两枚抽屉按钮（独立开合断言无法进行）')
+  } else if (independence.afterGear.mail !== 'false') {
+    fail('打开大盘设置把邮箱抽屉也带开了（两个 store 被共用）')
+  } else if (independence.afterMail.gear !== 'true' || independence.afterMail.mail !== 'true') {
+    fail(`打开邮箱时两枚按钮状态不对：${JSON.stringify(independence.afterMail)}（应各自独立）`)
+  } else if (independence.afterMailClose.gear !== 'true') {
+    fail('关闭邮箱把大盘设置一起关了（两个 store 被共用）')
+  } else if (independence.afterGearClose.gear !== 'false') {
+    fail('再点齿轮没关掉设置抽屉')
+  } else {
+    ok('两个抽屉各自独立开合：开邮箱不动设置、关邮箱不关设置、各自单点可关')
+  }
+
+  // ── H. prefers-reduced-motion：内容必须完整可见（任务硬要求）────────────
+  // 用户偏好动效，但减弱动效下不能靠动画末帧把内容显出来。CDP 直接模拟该媒体特性，
+  // 然后**刷新页面**重走一遍「打开」—— 只改媒体查询不重挂样式表的话，测的是上一份
+  // 已经算好的 computed style。
+  await send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+  })
+  await send('Page.reload', { ignoreCache: false })
+  await sleep(1500)
+  let rmReady = false
+  for (let i = 0; i < 60; i += 1) {
+    rmReady = await evaluate(`Boolean(window.__dshClientCtx__ && document.querySelector('[data-conversation-content]'))`).catch(() => false)
+    if (rmReady) break
+    await sleep(1000)
+  }
+  if (!rmReady) {
+    fail('开启 prefers-reduced-motion 后刷新，应用没再就绪')
+  } else {
+    await sleep(2500)
+    await evaluate(`(function(){
+      var ctx = window.__dshClientCtx__;
+      var ws = ctx && ctx.get('uiWorkspace');
+      var s = ctx && ctx.get('sessions');
+      var snap = s && s.list && s.list.getSnapshot ? s.list.getSnapshot() : (s && s.getSnapshot ? s.getSnapshot() : null);
+      var ids = snap && snap.byId ? Object.keys(snap.byId) : [];
+      if (ws && ids.length) ws.openSession(ids[0]);
+    })()`)
+    await sleep(4000)
+    const rmBtn = await buttonCenter('kr-mail-btn')
+    if (rmBtn === null) {
+      fail('减弱动效重载后顶栏找不到邮箱按钮')
+    } else {
+      await realClick(rmBtn.x, rmBtn.y)
+      await sleep(900)
+      const rm = await evaluate(DRAWER_STATE)
+      log('REDUCED_MOTION=' + JSON.stringify(rm))
+      const mediaMatches = await evaluate(`window.matchMedia('(prefers-reduced-motion: reduce)').matches`)
+      const animName = await evaluate(`(function(){
+        var b = document.querySelector('.kr-mail-drawer__body');
+        return b ? getComputedStyle(b).animationName : null;
+      })()`)
+      if (!mediaMatches) fail('CDP 没能模拟出 prefers-reduced-motion（本断言前提失效）')
+      else if (rm.open !== 'true') fail('减弱动效下抽屉打不开')
+      else if (rm.visibility !== 'visible' || rm.opacity < 0.99) {
+        fail(`减弱动效下抽屉不可见（visibility=${rm.visibility} opacity=${rm.opacity}）——可见性依赖了动画末帧`)
+      } else if (rm.pointerEvents !== 'auto') {
+        fail(`减弱动效下抽屉 pointer-events=${rm.pointerEvents}，内容看得见却点不动`)
+      } else if (rm.hasPanel !== 1 || rm.navItems < 3 || rm.listScroll < 1) {
+        fail(`减弱动效下面板内容不完整（panel=${rm.hasPanel} 文件夹=${rm.navItems} 列表容器=${rm.listScroll}）`)
+      } else if (animName !== null && animName !== 'none') {
+        fail(`减弱动效下抽屉内容仍有动画（animation-name=${animName}）`)
+      } else {
+        ok(`减弱动效下内容完整可见：opacity=${rm.opacity} / pointer-events=auto / 面板与文件夹导航齐 / animation-name=${animName}`)
+      }
+      // 关掉，恢复现场。
+      await evaluate(`document.getElementById('kr-mail-btn').click(); 'close'`)
+      await sleep(300)
+    }
+  }
+  await send('Emulation.setEmulatedMedia', { features: [] })
+
+  const passed = process.exitCode !== 1
+  console.log('\n=== ' + (passed ? 'MAIL DRAWER E2E PASSED' : 'MAIL DRAWER E2E FAILED') + ' ===')
+  lines.push('', '=== ' + (passed ? 'MAIL DRAWER E2E PASSED' : 'MAIL DRAWER E2E FAILED') + ' ===')
+  lines.push('screenshot=' + SHOT)
+  try { writeFileSync(RESULT, lines.join('\n')) } catch { /* 结果文件写不进去不影响退出码 */ }
+  try { ws.close() } catch { /* ignore */ }
+  chrome.kill()
+  await sleep(300)
+  cleanupProfile()
+  process.exit(process.exitCode ?? 0)
+}
+
+main().catch((err) => {
+  console.error('ERR ' + (err && err.message ? err.message : String(err)))
+  try { writeFileSync(RESULT, 'ERR ' + (err && err.stack ? err.stack : String(err))) } catch { /* ignore */ }
+  try { ws?.close() } catch { /* ignore */ }
+  chrome.kill()
+  cleanupProfile()
+  process.exit(1)
+})

@@ -16,6 +16,8 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { getKrChatStore } from './kr-chat-store.ts'
 import { getPanelSettingsStore } from './panel-settings-store.ts'
+import { getMailDrawerStore } from './mail-drawer-store.ts'
+import { applyMailButtonState, mountMailDrawer, syncMailButton } from './mail-drawer.tsx'
 import { KrAgentPanel } from './KrAgentPanel.tsx'
 import { activityStore } from '../tool-summary/activity-drawer.tsx'
 import { getCurrentChatSnapshot, latestChatSessionId, leaveCurrentChatSession, subscribeLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
@@ -191,6 +193,9 @@ function syncKrTab(tablist: HTMLElement): void {
   // 让人以为右栏是可选的。收起/展开相关代码（syncKrPanelToggle、KR_PANEL_ICON、
   // store.panelOpen 与 .kr-panel-toggle 样式）一并删干净。
   syncPanelSettingsButton(tablist)
+  // 邮箱按钮紧跟在齿轮右侧（用户 2026-10-15 要求把邮箱入口搬到设置旁边）。
+  // 必须在 syncPanelSettingsButton 之后调用 —— 它依赖齿轮已在位才能定位自己。
+  syncMailButton(tablist)
 }
 
 /**
@@ -352,6 +357,16 @@ export function mountKrChatController(): void {
   const store = getKrChatStore()
   store.setActiveTab('kr')
 
+  /*
+   * 邮箱抽屉挂到 body 级容器上（KR 对话控制器生命周期内挂一次，幂等）。
+   *
+   * 为什么不挂在右栏 .kr-split__side 里（设置抽屉就在那儿）：邮箱面板要的 420px
+   * 比右栏本身还宽，且右栏在空白会话里整块不渲染 —— 挂进去就会出现「顶栏有邮箱
+   * 按钮、点了却什么都没出来」。body 级 fixed 浮层与右栏的布局 / 裁剪 / 滚动完全
+   * 解耦（理由详见 mail-drawer.tsx 的文件头注释）。
+   */
+  try { mountMailDrawer() } catch { /* 抽屉挂不出来不影响其余控制器能力 */ }
+
   /** 本实例是否仍是当前生效的控制器（旧实例经此让位，不再写 DOM）。 */
   const owns = (): boolean => {
     const current = holder[CONTROLLER_GLOBAL_KEY] as KrControllerHandle | undefined
@@ -376,6 +391,21 @@ export function mountKrChatController(): void {
       const open = settings.open
       setAttrIfDiff(el, 'data-open', open ? 'true' : 'false')
       setAttrIfDiff(el, 'aria-expanded', open ? 'true' : 'false')
+    })
+    disposers.push(off)
+  }
+
+  /*
+   * 邮箱按钮同理：打开态即时跟随它自己的共享 store，不等 250ms 轮询。
+   *
+   * 与设置按钮是**两份独立的 store**（mail-drawer-store），所以两个抽屉各自
+   * 独立开合 —— 共用一份的话，打开邮箱会把大盘设置一起顶出来。
+   */
+  {
+    const mail = getMailDrawerStore()
+    const off = mail.subscribe(() => {
+      if (!owns()) return
+      applyMailButtonState()
     })
     disposers.push(off)
   }

@@ -1,5 +1,5 @@
 /**
- * WorkbenchPanel — 6 合 1 统一工作台主容器。
+ * WorkbenchPanel — 5 合 1 统一工作台主容器。
  *
  * 聚合模块：
  *  1. 灵魂 (Soul)      — 身份契约层：卡片 + 预设 + 整段正文/身份/档案/蒸馏
@@ -7,11 +7,15 @@
  *  2. 能力 (Skills)    — 技能与 MCP 工具包管理
  *  3. 用量 (Usage)     — Token 消耗总览、24小时/月度平滑曲线与 52 周全局热力大盘
  *  4. 画廊 (Gallery)   — 多媒体画廊：所有对话生成的图片 / 网页 / 演示 / 文档一站查看
- *  5. 邮件 (Mail)      — Agent Mail 代理三栏工作台
  *
  * 供应商与网络代理**不在这里**（2026-10-05 用户点名「还是把供应商配置和代理
  * 放在设置里面吧」）：两者都在官方「设置」弹窗的「供应商」页
  * （src/client/provider/webui/section.tsx，座位 settings.section / id provider-hub）。
+ *
+ * 邮件（原第 6 个分类）**也搬走了**（2026-10）：入口改到 Seeker 顶栏齿轮右侧的
+ * 邮件按钮 + 右栏只读抽屉（src/client/kr-chat/mail-drawer.tsx），本工作台不再
+ * 有 mail 分类 —— 邮箱被裁成纯查看，塞进统一工作台里既占一格又得跟整页三栏
+ * 布局较劲。
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -21,10 +25,8 @@ import { MemoryPanel } from '../memory/Panel.js'
 import { SkillsPanel } from '../usage/dashboard/SkillsPanel.js'
 import { UsagePanel } from '../usage/dashboard/UsagePanel.js'
 import { GalleryPanel } from '../gallery/GalleryPanel.js'
-import { MailPanel } from '../mail/Panel.js'
 import { createMemoryApi } from '../memory/api.js'
 import { SoulPanel, createSoulApi } from '../soul/index.js'
-import { createMailApi } from '../mail/api.js'
 import { PopoverShell } from '../popover-shell.js'
 import {
   readWorkbenchTab,
@@ -33,14 +35,14 @@ import {
   WORKBENCH_TABS,
 } from './row-flyout.js'
 
-export type WorkbenchTab = 'soul' | 'memory' | 'skills' | 'usage' | 'gallery' | 'mail'
+export type WorkbenchTab = 'soul' | 'memory' | 'skills' | 'usage' | 'gallery'
 
 /**
  * 默认 Tab。
  *
  * 2026-10 v4 导航定稿：分类切换**只在侧栏那一行横滑条上**（./strip.tsx），
  * 页内不再有任何切换器——原先的悬浮胶囊 Dock 与更早的顶部 tab 栏都已删除。
- * 六个页面各自成为完整板块，页头只表达「我是谁」。
+ * 每个页面各自成为完整板块，页头只表达「我是谁」。
  * 当前分类写 localStorage（侧栏条与页面共用同一把键），重开工作台回到上次那页。
  */
 export const DEFAULT_TAB: WorkbenchTab = 'soul'
@@ -72,7 +74,6 @@ const PAGE_HEADS: ReadonlyArray<{ id: WorkbenchTab; eyebrow: string; title: stri
   { id: 'skills', eyebrow: 'Capability Matrix', title: 'SKILL', sub: '技能包统一编目，展开看每个包里的技能。', tail: '会什么' },
   { id: 'usage', eyebrow: 'Token Telemetry', title: '用量', sub: '范围胶囊只作用于消耗汇总；热力带恒为全量 52 周，是横跨历史的总览。', tail: '烧了多少' },
   { id: 'gallery', eyebrow: 'Output Gallery', title: '画廊', sub: '所有对话产出的图片、网页、演示、文档一站看全。', tail: '产出过什么' },
-  { id: 'mail', eyebrow: 'Agent Mail', title: '邮件', sub: '代理三栏工作台。HTML 正文一律走沙箱 iframe；写操作点一下就执行。', tail: '收件与回信' },
 ]
 
 function PageHead({ tab }: { tab: WorkbenchTab }): JSX.Element | null {
@@ -111,13 +112,12 @@ export function WorkbenchPanel({ onClose, initialTab = DEFAULT_TAB }: WorkbenchP
   }, [])
 
   const memoryApi = useMemo(() => createMemoryApi(), [])
-  const mailApi = useMemo(() => createMailApi(), [])
   // 灵魂 API 面用单例（无状态 fetch 包装）：每次渲染返回新对象会让子面板的
   // useEffect 依赖随渲染重发请求，记忆面板历史上打过一分钟 498 次的请求风暴。
   const soulApi = useMemo(() => createSoulApi(), [])
 
   /**
-   * ⌘1–6 / Ctrl+1–6 直切分类（与侧栏横滑条的提示一致）。
+   * ⌘1–5 / Ctrl+1–5 直切分类（与侧栏横滑条的提示一致）。
    *
    * 只在工作台页挂载期间生效（本组件就是那一页），不进全局快捷键表——它是
    * 页内导航，离开工作台按这组键不该有任何反应。输入框内不劫持。
@@ -178,13 +178,6 @@ export function WorkbenchPanel({ onClose, initialTab = DEFAULT_TAB }: WorkbenchP
             <div key="gallery" className="wb2-page-wrap">
               <PageHead tab="gallery" />
               <GalleryPanel onClose={onClose} />
-            </div>
-          )}
-
-          {activeTab === 'mail' && (
-            <div key="mail" className="wb2-page-wrap">
-              <PageHead tab="mail" />
-              <MailPanel api={mailApi} onClose={onClose} embedded />
             </div>
           )}
 

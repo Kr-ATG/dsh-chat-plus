@@ -1011,7 +1011,9 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   const lbSrc = strip(srcOf('src/client/triad/gallery/media-lightbox.tsx'))
   const apiSrc = strip(srcOf('src/client/triad/gallery/api.ts'))
 
-  if (!/'memory' \| 'skills' \| 'usage' \| 'gallery' \| 'mail'/.test(hubSrc)) {
+  // 2026-10：'mail' 已从 WorkbenchTab 联合类型摘除（入口搬到 Seeker 顶栏邮件
+  // 抽屉），这里只钉「联合类型里确实列了这几个分类」，不再把 mail 当成员。
+  if (!/'soul' \| 'memory' \| 'skills' \| 'usage' \| 'gallery'/.test(hubSrc)) {
     fail('WorkbenchTab 联合类型必须含 gallery（工作台第五 Tab）')
   } else if (!/<GalleryPanel[\s>]/.test(hubSrc)) {
     // 断言放宽到「渲染了 GalleryPanel」：key 后来移到了外层包裹 div

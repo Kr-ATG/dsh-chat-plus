@@ -2,15 +2,18 @@
  * row-flyout — 侧栏「工作台」行的二级导航：hover 浮层 + 滚轮直切。
  *
  * 为什么把分类导航从页面顶部搬到侧栏行上（2026-10 用户要求）：
- * 六个页面原先共用一条顶部 tab 栏，每进一页先看到一排切换器，页面本体
+ * 五个页面原先共用一条顶部 tab 栏，每进一页先看到一排切换器，页面本体
  * 反而像「某个 tab 的内容」而不是一个独立板块。现在侧栏那一行「工作台」
  * 承担全部导航语义：
  *
- *  - hover 行 → 右侧滑出小卡列出六个分类（图标 + 名字 + 一句说明），点谁进谁；
+ *  - hover 行 → 右侧滑出小卡列出五个分类（图标 + 名字 + 一句说明），点谁进谁；
  *  - 停留在行上滚轮 → 不弹浮层，直接把当前分类滚到下一个/上一个（页面原地换）；
  *  - 单击行 → 进工作台，落在「上次看过的分类」（localStorage 回填）。
  *
  * 页面顶部因此不再需要 tab 栏，只留一行面包屑（工作台 / 当前分类）说明身在何处。
+ *
+ * 邮件分类（原第 6 格）已于 2026-10 摘除：入口搬到 Seeker 顶栏齿轮右侧的邮件
+ * 按钮 + 右栏只读抽屉（src/client/kr-chat/mail-drawer.tsx）。
  *
  * 实现取舍：
  *  - **不碰官方行 DOM**：官方 SidebarRoot 渲染 button.panelRow，我们在 document
@@ -58,7 +61,6 @@ export const WORKBENCH_TABS: readonly WorkbenchTabMeta[] = [
   { id: 'skills', label: 'SKILL', desc: '技能包与技能开关' },
   { id: 'usage', label: '用量', desc: 'Token 消耗与活动热力' },
   { id: 'gallery', label: '画廊', desc: '图片 · 网页 · 文档产出' },
-  { id: 'mail', label: '邮件', desc: 'Agent Mail 收件与回信' },
 ] as const
 
 /** 读当前分类（localStorage 回填，非法值回落灵魂页）。 */
@@ -163,8 +165,6 @@ export function WorkbenchTabIcon({ tab, size = 14 }: { tab: WorkbenchTab; size?:
       return (<svg {...common}><path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20v-6" /></svg>)
     case 'gallery':
       return (<svg {...common}><rect width="18" height="18" x="3" y="3" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></svg>)
-    case 'mail':
-      return (<svg {...common}><rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></svg>)
   }
 }
 

@@ -2232,26 +2232,152 @@ if (krEnabled) {
   }
 }
 
-// ── 邮箱工作台（Agent Mail）座位契约 ─────────────────────────────────
-// 2026-10-04 改版：入口由「自绘导航行 + portal 到 body 的 fixed 抽屉」改为官方
-// `main` 页 + `sidebar.panellist` 菜单行。旧契约（open=false 必须返回 null）防的是
-// 「fixed 全高抽屉从插件加载那一刻就盖住界面」，page 形态是 centerCol 里的普通
-// flex item、只在被选中时才渲染，那条守卫连同 open/closing 状态机一并删除。
-// 新契约：面板不得再依赖 open/closing/anchor（否则等于没改完），且必须仍能被
-// 官方座位装配起来。
+// ── 邮箱面板：纯查看（2026-10 入口搬迁 + 写操作 UI 全裁） ───────────────
+// 这一轮把邮件从「统一工作台第 6 个分类」搬成「Seeker 顶栏齿轮右侧的邮件按钮
+// + 右栏只读抽屉」（入口本体在 src/client/kr-chat/mail-drawer.tsx），同时把面板
+// 裁成**纯查看**：写邮件 / 回复 / 转发 / 移入回收站 / 永久删除全部删除。
+//
+// 旧契约（page 形态 / 无 open-closing-anchor / registerPanelSeat 座位）随搬迁
+// 整体作废：registerPanelSeat 那条装配路径（applyMailClient + MAIL_PANEL_ID）
+// 已删除，本文件不能再要求它存在，否则就是拿一把已经不用的尺子量。
+// 新契约两条：① 邮箱只剩**导出面**（抽屉 import 它）+ 工作台里已无 mail 分类；
+// ② 面板是纯查看的（列表/搜索/读信/附件在位，写操作 UI 不存在）。
 {
   const mailPanelSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Panel.tsx'), 'utf-8')
   const mailIndexSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/index.ts'), 'utf-8')
+  const hubSrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/WorkbenchPanel.tsx'), 'utf-8')
+  const flyoutSrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/row-flyout.tsx'), 'utf-8')
 
-  if (/\bclosing\b/.test(mailPanelSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 '))) {
-    fail('MailPanel 不得再有 closing（page 形态由官方 main keyed 槽位负责挂载/卸载，没有退场动画阶段）')
-  } else if (/PopoverAnchor/.test(mailPanelSrc)) {
-    fail('MailPanel 不得再依赖 PopoverAnchor（page 形态铺满 main，不需要贴入口定位）')
-  } else if (!/registerPanelSeat/.test(mailIndexSrc)) {
-    fail('邮箱入口必须走 registerPanelSeat（main 页 + sidebar.panellist 菜单行）')
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+  const hubClean = strip(hubSrc)
+  const flyoutClean = strip(flyoutSrc)
+  // 入口文件要剥注释后再判：注释里会提到 applyMailClient（说明它为什么被删），
+  // 那是叙述不是代码，拿它当命中会变成「越解释越违规」。
+  const indexClean = strip(mailIndexSrc)
+
+  const reasons = []
+  // ① 导出面：新入口（mail-drawer.tsx）靠这几个 export 装配面板。
+  if (!/export \{ MailPanel, MailIcon/.test(mailIndexSrc)) reasons.push('mail/index.ts 必须导出 MailPanel / MailIcon（新抽屉入口 import 它）')
+  if (!/export \{ createMailApi, MailApiError \}/.test(mailIndexSrc)) reasons.push('mail/index.ts 必须导出 createMailApi')
+  // 死代码必须真删掉：留着等于「还有第二个入口」的错觉。
+  if (/applyMailClient/.test(indexClean)) reasons.push('applyMailClient 已是死代码，必须删除（否则让人以为还有注册的座位）')
+  if (/MAIL_PANEL_ID/.test(indexClean)) reasons.push('MAIL_PANEL_ID 只服务已删的座位装配，必须一并删除')
+  // ② 工作台里已无 mail 分类（类型 + 渲染分支 + 分类表 + 图标分支）。
+  if (/'mail'/.test(hubClean)) reasons.push('WorkbenchPanel 不得再有 mail 分类（联合类型 / 渲染分支都要清）')
+  if (/MailPanel|createMailApi/.test(hubClean)) reasons.push('WorkbenchPanel 不得再 import / 使用 MailPanel 与 createMailApi（死引用）')
+  if (/id:\s*'mail'/.test(flyoutClean)) reasons.push('row-flyout 的 WORKBENCH_TABS 不得再有 mail 一项')
+  if (/case 'mail':/.test(flyoutClean)) reasons.push('row-flyout 的分类图标不得再有 mail 分支')
+
+  if (reasons.length > 0) {
+    fail('邮箱入口搬迁：' + reasons.join('；'))
   } else {
-    pass('邮箱工作台：page 形态（无 open/closing/anchor）+ 官方 main / sidebar.panellist 座位')
+    pass('邮箱入口搬迁：只剩导出面（无 applyMailClient / MAIL_PANEL_ID）+ 工作台已无 mail 分类')
   }
+}
+
+// ── 邮箱面板纯查看：查看能力在位 + 写操作 UI 不存在 ────────────────────
+{
+  const raw = readFileSync(resolve(ROOT, 'src/client/triad/mail/Panel.tsx'), 'utf-8')
+  const src = raw.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+
+  const viewReasons = []
+  // ── 查看能力必须全在位（删写操作时最容易误伤的就是这几处）──
+  if (!/css\.topSearch/.test(src) || !/css\.topInput/.test(src)) viewReasons.push('顶栏搜索框必须保留')
+  if (!/css\.listCol/.test(src) || !/css\.listScroll/.test(src)) viewReasons.push('邮件列表（中栏）必须保留')
+  if (!/onClick=\{\(\) => \{ setPane\(\{ kind: 'read', id: message\.message_id \}\) \}\}/.test(src)) viewReasons.push('点列表项必须进 read 分支（查看详情）')
+  if (!/function ReadPane\(/.test(src)) viewReasons.push('ReadPane 读信区必须保留')
+  if (!/sandbox="allow-same-origin"/.test(src) || /allow-scripts/.test(src)) viewReasons.push('HTML 正文必须走 iframe sandbox 且不给 allow-scripts')
+  if (!/css\.attachItem/.test(src) || !/css\.attachAlt/.test(src) || !/onDownloadAlt/.test(src)) viewReasons.push('附件行必须保留「下载」与「另选位置」两个入口')
+  if (!/css\.navItem/.test(src) || !/FOLDERS\.map/.test(src)) viewReasons.push('文件夹导航（收件箱/已发送/回收站/垃圾邮件）必须保留')
+  if (!/只看未读/.test(src) || !/只看附件/.test(src)) viewReasons.push('「只看未读 / 只看附件」两个过滤必须保留')
+  if (!/css\.topBtn/.test(src) || !/IconRefreshOutline16/.test(src)) viewReasons.push('刷新按钮必须保留')
+
+  // ── 写操作 UI 必须一个不剩（这是本轮的核心删除项）──
+  const writeReasons = []
+  for (const [needle, why] of [
+    [/ComposePane/, 'ComposePane 组件与调用'],
+    [/confirmState|ConfirmDialog/, '写操作确认弹层'],
+    [/写邮件/, '「写邮件」入口'],
+    [/>\s*回复\s*</, '读信区「回复」按钮'],
+    [/>\s*转发\s*</, '读信区「转发」按钮'],
+    [/移入回收站/, '「移入回收站」按钮'],
+    [/永久删除/, '「永久删除」按钮'],
+    [/api\.send\(|api\.forward\(|api\.trash\(|api\.remove\(/, '写操作 api 调用'],
+    [/api\.pending\(|css\.pendingBar/, '待确认警示条'],
+  ]) {
+    if (needle.test(src)) writeReasons.push(`${why} 必须已删除（命中 ${needle}）`)
+  }
+  if (!/kind: 'read'/.test(src) || /kind: 'compose'|kind: 'forward'/.test(src)) {
+    writeReasons.push("PaneMode 只能剩 { kind: 'read' }（compose / forward 分支要删干净）")
+  }
+  // ReadPane 的签名里不得再挂写操作回调。
+  for (const prop of ['onReply', 'onForward', 'onTrash', 'onDelete']) {
+    if (new RegExp(`${prop}\\s*[?:]`).test(src)) writeReasons.push(`ReadPane 的 props 不得再有 ${prop}`)
+  }
+  // host 侧写能力本轮**只裁 UI**：api.ts 的薄封装必须原样留着（另一侧工具数对账要用）。
+  const apiSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/api.ts'), 'utf-8')
+  if (!/send\(|reply\(|forward\(|trash\(|remove\(/.test(apiSrc)) {
+    writeReasons.push('mail/api.ts 的写方法本轮不得删除（那是 host 路由的薄封装，只裁 UI 调用点）')
+  }
+
+  if (viewReasons.length > 0) {
+    fail('邮箱纯查看面板：' + viewReasons.join('；'))
+  } else if (writeReasons.length > 0) {
+    fail('邮箱纯查看面板：' + writeReasons.join('；'))
+  } else {
+    pass('邮箱纯查看面板：列表/搜索/读信/附件/过滤全在位 + 写操作 UI（写邮件/回复/转发/回收站/删除/ComposePane/确认弹层）零残留')
+  }
+}
+
+// ── 邮箱窄栏：容器查询（抽屉 420px 下必须命中）+ 列表↔详情切换 ──────────
+// 面板活在右栏抽屉里（宽 420px、max-width:94%），**与视口宽度无关**：
+// 用视口媒体查询在 2560px 的屏幕上永远不会命中，窄栏必须是容器查询驱动。
+// 另有一条踩过的坑要钉住：container-type 必须挂**有确定宽度的那个根**
+// （.dsh-mail-panel），挂到 display:contents 的官方 [data-slot="main"] 上
+// 不会有任何效果 —— 容器查询永远不匹配。
+{
+  const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Panel.tsx'), 'utf-8')
+  const stylesSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/styles.ts'), 'utf-8')
+  const sheet = stylesSrc.slice(stylesSrc.indexOf('const SHEET'))
+  const reasons = []
+
+  // ① container-type 挂在面板根（有确定宽度的盒子）上，且是 inline-size。
+  if (!/\.dsh-mail-panel\{[\s\S]*?container-type:inline-size/.test(sheet)) {
+    reasons.push('container-type:inline-size 必须挂在 .dsh-mail-panel 根上（挂到 display:contents 的祖先上容器查询永不命中）')
+  }
+  if (!/container-name:mailpanel/.test(sheet)) reasons.push('容器要有 container-name（@container 用得到）')
+  // ② 阈值必须是 620px：抽屉 420px < 620px，窄栏是**默认形态**。
+  if (!/@container\s+mailpanel\s+\(max-width:\s*620px\)/.test(sheet)) {
+    reasons.push('@container mailpanel (max-width: 620px) 必须存在（420px 抽屉下必须命中）')
+  }
+  // ③ 明确不许用视口媒体查询做窄栏布局（右栏宽度与视口无关）。
+  if (/@media\s*\(max-width:\s*900px\)/.test(sheet)) {
+    reasons.push('窄栏不得用视口媒体查询（@media max-width:900px）——右栏抽屉宽度与视口无关')
+  }
+  // ④ 单栏切换：选中详情时列表让位，两栏都靠 data 属性驱动。
+  if (!/\.dsh-mail-panel \.dsh-mail-list-col\[data-has-selection='true'\]\{display:none\}/.test(sheet)) {
+    reasons.push("窄栏下选中邮件必须藏列表（.dsh-mail-list-col[data-has-selection='true']{display:none}）")
+  }
+  if (!/data-has-selection=/.test(panelSrc)) reasons.push('列表容器必须挂 data-has-selection 供窄栏 CSS 判定')
+  // ⑤ 文件夹竖列 → 顶部横条。
+  if (!/\.dsh-mail-panel \.dsh-mail-sidebar\{[\s\S]{0,300}?flex-direction:row/.test(sheet)) {
+    reasons.push('窄栏下文件夹必须从竖列改顶部横条（flex-direction:row）')
+  }
+  // ⑥ 「返回列表」按钮：真按钮（不是只靠 CSS 藏列表），且 read 态才给。
+  if (!/css\.back/.test(panelSrc) || !/返回列表/.test(panelSrc)) reasons.push('窄栏必须有明确的「返回列表」按钮')
+  if (!/\.dsh-mail-back\{display:none/.test(sheet)) reasons.push('返回列表按钮在宽栏必须默认隐藏（三栏时列表常驻，没有返回语义）')
+  if (!/\.dsh-mail-panel \.dsh-mail-back\{display:inline-flex\}/.test(sheet)) reasons.push('返回列表按钮必须在窄栏容器查询里显形')
+  // ⑦ 过渡动效 + reduced-motion 兜底（用户偏好动效，但关掉动画后内容仍要完整可见）。
+  if (!/@keyframes dsh-mail-pane-in/.test(sheet)) reasons.push('列表↔详情切换要有过渡动效（dsh-mail-pane-in）')
+  if (!/@media \(prefers-reduced-motion:reduce\)/.test(sheet)) reasons.push('必须有 prefers-reduced-motion 兜底')
+  // 兜底只能关动画：不得靠 opacity/visibility 藏内容（那样降级后内容会消失）。
+  const rm = sheet.slice(sheet.indexOf('@media (prefers-reduced-motion:reduce)'))
+  if (/visibility:hidden|opacity:0/.test(rm.slice(0, rm.indexOf('\n}')))) {
+    reasons.push('reduced-motion 兜底不得用 visibility:hidden / opacity:0 藏内容（动画关掉后内容要完整可见）')
+  }
+
+  if (reasons.length > 0) fail('邮箱窄栏布局：' + reasons.join('；'))
+  else pass('邮箱窄栏布局：容器查询(620px，420px 抽屉必命中) + 文件夹横条 + 列表↔详情单栏切换 + 返回按钮 + 过渡动效与 reduced-motion 兜底')
 }
 
 // ── 邮箱附件保存位置（用户自选目录）───────────────────────────────────
@@ -2277,39 +2403,35 @@ if (krEnabled) {
   }
 }
 
-// ── 邮箱破坏性操作必须跟着「邮件实际所在文件夹」走 ──────────────────────
+// ── host 侧写能力原样保留（本轮只裁「模型可见的工具」与面板 UI）────────
+// 面板上的破坏性按钮删了，但 host 的 /api/dsh-mail 两阶段写链路**没删**：
+// service 的 trashNow/deleteNow、CLI 英文报错人话化、写后作废缓存都是 host 能力，
+// 删了会牵动 test-mail-two-phase.mjs。这里钉的就是「面板删了、能力还在」。
 {
-  const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Panel.tsx'), 'utf-8')
   const cliSrc = readFileSync(resolve(ROOT, 'src/mail/cli.ts'), 'utf-8')
   const serviceSrc = readFileSync(resolve(ROOT, 'src/mail/service.ts'), 'utf-8')
   const storeSrc = readFileSync(resolve(ROOT, 'src/mail/store.ts'), 'utf-8')
+  const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Panel.tsx'), 'utf-8')
 
   // Agent Mail 的规则：+trash 只作用于非回收站邮件、+delete 只作用于回收站邮件。
-  // 收件箱里给「永久删除」= 用户点出一个 404（真实故障：Message does not exist
-  // or is not in trash）。
-  //
-  // ⚠️ 判定依据必须是**服务端给出的邮件实际归属**（detail.dir.dir_name），不能
-  // 用「当前列表的文件夹」：列表可能来自本地缓存（邮件早已被移走），拿它判定
-  // 就会给错按钮，用户点下去撞的是真实故障 `Cannot delete message from this
-  // directory`（截图里那句英文），而且刷新也刷不掉。
-  if (!/const actualDir = detail\.dir\?\.dir_name/.test(panelSrc)) {
-    fail('破坏性按钮必须按 detail.dir.dir_name（邮件实际所在文件夹）判定，不能用列表文件夹')
-  } else if (/inTrash=\{folder === 'trash'\}/.test(panelSrc)) {
-    fail('禁止用「当前列表的文件夹」判定 inTrash（缓存陈旧时会给错按钮 → Cannot delete message from this directory）')
-  } else if (!/\{inTrash\s*\n?\s*\?\s*\(/.test(panelSrc)) {
-    fail('「移入回收站」与「永久删除」必须按 inTrash 二选一渲染')
-  } else if (!/Cannot delete message from this directory/i.test(cliSrc)) {
+  // 旧故障：服务端按邮件真实归属判定，回 `Cannot delete message from this
+  // directory`（截图里那句英文）——面板曾因此给出注定失败的按钮。
+  if (!/Cannot delete message from this directory/i.test(cliSrc)) {
     fail('CLI 的 Cannot delete message from this directory 必须翻成人话（否则用户只看到一句英文）')
   } else if (!/not in trash/.test(cliSrc) || !/humanizeCliError/.test(cliSrc)) {
     fail('CLI 英文报错必须翻译成人话（至少覆盖 not in trash 这条）')
   } else if (!/async invalidateCache\(/.test(storeSrc) || !/invalidateCache\(\)/.test(serviceSrc)) {
     fail('写操作成功后必须作废列表缓存（否则刚删掉的邮件还留在列表里，用户重复点）')
+  } else if (!/async trashNow\(/.test(serviceSrc) || !/async deleteNow\(/.test(serviceSrc)) {
+    fail('host 的 trashNow / deleteNow 必须保留（面板删了按钮，host 能力仍在）')
+  } else if (/inTrash|detail\.dir\?\.dir_name/.test(panelSrc)) {
+    fail('面板不得再保留破坏性按钮的 inTrash 判定分支（写操作 UI 已整体删除）')
   } else {
-    pass('邮箱破坏性操作：按邮件实际归属二选一 + 写后作废缓存 + 英文报错人话化')
+    pass('邮箱 host 写能力保留：trashNow/deleteNow + 写后作废缓存 + 英文报错人话化（面板侧判定分支已清）')
   }
 }
 
-// ── 面板写操作：点一下就执行，不给「待确认」条 ──────────────────────────
+// ── 面板已无写操作：host 两阶段 chain 仍在（供 host 侧工具/测试用）────────
 {
   const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Panel.tsx'), 'utf-8')
   const entrySrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/index.ts'), 'utf-8')
@@ -2321,28 +2443,47 @@ if (krEnabled) {
   // 而且压根没有正文/附件路径 —— 参数根本重建不出来。
   // 修法：第一阶段把完整参数落盘（replay），第二阶段由 host 原样重放。
   //
-  // 用户明确要求：**面板上不要「待确认」条**。用户亲手点那一下就是许可，
-  // 再让他在警示条上点一次「确认执行」是同一个问题问两遍。所以 now 变体
-  // 一次请求走完两阶段，面板侧不再有 pending 状态与警示条。
+  // 本轮之后面板不再有任何写入口，但这套 host 链路**保留**（模型工具与
+  // test-mail-two-phase.mjs 都还在用）。断言因此分两半：host 那几条照旧钉死，
+  // 面板那几条改成「面板侧零写调用」。
   if (!/^\s*replay:\s*WriteReplay/m.test(typesSrc) || !/export type WriteReplay/.test(typesSrc)) {
     fail('待确认记录必须存下完整的 replay 参数（不能靠 CLI summary 反推）')
   } else if (!/async confirmPending\(token: string\)/.test(serviceSrc)) {
     fail('host 必须提供 confirmPending(token)：从落盘 replay 原样重放')
   } else if (!/pending\/confirm/.test(readFileSync(resolve(ROOT, 'src/mail/api.ts'), 'utf-8'))) {
     fail('必须提供 /pending/confirm 路由（模型工具的两阶段确认走它）')
-  } else if (/preview\.id|preview\.body|preview\.subject/.test(panelSrc)) {
-    fail('面板不得从 preview 里读业务字段拼请求（summary 里没有正文/附件，字段名也不同）')
-  } else if (/css\.pendingBar|待确认警示条/.test(panelSrc)) {
-    fail('面板不得再渲染「待确认」警示条（用户明确要求：点一下就执行，不要二次确认）')
-  } else if (/api\.pending\(/.test(panelSrc) || /api\.pending\(/.test(entrySrc)) {
-    fail('面板/入口不得再拉待确认列表（没有警示条要用它）')
   } else if (!/async trashNow\(/.test(serviceSrc) || !/async deleteNow\(/.test(serviceSrc)) {
-    fail('面板的移入/删除要走 now 变体（用户点击即许可，一次请求走完两阶段）')
+    fail('host 的 now 变体必须保留（用户点击即许可，一次请求走完两阶段）')
   } else if (!/confirmationToken/.test(serviceSrc.slice(serviceSrc.indexOf('async trash('), serviceSrc.indexOf('async trash(') + 420))) {
     fail('trash() 必须把 confirmationToken 传进 writeCall（只收形参不往下传 = 第二阶段又拿新令牌，永远停在 pending）')
+  } else if (/api\.(send|reply|forward|trash|remove|pending)\(/.test(panelSrc) || /api\.(send|reply|forward|trash|remove|pending)\(/.test(entrySrc)) {
+    fail('面板/入口不得再有任何写操作（send/reply/forward/trash/remove）或待确认列表调用')
+  } else if (/preview\.id|preview\.body|preview\.subject/.test(panelSrc)) {
+    fail('面板不得从 preview 里读业务字段拼请求（summary 里没有正文/附件，字段名也不同）')
   } else {
-    pass('面板写操作：点一下就执行（无待确认条）+ host 侧 replay 原样重放两阶段')
+    pass('面板零写操作（无 send/reply/forward/trash/remove/pending 调用）+ host 两阶段 replay/now 链路原样保留')
   }
+}
+
+// ── 设置页「模型可用工具」收敛为 6 个只读工具（与 host 侧一一对应）────────
+// host 侧同时由另一名 teammate 删 5 个写工具，这里改的是同一事实的 client 侧：
+// 设置页的工具表留着一个不存在的工具名，等于对用户撒谎。
+{
+  const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Panel.tsx'), 'utf-8')
+  const reasons = []
+  for (const name of ['mail_account', 'mail_list', 'mail_search', 'mail_read', 'mail_download_attachment', 'mail_wait_code']) {
+    if (!new RegExp(`\\b${name}:`).test(panelSrc)) reasons.push(`TOOL_DESC 必须保留只读工具 ${name}`)
+  }
+  for (const name of ['mail_send', 'mail_reply', 'mail_forward', 'mail_trash', 'mail_delete']) {
+    if (new RegExp(`\\b${name}:`).test(panelSrc)) reasons.push(`TOOL_DESC 不得再有已删工具 ${name}`)
+  }
+  // 数量徽标读的是 config.tools ?? Object.keys(TOOL_DESC) —— 键只有 6 个时即 6。
+  const table = panelSrc.slice(panelSrc.indexOf('const TOOL_DESC'), panelSrc.indexOf('}', panelSrc.indexOf('const TOOL_DESC')))
+  const keys = (table.match(/^\s{2}(\w+):/gm) ?? []).length
+  if (keys !== 6) reasons.push(`TOOL_DESC 必须正好 6 项（实得 ${keys}）`)
+
+  if (reasons.length > 0) fail('邮箱设置页工具表：' + reasons.join('；'))
+  else pass('邮箱设置页工具表：6 个只读工具（写类 5 项零残留，数量徽标渲染为 6）')
 }
 
 // ── 任务/操作面板的取数与回填（2026-10-05 修「切换会话后两张卡就空了」）──────

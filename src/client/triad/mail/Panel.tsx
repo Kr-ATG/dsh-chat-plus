@@ -1,26 +1,39 @@
 /**
- * dsh-mail — 邮箱工作台（client 半身）。
+ * dsh-mail — 邮箱面板（client 半身）。
  *
- * 三栏应用布局，与记忆/用量/技能三个工作台同一套壳（PopoverShell 的 drawer
- * 形态：自右向左滑入、盖住会话主区、Esc / 遮罩 / 关闭钮统一收口）：
+ * 2026-10 起本面板是**纯查看**面板：入口在 Seeker 顶栏齿轮旁的邮件按钮，点开
+ * 从右侧滑入一条只读抽屉（`embedded` 形态铺满抽屉）；面板本体也仍能铺满官方
+ * `main`（非 embedded 走 PopoverShell 的 page 形态，旧场景兜底）。
  *
- *   ┌────────┬──────────────┬────────────────────────────────┐
- *   │ 文件夹  │ 邮件列表      │ 详情 / 写信 / 回复 / 转发        │
- *   │ 导航    │ 搜索·过滤·翻页 │ 正文（HTML 走沙箱 iframe）       │
- *   │ 设置    │              │ 附件下载                        │
- *   └────────┴──────────────┴────────────────────────────────┘
+ * 全部写操作 UI（写邮件 / 回复 / 转发 / 移入回收站 / 永久删除）已随模型侧
+ * 写工具的裁撤一并删除 —— 这里只留「看」：文件夹导航、搜索、列表、读信、
+ * 附件下载。host 侧的两阶段写能力（/api/dsh-mail 的 pending/confirm 链路）
+ * 原样保留，只是面板不再有任何入口调用它。
  *
- * 三条与「邮件是外部不可信输入」直接相关的实现约束：
+ * ── 布局：窄栏是默认形态 ───────────────────────────────────────────────
+ * 面板根挂 `container-type: inline-size`，`@container (max-width: 620px)` 命中
+ * 时切「移动端邮箱」范式（列表 ↔ 详情单栏切换）：
+ *
+ *   列表态                              详情态
+ *   ┌──────────────────────────┐        ┌──────────────────────────┐
+ *   │ 顶栏（搜索/监听/刷新）      │        │ 顶栏（同上）+ ← 返回列表   │
+ *   ├──────────────────────────┤        ├──────────────────────────┤
+ *   │ 文件夹横条（原竖列改横滚）   │        │ 主题 / 发件人 / 正文 / 附件 │
+ *   ├──────────────────────────┤        │                          │
+ *   │ 列表铺满                  │        │                          │
+ *   └──────────────────────────┘        └──────────────────────────┘
+ *
+ * 为什么用容器查询而不是视口媒体查询：右栏抽屉宽度（420px）与视口宽度无关，
+ * 2560px 宽的屏幕上这条抽屉照样只有 420px。宽栏（>620px）保留三栏，只作
+ * 「旧场景不崩」的兜底。
+ *
+ * 两条与「邮件是外部不可信输入」直接相关的实现约束：
  *
  *  1. **正文永不直接 innerHTML**：HTML 邮件先过 sanitize.ts 字符串净化，再塞进
  *     `<iframe sandbox="allow-same-origin">`（不给 allow-scripts）。样式隔离 +
  *     脚本不可执行，双保险。
- *  2. **点一下就执行，不二次追问**：面板上的写操作（移入回收站 / 永久删除 /
- *     发信）都是「用户亲手点 = 明确许可」，host 侧一次请求走完 CLI 的两阶段
- *     确认（trashNow / deleteNow）。**不给「待确认」条**——同一个动作问两遍是
- *     噪音；真失败了就报错并重新对齐状态（见 handleWriteError）。
- *  3. **永久删除保留一次确认**：不可恢复，是回收站里的最后一道门；移入回收站
- *     可逆（30 天内能恢复），不弹确认。危险按钮走红色变体。
+ *  2. **附件只落盘、不执行**：下载走 host 的 /download-attachment（写到用户配的
+ *     目录或临时另选的位置），面板侧不打开、不渲染附件内容。
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -28,19 +41,15 @@ import {
   IconChevronDownOutline14,
   IconCloseOutline16,
   IconDownloadOutline16,
-  IconEditOutline16,
   IconFolderOpenOutline16,
   IconPaperclipOutline16,
   IconRefreshOutline16,
   IconSearchOutline16,
-  IconSendOutline16,
-  IconTrashOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DirVerdict, MailApi, MailAccountView, MailConfigView, MailDetailView, MailSummaryView } from './api.js'
 import { MailApiError } from './api.js'
 import { css, ensureMailStyles } from './styles.js'
 import { wrapMailHtml } from './sanitize.js'
-import { ConfirmDialog } from '../memory/ConfirmDialog.js'
 import { PopoverShell } from '../popover-shell.js'
 
 /** 文件夹。 */
@@ -49,11 +58,8 @@ type Folder = 'inbox' | 'sent' | 'trash' | 'spam'
 /** 面板视图。 */
 type View = 'mail' | 'settings'
 
-/** 右侧主区模式。 */
-type PaneMode =
-  | { kind: 'read'; id: string }
-  | { kind: 'compose'; replyTo?: { id: string; subject: string; from: string } }
-  | { kind: 'forward'; source: MailDetailView }
+/** 右侧主区模式 —— 纯查看面板只剩「读某一封」这一种。 */
+type PaneMode = { kind: 'read'; id: string }
 
 /** 文件夹文案与图标。 */
 const FOLDERS: ReadonlyArray<{ id: Folder; label: string; icon: JSX.Element }> = [
@@ -206,7 +212,6 @@ export function MailPanel({ onClose, api, initialFolder, initialMessageId, embed
   const [config, setConfig] = useState<MailConfigView | null>(null)
   const [watching, setWatching] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
-  const [confirmState, setConfirmState] = useState<{ title: string; message: string; danger?: boolean; onConfirm: () => void } | null>(null)
   /** 已展示过的新邮件事件时间戳（避免同一封反复弹 toast）。 */
   const seenEvents = useRef(new Set<number>())
 
@@ -234,11 +239,7 @@ export function MailPanel({ onClose, api, initialFolder, initialMessageId, embed
    *
    * `fresh` 决定要不要吃本地缓存秒开：
    *  - 不传（首屏/换文件夹）→ 走 `cache=1`，面板一打开就有内容，不白屏；
-   *  - 传 true（刷新按钮 / 写操作之后 / 写失败重对齐）→ 强制实时。
-   *
-   * 这条区分是必需的：早先所有调用都带 `cache=1`，于是「刷新」按钮点下去
-   * 拿到的是同一份磁盘快照 —— 用户刚删掉的邮件还在列表里，看起来就是
-   * 「删除没生效」，再点一次就撞上服务端的目录约束。
+   *  - 传 true（刷新按钮）→ 强制实时。
    */
   const loadList = useCallback(async (target: Folder, options: { append?: boolean; cursor?: string; q?: string; unread?: boolean; attach?: boolean; fresh?: boolean } = {}): Promise<void> => {
     const append = options.append === true
@@ -254,7 +255,7 @@ export function MailPanel({ onClose, api, initialFolder, initialMessageId, embed
           cursor: options.cursor,
           isUnread: options.unread === true,
           hasAttachments: options.attach === true,
-          // 首屏走缓存秒开：面板一打开就有内容。刷新/写后一律实时（见上）。
+          // 首屏走缓存秒开：面板一打开就有内容。刷新一律实时（见上）。
           cache: append || options.fresh === true ? undefined : true,
         })
         : await api.search({
@@ -364,47 +365,7 @@ export function MailPanel({ onClose, api, initialFolder, initialMessageId, embed
     return () => { window.clearTimeout(timer) }
   }, [toast])
 
-  /* ── 写操作 ───────────────────────────────────────────────────────── */
-
-  /**
-   * 统一的写结果处理：`done` → 提示成功并刷新列表。
-   *
-   * 面板上的写操作（移入回收站 / 永久删除 / 发信）都是**一次请求走完两阶段**
-   * （见 host 的 trashNow / deleteNow）—— 用户亲手点的那一下就是许可，所以
-   * 正常只会拿到 `done`。`pending` 是异常兜底（服务端没接受令牌），不再引导
-   * 用户去点什么「确认执行」，而是直接说明没成功，别把没做的事说成做了。
-   */
-  const handleOutcome = useCallback(async (outcome: { status: string }, successText: string): Promise<void> => {
-    if (outcome.status !== 'done') {
-      setToast('这一步没有执行成功，请重试')
-      return
-    }
-    setToast(successText)
-    setPane(null)
-    setDetail(null)
-    // 写操作之后必须拿实时结果：缓存里的还是「操作前」的快照。
-    await loadList(folder, { q: query, unread: onlyUnread, attach: onlyAttach, fresh: true })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folder, query, onlyUnread, onlyAttach, loadList])
-
-  /**
-   * 写操作失败的统一收口：报错 **+ 重新对齐本地状态**。
-   *
-   * 光弹红字不够。破坏性操作最常见的失败是「这封邮件已经不在原文件夹里了」
-   * （服务端 `Cannot delete message from this directory`）—— 此刻本地列表
-   * 与详情都是过期快照，不刷新的话用户面对的是：一句报错 + 一个**注定失败
-   * 的按钮**，点几次都撞同一堵墙。
-   *
-   * 刷新之后，详情里的 `dir` 会拿到服务端的真实归属，按钮自动从「移入回收站」
-   * 翻成「永久删除」，用户顺势就能完成他本来想做的事。
-   */
-  const handleWriteError = useCallback(async (err: unknown): Promise<void> => {
-    setError({ message: err instanceof Error ? err.message : String(err), needsAuth: err instanceof MailApiError && err.needsAuth })
-    await loadList(folder, { q: query, unread: onlyUnread, attach: onlyAttach, fresh: true })
-    if (pane?.kind === 'read') await loadDetail(pane.id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folder, query, onlyUnread, onlyAttach, pane, loadList, loadDetail])
-
+  /* ── 附件下载 ─────────────────────────────────────────────────────── */
   /**
    * 下载附件：`askDir` 为真时先让用户挑位置（走系统原生选择器），否则用设置里
    * 配的目录。选择器不可用（非桌面端 / 服务缺失）时静默退回默认目录，不让
@@ -586,14 +547,6 @@ export function MailPanel({ onClose, api, initialFolder, initialMessageId, embed
                     <span className={css.navIcon}><IconPaperclipOutline16 size={16} /></span>
                     <span>只看附件</span>
                   </button>
-                  <button
-                    type="button"
-                    className={css.navItem}
-                    onClick={() => { setPane({ kind: 'compose' }) }}
-                  >
-                    <span className={css.navIcon}><IconEditOutline16 size={16} /></span>
-                    <span>写邮件</span>
-                  </button>
                 </div>
                 <div className={css.sideFoot}>
                   <button type="button" className={css.sideSetting} onClick={() => { setView('settings') }}>
@@ -679,13 +632,28 @@ export function MailPanel({ onClose, api, initialFolder, initialMessageId, embed
                 </div>
               </div>
 
-              {/* 右栏：详情 / 写信 */}
-              <div className={css.detailCol}>
+              {/* 右栏：详情（纯查看） */}
+              <div className={css.detailCol} data-empty={pane === null ? 'true' : 'false'}>
+                {/* 窄栏专用「返回列表」：宽栏由 CSS 隐藏（三栏时列表常驻，没有返回语义）。
+                    它不是装饰 —— 窄栏下详情铺满、列表被藏起来，没有这一步用户就回不去。 */}
+                {pane !== null && (
+                  <button
+                    type="button"
+                    className={css.back}
+                    aria-label="返回邮件列表"
+                    onClick={() => { setPane(null); setDetail(null) }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M15 5l-7 7 7 7" />
+                    </svg>
+                    <span>返回列表</span>
+                  </button>
+                )}
                 {pane === null && (
                   <div className={css.empty}>
                     <span className={css.emptyIcon}><MailIcon size={34} /></span>
                     <span>选择一封邮件查看内容</span>
-                    <span className={css.hint}>也可以点左侧「写邮件」，或直接在对话里让我帮你收发</span>
+                    <span className={css.hint}>点开列表里的邮件即可读正文与附件；这里只做查看</span>
                   </div>
                 )}
                 {pane?.kind === 'read' && (
@@ -693,81 +661,8 @@ export function MailPanel({ onClose, api, initialFolder, initialMessageId, embed
                     key={pane.id}
                     detail={detail}
                     loading={detailLoading}
-                    /* 邮件所在文件夹：决定右侧给哪些操作。
-                       Agent Mail 的规则是「+trash 只能作用于不在回收站里的邮件、
-                       +delete 只能作用于回收站里的邮件」，所以按钮必须跟着**邮件
-                       实际所在的文件夹**走 —— 在收件箱里给「永久删除」只会让用户
-                       点出一个 404。
-                       这里传的是「当前列表的文件夹」，只作为**兜底**：真实判定在
-                       ReadPane 内部用 detail.dir 做（见那边的注释）。 */
-                    listFolder={folder}
-                    onReply={() => {
-                      if (detail === null) return
-                      setPane({ kind: 'compose', replyTo: { id: detail.message_id, subject: detail.subject, from: detail.from.email } })
-                    }}
-                    onForward={() => {
-                      if (detail === null) return
-                      setPane({ kind: 'forward', source: detail })
-                    }}
-                    /* 移入回收站**点一下就执行**，不弹确认：它是可逆的（30 天内
-                       都能从回收站恢复），而且用户亲手点这一下本身就是许可 ——
-                       再问一遍只是把同一件事问两遍。host 侧一次请求走完两阶段。 */
-                    onTrash={() => {
-                      if (detail === null) return
-                      void api.trash(detail.message_id)
-                        .then(outcome => handleOutcome(outcome, '已移入回收站'))
-                        .catch((err: unknown) => { void handleWriteError(err) })
-                    }}
-                    /* 永久删除**保留确认**：不可恢复，且它是回收站里的最后一道门。 */
-                    onDelete={() => {
-                      if (detail === null) return
-                      setConfirmState({
-                        title: '永久删除',
-                        message: `确定永久删除「${detail.subject || '(无主题)'}」吗？\n此操作不可恢复，删除后会释放邮箱空间。`,
-                        danger: true,
-                        onConfirm: () => {
-                          void api.remove({ id: detail.message_id })
-                            .then(outcome => handleOutcome(outcome, '已永久删除'))
-                            .catch((err: unknown) => { void handleWriteError(err) })
-                        },
-                      })
-                    }}
                     onDownload={att => { void downloadAttachment(pane.id, att) }}
                     onDownloadAlt={att => { void downloadAttachment(pane.id, att, true) }}
-                  />
-                )}
-                {pane?.kind === 'compose' && (
-                  <ComposePane
-                    mode="compose"
-                    replyTo={pane.replyTo}
-                    onCancel={() => { setPane(null) }}
-                    onSubmit={async payload => {
-                      try {
-                        const outcome = await api.send(payload)
-                        await handleOutcome(outcome, '邮件已发送')
-                      } catch (err) {
-                        setError({ message: err instanceof Error ? err.message : String(err), needsAuth: err instanceof MailApiError && err.needsAuth })
-                      }
-                    }}
-                  />
-                )}
-                {pane?.kind === 'forward' && (
-                  <ComposePane
-                    mode="forward"
-                    forwardSource={pane.source}
-                    onCancel={() => { setPane(null) }}
-                    onSubmit={async payload => {
-                      try {
-                        const outcome = await api.forward({
-                          ...payload,
-                          id: pane.source.message_id,
-                          includeAttachments: true,
-                        })
-                        await handleOutcome(outcome, '邮件已转发')
-                      } catch (err) {
-                        setError({ message: err instanceof Error ? err.message : String(err), needsAuth: err instanceof MailApiError && err.needsAuth })
-                      }
-                    }}
                   />
                 )}
               </div>
@@ -783,19 +678,6 @@ export function MailPanel({ onClose, api, initialFolder, initialMessageId, embed
           </div>
         )}
       </div>
-
-      {confirmState !== null && (
-        <ConfirmDialog
-          open
-          title={confirmState.title}
-          message={confirmState.message}
-          confirmLabel="确定"
-          cancelLabel="取消"
-          danger={confirmState.danger === true}
-          onConfirm={confirmState.onConfirm}
-          onClose={() => { setConfirmState(null) }}
-        />
-      )}
     </>
   )
 }
@@ -805,25 +687,13 @@ export function MailPanel({ onClose, api, initialFolder, initialMessageId, embed
 interface ReadPaneProps {
   detail: MailDetailView | null
   loading: boolean
-  /**
-   * 当前**列表**所在的文件夹（兜底用）。
-   *
-   * ⚠️ 不能直接拿它当「邮件在不在回收站」的答案：列表可能是缓存里的旧快照
-   * （邮件其实已经被删/被移走了），真实判定必须用 detail.dir —— 那是服务端
-   * 对这一封邮件给出的实际归属。这里只在 detail 拿不到 dir 时兜底。
-   */
-  listFolder: Folder
-  onReply: () => void
-  onForward: () => void
-  onTrash: () => void
-  onDelete: () => void
   /** 下载到设置里配的目录。 */
   onDownload: (att: { attachment_id?: string; download_url?: string; filename?: string }) => void
   /** 先让用户挑位置再下载。 */
   onDownloadAlt: (att: { attachment_id?: string; download_url?: string; filename?: string }) => void
 }
 
-function ReadPane({ detail, loading, listFolder, onReply, onForward, onTrash, onDelete, onDownload, onDownloadAlt }: ReadPaneProps): JSX.Element {
+function ReadPane({ detail, loading, onDownload, onDownloadAlt }: ReadPaneProps): JSX.Element {
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const dark = useMemo(() => {
     if (typeof document === 'undefined') return false
@@ -867,25 +737,6 @@ function ReadPane({ detail, loading, listFolder, onReply, onForward, onTrash, on
   const to = (detail.to ?? []).map(item => item.email).join('、')
   const cc = (detail.cc ?? []).map(item => item.email).join('、')
 
-  /**
-   * 这封邮件**现在**在哪个文件夹 —— 破坏性按钮的唯一依据。
-   *
-   * 早先用的是「当前列表的文件夹」，那是个会撒谎的输入：列表可能来自本地
-   * 缓存（邮件早已被移走），用户点开详情时面板还以为它在收件箱/已发送里，
-   * 于是给了「移入回收站」；而服务端按邮件真实归属判定，直接回
-   * `Cannot delete message from this directory` —— 用户看到的就是截图里那句
-   * 英文报错，而且**怎么点都失败**（刷新也白搭，列表还是缓存的旧快照）。
-   *
-   * `detail.dir.dir_name` 是服务端随正文一起给的实际归属（实测 trash 邮件
-   * 会返回 `{dir_id: 5, dir_name: "trash"}`），比任何本地推断都权威。
-   * 拿不到 dir 时才退回列表文件夹 —— 降级方向是「按用户以为的来」，
-   * 至少与服务端报错后的提示一致。
-   */
-  const actualDir = detail.dir?.dir_name
-  const inTrash = actualDir === undefined || actualDir === ''
-    ? listFolder === 'trash'
-    : actualDir === 'trash'
-
   return (
     <div className={css.detailAnim} style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
       <div className={css.detailHead}>
@@ -895,31 +746,6 @@ function ReadPane({ detail, loading, listFolder, onReply, onForward, onTrash, on
           <span>{formatFullTime(detail.created_at)}</span>
           <span>收件：{to}</span>
           {cc !== '' && <span>抄送：{cc}</span>}
-        </div>
-        <div className={css.detailActions}>
-          <button type="button" className={`${css.btn} ${css.btnSmall}`} onClick={onReply}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 7 4 12l5 5" /><path d="M4 12h10a6 6 0 0 1 6 6v2" /></svg>
-            回复
-          </button>
-          <button type="button" className={`${css.btn} ${css.btnSmall}`} onClick={onForward}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 7l5 5-5 5" /><path d="M20 12H10a6 6 0 0 0-6 6v2" /></svg>
-            转发
-          </button>
-          {/* 回收站内外给不同的破坏性操作：CLI 的 +trash 只作用于非回收站邮件、
-              +delete 只作用于回收站邮件，给错按钮就是让用户点出一个 404。 */}
-          {inTrash
-            ? (
-              <button type="button" className={`${css.btn} ${css.btnSmall}`} onClick={onDelete}>
-                <IconTrashOutline16 size={13} />
-                永久删除
-              </button>
-            )
-            : (
-              <button type="button" className={`${css.btn} ${css.btnSmall}`} onClick={onTrash}>
-                <IconTrashOutline16 size={13} />
-                移入回收站
-              </button>
-            )}
         </div>
       </div>
       <div className={css.detailScroll}>
@@ -988,87 +814,6 @@ function ReadPane({ detail, loading, listFolder, onReply, onForward, onTrash, on
   )
 }
 
-/* ── 写信 / 转发区 ──────────────────────────────────────────────────── */
-
-interface ComposePaneProps {
-  mode: 'compose' | 'forward'
-  replyTo?: { id: string; subject: string; from: string }
-  forwardSource?: MailDetailView
-  onCancel: () => void
-  onSubmit: (payload: Record<string, unknown>) => Promise<void>
-}
-
-function ComposePane({ mode, replyTo, forwardSource, onCancel, onSubmit }: ComposePaneProps): JSX.Element {
-  const [to, setTo] = useState(forwardSource === undefined ? (replyTo?.from ?? '') : '')
-  const [subject, setSubject] = useState(
-    replyTo !== undefined
-      ? (replyTo.subject.startsWith('Re:') ? replyTo.subject : `Re: ${replyTo.subject}`)
-      : forwardSource !== undefined
-        ? (forwardSource.subject.startsWith('Fwd:') ? forwardSource.subject : `Fwd: ${forwardSource.subject}`)
-        : '',
-  )
-  const [body, setBody] = useState('')
-  const [attachments, setAttachments] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const submit = async (): Promise<void> => {
-    if (to.trim() === '' || subject.trim() === '' || (body.trim() === '' && mode === 'compose')) return
-    setBusy(true)
-    try {
-      await onSubmit({
-        to: to.split(/[,;，；\s]+/).map(item => item.trim()).filter(item => item !== ''),
-        subject: subject.trim(),
-        body,
-        format: 'plain',
-        attachments: attachments.split(/\r?\n/).map(item => item.trim()).filter(item => item !== ''),
-      })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className={css.composer}>
-      <div className={css.composerRow}>
-        <span className={css.composerLabel}>收件人</span>
-        <input className={css.input} value={to} placeholder="多个地址用逗号分隔" onChange={event => { setTo(event.target.value) }} />
-      </div>
-      <div className={css.composerRow}>
-        <span className={css.composerLabel}>主题</span>
-        <input className={css.input} value={subject} onChange={event => { setSubject(event.target.value) }} />
-      </div>
-      <div className={css.composerRow} style={{ alignItems: 'flex-start' }}>
-        <span className={css.composerLabel} style={{ paddingTop: 7 }}>正文</span>
-        <textarea
-          className={css.inputArea}
-          value={body}
-          placeholder={mode === 'forward' ? '可留空（原邮件正文会一并转发）' : '写点什么…'}
-          onChange={event => { setBody(event.target.value) }}
-        />
-      </div>
-      <div className={css.composerRow}>
-        <span className={css.composerLabel}>附件</span>
-        <input
-          className={css.input}
-          value={attachments}
-          placeholder="本地文件的绝对路径，每行一个（如 D:\docs\report.pdf）"
-          onChange={event => { setAttachments(event.target.value) }}
-        />
-      </div>
-      <div className={css.composerFoot}>
-        <button type="button" className={`${css.btn} ${css.btnPrimary}`} disabled={busy} onClick={() => { void submit() }}>
-          <IconSendOutline16 size={14} />
-          {busy ? '提交中…' : '生成确认'}
-        </button>
-        <button type="button" className={`${css.btn} ${css.btnGhost}`} onClick={onCancel}>取消</button>
-        <span className={css.hint}>
-          发送是两阶段确认：点这里只会生成确认令牌，还要在顶部警示条点「确认执行」才会真正发出。
-        </span>
-      </div>
-    </div>
-  )
-}
-
 /* ── 设置页 ─────────────────────────────────────────────────────────── */
 
 interface SettingsViewProps {
@@ -1082,17 +827,18 @@ interface SettingsViewProps {
   onPickDir: () => Promise<string | null>
 }
 
-/** 工具说明（与 host 侧 MAIL_TOOL_NAMES 对应）。 */
+/**
+ * 工具说明（与 host 侧 MAIL_TOOL_NAMES 一一对应）。
+ *
+ * 2026-10 裁剪：模型侧的 5 个写工具（send / reply / forward / trash / delete）
+ * 已随 host 一起删除，这里同步收敛为 6 个只读工具 —— 表里留着一个不存在的
+ * 工具名，等于在设置页对用户撒谎。
+ */
 const TOOL_DESC: Record<string, string> = {
-  mail_account: '查看邮箱地址、授权状态、发信额度与附件限制',
+  mail_account: '查看邮箱地址、授权状态、额度与附件限制',
   mail_list: '列出邮件（收件箱/已发送/回收站/垃圾邮件，可过滤翻页）',
   mail_search: '按关键词、发件人、时间、附件、未读搜索邮件',
   mail_read: '读取一封邮件的完整内容与附件信息',
-  mail_send: '发送新邮件（两阶段确认）',
-  mail_reply: '回复邮件（两阶段确认）',
-  mail_forward: '转发邮件（两阶段确认）',
-  mail_trash: '移入回收站（两阶段确认）',
-  mail_delete: '永久删除 / 清空回收站（两阶段确认）',
   mail_download_attachment: '下载附件到本地（缺省存到下面配的目录）',
   mail_wait_code: '等新邮件并提取验证码（注册 / 登录场景）',
 }
@@ -1296,7 +1042,7 @@ function SettingsView({ config, account, onClose, onSave, onVerifyDir, onPickDir
             <div className={css.settingLabel}>对话里自动声明邮箱能力</div>
             <div className={css.settingDesc}>
               每个会话首步注入一次「本 Agent 有专属邮箱」的说明 —— 注册第三方服务、收验证码时模型会直接用这个邮箱，不再问你要邮箱。
-              与上面「启用邮箱工作台」**互不影响**：工作台关着时这一项照样生效，只是模型改走 agently-cli 命令行收发。
+              与上面「启用邮箱工作台」**互不影响**：工作台关着时这一项照样生效，只是模型改走 agently-cli 命令行查看。
               同一个开关也在对话框左端「内置提示词通道」卡片里，两处改的是同一个值。
             </div>
           </div>

@@ -767,7 +767,7 @@ body[data-ds-dark-theme] .wb-root {
   box-shadow: var(--wb2-inset), var(--wb2-drop) !important; }
 .wb-root .dsh-memory-detail-head { background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1)) !important; }
 /* 顶栏搜索胶囊化 */
-.wb-root .dsh-memory-top-input, .wb-root .dsh-mail-top-input { border-radius: 999px !important; }
+.wb-root .dsh-memory-top-input { border-radius: 999px !important; }
 
 /* ── 能力：单列整宽列表（与官方自动化任务页同构），技能包行带左侧主色滑入条 ── */
 .wb-root .skm-main-scroll { max-width: none !important; margin: 0 !important; padding: 4px 22px 26px !important; }
@@ -834,30 +834,6 @@ body[data-ds-dark-theme] .wb-root {
   border-color: var(--wb2-line) !important; color: var(--wb2-t1) !important; }
 .wb-root .tg-dock__item[data-active="true"] .tg-dock__label { font-weight: 600 !important; }
 .wb-root .tg-dock__item[data-active="true"] .tg-dock__num { color: var(--wb2-t2) !important; }
-
-/* ── 邮件：左栏图标轨 + 会话行左蓝旗 + 阅读区抽屉卡 ── */
-.wb-root .dsh-mail-sidebar { width: 58px !important; min-width: 58px !important; flex: none !important;
-  padding: 8px 6px !important; border-radius: var(--wb2-r-md) !important;
-  background: color-mix(in srgb, var(--wb2-t1) 3%, transparent) !important;
-  border: 1px solid var(--wb2-line) !important; overflow: hidden; }
-.wb-root .dsh-mail-nav-item { position: relative; width: 100%; aspect-ratio: 1; justify-content: center;
-  border-radius: var(--wb2-r-xs) !important; padding: 0 !important; transition: all 300ms var(--wb2-ease) !important; }
-.wb-root .dsh-mail-nav-item > span:not(.dsh-mail-nav-icon) { display: none; }
-.wb-root .dsh-mail-nav-item .dsh-mail-nav-count { display: inline-flex !important; position: absolute; top: 2px; right: 1px; }
-.wb-root .dsh-mail-nav-item-active { background: var(--wb2-a1) !important; color: var(--wb2-accent) !important; }
-.wb-root .dsh-mail-nav-item-active::before { content: ""; position: absolute; left: -6px; top: 50%;
-  transform: translateY(-50%); width: 3px; height: 17px; border-radius: 0 3px 3px 0;
-  background: var(--wb2-accent); box-shadow: 0 0 10px var(--wb2-a3); }
-.wb-root .dsh-mail-row { position: relative; border-radius: var(--wb2-r-sm) !important;
-  transition: all 300ms var(--wb2-ease) !important; }
-.wb-root .dsh-mail-row::before { content: ""; position: absolute; left: 0; top: 11px; bottom: 11px; width: 2px;
-  border-radius: 2px; background: var(--wb2-accent); transform: scaleY(0); transition: transform 380ms var(--wb2-ease); }
-.wb-root .dsh-mail-row-unread::before, .wb-root .dsh-mail-row-active::before { transform: scaleY(1); }
-.wb-root .dsh-mail-row:hover { transform: translateX(2px) !important; }
-.wb-root .dsh-mail-detail-col { border-radius: var(--wb2-r-lg) !important; border: 1px solid var(--wb2-line) !important;
-  overflow: hidden; background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1) 46%) !important;
-  box-shadow: var(--wb2-inset), var(--wb2-drop) !important; }
-.wb-root .dsh-mail-detail-head { background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1)) !important; }
 
 /* ── 画廊 Coverflow 焦点轮播（效果图第 5 页顶部） ──
    数据是真条目（visible 前 5 条），位移/旋转/景深全 CSS transform；
