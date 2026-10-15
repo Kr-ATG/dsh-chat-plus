@@ -4891,7 +4891,16 @@ body[data-ds-dark-theme] .kr-settings__scrim {
 /* 抽屉本体：贴右边缘、铺满整栏高度。
    开合全部由 data-open 这一个属性驱动（组件不做条件渲染），所以退场动画
    才有得播；visibility 的延迟就是为它留的：关的时候等 260ms 过渡跑完再
-   hidden，否则退场会被立刻掐断。这套写法照抄同仓库 .dsh-memory-inject-card。 */
+   hidden，否则退场会被立刻掐断。这套写法照抄同仓库 .dsh-memory-inject-card。
+ *
+ * 宽度：380px / 上限 92%（用户 2026-10-15 要求「放宽点」）。
+ * 上一版是 300px / 86%：hint 文案在 300px 里被折成 4~5 行，九行开关要滚很久，
+ * 一行「标签 + 长说明 + 开关」的横向空间被压到 230px，读起来像一根细柱子。
+ * 加宽到 380px 后主列有 ~280px 可放说明文字（约 25 个汉字一行），配合紧凑组的
+ * 单行省略，绝大多数说明一行读完。
+ * 上限用百分比而不是固定值：右栏本身可被拖拽（min 360 / max 520），拖到最窄时
+ * 380px 会几乎盖满整栏，92% 让它跟着右栏收窄，遮罩始终留得下可点的一条。
+ * 上限必须留出遮罩余量 —— 铺满 100% 就等于没有「点外面关闭」这条通路了。 */
 .kr-settings {
   position: absolute;
   top: 0;
@@ -4900,8 +4909,8 @@ body[data-ds-dark-theme] .kr-settings__scrim {
   z-index: 90;
   display: flex;
   flex-direction: column;
-  width: 300px;
-  max-width: 86%;
+  width: 380px;
+  max-width: 92%;
   box-sizing: border-box;
   overflow: hidden;
   /* 浮层必须刷不透明底色：--kr-card-bg 就是大盘卡片那层 layer-1，深浅两套
@@ -5044,6 +5053,82 @@ body[data-ds-dark-theme] .kr-settings {
   line-height: 1.5;
   letter-spacing: .06em;
   color: var(--dsw-alias-label-tertiary);
+}
+
+/* 组说明：一组内的**共性**只写一次。
+ *
+ * 起因（2026-10-15）：「展示」组三条开关的 hint 各自把「只改外观 / 全局所有会话
+ * 生效 / 随本机浏览器持久保存」抄了一遍，三行几乎一样的长句堆在一起，抽屉里
+ * 最占地方的就是这段重复。共性提到这里写一次，各行只讲「关掉后具体会怎样」。
+ * 与组标题同级但更淡、不设字重：它承接标题，不是第二个标题。 */
+.kr-settings__group-note {
+  display: block;
+  padding: 0 0 4px;
+  font-size: var(--kr-fs-10-5, 10.5px);
+  line-height: 1.55;
+  color: var(--dsw-alias-label-tertiary);
+  opacity: .9;
+}
+
+/* ── 「展示」组：紧凑列表（用户 2026-10-15 要求「展示方式换一下」）──────────
+ *
+ * 三条都是纯外观偏好，说明文字短、共性已提到组说明里，没必要继续沿用注入组
+ * 那套「每行一大段灰字」的排法 —— 九行文案密度一样，读者反而分不出哪些真的
+ * 会改提示词。紧凑组做三件事：
+ *
+ *  1. 行距与内边距收一档，行 hover 给一层淡底（可点范围的暗示），让三条读起来
+ *     是一段连续列表，而不是三个独立小节；
+ *  2. hint 常态压到**最多两行**（380px 下主列约 288px、每行约 26 个汉字，三条说明
+ *     基本都能整句读完，真超长的才吃省略号），指针悬停或键盘聚焦（focus-within，
+ *     TAB 到开关即触发）时展开成完整说明。这是本次「换展示方式」的核心：不是删字，
+ *     是把长说明从常驻改成按需。全文始终在 DOM 里（只是视觉截断）+ 原生 title
+ *     提示，读屏与鼠标悬停都拿得到完整内容。
+ *     为什么是 2 行而不是 1 行：实测单行会把「工具调用卡」那条砍到只剩前半句
+ *     （「…（默…」），省下的一行高度换不回读不全的说明 —— 2 行才是这条曲线的折中。
+ *  3. @media (hover: none) 下关掉截断：触摸设备没有悬停这一说，一律展开 ——
+ *     否则手机用户拿到的是一份读不全的说明（这类「只在桌面好看」的紧凑布局是
+ *     最容易漏掉的一档）。
+ *
+ * 为什么展开用 display:block 而不是只改 -webkit-line-clamp：line-clamp 只在
+ * display:-webkit-box 下生效，换回 block 就等于彻底取消截断，不依赖某个
+ * -webkit- 属性对 unset 的支持程度。max-height 负责给出可插值的展开动画。 */
+.kr-settings__group--compact .kr-settings__row {
+  padding: 7px 8px;
+  margin: 0 -8px;
+  border-radius: 8px;
+  transition: background-color .16s ease;
+}
+
+.kr-settings__group--compact .kr-settings__row:hover {
+  background: var(--kr-hover-bg);
+}
+
+.kr-settings__group--compact .kr-settings__hint {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  max-height: 3.2em;
+  overflow: hidden;
+  transition: max-height .3s cubic-bezier(.16, 1, .3, 1);
+}
+
+.kr-settings__group--compact .kr-settings__row:hover .kr-settings__hint,
+.kr-settings__group--compact .kr-settings__row:focus-within .kr-settings__hint {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  max-height: 10em;
+}
+
+@media (hover: none) {
+  .kr-settings__group--compact .kr-settings__hint {
+    display: block;
+    -webkit-line-clamp: unset;
+    line-clamp: unset;
+    max-height: none;
+    overflow: visible;
+  }
 }
 
 /* 行：顶对齐（hint 多行时开关不能被拉到中间），开关再用 margin-top 压回
@@ -5212,7 +5297,11 @@ body[data-ds-dark-theme] .kr-settings {
   .kr-settings__close,
   .kr-settings__switch,
   .kr-settings__switch::after,
-  .kr-settings__label {
+  .kr-settings__label,
+  /* 紧凑组的行 hover 底色与 hint 展宽：后者关掉过渡后是「瞬间展开」，
+     内容照样完整可见，不存在停在半展开的中间态。 */
+  .kr-settings__group--compact .kr-settings__row,
+  .kr-settings__group--compact .kr-settings__hint {
     transition: none;
   }
   /* 动画关掉后，按下 / 打开态的静态形变也要一并归位，否则元素会永久停在

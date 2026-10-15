@@ -321,14 +321,23 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
             />
           </div>
 
-          {/* 展示组：与上面那几条**不是一类东西**，所以另起一枚组标题隔开。 */}
-          <div className="kr-settings__group">
+          {/* 展示组：与上面那几条**不是一类东西**，所以另起一枚组标题隔开。
+              组说明承接标题、写该组**共性**（三条都是纯 localStorage 外观偏好：
+              只改本机观感、不入 prompt、全局所有会话生效、随浏览器持久保存），
+              各行 hint 于是只讲「关掉后具体会怎样」——2026-10-15 之前这三句共性
+              在三条 hint 里各抄了一遍，是抽屉里最占地方的重复。
+              `--compact` 让这一组走紧凑排版（单行省略、悬停/聚焦展开全文），
+              与注入组「每行一大段说明」的读法区分开。 */}
+          <div className="kr-settings__group kr-settings__group--compact">
             <span className="kr-settings__group-title">展示</span>
+            <span className="kr-settings__group-note">
+              只改本机观感，一个字都不进提示词；全局所有会话生效，随本机浏览器持久保存（刷新 / 重启 DSH 后仍在）。悬停或聚焦某行可展开完整说明。
+            </span>
             <SettingsRow
               index={6}
               lead
               label="总结卡外框"
-              hint="关掉后 Seeker 对话流的总结卡不留边框与阴影，退回纯正文。只改外观；全局所有会话生效，随本机浏览器持久保存（刷新 / 重启 DSH 后仍在）。"
+              hint="关掉后 Seeker 对话流的总结卡不留边框与阴影，退回纯正文。"
               on={chromeOn}
               // busy 恒为 false：这一行写的是 localStorage（同步落盘 + 刷 body 属性），
               // 没有网络往返，不存在「正在保存」的中间态。写成 busy={busy} 会让它在别的
@@ -339,7 +348,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
             <SettingsRow
               index={7}
               label="工具调用卡"
-              hint="关掉后 Seeker 右栏不再显示技术向的「工具调用」台账（默认 5 行滚动窗口那张）；人话行动流不受影响。只改外观；全局所有会话生效，随本机浏览器持久保存（刷新 / 重启 DSH 后仍在）。"
+              hint="关掉后 Seeker 右栏不再显示技术向的「工具调用」台账（默认 5 行滚动窗口那张）；人话行动流不受影响。"
               on={toolCallsOn}
               // 与总结卡外框同族：写 localStorage，同步落盘无网络往返，busy 恒 false。
               busy={false}
@@ -352,7 +361,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
             <SettingsRow
               index={8}
               label="操作面板"
-              hint="关掉后 Seeker 右栏不再显示那张中文人话行动流（把工具调用翻译成「打开携程 · 机票」的卡）；工具调用台账与其余卡片不受影响。只改外观；全局所有会话生效，随本机浏览器持久保存（刷新 / 重启 DSH 后仍在）。"
+              hint="关掉后 Seeker 右栏不再显示那张中文人话行动流（把工具调用翻译成「打开携程 · 机票」的卡）；工具调用台账与其余卡片不受影响。"
               on={plainTimelineOn}
               // 同族第三条：localStorage 同步落盘，busy 恒 false。
               busy={false}
@@ -373,7 +382,10 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
  * `on` 省略 = 这一行**不给开关**（邮箱模块没挂时那种「拨不动的开关」）。
  * `lead` 标出该组第一行：上方已经有组标题，不再叠一条分隔虚线。
  * `index` 是全局行序号（0 起），供 CSS 用 `--row-i` 做错开浮现。
- */
+ *
+ * hint 上挂 `title` 全文：紧凑组默认把它压成一行省略号，鼠标悬停虽会展开，
+ * 但原生 title 是「文字被截断时仍拿得到完整内容」的最后一道保险（也覆盖
+ * 悬停展开动画被系统减弱动效设置关掉的情形）。 */
 function SettingsRow({
   index,
   lead = false,
@@ -404,7 +416,7 @@ function SettingsRow({
           {label}
           {tag !== undefined && <span className="kr-settings__badge">{tag}</span>}
         </span>
-        {hint !== undefined && <span className="kr-settings__hint">{hint}</span>}
+        {hint !== undefined && <span className="kr-settings__hint" title={hint}>{hint}</span>}
       </span>
       {on !== undefined && (
         <button

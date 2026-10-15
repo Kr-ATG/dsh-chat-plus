@@ -3472,6 +3472,7 @@ if (krEnabled) {
       'kr-settings__scrim', 'kr-settings',
       'kr-settings__head', 'kr-settings__title', 'kr-settings__close',
       'kr-settings__body', 'kr-settings__group', 'kr-settings__group-title',
+      'kr-settings__group-note', 'kr-settings__group--compact',
       'kr-settings__row', 'kr-settings__row--lead', 'kr-settings__main',
       'kr-settings__label', 'kr-settings__hint', 'kr-settings__badge',
       'kr-settings__switch', 'kr-settings__foot',
@@ -3483,7 +3484,7 @@ if (krEnabled) {
     } else if (missingStyle.length > 0) {
       fail(`styles.ts 缺选择器：${missingStyle.join(', ')}（抽屉会是裸 DOM）`)
     } else {
-      pass('大盘设置：16 个类名在组件与样式表两侧逐字对齐')
+      pass(`大盘设置：${required.length} 个类名在组件与样式表两侧逐字对齐`)
     }
 
     // 3) 开合走 data-open，且抽屉**常驻 DOM**（条件渲染会丢掉退场动画）。
@@ -3600,6 +3601,39 @@ if (krEnabled) {
       fail('缺少 prefers-reduced-motion 兜底（减弱动效用户的抽屉可能停留在不可见态）')
     } else {
       pass('大盘设置：滑入位移 + 减弱动效兜底在位')
+    }
+
+    // 9b) 抽屉宽度：2026-10-15 用户要求「放宽点」，300px 会把说明折成 4~5 行。
+    //     下限 360px 是这次诉求的判据本身；同时必须**留百分比上限**（右栏可拖到
+    //     最窄 360px，铺满就等于没有「点遮罩关闭」那条通路了）。
+    const drawerRule = /\.kr-settings\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
+    const drawerWidth = Number(/width:\s*(\d+)px/.exec(drawerRule)?.[1] ?? 0)
+    if (drawerRule === '') {
+      fail('未找到 .kr-settings 样式规则')
+    } else if (drawerWidth < 360) {
+      fail(`抽屉宽度 ${drawerWidth}px 太窄（用户要求放宽；说明文字会被折成 4~5 行）`)
+    } else if (!/max-width:\s*\d+%/.test(drawerRule)) {
+      fail('.kr-settings 需要百分比 max-width（右栏拖窄时抽屉要跟着收，且给遮罩留出可点区域）')
+    } else {
+      pass(`大盘设置：抽屉加宽到 ${drawerWidth}px + 百分比上限（宽屏少折行，窄栏不铺满）`)
+    }
+
+    // 9c) 「展示」组紧凑排版：两行上限 + 悬停/聚焦展开 + 触摸降级，三样缺一即失效
+    //     （缺截断=没换展示方式；缺展开=说明读不全；缺触摸降级=手机用户永远读不全）。
+    const compactHintRule = /\.kr-settings__group--compact \.kr-settings__hint\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
+    if (compactHintRule === '') {
+      fail('缺少 .kr-settings__group--compact .kr-settings__hint 规则（「展示」组的紧凑排版失效）')
+    } else if (!/-webkit-line-clamp:\s*[12]\b/.test(compactHintRule)) {
+      fail('紧凑组 hint 未做行数封顶（用户要求换展示方式：长说明不该常驻铺满）')
+    } else if (!/\.kr-settings__group--compact \.kr-settings__row:hover \.kr-settings__hint/.test(code)
+      || !/\.kr-settings__group--compact \.kr-settings__row:focus-within \.kr-settings__hint/.test(code)) {
+      fail('紧凑组 hint 缺悬停/聚焦展开（键盘用户与鼠标用户都会读不全说明）')
+    } else if (!/@media \(hover: none\)[\s\S]{0,400}?kr-settings__group--compact[\s\S]{0,400}?line-clamp:\s*unset/.test(code)) {
+      fail('紧凑组缺触摸设备降级（@media (hover: none) 下必须展开全文，手机没有悬停）')
+    } else if (!/\.kr-settings__hint[^>]*title=\{hint\}|title=\{hint\}/.test(src)) {
+      fail('hint 未挂原生 title 全文（截断后拿不到完整内容的兜底）')
+    } else {
+      pass('大盘设置：「展示」组紧凑排版三件套在位（行数封顶 / 悬停+聚焦展开 / 触摸降级 + title 兜底）')
     }
 
     // 10) 入口位置：齿轮注入到顶栏标签行、紧跟 Seeker（用户 2026-10-15 点名要求）。
