@@ -2962,6 +2962,16 @@ if (krEnabled) {
   if (!/"ready"/.test(bridgeSrc)) reasons.push('iframe 就绪后必须主动发 ready（否则主题消息会丢）')
   if (!/data\.kind === 'ready'/.test(cardSrc)) reasons.push('宿主必须响应 ready 并回推主题')
 
+  // ⑧b 宽度下发：卡片宽度由宿主决定，模型写页面时看不到，只能靠下发（否则只能猜，
+  // 猜小了就是「两侧有点空」——2026-10-15 实测被用户指出）。
+  // 三处缺一不可：bridge 落变量、宿主 ready 时补推、ResizeObserver 跟随尺寸变化。
+  if (!/--dsh-card-w/.test(bridgeSrc)) reasons.push('bridge 必须把宿主下发的宽度落成 --dsh-card-w')
+  if (!/__dshCardWidth/.test(bridgeSrc)) reasons.push('bridge 必须同时暴露 window.__dshCardWidth')
+  if (!/data\.kind === "width"/.test(bridgeSrc)) reasons.push('bridge 必须处理宿主下发的 width 消息')
+  if (!/kind: 'width'/.test(cardSrc)) reasons.push('宿主必须下发 width 消息')
+  if (!/pushWidth\(\)/.test(cardSrc)) reasons.push('宿主必须在 ready 与尺寸变化时补推宽度')
+  if (!/ResizeObserver/.test(cardSrc)) reasons.push('宿主必须用 ResizeObserver 跟随卡片宽度变化')
+
   // ⑨ iframe 的 sandbox 属性：只给 allow-scripts，绝不能带 allow-same-origin。
   const sandboxAttr = /sandbox="([^"]*)"/.exec(cardSrc)?.[1] ?? ''
   if (sandboxAttr === '') {

@@ -177,6 +177,33 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, onHeight, onFill
     }
   }, [])
 
+  /**
+   * 把「卡片可用宽度」推给 iframe。
+   *
+   * 为什么需要：卡片在对话流里的宽度由宿主决定（侧栏折叠、窗口缩放、全屏切换都会
+   * 变），而模型**写页面时看不到这个值**，只能猜——猜小了两侧留白（实测被用户指出
+   * 「两侧有点空」），猜大了出横向滚动条。下发后模型可以直接消费：
+   *
+   *   width: var(--dsh-card-w);     或     var w = window.__dshCardWidth
+   *
+   * 量的是 iframe 元素自身的 clientWidth（布局宽度，不含边框）——正是 iframe 内
+   * 文档的视口宽度。刻意不读 contentDocument：opaque origin 下读不到，而且那会
+   * 破坏沙箱边界。
+   */
+  const pushWidth = useCallback((): void => {
+    const el = frameRef.current
+    if (el === null) return
+    const width = el.clientWidth
+    if (!(width > 0)) return
+    const win = el.contentWindow
+    if (win === null || win === undefined) return
+    try {
+      win.postMessage({ source: BRIDGE_TO_FRAME, kind: 'width', width }, '*')
+    } catch {
+      // 宽度同步失败不该影响渲染。
+    }
+  }, [])
+
   // 高度上报 + ready 握手 + fill 回写：三重校验后才接受，fill 只取 text 一个字段。
   const onFillRef = useRef(onFill)
   onFillRef.current = onFill
@@ -189,10 +216,11 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, onHeight, onFill
       if (data === null || typeof data !== 'object') return
       // ② 命名空间标记，避免把模型页面自己的 postMessage 当成桥消息。
       if (data.source !== BRIDGE_TO_HOST) return
-      // ③ ready：iframe 脚本就绪，此刻推主题与缩放才收得到。
+      // ③ ready：iframe 脚本就绪，此刻推主题、缩放与宽度才收得到。
       if (data.kind === 'ready') {
         pushTheme(darkRef.current)
         pushZoom(zoomRef.current)
+        pushWidth()
         return
       }
       // ④ fill 回写：卡片内调用 window.__dshFill(text) 把结果推给输入草稿。
@@ -213,13 +241,33 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, onHeight, onFill
     }
     window.addEventListener('message', onMessage)
     return () => { window.removeEventListener('message', onMessage) }
-  }, [onHeight, pushTheme, pushZoom])
+  }, [onHeight, pushTheme, pushZoom, pushWidth])
 
   // dark 变化时主动推一次（iframe 已在运行，这条不会丢）。
   useEffect(() => { pushTheme(dark) }, [dark, pushTheme, reloadKey])
 
   // zoom 变化时同样主动推（含重载后补推）。
   useEffect(() => { pushZoom(zoom) }, [zoom, pushZoom, reloadKey])
+
+  /**
+   * 宽度变化时补推。
+   *
+   * 三档触发都要有，缺一条就会出现「卡片按旧宽度排版、右侧空一截」：
+   *  1. 重载/首次挂载后补推（ready 那条是主路径，这条兜 ready 丢失）；
+   *  2. 对话流侧栏折叠 / 窗口缩放 → ResizeObserver 命中；
+   *  3. 全屏进出 → 全屏态 iframe 铺满容器，宽度完全不同。
+   *
+   * 观察 iframe 元素本身（不是 document.body）：沙箱内文档读不到，元素尺寸宿主
+   * 侧随时可读，且它正是文档视口宽度的来源。
+   */
+  useEffect(() => {
+    pushWidth()
+    const el = frameRef.current
+    if (el === null || typeof ResizeObserver !== 'function') return
+    const observer = new ResizeObserver(() => { pushWidth() })
+    observer.observe(el)
+    return () => { observer.disconnect() }
+  }, [pushWidth, fullscreen, reloadKey])
 
   return (
     <iframe
