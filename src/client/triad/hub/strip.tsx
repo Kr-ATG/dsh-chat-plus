@@ -174,7 +174,7 @@ function readPanelOpen(): boolean {
 /**
  * 按当前形态同步官方行的显隐（幂等）。
  *
- * 宽栏：本条渲染出六格 → 官方行隐藏；rail：本条让位 → 官方行必须回来。
+ * 宽栏：本条渲染出全部分类格 → 官方行隐藏；rail：本条让位 → 官方行必须回来。
  * 每次 place() 都调用，因此侧栏折叠/展开、官方 DOM 重建都会自动收敛。
  */
 function syncOfficialRow(wide: boolean): void {
@@ -237,7 +237,7 @@ function Cell({ id, label, desc, active, onPick }: CellProps): JSX.Element {
 /**
  * 横滑条本体。
  *
- * 选中态由 WORKBENCH_TAB_EVENT 驱动：无论从本条点、从 ⌘1–6、还是别处广播，
+ * 选中态由 WORKBENCH_TAB_EVENT 驱动：无论从本条点、从分类快捷键、还是别处广播，
  * 高亮都跟着走，不存在两份状态。
  *
  * `onWide` 把「本条当前是否真的渲染出内容」回传给挂载器——**只有宽栏才允许

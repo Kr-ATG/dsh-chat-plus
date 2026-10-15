@@ -1025,7 +1025,7 @@ function SettingsView({ config, account, onClose, onSave, onVerifyDir, onPickDir
         <div className={css.settingRow}>
           <div>
             <div className={css.settingLabel}>启用邮箱工作台</div>
-            <div className={css.settingDesc}>关掉后模型工具与对话注入都不注册（路由保留，面板仍可打开）。拨动立即生效，不用重启 DSH</div>
+            <div className={css.settingDesc}>关掉后模型不再拿到这些只读工具（路由与面板保留，你照样能在这儿看邮件）。拨动立即生效，不用重启 DSH</div>
           </div>
           <button
             type="button"

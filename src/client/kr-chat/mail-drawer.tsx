@@ -30,8 +30,11 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { MailPanel } from '../triad/mail/Panel.js'
-import { createMailApi } from '../triad/mail/api.js'
+// 走邮箱模块的公开入口（barrel）而不是直接钻 Panel.js / api.js：那条导出面就是
+// 「邮箱模块对外提供什么」的唯一声明处，绕过它会让 barrel 变成零消费者的死文件
+// （2026-10 入口搬迁时真踩过：文件还在、README 与冒烟都称「入口 import 它」，
+// 实际谁都直接钻进了子模块）。
+import { MailPanel, createMailApi } from '../triad/mail/index.js'
 import { getMailDrawerStore } from './mail-drawer-store.ts'
 
 /**

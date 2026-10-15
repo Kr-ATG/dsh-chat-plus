@@ -413,7 +413,7 @@ const expectedStyles = [
   // apply 时随 attachWorkbenchRowFlyout 注入（hover 浮层 + 滚轮切分类）。
   'dsh-workbench-row-flyout-styles',
   // 侧栏横滑分类条（src/client/triad/hub/strip.tsx，2026-10 v4 导航定稿）：
-  // 替换官方「工作台」菜单行的视觉，宽栏出六格、rail 让位还原官方图标列。
+  // 替换官方「工作台」菜单行的视觉，宽栏铺满分类格、rail 让位还原官方图标列。
   'dsh-workbench-strip-styles',
   // 首 token 平均平铺读数（src/client/stats-ttft/styles.ts）：只定分隔与入场，
   // 字号颜色全部继承官方 pill。apply 阶段随桥一起注入。
@@ -1010,7 +1010,7 @@ if (typeof mod.gateIconForRow !== 'function') {
   }
 }
 
-// 4合1 统一工作台页面：本体挂官方 `main`（key=workbench），侧边栏菜单行 `sidebar.panellist`（id=workbench）。
+// 统一工作台页面：本体挂官方 `main`（key=workbench），侧边栏菜单行 `sidebar.panellist`（id=workbench）。
 const wbPage = registeredSlots.find((s) => s?.slot === 'main' && s?.key === 'workbench')
 const wbRow = registeredSlots.find((s) => s?.slot === 'sidebar.panellist' && s?.id === 'workbench')
 if (wbPage === undefined) fail('missing unified workbench page seat main / workbench')
@@ -2775,9 +2775,9 @@ if (krEnabled) {
   const seatSrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/seat.ts'), 'utf8')
   const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/WorkbenchPanel.tsx'), 'utf8')
 
-  // 条必须真的挂在座位里，且六类都来自 WORKBENCH_TABS（不另起一份真相）
+  // 条必须真的挂在座位里，且每个分类都来自 WORKBENCH_TABS（不另起一份真相）
   if (!/attachWorkbenchStrip/.test(seatSrc)) reasons.push('横滑条没有挂进工作台座位')
-  if (!/WORKBENCH_TABS\.map/.test(stripSrc)) reasons.push('横滑条必须遍历 WORKBENCH_TABS 渲染六格')
+  if (!/WORKBENCH_TABS\.map/.test(stripSrc)) reasons.push('横滑条必须遍历 WORKBENCH_TABS 渲染分类格')
   if (!/openWorkbench/.test(stripSrc)) reasons.push('横滑条点击必须走 openWorkbench（复用官方 selectPanel）')
   if (!/WORKBENCH_TAB_EVENT/.test(stripSrc)) reasons.push('横滑条选中态必须订阅广播事件（避免两份状态）')
   // 降级：官方行只在宽栏隐藏，rail 必须还原
@@ -2787,15 +2787,15 @@ if (krEnabled) {
   // 页内不得再有任何分类切换器
   if (/WorkbenchDock|wb2-dock/.test(panelSrc)) reasons.push('页内分类切换器（Dock）必须已删除')
   if (existsSync(resolve(ROOT, 'src/client/triad/hub/Dock.tsx'))) reasons.push('Dock.tsx 应已删除')
-  // ⌘1–6 直切要在页内实现（侧栏条自己不吃键盘）
+  // ⌘1–N 直切要在页内实现（侧栏条自己不吃键盘）
   if (!/metaKey \|\| event\.ctrlKey/.test(panelSrc) || !/WORKBENCH_TABS\[index\]/.test(panelSrc)) {
-    reasons.push('⌘1–6 直切分类必须在工作台页内实现')
+    reasons.push('⌘1–N 直切分类必须在工作台页内实现')
   }
 
   if (reasons.length > 0) {
     fail('工作台横滑导航契约：' + reasons.join('；'))
   } else {
-    pass('工作台横滑条：六类复用 WORKBENCH_TABS + 官方行宽栏隐藏/rail 还原 + 页内无切换器 + ⌘1–6 直切')
+    pass('工作台横滑条：分类复用 WORKBENCH_TABS + 官方行宽栏隐藏/rail 还原 + 页内无切换器 + ⌘1–N 直切')
   }
 }
 
