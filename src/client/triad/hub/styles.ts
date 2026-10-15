@@ -79,11 +79,10 @@ body[data-ds-dark-theme] .wb-root {
 }
 
 /* ── 统一工作台所有页面的工具条与次级导航（Toolbar & Subheader Archetype） ──────
-   让邮件顶栏、画廊工具条、技能标题行、记忆视图行在视觉上高度一致，
+   让邮件顶栏、画廊工具条、记忆视图行在视觉上高度一致，
    成为统一的「页面二级控制条」，不再每进一页面对不同的突兀布局。 */
 .wb-body .dsh-mail-topbar,
 .wb-body .tg-toolbar,
-.wb-body .skm-topbar,
 .wb-body .dsh-memory-top-bar,
 .wb-body .wb-page-bar {
   flex: none;
@@ -103,7 +102,6 @@ body[data-ds-dark-theme] .wb-root {
 .wb-body > div > .psh-head > .psh-title { display: none !important; }
 
 /* ── 统一搜索框控件（Search Inputs） ─────────────────────────────── */
-.wb-root .skm-search-box,
 .wb-root .tg-search__input,
 .wb-root .dsh-memory-top-input,
 .wb-root .dsh-mail-top-input {
@@ -115,7 +113,6 @@ body[data-ds-dark-theme] .wb-root {
   font-size: 12.5px !important;
   transition: border-color 140ms ease, box-shadow 140ms ease !important;
 }
-.wb-root .skm-search-box:focus-within,
 .wb-root .tg-search__input:focus,
 .wb-root .dsh-memory-top-input:focus,
 .wb-root .dsh-mail-top-input:focus {
@@ -123,9 +120,9 @@ body[data-ds-dark-theme] .wb-root {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--wb-accent) 25%, transparent) !important;
 }
 
-/* ── 统一分段胶囊按钮（Segmented Controls & Tabs） ─────────────────── */
-.wb-root .skm-kind-tab,
-.wb-root .skm-status-seg-btn,
+/* ── 统一分段胶囊按钮（Segmented Controls & Tabs） ───────────────────
+   技能页的筛选行不在此列：它照官方「自动化任务」页的 filter tab 原样
+   （纯文字、无边框、选中 = 浅底 + 主文字），不再套主色实心胶囊。 */
 .wb-root .usm-range-btn,
 .wb-root .dsh-memory-view-tab,
 .wb-root .dsh-soul-nav-item {
@@ -133,8 +130,6 @@ body[data-ds-dark-theme] .wb-root {
   font-size: 12px !important;
   transition: all 130ms ease !important;
 }
-.wb-root .skm-kind-tab[data-active],
-.wb-root .skm-status-seg-btn[data-active],
 .wb-root .usm-range-btn[data-active],
 .wb-root .dsh-memory-view-tab[data-active="true"],
 .wb-root .dsh-soul-nav-item-active {
@@ -148,9 +143,6 @@ body[data-ds-dark-theme] .wb-root {
    所有页面的主要容器表面采用统一的边框、圆角、背景与内边距，
    不再零碎散落，形成清晰沉静的板块感。 */
 .wb-root .skm-skill-card,
-.wb-root .skm-mcp-list-card,
-.wb-root .skm-mcp-rec-card,
-.wb-root .skm-mcp-info-card,
 .wb-root .usm-uc-card,
 .wb-root .dsh-soul-hero-card,
 .wb-root .dsh-soul-card,
@@ -163,8 +155,6 @@ body[data-ds-dark-theme] .wb-root {
   transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease !important;
 }
 .wb-root .skm-skill-card:hover,
-.wb-root .skm-mcp-list-card:hover,
-.wb-root .skm-mcp-rec-card:hover,
 .wb-root .usm-uc-card:hover,
 .wb-root .tg-card:hover {
   border-color: color-mix(in srgb, var(--wb-accent) 45%, var(--wb-surface-border)) !important;
@@ -172,86 +162,7 @@ body[data-ds-dark-theme] .wb-root {
   transform: translateY(-1px) !important;
 }
 
-/* ── 彻底消除杂乱颜色与刺眼发光（Calm Monochrome System） ───────────
-   用户核心诉求：「不需要各种颜色搭配这样看起来更加凌乱」
-   全面移除彩虹色、发光小光柱、刺眼黄色横幅，收敛为高雅纯净的灰阶系统。 */
-/* 1. 技能面板发光彻底消除 */
-.wb-root .skm-stat-glow { display: none !important; }
-/* 2. 统计卡图标：精致半透明彩色微底 + 饱和高辨识度图标 */
-.wb-root .skm-stat-icon {
-  width: 40px !important;
-  height: 40px !important;
-  border-radius: 10px !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  transition: transform 140ms ease !important;
-}
-.wb-root .skm-stat:hover .skm-stat-icon {
-  transform: scale(1.05) !important;
-}
-.wb-root .skm-stat-icon[data-tone='blue'] {
-  color: #3b82f6 !important;
-  background: rgba(59, 130, 246, 0.12) !important;
-}
-.wb-root .skm-stat-icon[data-tone='green'] {
-  color: #22c55e !important;
-  background: rgba(34, 197, 94, 0.12) !important;
-}
-.wb-root .skm-stat-icon[data-tone='violet'] {
-  color: #8b5cf6 !important;
-  background: rgba(139, 92, 246, 0.12) !important;
-}
-.wb-root .skm-stat-icon[data-tone='orange'] {
-  color: #f59e0b !important;
-  background: rgba(245, 158, 11, 0.12) !important;
-}
-
-/* 3. 统计卡主体：规范为整齐板块 */
-.wb-root .skm-stats-row {
-  gap: 12px !important;
-  padding: 12px 20px 0 !important;
-}
-.wb-root .skm-stat {
-  border-radius: var(--wb-surface-radius, 12px) !important;
-  border: 1px solid var(--wb-surface-border) !important;
-  background: var(--wb-surface-bg) !important;
-  box-shadow: var(--wb-surface-shadow) !important;
-  padding: 12px 14px !important;
-  gap: 10px !important;
-}
-.wb-root .skm-stat:hover {
-  border-color: color-mix(in srgb, var(--wb-accent) 40%, var(--wb-surface-border)) !important;
-  transform: translateY(-1px) !important;
-}
-.wb-root .skm-stat-desc {
-  margin-top: 4px !important;
-  font-size: 11px !important;
-  color: var(--dsw-alias-label-tertiary, #81858c) !important;
-}
-
-/* 4. 消除黄色横幅与警示框：转为优雅温润的次级卡片 */
-.wb-root .skm-banner,
-.wb-root .skm-health-notice {
-  border: 1px solid var(--wb-surface-border) !important;
-  background: var(--wb-surface-bg) !important;
-  border-radius: var(--wb-surface-radius, 12px) !important;
-  box-shadow: none !important;
-}
-.wb-root .skm-banner-title,
-.wb-root .skm-health-notice-title {
-  color: var(--dsw-alias-label-primary, #eee) !important;
-}
-.wb-root .skm-banner-sub,
-.wb-root .skm-health-notice li {
-  color: var(--dsw-alias-label-secondary, #aaa) !important;
-}
-.wb-root .skm-banner-icon {
-  border-color: var(--wb-accent) !important;
-  color: var(--wb-accent) !important;
-}
-
-/* 5. 用量统计卡：统一板块质感 */
+/* ── 用量统计卡：统一板块质感 ───────────────────────────────────── */
 .wb-root .usm-uc-stat {
   border-radius: 10px !important;
   border: 1px solid var(--wb-surface-border) !important;
@@ -259,19 +170,17 @@ body[data-ds-dark-theme] .wb-root {
   padding: 8px 12px !important;
 }
 
-/* 6. 彩色标签与徽标降噪（Pills, Tags, Badges） */
+/* ── 彩色标签与徽标降噪（Pills, Tags, Badges） ───────────────────── */
 .wb-root .skm-tag-source,
 .wb-root .skm-tag-scope,
 .wb-root .skm-tag-builtin,
 .wb-root .skm-skill-badge,
-.wb-root .skm-cat-chip,
 .wb-root .skm-bundle-cat-tag,
 .wb-root .dsh-soul-chip {
   background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent) !important;
   border-color: var(--wb-surface-border) !important;
   color: var(--dsw-alias-label-secondary, #bbb) !important;
 }
-.wb-root .skm-cat-chip[data-active],
 .wb-root .skm-bundle-cat-tag[data-active] {
   background: var(--wb-accent) !important;
   color: #fff !important;
@@ -320,13 +229,17 @@ body[data-ds-dark-theme] .wb-root {
   box-sizing: border-box !important;
 }
 
-.wb-root .skm-main-wrap,
-.wb-root .skm-body {
-  max-width: 1140px !important;
+/* 技能页：筛选行与列表滚动区整宽铺满（不限宽、不居中）。
+   用户 2026-10 明确要求「铺满」——居中大盘在宽屏下左右各留一大条空白。 */
+.wb-root .skm-filter-row,
+.wb-root .skm-main-scroll {
+  max-width: none !important;
   width: 100% !important;
-  margin: 0 auto !important;
+  margin: 0 !important;
   box-sizing: border-box !important;
 }
+/* 技能页筛选行：与官方「自动化任务」页同款 filter tab，不被工作台主题改写 */
+.wb-root .skm-filter-row { padding: 4px 22px 0 !important; }
 
 .wb-root .tg-toolbar {
   max-width: 1140px !important;

@@ -51,6 +51,8 @@ const NAV_HOST_ID = 'dsh-triad-nav-host'
 const ROW_HIDDEN_ATTR = 'data-wb-row-hidden'
 /** 滚轮纵滚转横滚的增益：一格标准滚轮（deltaY≈100）≈ 34px，跟手不连跳。 */
 const WHEEL_STEP_RATIO = 0.34
+/** 锚点等待的硬上限（ms）：官方 DOM 大改版导致锚点永不出现时，观察器必须自己退出。 */
+const ANCHOR_WAIT_MS = 5000
 
 const STYLE_ID = 'dsh-workbench-strip-styles'
 
@@ -363,10 +365,10 @@ export function attachWorkbenchStrip(): () => void {
   let observedParent: Element | null = null
   /** 锚点未就位时的等待观察器（见 watchAnchor）。 */
   let anchorObserver: MutationObserver | undefined
-  /** 待执行的 rAF id（0 = 无）。 */
-  let anchorPending = 0
   /** 锚点等待的硬超时 id（0 = 无）。 */
   let anchorDeadline = 0
+  /** 超时后不再重挂锚点观察（避免每 1.5s 重建一次观察器）。 */
+  let anchorGaveUp = false
   /** 本条当前是否渲染出内容（rail 下为 false）。 */
   let wide = false
 
@@ -389,10 +391,6 @@ export function attachWorkbenchStrip(): () => void {
   const stopAnchorWatch = (): void => {
     anchorObserver?.disconnect()
     anchorObserver = undefined
-    if (anchorPending !== 0) {
-      window.cancelAnimationFrame(anchorPending)
-      anchorPending = 0
-    }
     if (anchorDeadline !== 0) {
       window.clearTimeout(anchorDeadline)
       anchorDeadline = 0
@@ -409,22 +407,24 @@ export function attachWorkbenchStrip(): () => void {
    * 这里改成锚点一出现立刻就位（窗口实测从 ~1500ms 压到 46ms）。
    *
    * 两条开销闸门（都必要）：
-   *   · **rAF 合并**：body 子树的 childList 变动在启动期非常密集，逐条回调
-   *     `place()` 会把 querySelector 打成每帧几十次；合并到帧末最多一次。
+   *   · **只在锚点缺失期间挂**：`place()` 一成功就断开，稳态零开销。
    *   · **5s 硬超时**：锚点若始终不出现（官方 DOM 大改版），观察器必须自己
    *     退出，否则会永久挂在 body 子树上。超时后交回 1.5s 低频轮询兜底。
+   *
+   * **不要用 rAF 合并回调**（踩过）：实测后台标签页里 `requestAnimationFrame`
+   * 被 Chrome 完全暂停，合并后挂载只能退回 1.5s 轮询，启动窗口原样回来
+   * （实测 46ms → 2230ms）。MutationObserver 回调本身就是按批处理的微任务，
+   * 每批一次 `querySelector` 的开销可以忽略，直接同步调 `place()` 才是对的。
    */
   const watchAnchor = (): void => {
-    if (anchorObserver !== undefined || typeof MutationObserver === 'undefined') return
-    anchorObserver = new MutationObserver(() => {
-      if (anchorPending !== 0) return
-      anchorPending = window.requestAnimationFrame(() => {
-        anchorPending = 0
-        place()
-      })
-    })
+    if (anchorGaveUp || anchorObserver !== undefined || typeof MutationObserver === 'undefined') return
+    anchorObserver = new MutationObserver(() => { place() })
     anchorObserver.observe(document.body, { childList: true, subtree: true })
-    anchorDeadline = window.setTimeout(stopAnchorWatch, ANCHOR_WAIT_MS)
+    anchorDeadline = window.setTimeout(() => {
+      anchorDeadline = 0
+      anchorGaveUp = true
+      stopAnchorWatch()
+    }, ANCHOR_WAIT_MS)
   }
 
   /** 就位 + 渲染 + 盯父节点 + 按形态同步官方行。 */
@@ -461,6 +461,7 @@ export function attachWorkbenchStrip(): () => void {
 
   place()
   // 低频兜底：父节点整体被替换导致观察失联时重挂（HMR、React 重建等）。
+  // 也负责锚点等待超时后的重起——`place()` 落空时会再次 `watchAnchor()`。
   const timer = window.setInterval(() => {
     place()
     if (observer === undefined) watchParent()

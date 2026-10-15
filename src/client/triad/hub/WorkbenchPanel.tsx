@@ -69,7 +69,7 @@ export function WorkbenchGridIcon({ size = 15 }: { size?: number }): JSX.Element
 const PAGE_HEADS: ReadonlyArray<{ id: WorkbenchTab; eyebrow: string; title: string; sub: string; tail: string }> = [
   { id: 'soul', eyebrow: 'Identity Contract', title: '灵魂', sub: '跨会话恒定的身份契约层。卡片是权威，正文是投影；逐项调走卡片，整段改写收进深改区。', tail: '我是谁' },
   { id: 'memory', eyebrow: 'Memory Stream', title: '记忆', sub: '按时间成河，按重要度分层。左侧图标轨切视图，选中条目右侧滑出详情抽屉。', tail: '记住什么' },
-  { id: 'skills', eyebrow: 'Capability Matrix', title: '能力', sub: '技能包与 MCP 服务统一编目。左列是包（可归入、可重命名），右列是服务（带实时状态）。', tail: '会什么' },
+  { id: 'skills', eyebrow: 'Capability Matrix', title: '能力', sub: '技能包统一编目，展开看每个包里的技能。', tail: '会什么' },
   { id: 'usage', eyebrow: 'Token Telemetry', title: '用量', sub: '范围胶囊只作用于消耗汇总；热力带恒为全量 52 周，是横跨历史的总览。', tail: '烧了多少' },
   { id: 'gallery', eyebrow: 'Output Gallery', title: '画廊', sub: '所有对话产出的图片、网页、演示、文档一站看全。', tail: '产出过什么' },
   { id: 'mail', eyebrow: 'Agent Mail', title: '邮件', sub: '代理三栏工作台。HTML 正文一律走沙箱 iframe；写操作点一下就执行。', tail: '收件与回信' },

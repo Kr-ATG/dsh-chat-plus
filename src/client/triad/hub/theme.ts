@@ -769,21 +769,12 @@ body[data-ds-dark-theme] .wb-root {
 /* 顶栏搜索胶囊化 */
 .wb-root .dsh-memory-top-input, .wb-root .dsh-mail-top-input { border-radius: 999px !important; }
 
-/* ── 能力：主区 7/5 分栏（左技能包 / 右 MCP），MCP 列表改双列磁贴 ── */
-.wb-root .skm-main-scroll { grid-template-columns: 1.4fr 1fr !important; max-width: 1400px !important;
-  margin: 0 auto !important; padding: 4px 22px 26px !important; }
-@media (max-width: 1080px) { .wb-root .skm-main-scroll { grid-template-columns: 1fr !important; } }
+/* ── 能力：单列整宽列表（与官方自动化任务页同构），技能包行带左侧主色滑入条 ── */
+.wb-root .skm-main-scroll { max-width: none !important; margin: 0 !important; padding: 4px 22px 26px !important; }
 .wb-root .skm-bundle-row-outer { position: relative; overflow: hidden; border-radius: var(--wb2-r-md) !important; }
 .wb-root .skm-bundle-row-outer::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
   background: var(--wb2-accent); transform: scaleY(0); transform-origin: top; transition: transform 460ms var(--wb2-ease); }
 .wb-root .skm-bundle-row-outer:hover::before { transform: scaleY(1); }
-.wb-root .skm-mcp-list { display: grid !important; grid-template-columns: 1fr 1fr; gap: 9px; }
-@media (max-width: 640px) { .wb-root .skm-mcp-list { grid-template-columns: 1fr; } }
-.wb-root .skm-mcp-list > li { border-radius: var(--wb2-r-sm) !important;
-  border: 1px solid var(--wb2-line) !important; background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1)) !important;
-  transition: all 380ms var(--wb2-ease) !important; }
-.wb-root .skm-mcp-list > li:hover { transform: translateY(-3px); border-color: var(--wb2-line2) !important;
-  box-shadow: var(--wb2-drop) !important; }
 
 /* ── 画廊：网格改瀑布流 + 类别筛选进工具条 ── */
 .wb-root .tg-root { display: flex; flex-direction: column; }
@@ -906,11 +897,6 @@ body[data-ds-dark-theme] .wb-root {
   --s-persona-soft: var(--wb2-a1);
   --s-persona-line: var(--wb2-a3);
 }
-/* 技能统计图标四色 → 强调色明度阶 */
-.wb-root .skm-stat-icon[data-tone='blue']   { color: var(--wb2-accent) !important; background: var(--wb2-a1) !important; }
-.wb-root .skm-stat-icon[data-tone='green']  { color: var(--wb2-accent-hi) !important; background: var(--wb2-a1) !important; }
-.wb-root .skm-stat-icon[data-tone='violet'] { color: var(--wb2-a4) !important; background: var(--wb2-a1) !important; }
-.wb-root .skm-stat-icon[data-tone='orange'] { color: var(--wb2-a3) !important; background: var(--wb2-a1) !important; }
 /* 记忆开关圆点反色修正（暗色下白点落白轨） */
 .wb-root .dsh-memory-switch[aria-checked='true']::after { background: var(--wb2-bg); }
 
