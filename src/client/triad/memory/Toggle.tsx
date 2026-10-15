@@ -1,31 +1,19 @@
 /**
- * dsh-memory 注入相关开关（composer 输入框工具行左端，共两枚按钮两张卡）。
+ * dsh-memory 记忆注入开关（composer 输入框工具行左端的一枚按钮一张卡）。
  *
- * 两枚按钮挨在一起，**各管各的**，卡片互不混装：
+ * 大脑按钮 → **记忆注入**卡：本会话注入（host state.json 里的显式覆盖）、
+ * 默认开启（config.injectDefaultEnabled，决定新会话与未单独设置过的会话）。
+ * 已单独设置过时显示「已单独设置」角标，可一键「跟随默认」清除覆盖。
  *
- *  - 大脑按钮 → **记忆注入**卡：本会话注入（host state.json 里的显式覆盖）、
- *    默认开启（config.injectDefaultEnabled，决定新会话与未单独设置过的会话）。
- *    已单独设置过时显示「已单独设置」角标，可一键「跟随默认」清除覆盖。
- *  - 提示符按钮 → **内置提示词通道**卡：中文优先 / 交互卡片 / 灵魂人设 / 团队协作
- *    四条**注入通道**，外加一条**回合结束自动收口**——它一个字都不进 prompt，
- *    只管回合收尾时把残留的「进行中」任务项改回「未完成」，见 host 侧
- *    engine/todo-closure.ts。放在同一张卡里是因为它同属「插件内置、全局单值、
- *    无卸载入口」这一类能力，但它与注入无关这件事由 hint 文案说清。
- *    全部硬编码在插件内、无卸载入口（回包恒带 builtin），全局单值，不做会话级，
- *    也不受记忆注入的任何一道闸门约束——语言契约与人设必须跨会话恒定，否则同一用户
- *    会得到互相矛盾的回答语言。
- *    卡尾另有一行**总结卡外框**：它不是注入通道，一个字都不进 prompt，只管 Seeker
- *    对话流里那张总结卡要不要框和阴影（纯显示偏好，存 localStorage，见
- *    ../../reply-card-chrome.ts）。它与上面那几行刻意用一枚小组标题隔开——混在同一列
- *    里会让人以为「总结卡外框」也是往提示词里塞东西，而这正是本仓反复踩过的
- *    「两种不同的东西挤一张卡」的坑。因此按钮的开态只按**那四条注入通道**算，
- *    不含它，也不含自动收口——后者同样一个字都不进 prompt，只是同属「插件内置、
- *    全局单值、无卸载入口」这一类能力才并排放在同一张卡里。
+ * 历史上这里还有第二枚按钮（提示符图标 → **内置提示词通道**卡：中文优先 / 交互
+ * 卡片 / 灵魂人设 / 团队协作 / 邮箱 / 自动收口 + 展示组三条）。2026-10-15 用户
+ * 要求「对话框的给删了，并把设置放到 Seeker 旁边」，那张卡**整块删除**，内容迁到
+ * Seeker 右栏的「大盘设置」抽屉（kr-chat/KrPanelSettings.tsx），入口是顶栏
+ * Seeker 标签右侧那枚齿轮（由 kr-chat-controller 注入）。**因此本文件不再导出
+ * BuiltinToggle**；它的归一化口径（normalizeInjectState / FALLBACK_INJECT_STATE）
+ * 仍被那个抽屉复用，故保留导出。
  *
- * 两张卡曾经挤在一张里（「注入与记忆」）：那是把「提示词注入」与「记忆注入」两种
- * 不同的事塞给一个按钮，标题总有一半对不上，读者也要在无关的行之间来回跳。
- *
- * 两枚按钮的浮层交互完全同款（与 AI 浏览器 gate 一致）：
+ * 浮层交互（与 AI 浏览器 gate 一致）：
  *  - hover 进入立即展开，移出延迟 120ms 收起（跨按钮↔卡片间隙不闪）；
  *  - 悬停打开后点击 = 钉住（移开鼠标不收），再点或外点/Esc = 收起；
  *  - 卡片常驻 DOM，显隐走 CSS visibility 过渡（160ms 位移+淡入）。
@@ -35,21 +23,11 @@
  */
 
 import type { CSSProperties } from 'react'
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { InjectStateView, MemoryApi } from './api.js'
 import { BrainIcon } from './Panel.tsx'
-import {
-  replyCardChromeEnabled,
-  setReplyCardChromeEnabled,
-  subscribeReplyCardChrome,
-} from '../../reply-card-chrome.js'
-import {
-  setToolCallsVisible,
-  subscribeToolCallsVisible,
-  toolCallsVisible,
-} from '../../tool-calls-visible.js'
 import { css, ensureStyles } from './styles.js'
 
 /** 完整 props：composer 插槽 standardProps 的 sessionId + 注入 API 面 + locale。 */
@@ -73,13 +51,20 @@ const HIDE_DELAY_MS = 120
  * 邮箱（mail*）四个字段一律按「不可用」兜底：它是跨模块能力，旧 host 不回
  * 这些字段，猜一个值出来只会误导。
  */
-const FALLBACK_STATE: InjectStateView = {
+export const FALLBACK_INJECT_STATE: InjectStateView = {
   enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, htmlEnabled: true, soulEnabled: true, teamEnabled: false, todoClosureEnabled: true,
   mailEnabled: false, mailAvailable: false, mailWorkbenchEnabled: false, mailToolsMounted: false, mailAuthorized: false, mailAddress: null,
 }
 
-/** 把 host 回包收敛成本地状态形状（缺字段按默认处理）。 */
-function toState(res: InjectStateView): InjectStateView {
+/**
+ * 把 host 回包收敛成本地状态形状（缺字段按默认处理）。
+ *
+ * **导出**：Seeker 右栏的「大盘设置」抽屉（kr-chat/KrPanelSettings.tsx）读同一份
+ * `/inject-state` 回包，必须复用这一套逐字段兜底口径。各写一份的结果是「同一个
+ * 开关在 composer 卡与大盘抽屉里显示成两个值」——而这两处的差异全部来自
+ * 「谁按 !== false 兜底、谁按 === true 兜底」，正是本文件反复注释的那类假阳性。
+ */
+export function normalizeInjectState(res: InjectStateView): InjectStateView {
   return {
     enabled: res.enabled !== false,
     defaultEnabled: res.defaultEnabled !== false,
@@ -118,78 +103,24 @@ function toState(res: InjectStateView): InjectStateView {
 function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
   const apiRef = useRef(api)
   apiRef.current = api
-  const [state, setState] = useState<InjectStateView>(FALLBACK_STATE)
+  const [state, setState] = useState<InjectStateView>(FALLBACK_INJECT_STATE)
   const [busy, setBusy] = useState(false)
 
   const reload = useCallback((): void => {
     void apiRef.current.getInjectState(sessionId)
-      .then(res => { setState(toState(res)) })
-      .catch(() => { setState(FALLBACK_STATE) })
+      .then(res => { setState(normalizeInjectState(res)) })
+      .catch(() => { setState(FALLBACK_INJECT_STATE) })
   }, [sessionId])
 
   useEffect(() => { reload() }, [reload])
 
-  /**
-   * 写单个内置通道（全局单值）。两者的形状完全同构，只有 setter 不同。
-   *
-   * 失败时回读而不是回滚：旧 host 静默丢弃写入时，回滚会让 UI 显示一个它并不
-   * 具备的能力；回读拿到的是真实状态。
+  /*
+   * 历史注记：这里原有 pushChannel / pushMail 两个写入口，专供 BuiltinToggle
+   * （「内置提示词通道」卡）用。2026-10-15 那张卡整块删除、开关迁到 Seeker 右栏的
+   * 大盘设置抽屉后，这两个写入口**整体搬到 KrPanelSettings.tsx**（那边的实现与这里
+   * 逐字同构：乐观更新 + 失败回读 + 同一套缺字段兜底口径），本文件不再保留副本 ——
+   * 留一份没人调的写入逻辑，下次改口径就会漏改一处，正是本仓反复踩过的坑。
    */
-  const pushChannel = useCallback((
-    key: 'zhEnabled' | 'htmlEnabled' | 'soulEnabled' | 'teamEnabled' | 'todoClosureEnabled',
-    next: boolean,
-  ): void => {
-    setBusy(true)
-    setState(prev => ({ ...prev, [key]: next }))
-    const write = key === 'zhEnabled'
-      ? apiRef.current.setZhInjectState(next)
-      : key === 'htmlEnabled'
-        ? apiRef.current.setHtmlInjectState(next)
-        : key === 'soulEnabled'
-          ? apiRef.current.setSoulInjectState(next)
-          : key === 'teamEnabled'
-            ? apiRef.current.setTeamInjectState(next)
-            : apiRef.current.setTodoClosureState(next)
-    void write
-      .then(res => {
-        // 中文 / 灵魂 / 自动收口缺字段按开兜底（默认开的内置能力）；html / team
-        // 缺字段按关兜底（旧 host 根本没有这个能力，显示「开」是假阳性）——
-        // 与 toState 的口径逐条一致。
-        const enabled = key === 'htmlEnabled' || key === 'teamEnabled' ? res.enabled === true : res.enabled !== false
-        setState(prev => ({ ...prev, [key]: enabled }))
-      })
-      .catch(reload)
-      .finally(() => { setBusy(false) })
-  }, [reload])
-
-  /**
-   * 写 Agent 邮箱能力声明（跨模块，走 dsh-mail 的 `mail.injectEnabled`）。
-   *
-   * 与上面几条**刻意不同**：这条通道的闸门是两道（工作台总开关 + 声明开关），
-   * 所以回包里有三个布尔，必须**整组替换**而不是只改自己那一个——只写
-   * `mailEnabled` 的话，用户在工作台关着时拨这一行，界面会显示成「已开启」
-   * 而实际仍是哑的，那就是这次要修掉的那个假阳性。
-   */
-  const pushMail = useCallback((patch: { enabled?: boolean; workbench?: boolean }): void => {
-    setBusy(true)
-    const write = patch.workbench !== undefined
-      ? apiRef.current.setMailWorkbench(patch.workbench)
-      : apiRef.current.setMailInjectState(patch.enabled === true)
-    void write
-      .then(res => {
-        setState(prev => ({
-          ...prev,
-          mailAvailable: res.available !== false,
-          mailEnabled: res.enabled === true,
-          mailWorkbenchEnabled: res.workbenchEnabled === true,
-          mailToolsMounted: res.toolsMounted === true,
-          mailAuthorized: res.authorized === true,
-          mailAddress: typeof res.address === 'string' ? res.address : null,
-        }))
-      })
-      .catch(reload)
-      .finally(() => { setBusy(false) })
-  }, [reload])
 
   /** 写会话级开关（null = 清除覆盖，回到默认）。 */
   const pushSession = useCallback((next: boolean | null): void => {
@@ -242,7 +173,7 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
       .finally(() => { setBusy(false) })
   }, [sessionId])
 
-  return { state, busy, reload, pushChannel, pushSession, pushDefault, pushMail }
+  return { state, busy, reload, pushSession, pushDefault }
 }
 
 /**
@@ -317,8 +248,7 @@ function useHoverCard(onShow: () => void) {
 /**
  * 卡片里的一行开关：标签（可带角标 / 副说明）+ 右侧开关。
  *
- * 两张卡共用它，避免每行各写一遍几乎一样的 JSX。`lead` 标出该组第一行——
- * 它上方已经有分隔线时不再叠一条。
+ * 记忆注入卡的两行共用它。`lead` 标出该组第一行——它上方已经有分隔线时不再叠一条。
  */
 function SwitchRow({
   label,
@@ -396,17 +326,6 @@ function ToggleButton({
   )
 }
 
-/** 提示符图标：内置提示词通道。 */
-function PromptIcon({ size = 14 }: { readonly size?: number }): JSX.Element {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="2.4" />
-      <path d="M4.4 6.2 6.5 8.2 4.4 10.2" />
-      <path d="M8.6 10.4h3" />
-    </svg>
-  )
-}
-
 /** 渲染「记忆注入」开关按钮 + 悬浮卡片。 */
 export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.Element {
   ensureStyles()
@@ -464,196 +383,6 @@ export function MemoryToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.E
           </button>
         )}
         <p className={css.injectFoot}>{t('injectCardFoot')}</p>
-      </div>
-    </div>
-  )
-}
-
-/** 渲染「内置提示词通道」开关按钮 + 悬浮卡片。 */
-export function BuiltinToggle({ sessionId, t, ...api }: MemoryToggleProps): JSX.Element {
-  ensureStyles()
-  const { state, busy, reload, pushChannel, pushMail } = useInjectState(api, sessionId)
-  const { wrapRef, open, showCard, scheduleCardHide, togglePin } = useHoverCard(reload)
-
-  const zhOn = state.zhEnabled !== false
-  const htmlOn = state.htmlEnabled === true
-  const soulOn = state.soulEnabled !== false
-  const teamOn = state.teamEnabled === true
-  // 自动收口与 zh / soul 同口径（默认开）：缺字段按开，别抄 html / team 的 === true。
-  const todoClosureOn = state.todoClosureEnabled !== false
-  /*
-   * Agent 邮箱：唯一一条**跨模块**通道（承载在 dsh-mail）。
-   *
-   * 两道开关**解耦**（用户明确要求：工作台关着、只要注入开关开着就照常注入）：
-   *   · 声明开关（injectEnabled）→ 决定 `mailOn`，也就是这一行拨的是什么；
-   *   · 工作台总开关（enabled）  → 决定 `mailToolsMounted`，即 `mail_*` 工具在不在。
-   *
-   * 工作台关着**不是**错误状态：注入照常发生，只是文本改走 `agently-cli`
-   * 命令行。所以副说明只如实交代「走命令行」，不把这一行画成关、也不逼用户
-   * 去开工作台 —— 开关本身仍然可拨，拨的就是声明。
-   */
-  const mailAvailable = state.mailAvailable === true
-  const mailOn = state.mailEnabled === true
-  const mailToolsMounted = state.mailToolsMounted === true
-  const mailAuthorized = state.mailAuthorized === true
-  const mailAddress = typeof state.mailAddress === 'string' && state.mailAddress !== '' ? state.mailAddress : null
-  const mailHint = !mailAvailable
-    ? t('mailInjectUnavailable')
-    : !mailAuthorized
-      ? t('mailInjectUnauthorized')
-      : mailToolsMounted
-        ? (mailAddress === null ? t('mailInjectHint') : t('mailInjectHintWithAddress', { address: mailAddress }))
-        : (mailAddress === null ? t('mailInjectHintCli') : t('mailInjectHintCliWithAddress', { address: mailAddress }))
-  /*
-   * 总结卡外框：纯显示偏好，不走 host，状态在 localStorage（见 reply-card-chrome）。
-   *
-   * 用 useSyncExternalStore 而不是 useState：它必须与**别的浏览器窗口**里拨动的
-   * 同一个开关保持一致（storage 事件会唤醒订阅），而 useState 只能看见本组件的
-   * 那次点击。
-   */
-  const chromeOn = useSyncExternalStore(subscribeReplyCardChrome, replyCardChromeEnabled, replyCardChromeEnabled)
-  // 工具调用卡显隐：与总结卡外框同族（纯呈现偏好、localStorage、跨窗口同步）。
-  const toolCallsOn = useSyncExternalStore(subscribeToolCallsVisible, toolCallsVisible, toolCallsVisible)
-  // 按钮状态取「这几条注入通道里有没有开的」——全关才算关，半开按开显示（它是
-  // 能力入口，不是记忆那种一刀切的开关）。**不含总结卡外框**：那一行不是注入通道，
-  // 把它算进来会让「通道全关、只想要无框卡片」的按钮显示成开着的入口。
-  // **也不含自动收口**，同理：它一个字都不进 prompt，只是同属「插件内置、全局单值、
-  // 无卸载入口」这一类能力才并排放在同一张卡里；算进来会让「四条通道全关、只留自动
-  // 收口」的按钮显示成开着的入口，而用户点进去会发现注入其实一条都没开。
-  // 邮箱**要**算进来：它是实打实的注入通道，开着却显示成关会让用户以为没生效。
-  const anyOn = zhOn || htmlOn || soulOn || teamOn || mailOn
-  const button = (
-    <ToggleButton
-      on={anyOn}
-      open={open}
-      onClick={togglePin}
-      label={anyOn ? t('builtinToggleOn') : t('builtinToggleOff')}
-      icon={<PromptIcon />}
-    />
-  )
-  return (
-    <div ref={wrapRef} className={css.toggleWrap} onMouseEnter={showCard} onMouseLeave={scheduleCardHide}>
-      {open ? button : <Tooltip label={anyOn ? t('builtinToggleOn') : t('builtinToggleOff')} side="top" delayMs={500}>{button}</Tooltip>}
-      <div
-        className={open ? `${css.injectCard} ${css.builtinCard} ${css.injectCardOn}` : `${css.injectCard} ${css.builtinCard}`}
-        role="dialog"
-        aria-label={t('builtinCardTitle')}
-        aria-hidden={!open}
-      >
-        <div className={css.injectHead}>
-          <span className={css.injectTitle}><PromptIcon size={13} />{t('builtinCardTitle')}</span>
-        </div>
-        <SwitchRow
-          index={0}
-          lead
-          on={zhOn}
-          busy={busy}
-          label={t('zhInjectLabel')}
-          hint={t('zhInjectHint')}
-          onToggle={() => { pushChannel('zhEnabled', !zhOn) }}
-        />
-        {/* HTML 卡片（含 iu 的 16 种原生卡：取值/图表/看板/图形三件套…）——
-             「正文围栏 → 卡片」的呈现能力总开关；详细说明见 host 侧 HTML_INJECTION_RULE。 */}
-        <SwitchRow
-          index={1}
-          on={htmlOn}
-          busy={busy}
-          label={t('htmlInjectLabel')}
-          hint={t('htmlInjectHint')}
-          onToggle={() => { pushChannel('htmlEnabled', !htmlOn) }}
-        />
-        {/* 灵魂：与中文同类的「跨会话恒定」契约，故与它们同卡；详细编辑在
-            工作台 → 记忆 → 灵魂 Tab，这里只给一个总开关。 */}
-        <SwitchRow
-          index={2}
-          on={soulOn}
-          busy={busy}
-          label={t('soulInjectLabel')}
-          hint={t('soulInjectHint')}
-          onToggle={() => { pushChannel('soulEnabled', !soulOn) }}
-        />
-        {/* 团队协作：默认「这活值得拆」的组织纪律（分档判据 + 组队硬规矩），
-            跨会话恒定的行为契约，与灵魂同类放最后；文本见 host 侧 TEAM_INJECTION_RULE。 */}
-        <SwitchRow
-          index={3}
-          on={teamOn}
-          busy={busy}
-          label={t('teamInjectLabel')}
-          hint={t('teamInjectHint')}
-          onToggle={() => { pushChannel('teamEnabled', !teamOn) }}
-        />
-        {/* Agent 邮箱：**唯一一条跨模块通道**——开关与能力都住在 dsh-mail 模块，
-            这里只是把它转出来，让用户不必再为了拨它跑一趟邮箱设置页。
-
-            两道开关解耦：这一行拨的是**声明**（injectEnabled），与邮箱工作台
-            总开关（决定 mail_* 工具注册不注册）互不牵连。工作台关着时注入照常
-            发生，只是文本改走 agently-cli 命令行——副说明如实交代这一点，
-            而不是把这一行画成关、逼用户去开工作台。
-
-            模块没挂（旧 host / 装配失败）时才不给开关：拨不动的开关是骗人。 */}
-        {mailAvailable
-          ? (
-            <SwitchRow
-              index={4}
-              on={mailOn}
-              busy={busy}
-              label={t('mailInjectLabel')}
-              hint={mailHint}
-              onToggle={() => { pushMail({ enabled: !mailOn }) }}
-            />
-          )
-          : (
-            <div className={css.injectRow} style={{ '--row-i': '4' } as CSSProperties}>
-              <span className={css.injectMain}>
-                <span className={css.injectLabel}>
-                  {t('mailInjectLabel')}
-                  <span className={css.injectBadge}>{t('mailInjectBadgeUnavailable')}</span>
-                </span>
-                <span className={css.injectHint}>{t('mailInjectUnavailable')}</span>
-              </span>
-            </div>
-          )}
-        {/* 回合结束自动收口：不是注入通道（一个字都不进 prompt），只是同属「插件
-            内置、全局单值、无卸载入口」这一类能力，所以并排放在同一张卡里。
-            默认开（host 侧 config.todoClosureDefaultEnabled 默认 true）；关掉后
-            回合结束时残留的「进行中」任务项保持原样。 */}
-        <SwitchRow
-          index={5}
-          on={todoClosureOn}
-          busy={busy}
-          label={t('todoClosureLabel')}
-          hint={t('todoClosureHint')}
-          onToggle={() => { pushChannel('todoClosureEnabled', !todoClosureOn) }}
-        />
-        {/* 展示设置组：与上面那几行**不是一类东西**，所以另起一枚组标题隔开。
-            不隔开的话，读者会以为「总结卡外框」也是往提示词里塞内容的能力，
-            而它其实只管一张卡片长什么样。 */}
-        <div className={css.injectGroup}>
-          <span className={css.injectGroupTitle}>{t('displayGroupTitle')}</span>
-        </div>
-        <SwitchRow
-          index={6}
-          lead
-          on={chromeOn}
-          // busy 恒为 false：这一行写的是 localStorage（同步落盘 + 刷 body 属性），
-          // 没有网络往返，不存在"正在保存"的中间态。上面几行要等 host 回包才有，
-          // 所以它们共用那个 busy。写成 busy={busy} 会让这行在别的通道保存时
-          // 莫名变灰、点不动。
-          busy={false}
-          label={t('replyChromeLabel')}
-          hint={t('replyChromeHint')}
-          onToggle={() => { setReplyCardChromeEnabled(!chromeOn) }}
-        />
-        <SwitchRow
-          index={7}
-          // 与总结卡外框同族：写 localStorage，同步落盘无网络往返，busy 恒 false。
-          busy={false}
-          on={toolCallsOn}
-          label={t('toolCallsLabel')}
-          hint={t('toolCallsHint')}
-          onToggle={() => { setToolCallsVisible(!toolCallsOn) }}
-        />
-        <p className={css.injectFoot}>{t('builtinCardFoot')}</p>
       </div>
     </div>
   )

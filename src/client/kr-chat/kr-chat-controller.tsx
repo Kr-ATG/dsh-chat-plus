@@ -15,6 +15,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { getKrChatStore } from './kr-chat-store.ts'
+import { getPanelSettingsStore } from './panel-settings-store.ts'
 import { KrAgentPanel } from './KrAgentPanel.tsx'
 import { activityStore } from '../tool-summary/activity-drawer.tsx'
 import { getCurrentChatSnapshot, latestChatSessionId, leaveCurrentChatSession, subscribeLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
@@ -136,7 +137,6 @@ function syncKrTab(tablist: HTMLElement): void {
   const store = getKrChatStore()
   const isKr = store.snapshot.activeTab === 'kr'
   let btn = document.getElementById('kr-chat-tab-btn') as HTMLButtonElement | null
-
   // 与官方原生按钮像素级对齐
   const chatBtn = Array.from(tablist.querySelectorAll<HTMLButtonElement>('button[role="tab"]')).find((b) => b.id !== 'kr-chat-tab-btn')
   const siblingClass = chatBtn?.className || ''
@@ -190,6 +190,62 @@ function syncKrTab(tablist: HTMLElement): void {
   // 官方/KR 标签，一个常驻面板不需要再挂一个"要不要它"的开关——那枚按钮反而
   // 让人以为右栏是可选的。收起/展开相关代码（syncKrPanelToggle、KR_PANEL_ICON、
   // store.panelOpen 与 .kr-panel-toggle 样式）一并删干净。
+  syncPanelSettingsButton(tablist)
+}
+
+/**
+ * 顶栏「大盘设置」齿轮：注入到 Seeker 标签**右侧**（用户 2026-10-15 点名要求的位置）。
+ *
+ * 为什么是裸 DOM 而不是座位：官方标签行是 header 里那段 `[role="tablist"]`，
+ * 没有对应的 slots 座位能插进去（座位是给 composer / sidebar / main 那些地方的），
+ * 所以与 Seeker 标签同一套做法 —— 直接建节点、按稳定 id 幂等复用。
+ *
+ * 为什么放在 tab 之后而不是 `tablist.firstChild`：Seeker 是 `firstChild`，
+ * 齿轮要跟它并排、落在它右边，且**不能**成为第 4 个视觉上的 tab（它是动作按钮，
+ * 不是视图）。所以用 class 而非 role="tab"，并紧跟在 Seeker 之后插入。
+ *
+ * 点击只做一件事：toggle 共享 store；抽屉在右栏订阅它自行开合。这样按钮与抽屉
+ * 各自归属自己的 React/DOM 树，不互相穿透。
+ */
+function syncPanelSettingsButton(tablist: HTMLElement): void {
+  const seeker = document.getElementById('kr-chat-tab-btn')
+  if (seeker === null) return
+  const settings = getPanelSettingsStore()
+
+  let btn = document.getElementById('kr-panel-settings-btn') as HTMLButtonElement | null
+
+  if (!btn || !btn.isConnected || btn.parentElement !== tablist) {
+    if (btn) {
+      try { btn.remove() } catch {}
+    }
+    btn = document.createElement('button')
+    btn.type = 'button'
+    btn.id = 'kr-panel-settings-btn'
+    btn.className = 'kr-panel-settings-btn'
+    btn.title = '大盘设置'
+    btn.setAttribute('aria-label', '大盘设置')
+    // 纯内联 SVG（与 KrPanelSettings 的 GearIcon 同形状）：这里是裸 DOM，
+    // 拿不到那个 React 组件，自带一份字符串。
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<circle cx="8" cy="8" r="2.1" />'
+      + '<path d="M8 1.7v1.7M8 12.6v1.7M1.7 8h1.7M12.6 8h1.7M3.55 3.55l1.2 1.2M11.25 11.25l1.2 1.2M12.45 3.55l-1.2 1.2M4.75 11.25l-1.2 1.2" />'
+      + '</svg>'
+    btn.onclick = (e) => {
+      e.stopPropagation()
+      // 走共享 store（跨 bundle 实例唯一）——旧实例的闭包读到的也是同一份。
+      getPanelSettingsStore().toggle()
+    }
+  }
+
+  // 紧贴 Seeker 右侧：位置不对就搬过去（会话切换 / 官方重渲染后 tablist 可能重建）。
+  if (btn.previousElementSibling !== seeker) {
+    seeker.insertAdjacentElement('afterend', btn)
+  }
+
+  // 打开态由 store 决定，每次 sync 对齐一次（按钮是裸 DOM，不参与 React 重渲染）。
+  const open = settings.open
+  setAttrIfDiff(btn, 'data-open', open ? 'true' : 'false')
+  setAttrIfDiff(btn, 'aria-expanded', open ? 'true' : 'false')
 }
 
 /** KR 对话右侧大盘 React 根组件 */
@@ -303,6 +359,26 @@ export function mountKrChatController(): void {
   }
 
   const disposers: Array<() => void> = []
+
+  /*
+   * 设置按钮的打开态**即时**跟随 store，不等 250ms 轮询。
+   *
+   * 轮询只在 syncKrTab 里对齐属性，最坏会有 250ms 的视觉延迟 —— 用户点齿轮、
+   * 按钮要过一小会儿才亮起来，抽屉与按钮像两个不同步的东西。这里直接订阅：
+   * 变化即改属性。订阅本身很便宜（一个 Set 回调），且不重建节点。
+   */
+  {
+    const settings = getPanelSettingsStore()
+    const off = settings.subscribe(() => {
+      if (!owns()) return
+      const el = document.getElementById('kr-panel-settings-btn')
+      if (el === null) return
+      const open = settings.open
+      setAttrIfDiff(el, 'data-open', open ? 'true' : 'false')
+      setAttrIfDiff(el, 'aria-expanded', open ? 'true' : 'false')
+    })
+    disposers.push(off)
+  }
 
   // 全局事件委托：监听原生「对话」与「轨迹」按钮的点击事件，同步 activeTab 状态
   const onTabClick = (e: MouseEvent): void => {

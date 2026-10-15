@@ -4779,6 +4779,467 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
   .kr-ask-dots > i { opacity: .55; }
   .kr-card--ask[data-inline][data-state="waiting"] { border-left-color: var(--kr-accent); }
 }
+
+/* ══ 大盘设置（顶栏齿轮 + 右栏滑入抽屉）═════════════════════════════════════
+ *
+ * 两块分处不同容器，定位策略**刻意不同**：
+ *
+ *  1. 齿轮 '.kr-panel-settings-btn' 在**顶栏**（官方 header 的 [role="tablist"] 里，
+ *     紧跟 Seeker），必须留在文档流里 —— 写 absolute 会把它从标签行抽出来飘走。
+ *  2. 遮罩 '.kr-settings__scrim' 与抽屉 '.kr-settings' 渲染在 .kr-split__side 里，
+ *     那是一个 display:flex; flex-direction:column; overflow:hidden 的容器 ——
+ *     任何一个 static 定位的子节点都会被当成 flex item，把大盘撑高或挤出滚动条。
+ *     所以这两者一律 position:absolute，彻底退出 flex 流。这是本组样式最容易踩、
+ *     后果最显眼的一个坑（大盘整块变形），改动前先看这一条。
+ *
+ * 视觉语言全部复用大盘已有的 --kr-* 与 --dsw-alias-* 变量，不新造色板。
+ * 开关刻意走中性黑白（与 dsh-memory-switch 同款），不用主题蓝：大盘里蓝色
+ * 是「可操作的主行动」（按钮 / 链接）的语义，设置项开关不是主行动。
+ */
+
+/* 顶栏「大盘设置」齿轮：坐在 Seeker 标签**右侧**（用户点名要求的位置）。
+ *
+ * 定位方式与上一版完全不同：上一版它绝对定位在**右栏大盘右上角**，这一版由
+ * kr-chat-controller 注入进官方 header 的 '[role="tablist"]'、紧跟在 Seeker 标签
+ * 之后，所以必须**留在文档流里**（'flex: none' + 与官方 tab 同高），不能再写
+ * position:absolute —— 那会把它从标签行里抽出来飘到 header 左上角。
+ *
+ * 它**不是**一个 tab：没有 role="tab"、没有官方 tab 的下划线，尺寸也比文字标签
+ * 小一档（26px 圆形按钮）。视觉上它是「贴在 Seeker 右边的动作按钮」，不是第四个
+ * 视图 —— 用 margin-left 紧贴 Seeker；官方标签之间本来就有 gap，这里用负外边距
+ * 抵掉一半，让它读起来是 Seeker 的附属物而不是又一个独立标签。 */
+.kr-panel-settings-btn {
+  position: relative;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  margin: 0 2px 0 -4px;
+  border: 0;
+  border-radius: 7px;
+  padding: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color .16s ease, color .16s ease, transform .16s cubic-bezier(.2, .8, .2, 1);
+}
+
+.kr-panel-settings-btn:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, .06));
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 按下时缩一档：指针压在按钮上的物理感，松开回弹。 */
+.kr-panel-settings-btn:active {
+  transform: scale(.92);
+}
+
+.kr-panel-settings-btn svg {
+  width: 14px;
+  height: 14px;
+  transition: transform .3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 打开态：底色常亮 + 齿轮转 45°。抽屉打开时按钮不再被遮罩盖住（抽屉在右栏、
+ * 按钮在顶栏），所以 hover 仍然可达；但打开态本身仍需一条常亮线索，
+ * 让用户一眼看出「这个抽屉是这个按钮开出来的」。 */
+.kr-panel-settings-btn[data-open="true"] {
+  background: var(--kr-hover-bg);
+  color: var(--dsw-alias-state-business-primary, #4176e6);
+}
+
+.kr-panel-settings-btn[data-open="true"] svg {
+  transform: rotate(45deg);
+}
+
+.kr-panel-settings-btn:focus-visible,
+.kr-settings__close:focus-visible,
+.kr-settings__switch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--kr-accent) 35%, transparent);
+}
+
+/* 遮罩：铺满整栏，**只在打开时拦截指针**。
+   常驻 pointer-events:auto 会把大盘上所有卡片的点击一起吃掉 —— 抽屉明明关着，
+   页面上却点不动任何东西，是这类浮层最经典的 bug。 */
+.kr-settings__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 17, 21, .16);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity .18s ease, visibility 0s linear .18s;
+}
+
+.kr-settings__scrim[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity .18s ease, visibility 0s;
+}
+
+body[data-ds-dark-theme] .kr-settings__scrim {
+  background: rgba(0, 0, 0, .38);
+}
+
+/* 抽屉本体：贴右边缘、铺满整栏高度。
+   开合全部由 data-open 这一个属性驱动（组件不做条件渲染），所以退场动画
+   才有得播；visibility 的延迟就是为它留的：关的时候等 260ms 过渡跑完再
+   hidden，否则退场会被立刻掐断。这套写法照抄同仓库 .dsh-memory-inject-card。 */
+.kr-settings {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  width: 300px;
+  max-width: 86%;
+  box-sizing: border-box;
+  overflow: hidden;
+  /* 浮层必须刷不透明底色：--kr-card-bg 就是大盘卡片那层 layer-1，深浅两套
+     主题都由 DSH token 给真值；透出底层内容会读不清。 */
+  background: var(--kr-card-bg);
+  border-left: 1px solid var(--kr-card-border);
+  border-radius: 14px 0 0 14px;
+  box-shadow: var(--kr-card-shadow), -10px 0 24px -16px rgba(15, 17, 21, .22);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(18px) scale(.99);
+  transform-origin: 100% 50%;
+  pointer-events: none;
+  transition: opacity .26s cubic-bezier(0.16, 1, 0.3, 1), transform .26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear .26s;
+}
+
+.kr-settings[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  pointer-events: auto;
+  transition: opacity .26s cubic-bezier(0.16, 1, 0.3, 1), transform .26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s;
+}
+
+/* 深色下浮层靠「更实的描边 + 更黑的定向落影」分层：浅色那套 4% 黑描边
+   压在深底上等于没有，只留下一条看不见的边界。 */
+body[data-ds-dark-theme] .kr-settings {
+  border-left-color: rgba(255, 255, 255, .09);
+  box-shadow: var(--kr-card-shadow), -10px 0 26px -16px rgba(0, 0, 0, .7);
+}
+
+.kr-settings__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  padding: 12px 10px 10px 14px;
+  border-bottom: 1px solid var(--kr-hairline);
+}
+
+.kr-settings__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--kr-fs-12, 12px);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-settings__title svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.kr-settings__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color .15s ease, color .15s ease, transform .15s ease;
+}
+
+.kr-settings__close:hover {
+  background: var(--kr-hover-bg);
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-settings__close:active {
+  transform: scale(.9);
+}
+
+.kr-settings__close svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 正文：矮屏（8 行 + 2 个组标题）必须能滚，不能被裁。
+   flex:1 1 0 + min-height:0 是滚动容器在 flex 列里唯一可靠的写法 ——
+   少了 min-height:0，flex item 的自动最小尺寸会把容器顶到内容高度。 */
+.kr-settings__body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 14px 12px;
+}
+
+/* 与大盘其余滚动区同一套细滚动条（这些伪元素选择器不在上方那条共用规则组里，
+   所以在这里单独声明一份；标准属性仍然只能待在 @supports 里，否则 Blink 121+
+   会反过来忽略伪元素）。 */
+.kr-settings__body::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.kr-settings__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.kr-settings__body::-webkit-scrollbar-thumb {
+  background-color: var(--kr-scrollbar-thumb);
+  border-radius: 999px;
+  transition: background-color .18s ease;
+}
+
+.kr-settings__body::-webkit-scrollbar-thumb:hover {
+  background-color: var(--kr-scrollbar-thumb-hover);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .kr-settings__body {
+    scrollbar-width: thin;
+    scrollbar-color: var(--kr-scrollbar-thumb) transparent;
+  }
+}
+
+.kr-settings__group + .kr-settings__group {
+  margin-top: 6px;
+}
+
+.kr-settings__group-title {
+  display: block;
+  padding: 10px 0 2px;
+  font-size: var(--kr-fs-10-5, 10.5px);
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: .06em;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 行：顶对齐（hint 多行时开关不能被拉到中间），开关再用 margin-top 压回
+   标签中线 —— 与 .dsh-memory-inject-row 同款处理。 */
+.kr-settings__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 0;
+}
+
+.kr-settings__row + .kr-settings__row {
+  border-top: 1px dashed var(--kr-hairline);
+}
+
+/* 组内第一行上方已经有组标题，不再叠一条分隔虚线。
+   选择器写成双类名：单类名的特异性(0,1,0)低于上面那条相邻兄弟规则(0,2,0)，
+   写了也会被覆盖。 */
+.kr-settings__row.kr-settings__row--lead {
+  border-top: none;
+}
+
+.kr-settings__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.kr-settings__label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: var(--kr-fs-12, 12px);
+  line-height: 1.45;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+  transition: color .15s ease;
+}
+
+/* 整行 hover 不染色（那会把虚线分隔和两侧留白一起糊掉），只把标签提亮一档。 */
+.kr-settings__row:hover .kr-settings__label {
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-settings__hint {
+  font-size: var(--kr-fs-11, 11px);
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.kr-settings__badge {
+  flex: none;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: var(--kr-fs-10, 10px);
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+}
+
+/* 开关：中性黑白语言，状态只由 aria-checked 表达。
+   开 = label-primary 实心轨道 + 反色圆点；关 = border-l2 轨道 + label-tertiary 圆点。 */
+.kr-settings__switch {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 22px;
+  /* 压回标签中线（行是顶对齐的）。 */
+  margin-top: 1.5px;
+  border: none;
+  border-radius: 11px;
+  padding: 0;
+  box-sizing: border-box;
+  background: var(--dsw-alias-border-l2, rgba(0, 0, 0, .12));
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color .16s cubic-bezier(.2, .8, .2, 1), box-shadow .16s ease;
+}
+
+.kr-settings__switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-tertiary, #81858c);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .28);
+  transition: transform .16s cubic-bezier(.2, .8, .2, 1), background-color .16s cubic-bezier(.2, .8, .2, 1);
+}
+
+.kr-settings__switch[aria-checked="true"] {
+  background: var(--dsw-alias-label-primary, #1f2329);
+}
+
+.kr-settings__switch[aria-checked="true"]::after {
+  transform: translateX(18px);
+  /* 反色圆点：用大盘卡片底色，深浅两套主题下都自动是轨道色的对比色。 */
+  background: var(--kr-card-bg, #ffffff);
+}
+
+.kr-settings__switch:hover:not(:disabled) {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-label-primary) 9%, transparent);
+}
+
+/* 按下时圆点压扁一档，给一点物理感。 */
+.kr-settings__switch:active:not(:disabled)::after {
+  transform: scale(.88);
+}
+
+.kr-settings__switch[aria-checked="true"]:active:not(:disabled)::after {
+  transform: translateX(18px) scale(.88);
+}
+
+.kr-settings__switch:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.kr-settings__foot {
+  flex: none;
+  margin: 0;
+  padding: 9px 14px 11px;
+  border-top: 1px solid var(--kr-hairline);
+  font-size: var(--kr-fs-10-5, 10.5px);
+  line-height: 1.55;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 行错开浮现：动画**只挂在打开态**上。
+   抽屉是常驻 DOM，若把 animation 写在基础 .kr-settings__row 上，它会在组件
+   挂载（抽屉还隐藏着）时就播完，等用户真的点开时行早已是静止的 —— 错开浮现
+   等于白写。挂在 [data-open="true"] 下，属性 false→true 的瞬间动画才创建并
+   播放，每次打开都重新浮现一次，不需要任何 JS 重播逻辑。
+   both 的 backwards 填充让 delay 期间保持透明，afterwards 停在终态。 */
+.kr-settings[data-open="true"] .kr-settings__row {
+  animation: kr-settings-row-in .34s cubic-bezier(.2, .8, .2, 1) both;
+  animation-delay: calc(var(--row-i, 0) * 26ms);
+}
+
+@keyframes kr-settings-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 新加的全部过渡与动画一律关掉。 */
+  .kr-panel-settings-btn,
+  .kr-panel-settings-btn svg,
+  .kr-settings__scrim,
+  .kr-settings__scrim[data-open="true"],
+  .kr-settings,
+  .kr-settings[data-open="true"],
+  .kr-settings__close,
+  .kr-settings__switch,
+  .kr-settings__switch::after,
+  .kr-settings__label {
+    transition: none;
+  }
+  /* 动画关掉后，按下 / 打开态的静态形变也要一并归位，否则元素会永久停在
+     被压扁或旋转 45° 的中间态。 */
+  .kr-panel-settings-btn:active,
+  .kr-settings__close:active {
+    transform: none;
+  }
+  .kr-panel-settings-btn[data-open="true"] svg {
+    transform: none;
+  }
+  .kr-settings__switch:active:not(:disabled)::after {
+    transform: none;
+  }
+  .kr-settings__switch[aria-checked="true"]:active:not(:disabled)::after {
+    transform: translateX(18px);
+  }
+  /* 行错开浮现整个不播。
+     关键：抽屉与遮罩的可见性由 data-open 属性选择器直接决定（opacity /
+     visibility / pointer-events），不依赖任何动画末帧 —— 这里把动画掐掉，
+     内容照样完整可见，不会出现「打开了一片空白」。 */
+  .kr-settings[data-open="true"] .kr-settings__row {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
 `
 
 /**

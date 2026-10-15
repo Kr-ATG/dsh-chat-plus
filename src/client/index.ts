@@ -38,6 +38,7 @@ import { ThinkingStepNodeView } from './thinking/ThinkingStepNodeView.tsx'
 import { RetryShadowView } from './retry/RetryShadowView.tsx'
 import { installReplyCardChrome } from './reply-card-chrome.ts'
 import { installToolCallsVisible } from './tool-calls-visible.js'
+import { installPlainTimelineVisible } from './plain-timeline-visible.js'
 import { applyMessageScreenshot } from './shot/index.tsx'
 import { mountShellChrome } from './shell-chrome.ts'
 import { installOpenPathFix } from './open-path-fix.ts'
@@ -194,6 +195,9 @@ export function apply(ctx: ClientContext): void {
   // 工具调用卡展示开关（localStorage 呈现偏好）：读盘 + 绑跨窗口 storage 监听。
   // KrAgentPanel 经 useSyncExternalStore 订阅，拨完即时生效、刷新后保留。
   guarded(ctx, 'tool calls visible', installToolCallsVisible)
+
+  // 操作面板卡展示开关（同族第三条：localStorage 呈现偏好）。
+  guarded(ctx, 'plain timeline visible', installPlainTimelineVisible)
 
   // 捕获官方原生的 assistant-step / turn-process 渲染组件：普通「对话」模式下
   // 两个座位都原样委托回官方，插件只负责 KR 那一栏。
@@ -401,6 +405,17 @@ export {
   subscribeToolCallsVisible,
   installToolCallsVisible,
 } from './tool-calls-visible.js'
+
+/**
+ * 操作面板卡展示开关：同族纯逻辑（读写 + 订阅），供 smoke 直接钉住。
+ * 判据错了同样静默无反应，必须能被测试断言。
+ */
+export {
+  plainTimelineVisible,
+  setPlainTimelineVisible,
+  subscribePlainTimelineVisible,
+  installPlainTimelineVisible,
+} from './plain-timeline-visible.js'
 
 /**
  * 首 token 平均平铺的纯逻辑：供 smoke 直接钉住口径（平均值 / 紧凑时长 /

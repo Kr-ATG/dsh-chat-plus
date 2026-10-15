@@ -535,7 +535,17 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
   }
   // client 侧也要钉住新键：i18n 键拼错不会编译失败，只会静默显示原始 key。
   const clientLocales = readFileSync(resolve(ROOT, 'src/client/triad/memory/locales.ts'), 'utf8')
-  const clientToggle = readFileSync(resolve(ROOT, 'src/client/triad/memory/Toggle.tsx'), 'utf8')
+  /*
+   * 这些开关的承载组件。
+   *
+   * 2026-10-15：用户要求删掉 composer 的「内置提示词通道」卡、把设置挪到 Seeker
+   * 旁边，于是 team / 收口 / 邮箱三组开关的**客户端承载者**从
+   * `triad/memory/Toggle.tsx` 换成 `kr-chat/KrPanelSettings.tsx`。
+   * 断言对象随之迁移 —— 判的是 host 端点 ↔ 客户端键名逐字对齐，与它在哪个组件里无关。
+   * 抽屉里的文案是硬编码中文而非 t() 键，所以下面按「键名出现在抽屉里」判，
+   * 不再要求 `t('xxx')` 形式。
+   */
+  const clientToggle = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrPanelSettings.tsx'), 'utf8')
   // 收口模块的承载文件：缺失时给一条清晰失败，而不是让整个冒烟抛 ENOENT
   // （那样报的是「冒烟脚本崩了」，读不出「收口没实现」这个真因）。
   const readOrFail = (rel) => {
@@ -551,7 +561,9 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
   const clientApiSrc = readOrFail('src/client/triad/memory/api.ts')
   for (const key of ['teamInjectLabel', 'teamInjectHint']) {
     need(clientLocales.includes(`${key}:`), `locales 定义 ${key}`)
-    need(clientToggle.includes(`t('${key}')`), `Toggle 取用 ${key}`)
+    // 抽屉里这一行是硬编码中文「团队协作」，键仍留在 locales 供别处复用；
+    // 这里判「团队协作」这一行确实在抽屉里（比 t() 形式更贴近实际写法）。
+    need(clientToggle.includes('团队协作'), `抽屉里有 team 通道这一行（${key} 的承载者）`)
   }
   need(clientToggle.includes(`pushChannel('teamEnabled'`), 'Toggle 写 team 通道走 teamEnabled 键')
 
@@ -814,12 +826,17 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
   need(/todoClosureEnabled/.test(clientApiSrc), 'client api 声明 todoClosureEnabled')
   // client 侧默认开的通道必须用 `!== false` 兜底；写成 `=== true`（html/team 那种
   // 默认关口径）会让 host 未升级时开关显示成关——这类错不编译失败，只静默错。
-  need(/todoClosureEnabled: res\.todoClosureEnabled !== false/.test(clientToggle),
+  //
+  // 注意这段归一化逻辑仍在 Toggle.tsx（抽屉 import 它复用，不另写第二套口径），
+  // 所以这里读的是**归一化的老家**，不是承载开关行的那个文件。
+  const clientNormalize = readFileSync(resolve(ROOT, 'src/client/triad/memory/Toggle.tsx'), 'utf8')
+  need(/todoClosureEnabled: res\.todoClosureEnabled !== false/.test(clientNormalize),
     'client 回包映射用 !== false 兜底（默认开通道的正确口径）')
   for (const key of ['todoClosureLabel', 'todoClosureHint']) {
     need(clientLocales.includes(`${key}:`), `locales 定义 ${key}`)
-    need(clientToggle.includes(`t('${key}')`), `Toggle 取用 ${key}`)
   }
+  need(clientToggle.includes('回合结束自动收口'),
+    '抽屉里有自动收口这一行（todoClosureLabel 的承载者）')
   need(clientToggle.includes(`pushChannel('todoClosureEnabled'`),
     'Toggle 写自动收口走 todoClosureEnabled 键')
   // 任务卡口径：自动收口把 in_progress 改成 pending 之后，若卡片仍只认
@@ -971,19 +988,23 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
     need(typeof is.body?.mailToolsMounted === 'boolean', 'GET /inject-state 顺带回传 mailToolsMounted')
   }
   // client 侧：解耦后的消费点必须都在。
-  const clientToggleMail = readFileSync(resolve(ROOT, 'src/client/triad/memory/Toggle.tsx'), 'utf8')
+  //
+  // 2026-10-15：邮箱那一行的承载者从 Toggle.tsx 换到 KrPanelSettings.tsx，
+  // 且抽屉里的副说明是**硬编码中文**（含地址插值），不走 t() 键。断言按实际写法钉：
+  // 「工具缺席 → 走命令行」这一分支必须真实存在（画成关/逼用户开工作台都是错的）。
+  const clientMailCarrier = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrPanelSettings.tsx'), 'utf8')
   const mailLocales = readFileSync(resolve(ROOT, 'src/client/triad/memory/locales.ts'), 'utf8')
   for (const key of ['mailInjectLabel', 'mailInjectHint', 'mailInjectHintCli', 'mailInjectUnavailable', 'mailInjectUnauthorized']) {
     need(mailLocales.includes(`${key}:`), `locales 定义 ${key}`)
-    need(clientToggleMail.includes(`t('${key}')`), `Toggle 取用 ${key}`)
   }
   // 工作台关着时副说明必须换成「走命令行」那一版，而不是把开关画成关。
-  need(/mailToolsMounted/.test(clientToggleMail) && /mailInjectHintCli/.test(clientToggleMail),
+  need(/mailToolsMounted/.test(clientMailCarrier) && /agently-cli 命令行收发/.test(clientMailCarrier),
     '工具缺席时副说明换「走命令行」版（画成关/逼用户开工作台都是错的）')
-  need(!/mailInjectWorkbenchOff|mailInjectEnableWorkbench/.test(clientToggleMail),
+  need(!/mailInjectWorkbenchOff|mailInjectEnableWorkbench/.test(clientMailCarrier),
     '不再有「工作台关着 → 声明不注入」的旧文案与「打开工作台」按钮（两者已解耦）')
-  need(/const anyOn = [^\n]*mailOn/.test(clientToggleMail),
-    '按钮开态把邮箱算进来（它是实打实的注入通道）')
+  // 邮箱在抽屉里的那一行必须只有「声明」一个写入点（不信「工作台」那条死路径）。
+  need(/setMailInjectState/.test(clientMailCarrier),
+    '抽屉写邮箱声明走 setMailInjectState（跨模块落 dsh-mail 的 injectEnabled）')
 }
 
 const warns = logs.filter(([lvl]) => lvl === 'warn')

@@ -17,7 +17,7 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { MemoryPanel, BrainIcon } from './Panel.js'
-import { BuiltinToggle, MemoryToggle } from './Toggle.js'
+import { MemoryToggle } from './Toggle.js'
 import { createMemoryApi, type MemoryApi } from './api.js'
 import { en, NS, zh, type MemoryLocaleKey } from './locales.js'
 import { registerPanelSeat } from '../panel-seat.js'
@@ -55,18 +55,13 @@ export function applyMemoryClient(ctx: ClientContext): void {
   const panelApi: MemoryApi = createMemoryApi()
 
   // 独立主页面已并入统一工作台（见 hub/seat.ts）
-  // 此处保留 composer 输入框工具行左端的两枚注入开关（resident chrome 之后，浏览器开关之前）。
-  // 记忆注入与内置提示词通道各占一枚、各弹一张卡：两种不同的东西挤一张卡里，
-  // 标题总有一半对不上。order 98（提示符）在 99（大脑）左侧，记忆按钮紧邻其右，
-  // 位置与原来那枚大脑按钮完全一致，不动用户已有的肌肉记忆。
-  ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
-    name: 'conversation.input.left',
-    id: 'dsh-memory-builtin-toggle',
-    order: 98,
-    locale: NS,
-    inject: () => panelApi,
-  }, BuiltinToggle))
-
+  // composer 输入框工具行左端只剩**记忆注入**一枚开关（order 99）。
+  //
+  // 2026-10-15 用户要求「对话框的给删了，并把设置放到 Seeker 旁边」：原先紧邻的
+  // 第二枚「内置提示词通道」按钮（order 98 / id dsh-memory-builtin-toggle）连同
+  // BuiltinToggle 组件整块删除，它的 9 个开关迁到 Seeker 右栏的「大盘设置」抽屉
+  // （kr-chat/KrPanelSettings.tsx），入口是顶栏 Seeker 标签右侧那枚齿轮。
+  // 座位号 98 从此空缺 —— 不回收给别的按钮，免得与用户既有的肌肉记忆打架。
   ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
     name: 'conversation.input.left',
     id: 'dsh-memory-inject-toggle',

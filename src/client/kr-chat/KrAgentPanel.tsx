@@ -25,6 +25,8 @@ import { KrOutputsCard } from './KrOutputsCard.tsx'
 import { collectOutputs, collectSessionToolNodes, outputsFingerprint, type OutputsView } from './outputs.ts'
 import { AGENT_DISPLAY_NAME, KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE, KR_SUBAGENTS_CARD_VISIBLE, KR_TOOL_CALLS_CARD_VISIBLE } from './enabled.ts'
 import { subscribeToolCallsVisible, toolCallsVisible } from '../tool-calls-visible.js'
+import { subscribePlainTimelineVisible, plainTimelineVisible } from '../plain-timeline-visible.js'
+import { KrPanelSettings } from './KrPanelSettings.tsx'
 import { installConversationScrollGuard } from './scroll-guard.ts'
 import { useOfficialWidthHandleFix } from './official-width-handles.ts'
 
@@ -109,6 +111,8 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   // 工具调用卡的运行时展示开关（localStorage 呈现偏好，与构建开关叠加）。
   // 走 useSyncExternalStore：别的窗口拨动同一开关时本面板同步响应。
   const toolCallsOn = useSyncExternalStore(subscribeToolCallsVisible, toolCallsVisible, toolCallsVisible)
+  // 操作面板卡的同款展示开关（同族：纯呈现偏好、localStorage、跨窗口同步）。
+  const plainTimelineOn = useSyncExternalStore(subscribePlainTimelineVisible, plainTimelineVisible, plainTimelineVisible)
 
   // 监听快照更新（实时响应新提问、流式输出与会话切换）
   const [snapTick, setSnapTick] = useState(0)
@@ -901,8 +905,12 @@ export const KrAgentPanel = memo(function KrAgentPanel({
         {/* 人话行动流（「操作面板」卡）。给不懂技术的用户看的一张：「已经做了什么」
             来自工具调用事实，「准备做什么」来自模型自己播报的预告。原先下面还挂
             着一张技术视角的「工具调用」卡，两张卡讲的是同一批事件，现已按用户
-            要求整块移除，工具细节统一收进本卡每条末尾的「技术细节」折叠。 */}
-        {KR_PLAIN_TIMELINE_CARD_VISIBLE && (
+            要求整块移除，工具细节统一收进本卡每条末尾的「技术细节」折叠。
+
+            后缀 plainTimelineOn 是**运行时**展示开关（「大盘设置 → 展示」里那枚），
+            与构建开关 KR_PLAIN_TIMELINE_CARD_VISIBLE 叠加：构建开关决定这张卡还
+            存不存在，运行时开关决定用户此刻要不要看。两个都开才渲染。 */}
+        {KR_PLAIN_TIMELINE_CARD_VISIBLE && plainTimelineOn && (
           <KrPlainTimelineCard
             timeline={plainTimeline}
             running={currentRunning}
@@ -978,6 +986,13 @@ export const KrAgentPanel = memo(function KrAgentPanel({
           )}
         </div>
       )}
+
+      {/* 大盘设置：齿轮按钮 + 从右侧滑入的设置抽屉（组件自带触发器与遮罩，
+          全部绝对定位、不参与大盘的 flex 流）。把原先只住在 composer「内置提示词
+          通道」悬浮卡里的 8 个开关搬到大盘上 —— 用户在大盘里干活时不必再回到
+          输入框去拨开关。数据面不变：6 条注入通道仍走 /api/dsh-memory/*，
+          2 条外观偏好仍是 localStorage。 */}
+      <KrPanelSettings sessionId={latestChatSessionId} />
 
       {shotOpen && (
         <ShotPanel

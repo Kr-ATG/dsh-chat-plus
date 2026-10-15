@@ -626,9 +626,12 @@ if (krEnabled) {
   const styleSrc = readFileSync(resolve(ROOT, 'src/client/styles.ts'), 'utf8')
   const toggleSrc = readFileSync(resolve(ROOT, 'src/client/triad/memory/Toggle.tsx'), 'utf8')
   const entrySrc = readFileSync(resolve(ROOT, 'src/client/index.ts'), 'utf8')
+  // 大盘设置抽屉：外观偏好开关的现居地（2026-10-15 从 composer 那张卡迁来）。
+  const drawerSrcRaw = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrPanelSettings.tsx'), 'utf8')
   // 注释里会提到这些选择器（当初为什么这么写的说明），比对前先把注释剥掉。
   const bareStyle = styleSrc.replace(/\/\*[\s\S]*?\*\//g, ' ')
   const bareToggle = toggleSrc.replace(/\/\*[\s\S]*?\*\//g, ' ')
+  const bareDrawer = drawerSrcRaw.replace(/\/\*[\s\S]*?\*\//g, ' ')
 
   // 1) 行为级：拨一下，body 属性真的挂上 / 摘掉。
   if (typeof mod.setReplyCardChromeEnabled !== 'function' || typeof mod.REPLY_PLAIN_ATTR !== 'string') {
@@ -713,15 +716,18 @@ if (krEnabled) {
         mod.installToolCallsVisible()
       }
     }
-    // 装配链：Toggle 展示组里有这一行、KrAgentPanel 消费它、index 初始化它。
-    if (!/toolCallsLabel/.test(toggleSrc) || !/setToolCallsVisible\(!toolCallsOn\)/.test(toggleSrc)) {
-      fail('Toggle 展示组缺「工具调用卡」开关行（label / onToggle 未接 setToolCallsVisible）')
+    // 装配链：大盘设置抽屉里有这一行、KrAgentPanel 消费它、index 初始化它。
+    //
+    // 2026-10-15：这一行原先住在 Toggle.tsx（composer 那张卡），随卡片删除迁到
+    // kr-chat/KrPanelSettings.tsx，断言对象随之迁移。
+    if (!/label="工具调用卡"/.test(bareDrawer) || !/setToolCallsVisible\(!toolCallsOn\)/.test(bareDrawer)) {
+      fail('大盘设置抽屉缺「工具调用卡」开关行（label / onToggle 未接 setToolCallsVisible）')
     } else if (!/toolCallsOn/.test(readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8'))) {
       fail('KrAgentPanel 未消费工具调用卡展示开关（拨了没反应）')
     } else if (!/installToolCallsVisible/.test(entrySrc)) {
       fail('index.ts 未初始化 installToolCallsVisible（刷新后不读盘、跨窗口不同步）')
     } else {
-      pass('工具调用卡展示开关：Toggle 行 / 大盘消费 / apply 初始化三处在位')
+      pass('工具调用卡展示开关：抽屉行 / 大盘消费 / apply 初始化三处在位')
     }
   }
 
@@ -753,56 +759,38 @@ if (krEnabled) {
     }
   }
 
-  // 3) 接线：开关真的在那张卡里，且走的是本地状态而不是注入通道。
+  // 3) 接线：开关真的在**大盘设置抽屉**里，且走的是本地状态而不是注入通道。
   //
-  // 「这一行是不是 SwitchRow」用**结构**判，不用字符窗口：`<SwitchRow[\s\S]{0,260}`
-  // 那种写法只要有人在这行上方补两句注释就误报（本仓刚踩过），而它测的东西跟
-  // 注释长度毫无关系。改成「从 replyChromeLabel 往前找最近的 <SwitchRow、
-  // 往后找最近的 />，且这段里不能再出现另一个 <SwitchRow」。
-  const labelAt = bareToggle.indexOf('replyChromeLabel')
-  const rowStart = labelAt < 0 ? -1 : bareToggle.lastIndexOf('<SwitchRow', labelAt)
-  const rowEnd = labelAt < 0 ? -1 : bareToggle.indexOf('/>', labelAt)
-  const inOneRow = rowStart >= 0 && rowEnd > rowStart
-    && !bareToggle.slice(rowStart, rowEnd).includes('<SwitchRow', 1)
-  const rowText = inOneRow ? bareToggle.slice(rowStart, rowEnd) : ''
-  if (!/BuiltinToggle/.test(bareToggle)) {
-    fail('Toggle.tsx 里找不到 BuiltinToggle（前置条件变了，需复核本断言）')
-  } else if (!/setReplyCardChromeEnabled\s*\(/.test(bareToggle)) {
-    fail('「内置提示词通道」卡里没有接上总结卡外观开关（用户点不到）')
-  } else if (!inOneRow) {
-    fail('总结卡外观开关必须渲染成一行独立的 SwitchRow（与同卡其余行同款）')
-  } else if (!/on=\{chromeOn\}/.test(rowText)) {
-    fail('那一行 SwitchRow 的 on 必须接本地状态 chromeOn（接错则开关显示与真实不一致）')
-  } else if (!/setReplyCardChromeEnabled\(!chromeOn\)/.test(rowText)) {
-    fail('那一行 SwitchRow 的 onToggle 必须写本地状态（不得误接 host 的 pushChannel）')
-  } else if (!/busy=\{false\}/.test(rowText)) {
-    fail('那一行的 busy 必须是 false（它写 localStorage，没有网络往返，不该被别的通道连坐变灰）')
+  // 2026-10-15 之前这三条断言的对象是 Toggle.tsx 的 BuiltinToggle（composer 那张
+  // 「内置提示词通道」卡）。用户要求删掉那张卡、把设置挪到 Seeker 旁边之后，
+  // 承载者换成 kr-chat/KrPanelSettings.tsx，断言对象随之迁移 —— 判据本身不变：
+  // 一行独立开关、接本地状态、busy 恒 false（写 localStorage 没有网络往返）。
+  const drawerSrc = bareDrawer
+  if (!/setReplyCardChromeEnabled\s*\(/.test(drawerSrc)) {
+    fail('大盘设置抽屉里没有接上总结卡外观开关（用户点不到）')
+  } else if (!/on=\{chromeOn\}/.test(drawerSrc)) {
+    fail('总结卡外观开关的 on 必须接本地状态 chromeOn（接错则开关显示与真实不一致）')
+  } else if (!/setReplyCardChromeEnabled\(!chromeOn\)/.test(drawerSrc)) {
+    fail('总结卡外观开关的 onToggle 必须写本地状态（不得误接 host 写入）')
   } else {
-    pass('总结卡外观开关：接在「内置提示词通道」卡里，一行独立 SwitchRow + 本地状态')
+    pass('总结卡外观开关：接在大盘设置抽屉里 + 本地状态')
   }
-  // 按钮开态只按**注入通道**算：把这行显示偏好算进去，会让「通道全关、只想要
-  // 无框卡片」的按钮显示成开着的入口。
-  //
-  // 按行抓取再逐项比对，不用 `^...$` 正则：`$` 不带 m 标志时只认字符串末尾，
-  // 那种断言会永远为假（本仓踩过同类坑）。
-  //
-  // 历史注记：曾是五条（含 diagramOn），2026-10-09 对话内流程图通道随图形
-  // iu kind（graph/arch/sequence）上线移除；2026-10-12 加入第五条 **mailOn**
-  // （Agent 邮箱声明）——它是实打实的注入通道（跨模块承载在 dsh-mail），
-  // 开着却不计入会让按钮显示成关，用户以为没生效。自动收口与总结卡外框仍
-  // **不在**此列：它们一个字都不进 prompt。
-  const anyOnLine = bareToggle.split('\n').find(line => line.includes('const anyOn ='))
-  const anyOnBody = anyOnLine === undefined ? '' : anyOnLine.slice(anyOnLine.indexOf('=') + 1).trim()
-  if (anyOnBody !== 'zhOn || htmlOn || soulOn || teamOn || mailOn') {
-    fail(`按钮开态 anyOn 必须只由五条注入通道决定（实得「${anyOnBody}」）`)
+  // 三条 localStorage 行的 busy 必须恒为 false：它们同步落盘、没有网络往返，
+  // 写成 busy={busy} 会让它们在别的 host 通道保存时莫名变灰、点不动。
+  const localRows = [drawerSrc.match(/busy=\{false\}/g)?.length ?? 0]
+  if (localRows[0] < 3) {
+    fail(`三条外观偏好行都该 busy={false}（实得 ${localRows[0]} 处）——写成 busy 会让它们被 host 保存连坐变灰`)
   } else {
-    pass('总结卡外观开关：按钮开态只按五条注入通道算（显示偏好与自动收口不冒充能力入口）')
+    pass(`外观偏好行 busy 恒 false（${localRows[0]} 处：总结卡外框 / 工具调用卡 / 操作面板）`)
   }
-  // 新增这一行后，卡片整体不该被误当成「第五条注入通道」——组标题必须存在。
-  if (!/displayGroupTitle/.test(bareToggle) || !/displayGroupTitle/.test(readFileSync(resolve(ROOT, 'src/client/triad/memory/locales.ts'), 'utf8'))) {
-    fail('总结卡外观开关必须用「展示」组标题与注入通道隔开（否则会被读成一条注入能力）')
+  // 抽屉必须两组分区：注入通道与纯外观不是一类东西，混一列会被读成同一种能力。
+  // 抽屉里的组标题是**硬编码中文**（与它其余 9 行同款），不走 i18n —— 断言按实际写法钉。
+  if (!/kr-settings__group-title">提示词通道|>提示词通道</.test(drawerSrc)) {
+    fail('大盘设置抽屉缺「提示词通道」组标题')
+  } else if (!/>展示</.test(drawerSrc)) {
+    fail('大盘设置抽屉缺「展示」组标题（外观偏好会被读成一条注入能力）')
   } else {
-    pass('总结卡外观开关：有独立组标题，与注入通道分区')
+    pass('大盘设置抽屉：两组分区（提示词通道 / 展示）在位')
   }
   // 初始化必须在 apply 阶段跑（挂晚了会先画一遍带框卡片再闪成纯正文）。
   if (!/installReplyCardChrome/.test(entrySrc.replace(/\/\*[\s\S]*?\*\//g, ' '))) {
@@ -885,19 +873,23 @@ if (!code.includes('data-dsh-anim-paused') || !code.includes('animation-play-sta
 }
 
 // 十三枚槽位：对话增强六枚（turn-process / assistant-step keyed / 截图按钮 /
-// download toolview / kr-todo-bridge / tools-gate 胶囊）+ 融合工作台六枚
+// download toolview / kr-todo-bridge / tools-gate 胶囊）+ 融合工作台五枚
 // （记忆 / 能力 / 邮箱三个工作台各两枚：main 页 + sidebar.panellist 菜单行，
-// 共 6；composer 两枚开关 dsh-memory-builtin-toggle / dsh-memory-inject-toggle；
+// 共 6；composer 开关 dsh-memory-inject-toggle；
 // skill toolview 一枚）+ 供应商设置页一枚（settings.section / provider-hub，
 // 2026-10-05 从工作台 Tab 撤回官方设置弹窗）
 // + 首 token 平均平铺桥一枚（input.dock / dsh-stats-ttft-flat，只做 DOM 追认）。
 // 座位 id/order/locale 全部原样保留；原 automation-notifier 随自动化模块一起下线，
 // ui-font 通用设置行随「界面字体」整块移除。
+//
+// 2026-10-15：composer 那枚 dsh-memory-builtin-toggle（内置提示词通道卡，order 98）
+// 按用户要求删除，槽位从 13 → 12。它的 9 个开关迁到 Seeker 右栏「大盘设置」抽屉，
+// 入口是顶栏 Seeker 标签右侧的齿轮（裸 DOM 注入，**不占槽位**）。
 const cell = (key) => registeredSlots.find((s) => s?.slot === 'conversation.chat.node' && s?.key === key)
-if (registeredSlots.length !== 13) {
-  fail(`expected 13 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
+if (registeredSlots.length !== 12) {
+  fail(`expected 12 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
 } else {
-  pass('registered 13 seats (6 chat-plus + 5 triad + 1 provider settings section + 1 ttft flat bridge)')
+  pass('registered 12 seats (6 chat-plus + 5 triad + 1 provider settings section + 1 ttft flat bridge)')
 }
 
 // 工具闸门卡片：挂在输入栏工具行**左端**（与记忆注入开关同一排），order 100。
@@ -1046,12 +1038,15 @@ if (memoryToggle === undefined) fail('missing triad seat conversation.input.left
 else if (memoryToggle.order !== 99) fail(`memory toggle order = ${memoryToggle.order}, expected 99`)
 else pass('seat conversation.input.left / dsh-memory-inject-toggle @ order 99 (triad)')
 
-// 内置提示词通道单独一枚按钮：两种不同的东西不挤一张卡里。
+// 2026-10-15：composer 的「内置提示词通道」座位（dsh-memory-builtin-toggle / order 98）
+// 按用户要求整块删除，其 9 个开关迁到 Seeker 右栏「大盘设置」抽屉。这里反向断言
+// 它**不再**被注册 —— 复活即意味着对话区又长出那张重复的卡。
 const builtinToggle = registeredSlots.find((s) => s?.slot === 'conversation.input.left' && s?.id === 'dsh-memory-builtin-toggle')
-if (builtinToggle === undefined) fail('missing triad seat conversation.input.left / dsh-memory-builtin-toggle')
-else if (builtinToggle.order !== 98) fail(`builtin toggle order = ${builtinToggle.order}, expected 98`)
-else if (builtinToggle.order >= memoryToggle.order) fail('内置通道按钮必须排在记忆按钮左侧（order 更小）')
-else pass('seat conversation.input.left / dsh-memory-builtin-toggle @ order 98 (triad)')
+if (builtinToggle !== undefined) {
+  fail('dsh-memory-builtin-toggle 座位已删除（开关迁到 Seeker 右栏设置抽屉），不该再注册')
+} else {
+  pass('seat conversation.input.left / dsh-memory-builtin-toggle 已下线（开关迁至大盘设置抽屉）')
+}
 
 // 自动化完成通知（shell.overlay / automation-notifier）随 automation 模块一起下线：
 // 官方的 schedule 任务页自带提醒目录，这条壳子里的 toast 不该复活。
@@ -3443,6 +3438,211 @@ if (krEnabled) {
     pass('iu 卡片：图表可见性不依赖动画（无头截图 / 全局节流下不会变空卡）')
     pass('iu 卡片：钢琴 Web Audio 懒创建 + 指数包络 + 独立振荡器 + 悬停闸门')
     pass('iu 卡片：/iu 前缀式指令（不拦不改写、原文含前缀照发、源已注册 + 行为级验证）')
+  }
+}
+
+// ── Seeker 右栏大盘「设置」抽屉（齿轮按钮 → 8 个开关）──────────────────
+//
+// 这组断言全部盯**静默失效**：齿轮位置写错（参与大盘 flex 流）会把右栏挤变形；
+// 类名与样式表对不上则整个抽屉是裸 DOM；把抽屉写成条件渲染就丢了退场动画；
+// 忘了 busy 门控会让用户在写盘期间连点出竞态。这些都不会报错，只会"看着不对"。
+if (krEnabled) {
+  const settingsPath = resolve(ROOT, 'src/client/kr-chat/KrPanelSettings.tsx')
+  if (!existsSync(settingsPath)) {
+    fail('大盘设置抽屉组件 KrPanelSettings.tsx 缺失（大盘上那枚齿轮点不开）')
+  } else {
+    const raw = readFileSync(settingsPath, 'utf8')
+    const src = raw.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+    const agent = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8')
+
+    // 1) 装配：组件被大盘渲染，且拿到当前会话 id（/inject-state 要它）。
+    if (!/<KrPanelSettings/.test(agent)) {
+      fail('KrAgentPanel 未挂 KrPanelSettings（齿轮按钮不存在）')
+    } else if (!/sessionId=\{latestChatSessionId\}/.test(agent)) {
+      fail('KrPanelSettings 必须收到 latestChatSessionId（否则 host 状态读不出、开关是死的）')
+    } else {
+      pass('大盘设置：KrAgentPanel 装配 KrPanelSettings 并传入当前会话 id')
+    }
+
+    // 2) DOM 契约：类名逐字匹配样式表。改一边不改另一边就是裸 DOM（无样式、无动画）。
+    //
+    // 注意 `kr-panel-settings-btn`（顶栏齿轮）**不在这里** —— 它由
+    // kr-chat-controller 以裸 DOM 注入，属于下面第 10 条那组断言的范畴。
+    const required = [
+      'kr-settings__scrim', 'kr-settings',
+      'kr-settings__head', 'kr-settings__title', 'kr-settings__close',
+      'kr-settings__body', 'kr-settings__group', 'kr-settings__group-title',
+      'kr-settings__row', 'kr-settings__row--lead', 'kr-settings__main',
+      'kr-settings__label', 'kr-settings__hint', 'kr-settings__badge',
+      'kr-settings__switch', 'kr-settings__foot',
+    ]
+    const missingClass = required.filter(name => !src.includes(name))
+    const missingStyle = required.filter(name => !code.includes('.' + name))
+    if (missingClass.length > 0) {
+      fail(`KrPanelSettings 缺类名：${missingClass.join(', ')}（与样式契约不符）`)
+    } else if (missingStyle.length > 0) {
+      fail(`styles.ts 缺选择器：${missingStyle.join(', ')}（抽屉会是裸 DOM）`)
+    } else {
+      pass('大盘设置：16 个类名在组件与样式表两侧逐字对齐')
+    }
+
+    // 3) 开合走 data-open，且抽屉**常驻 DOM**（条件渲染会丢掉退场动画）。
+    if (!/data-open=/.test(src)) {
+      fail('抽屉开合缺少 data-open 判据（样式表按它决定可见性）')
+    } else if (!/aria-hidden=\{!open\}|aria-hidden=\{!opened\}/.test(src)) {
+      fail('抽屉未把 aria-hidden 绑到开合状态（读屏会把隐藏的抽屉念出来）')
+    } else {
+      pass('大盘设置：开合走 data-open + aria-hidden（DOM 常驻，退场动画保得住）')
+    }
+
+    // 4) 三条关闭通路：Esc / 遮罩 / 抽屉关闭按钮。
+    //
+    // 「再点齿轮收起」那条不在本文件 —— 齿轮在顶栏，由 controller 负责。
+    if (!/Escape/.test(src)) {
+      fail('抽屉没接 Esc 关闭（键盘用户出不去）')
+    } else if (!/setOpen\(false\)/.test(src)) {
+      fail('遮罩或关闭按钮没接关闭动作（store.setOpen(false)）')
+    } else {
+      pass('大盘设置：Esc / 遮罩 / 关闭按钮三条关闭通路在位')
+    }
+
+    // 5) 数据面：复用 composer 那张卡的**同一套**归一化口径，不写第二套。
+    //    两套口径（谁 !== false 谁 === true）会让同一个开关在两处显示成两个值。
+    if (!/normalizeInjectState/.test(src) || !/FALLBACK_INJECT_STATE/.test(src)) {
+      fail('KrPanelSettings 必须复用 Toggle.tsx 的 normalizeInjectState / FALLBACK_INJECT_STATE（第二套兜底口径会让同一开关显示成两个值）')
+    } else if (!/createMemoryApi/.test(src)) {
+      fail('KrPanelSettings 未接 host 数据面（createMemoryApi）')
+    } else if (!/getInjectState/.test(src)) {
+      fail('KrPanelSettings 打开时未拉取 /inject-state（展开看到的可能是过期状态）')
+    } else {
+      pass('大盘设置：复用同一套归一化口径 + 打开时重拉 host 状态')
+    }
+
+    // 6) 8 个开关逐一在位：6 条注入通道走 host，2 条外观偏好走 localStorage。
+    const hostWriters = [
+      'setZhInjectState', 'setHtmlInjectState', 'setSoulInjectState',
+      'setTeamInjectState', 'setTodoClosureState', 'setMailInjectState',
+    ]
+    const missingWriter = hostWriters.filter(name => !src.includes(name))
+    if (missingWriter.length > 0) {
+      fail(`大盘设置缺写入口：${missingWriter.join(', ')}`)
+    } else if (!/setReplyCardChromeEnabled/.test(src) || !/setToolCallsVisible/.test(src)) {
+      fail('大盘设置缺两条外观偏好写入口（总结卡外框 / 工具调用卡）')
+    } else if (!/subscribeReplyCardChrome/.test(src) || !/subscribeToolCallsVisible/.test(src)) {
+      fail('外观偏好必须用 useSyncExternalStore 订阅（否则别的窗口改了本面板不跟随）')
+    } else if (!/busy/.test(src)) {
+      fail('host 写入缺少 busy 门控（写盘期间连点会出竞态，开关状态弹来弹去）')
+    } else {
+      pass('大盘设置：6 条注入通道 + 3 条外观偏好共 9 个开关接线完整（含 busy 门控）')
+    }
+
+    // 6b) 操作面板显隐（同族第三条）：抽屉里一行 + 大盘消费 + apply 初始化，
+    //     三处缺一，用户拨了就没反应（而这既不报错也不打日志）。
+    //
+    // 注意两处的文案来源**刻意不同**：抽屉里的行是硬编码中文（与它其余 8 行同款），
+    // composer 侧走 i18n 键 plainTimelineLabel（键保留给别处复用/将来再入口）。
+    // 断言要按各自的实际写法钉，不能拿 i18n 键去要求硬编码的那份。
+    if (!/label="操作面板"/.test(src) || !/setPlainTimelineVisible\(!plainTimelineOn\)/.test(src)) {
+      fail('大盘设置缺「操作面板」开关行（label / onToggle 未接 setPlainTimelineVisible）')
+    } else if (!/plainTimelineOn/.test(src)) {
+      fail('大盘设置未消费操作面板展示开关（拨了没反应）')
+    } else if (!/plainTimelineVisible/.test(agent)) {
+      fail('KrAgentPanel 未消费操作面板展示开关（右栏那张卡不会隐藏）')
+    } else if (!/KR_PLAIN_TIMELINE_CARD_VISIBLE && plainTimelineOn/.test(agent)) {
+      fail('操作面板的运行时开关必须与构建开关 KR_PLAIN_TIMELINE_CARD_VISIBLE 叠加（两个都开才渲染）')
+    } else if (!/installPlainTimelineVisible/.test(readFileSync(resolve(ROOT, 'src/client/index.ts'), 'utf8'))) {
+      fail('client/index.ts 未初始化 installPlainTimelineVisible（刷新后不读盘、跨窗口不同步）')
+    } else {
+      pass('大盘设置：操作面板开关三处在位（抽屉行 / 大盘消费 / apply 初始化）')
+    }
+
+    // 7) 邮箱三态：模块没挂时**不许**渲染开关（拨不动的开关是骗人）。
+    if (!/mailAvailable/.test(src) || !/mailInjectBadge|不可用/.test(src)) {
+      fail('邮箱行缺「模块未挂 → 不给开关、只给不可用徽标」的分支')
+    } else {
+      pass('大盘设置：邮箱行三态分级（未挂载时不给拨不动的开关）')
+    }
+
+    // 8) 定位硬约束：**留在右栏的那两块**必须绝对定位。大盘是 flex column +
+    //    overflow:hidden，任何 static 子节点都会参与 flex 流、把右栏撑变形。
+    //
+    //    顶栏齿轮 `.kr-panel-settings-btn` **恰恰相反**：它在官方标签行里，
+    //    必须留在文档流 —— 写成 absolute 会飘出标签行。两条相反的约束都要钉，
+    //    因为改错任何一边都是"看着不对"，而它们长得几乎一样。
+    for (const cls of ['kr-settings__scrim', 'kr-settings']) {
+      const rule = new RegExp('\\.' + cls + '\\s*\\{([^}]*)\\}').exec(code)?.[1] ?? ''
+      if (rule === '') {
+        fail(`未找到 .${cls} 样式规则`)
+      } else if (!/position:\s*absolute/.test(rule)) {
+        fail(`.${cls} 必须 position:absolute（否则参与大盘 flex 流，把右栏撑高/挤变形）`)
+      }
+    }
+    const gearRule = /\.kr-panel-settings-btn\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
+    if (gearRule === '') {
+      fail('未找到 .kr-panel-settings-btn 样式规则（顶栏齿轮无样式）')
+    } else if (/position:\s*absolute/.test(gearRule)) {
+      fail('.kr-panel-settings-btn 必须留在文档流（absolute 会让它飘出官方标签行）')
+    } else if (!/flex:\s*none/.test(gearRule)) {
+      fail('.kr-panel-settings-btn 需要 flex:none（否则会被标签行压扁）')
+    }
+    // 遮罩平时不能拦点击：大盘上所有卡片都要点得到。
+    const scrimRule = /\.kr-settings__scrim\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
+    if (!/pointer-events:\s*none/.test(scrimRule)) {
+      fail('.kr-settings__scrim 常态必须 pointer-events:none（否则关着也挡住大盘全部交互）')
+    } else {
+      pass('大盘设置：右栏两块绝对定位 + 顶栏齿轮留在文档流（两条相反约束都对）')
+    }
+
+    // 9) 动效与减弱动效兜底：可见性不许依赖动画。
+    if (!/kr-settings[^}]*translateX\(/.test(code)) {
+      fail('抽屉缺少滑入位移（用户要求带动效，静态显隐不算做到位）')
+    } else if (!/prefers-reduced-motion[\s\S]{0,900}?\.kr-settings/.test(code)) {
+      fail('缺少 prefers-reduced-motion 兜底（减弱动效用户的抽屉可能停留在不可见态）')
+    } else {
+      pass('大盘设置：滑入位移 + 减弱动效兜底在位')
+    }
+
+    // 10) 入口位置：齿轮注入到顶栏标签行、紧跟 Seeker（用户 2026-10-15 点名要求）。
+    //     这是本轮最核心的诉求，且**不会报错**：位置写错只是"按钮跑到别的地方去"。
+    const ctrl = readFileSync(resolve(ROOT, 'src/client/kr-chat/kr-chat-controller.tsx'), 'utf8')
+    if (!/id = 'kr-panel-settings-btn'/.test(ctrl) && !/id\s*=\s*'kr-panel-settings-btn'/.test(ctrl)) {
+      fail('controller 未注入顶栏设置按钮（kr-panel-settings-btn）')
+    } else if (!/insertAdjacentElement\('afterend', btn\)/.test(ctrl)) {
+      fail('设置按钮必须插在 Seeker 标签**之后**（afterend）——插到别处就不是"Seeker 旁边"')
+    } else if (!/getElementById\('kr-chat-tab-btn'\)/.test(ctrl)) {
+      fail('设置按钮的定位锚点必须是 Seeker 标签（kr-chat-tab-btn）')
+    } else if (!/getPanelSettingsStore|panel-settings-store/.test(ctrl)) {
+      fail('controller 必须经共享 store 与抽屉联动（否则点了不开/关不掉）')
+    } else {
+      pass('大盘设置入口：顶栏齿轮紧跟 Seeker 标签 + 经共享 store 联动抽屉')
+    }
+
+    // 11) 共享 store 的跨 bundle 共享语义：live reload 会让模块级单例分叉，
+    //     表现为"点按钮抽屉不开"。必须挂 window + 品牌字段判别。
+    const storeSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/panel-settings-store.ts'), 'utf8')
+    if (!/__dshChatPlusPanelSettings__/.test(storeSrc) || !/STORE_BRAND/.test(storeSrc)) {
+      fail('panel-settings-store 必须挂 window + 品牌字段（否则 live reload 后两份 store 分叉，按钮点了不开）')
+    } else {
+      pass('大盘设置：共享 store 跨 bundle 共享（window 槽位 + 品牌判别）')
+    }
+
+    // 12) composer 那张重复的卡必须**彻底**消失：座位、导出、组件三者缺一即复活。
+    //
+    // 必须先剥注释：本次改动恰恰在注释里反复说明"旧的那套已经删掉、为什么删"，
+    // 拿原文匹配会把说明文字当成残留（本仓踩过这类假阳性）。
+    const memIndex = readFileSync(resolve(ROOT, 'src/client/triad/memory/index.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+    const toggleFile = readFileSync(resolve(ROOT, 'src/client/triad/memory/Toggle.tsx'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+    if (/dsh-memory-builtin-toggle/.test(memIndex)) {
+      fail('composer 的 builtin-toggle 座位已删除，不该再注册（对话区又长出重复的卡）')
+    } else if (/export function BuiltinToggle/.test(toggleFile)) {
+      fail('BuiltinToggle 组件已删除，不该再导出（留着就会被重新挂回去）')
+    } else if (/\bBuiltinToggle\b/.test(memIndex)) {
+      fail('triad/memory/index.ts 仍引用 BuiltinToggle（应已随之删除）')
+    } else {
+      pass('composer 重复卡已彻底删除（座位 / 组件 / 引用三处都干净）')
+    }
   }
 }
 
