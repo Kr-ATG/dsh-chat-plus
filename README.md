@@ -419,6 +419,27 @@ New-Item -ItemType Junction -Path "$env:USERPROFILE\.dsh\profiles\web\node_modul
 - **输入框左侧**：记忆注入、提示词通道、工具闸门
 - **工作台记忆页**：总结卡外框开关（关掉后总结卡不留边框与阴影，退回纯正文）
 
+### 浏览器按需拉起
+
+浏览器操作工具（`mcp__playwright-mcp__*`）需要一个开着 CDP 端口的 Chrome 作为 attach 目标。
+本插件会在**第一次调用浏览器工具时**才把它拉起来，之后**空闲 5 分钟自动关掉** ——
+不用再让计划任务开机常驻一个 Chrome（实测常驻约占 1GB 内存）。
+
+- **平时不占内存**：没调用浏览器工具时，没有这个 Chrome 进程。
+- **首次调用会多等约 0.3 秒**：冷启动耗时，之后每次调用都很快。
+- **关掉后下次再调用会自动重新拉起**，不需要重启 DSH，也不需要手动做什么。
+- **只关自己拉起的那个**：你自己手动开的 Chrome 不会被碰。
+- **登录态保留**：用的是独立 profile（`%LOCALAPPDATA%\dsh-chrome`），cookie 与登录态持久化，
+  关掉再拉起不会掉登录。
+
+默认值（`cordis.patch.yml` 的 `browserOnDemand` 段可改）：
+
+| 项 | 默认 | 说明 |
+|---|---|---|
+| `port` | `9222` | attach 端口，要与 `browser-use-playwright-mcp` 的 `endpoint` 一致 |
+| `idleMs` | `300000` | 空闲多久关掉（毫秒），`0` = 不自动关 |
+| `enabled` | `true` | 总开关，关掉则退回「自己保证 9222 上有 Chrome」 |
+
 ### 环境变量
 
 | 变量 | 用途 |
@@ -559,6 +580,8 @@ src/
 ├── mail/                       邮箱工作台 host
 ├── provider/                   供应商 host（代理 / 密钥环 / 搜索）
 ├── triad/                      工作台 host（记忆引擎 / 用量 / 技能）
+├── browser/                    Chrome 进程管理（启动 / CDP）
+├── browser-on-demand/          浏览器按需拉起（调用时启动 + 空闲关停）
 └── shot/                       截图引擎（无头浏览器）
 ```
 

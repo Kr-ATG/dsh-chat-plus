@@ -37,6 +37,7 @@ import { applyTriadHost } from './triad/host.ts'
 import { applyProviderHub, providerHubServices } from './provider/index.ts'
 import { applyMailHost } from './mail/index.ts'
 import { applyToolsGate } from './tools-gate/index.ts'
+import { applyBrowserOnDemand } from './browser-on-demand/index.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
 export { applyMailHost } from './mail/index.ts'
 export type { MailHostConfig, MailHostHandle } from './mail/index.ts'
@@ -44,6 +45,20 @@ export type { MailHostConfig, MailHostHandle } from './mail/index.ts'
 // 钉住「默认全关 → 每轮省掉那 80 个工具的 schema」这条主回归。
 export { applyToolsGate, __test as toolsGateTest, DEFAULT_GATE_GROUPS } from './tools-gate/index.ts'
 export type { GateConfig, GateGroup } from './tools-gate/index.ts'
+// 浏览器按需拉起：纯函数与状态机导出给 smoke（等待/去重/空闲关停/归属认领
+// 这四条错了都不会抛错，只会表现为「Chrome 没起来」或「常驻不关」）。
+export {
+  applyBrowserOnDemand,
+  OnDemandBrowser,
+  isBrowserTool,
+  waitForCdp,
+  resolveBrowserOnDemandConfig,
+  DEFAULT_ATTACH_PORT,
+  DEFAULT_IDLE_MS,
+  BROWSER_TOOL_PREFIX,
+  __test as browserOnDemandTest,
+} from './browser-on-demand/index.ts'
+export type { BrowserOnDemandConfig, OwnershipMarker } from './browser-on-demand/index.ts'
 // 纯函数再导出：供 smoke 直接断言「CLI 英文报错翻成人话」的映射表。
 export { humanizeCliError } from './mail/cli.ts'
 // 画廊的可测面（索引准入 / raw 路径解析纯函数）：供 smoke 对拍「相对路径按会话
@@ -185,7 +200,7 @@ function handleGeneratedImages(ctx: Record<string, any>, req: any, res: any): vo
  * 且服务销毁时 webCtx.effect 注册的路由自动回收。与 packages/api/gateway
  * 的写法一致。
  */
-export function apply(ctx: Record<string, any>, config?: { mail?: Record<string, unknown>; toolsGate?: Record<string, unknown> }): void {
+export function apply(ctx: Record<string, any>, config?: { mail?: Record<string, unknown>; toolsGate?: Record<string, unknown>; browserOnDemand?: Record<string, unknown> }): void {
   ctx.inject(['webServer'], (webCtx: any) => {
     // 生图画廊：spill 结果读取（exact 路由）。
     webCtx.effect(() => webCtx.webServer.register({
@@ -283,6 +298,21 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
   } catch (error) {
     ctx.logger?.warn?.(
       `[dsh-chat-plus] tools gate failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+    )
+  }
+
+  // ── 浏览器按需拉起（browser-use 的 attach 目标）────────────────────────
+  // 取代原先「Windows 计划任务常驻 Chrome」的做法：命中浏览器工具调用时
+  // 才拉起 9222 实例，空闲 5 分钟关掉自己拉起的那个。见
+  // src/browser-on-demand/index.ts 的实测依据（MCP 懒连接 + 自愈）。
+  //
+  // 与闸门同理：延迟注入回调里抛错会从 apply 冒出去、中断后面所有 inject，
+  // 所以这里单独兜底，任何意外都只让「按需拉起」失效（退回手动启动 Chrome）。
+  try {
+    applyBrowserOnDemand(ctx as never, (config?.browserOnDemand ?? {}) as never)
+  } catch (error) {
+    ctx.logger?.warn?.(
+      `[dsh-chat-plus] browser-on-demand failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
     )
   }
 }
