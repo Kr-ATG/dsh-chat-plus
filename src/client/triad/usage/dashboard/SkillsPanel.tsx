@@ -67,7 +67,7 @@ type PanelState =
 /** ---------------------------------------------------------------- 文案与参数 */
 
 const SKILL_ZH: Record<string, string> = {
-  panelTitle: '能力管理', close: '关闭', loading: '正在读取技能…',
+  panelTitle: 'SKILL', close: '关闭', loading: '正在读取技能…',
   error: '暂时无法读取技能。', retry: '重试',
   uploadMeta: '{n} 个文件 · {folder}',
   fileCount: '{n} 文件', expandSkillFiles: '展开技能文件', previewLoading: '正在加载内容…', viewerNav: '技能文件', viewerFont: '字号', viewerFull: '全屏查看', viewerExitFull: '退出全屏', viewerFilesCount: '{n} 个文件', assignToBundle: '归入 Bundle', assignTitle: '将「{name}」归入', assignEmpty: '还没有技能包,先点「新建 Bundle」创建一个。', deleteSkillBtn: '删除技能',
@@ -313,6 +313,7 @@ const css = {
   // 筛选行：分类 / 启用状态（与官方「自动化任务」页同一套 filter tab）
   filterRow: 'skm-filter-row',
   filterTabs: 'skm-filter-tabs',
+  filterTabsRight: 'skm-filter-tabs-right',
   filterTab: 'skm-filter-tab',
   filterDivider: 'skm-filter-divider',
   addCard: 'skm-add-card',
@@ -501,6 +502,8 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 /* 筛选行：与官方「自动化任务」页同一套 filter tab（纯文字胶囊，无边框） */
 .skm-filter-row{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:12px 16px 2px}
 .skm-filter-tabs{flex-wrap:wrap;align-items:center;gap:8px 12px;display:flex}
+/* 启用状态组：靠右（margin-left:auto 吃掉中间空白），与左侧分类分开 */
+.skm-filter-tabs-right{flex-wrap:wrap;align-items:center;gap:8px 12px;display:flex;margin-left:auto}
 .skm-filter-tab{flex:none;display:inline-flex;align-items:center;height:28px;box-sizing:border-box;border:0;border-radius:14px;background:transparent;padding:0 10px;font-family:inherit;font-size:14px;line-height:22px;color:var(--dsw-alias-label-tertiary,#81858c);white-space:nowrap;cursor:pointer;transition:background 140ms ease,color 140ms ease}
 .skm-filter-tab:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.04))}
 .skm-filter-tab[data-active]{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.04));color:var(--dsw-alias-label-primary,#1f2430)}
@@ -521,10 +524,11 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 .skm-add-btn:hover{background:var(--dsw-alias-state-business-primary);box-shadow:0 2px 8px color-mix(in srgb,var(--dsw-alias-state-business-primary) 40%,transparent);transform:translateY(-1px)}
 .skm-add-btn:active{transform:translateY(0) scale(.98)}
 .skm-hub-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-.skm-main-scroll{flex:1;min-height:0;overflow-y:auto;padding:12px 16px 20px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-content:start;align-items:start}
+/* 主区：单列整宽列表（与官方「自动化任务」页同构）。
+   旧版是两列网格 —— 宽屏下每个技能包只占半屏，右侧留一大片空白，用户要求铺满。 */
+.skm-main-scroll{flex:1;min-height:0;overflow-y:auto;padding:12px 16px 20px;display:flex;flex-direction:column;gap:10px}
 .skm-hub-section{min-width:0}
-.skm-hub-section[data-open]{grid-column:1/-1}
-.skm-main-scroll>.skm-status{grid-column:1/-1}
+.skm-main-scroll>.skm-status{flex:none}
 .skm-hub-section{display:flex;flex-direction:column;min-width:0}
 .skm-no-result{padding:18px 4px;font-size:13px;line-height:20px;color:var(--dsw-alias-label-tertiary,#81858c)}
 
@@ -647,7 +651,7 @@ body[data-ds-dark-theme] .skm-bundle-missing{color:#f0c48a}
   .skm-viewer-nav{width:100%;border-right:none;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(255,255,255,.08));flex:none;max-height:38%}
   .skm-viewer-content{flex:1;min-height:0;padding:16px 14px 28px}
   .skm-skill-grid{grid-template-columns:minmax(0,1fr)}
-  .skm-main-scroll{padding:12px 12px 20px;grid-template-columns:minmax(0,1fr)}
+  .skm-main-scroll{padding:12px 12px 20px}
 }
 
 /* ── 减弱动效：卡片入场/悬停位移与开关回弹全部收敛 ───────────── */
@@ -1751,7 +1755,8 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
 
           {hasCategories && <span className={css.filterDivider} aria-hidden="true" />}
 
-          <div className={css.filterTabs} role="group" aria-label={t('statusAll')}>
+          {/* 启用状态靠右（用户 2026-10 要求）：分类在左、状态在右，中间留白 */}
+          <div className={css.filterTabsRight} role="group" aria-label={t('statusAll')}>
             {([['all', t('statusAll')], ['on', t('statusOn')], ['off', t('statusOff')]] as const).map(([value, label]) => (
               <button
                 key={value}

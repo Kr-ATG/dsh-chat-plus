@@ -1,7 +1,7 @@
 # dsh-chat-plus
 
 **DeepSeek Harness 的对话体验增强套件**：让对话读得更顺、能出可交互的卡片、把执行过程翻译成人话，
-再把灵魂 / 记忆 / 能力 / 用量 / 画廊 / 邮箱收成一排工作台。
+再把灵魂 / 记忆 / SKILL / 用量 / 画廊 / 邮箱收成一排工作台。
 
 零 DSH 源码改动 —— 全部能力以 Cordis 插件注入，官方升级不动它。
 
@@ -221,11 +221,12 @@ document.getElementById('b').onclick = () => { document.getElementById('v').text
 
 ![灵魂工作台](docs/shots/workbench-soul.jpg)
 
-### 能力（技能与 MCP）
+### SKILL
 
-管理技能（Skill）与 MCP Server：安装 / 停用 / 查看说明 / 健康检查 / 推荐列表。
+管理技能（Skill）：安装 / 停用 / 查看说明 / 归入技能包 / 设置分类。技能包与状态筛选在同一行，
+分类在左、启用状态在右。
 
-![能力工作台](docs/shots/workbench-skills.jpg)
+![SKILL 工作台](docs/shots/workbench-skills.jpg)
 
 ### 用量
 
@@ -488,7 +489,7 @@ New-Item -ItemType Junction -Path "$env:USERPROFILE\.dsh\profiles\web\node_modul
 
 ### 从 dsh-triad 过来
 
-**已融合，dsh-triad 退役。** 记忆 / 灵魂 / 用量 / 能力四个工作台整体并入本插件，
+**已融合，dsh-triad 退役。** 记忆 / 灵魂 / 用量 / SKILL 四个工作台整体并入本插件，
 **座位、路由前缀、设置命名空间、数据目录全部原样保留**，所以：
 
 - 你原有的记忆条目、用量统计**继续可用，不需要迁移**
@@ -574,7 +575,7 @@ src/
 │   ├── shot/                   对话截图（markdown + shiki + mermaid）
 │   ├── download/               download 工具前端
 │   ├── provider/               供应商中心 + 生图/识图/生视频 + 优化提示词
-│   ├── triad/                  工作台（记忆 / 灵魂 / 用量 / 能力 / 画廊）
+│   ├── triad/                  工作台（记忆 / 灵魂 / 用量 / SKILL / 画廊）
 │   ├── tools-gate/             工具闸门
 │   └── sidebar-doc/            侧边栏文档预览
 ├── mail/                       邮箱工作台 host

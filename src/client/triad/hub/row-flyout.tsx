@@ -55,7 +55,7 @@ export interface WorkbenchTabMeta {
 export const WORKBENCH_TABS: readonly WorkbenchTabMeta[] = [
   { id: 'soul', label: '灵魂', desc: '身份契约 · 卡片与预设' },
   { id: 'memory', label: '记忆', desc: '条目 · 变更 · 修订' },
-  { id: 'skills', label: '能力', desc: '技能包与技能开关' },
+  { id: 'skills', label: 'SKILL', desc: '技能包与技能开关' },
   { id: 'usage', label: '用量', desc: 'Token 消耗与活动热力' },
   { id: 'gallery', label: '画廊', desc: '图片 · 网页 · 文档产出' },
   { id: 'mail', label: '邮件', desc: 'Agent Mail 收件与回信' },

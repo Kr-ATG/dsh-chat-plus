@@ -1,12 +1,12 @@
 /**
- * skills-seat — 技能与 MCP 工作台的座位装配。
+ * skills-seat — 技能工作台的座位装配。
  *
  * 页面本体（`SkillsPanel`）走官方 `main` 槽位 + `sidebar.panellist` 菜单行，
  * 与记忆 / 邮箱两个工作台同一套（`../panel-seat.tsx`）；2026-10-04 之前这里是
  * 一条自绘的 `.dsh-nav-btn` 导航行 + portal 到 body 的 drawer 抽屉。
  *
- * 菜单行文案与原导航行保持一致（「能力」）；图标沿用那枚线性闪电（Feather zap，
- * 与记忆 / 邮箱的自绘图标同款描边）。
+ * 菜单行文案 2026-10 定为「SKILL」（原「能力」）；图标沿用那枚线性闪电
+ * （Feather zap，与记忆 / 邮箱的自绘图标同款描边）。
  */
 
 import { createElement } from 'react'
@@ -30,7 +30,7 @@ function ZapIcon({ size }: { size: number }): JSX.Element {
 export function applySkillsSeat(ctx: ClientContext): void {
   ctx.effect(() => registerPanelSeat(ctx, {
     id: SKILLS_PANEL_ID,
-    label: () => '能力',
+    label: () => 'SKILL',
     icon: ZapIcon,
     order: 25,
     render: (close) => createElement(SkillsPanel, { onClose: close }),
