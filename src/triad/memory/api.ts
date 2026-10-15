@@ -277,10 +277,32 @@ async function handle(
       const mailSource = getMailStatusSource()
       const mailSnapshot = mailSource === null ? null : mailSource.snapshot()
       if (mailSource !== null) void mailSource.refresh().catch(() => undefined)
+      /*
+       * 工作区「项目记忆记录开关」一并回传（= 项目 meta 的 autoMemory，写入侧闸门）。
+       *
+       * 为什么挂在 /inject-state 而不是另开端点：这个开关的消费点是**大盘设置
+       * 抽屉**，而抽屉本来就在读这份回包。另开一个 GET 等于让抽屉每次打开都多发
+       * 一个请求（composer 那张卡已经打过一分钟 498 次的请求风暴，教训在先）。
+       *
+       * cwd 缺失/空白一律走 null 三件套，**不**凭空造项目：`projectMemoryEnabled:
+       * null` 的语义是「不知道是哪个工作区」，UI 据此不渲染开关 —— 拨不动的开关
+       * 是骗人（也解释了为什么这里不像 config 那样给个默认 true 兜底）。
+       * cwd 存在时先用 projectHashOf 派生 hash，再读真实 meta，因此「没有 meta.json
+       * 的新工作区」会如实回 true（默认开），而不是回 null。
+       */
+      const workspaceCwd = (url.searchParams.get('cwd') ?? '').trim()
+      const projectHash = workspaceCwd === '' ? null : projectHashOf(workspaceCwd)
+      const projectMemoryEnabled = projectHash === null
+        ? null
+        : await store.isAutoMemoryEnabled(projectHash)
       json(res, 200, {
         enabled: explicit ?? defaultEnabled,
         defaultEnabled,
         explicit,
+        // 与 GET 同名同义，客户端读的是同一份字段（写回包见下面的 POST 分支）。
+        projectHash,
+        projectPath: projectHash === null ? null : workspaceCwd,
+        projectMemoryEnabled,
         zhEnabled,
         htmlEnabled,
         soulEnabled,
@@ -307,7 +329,44 @@ async function handle(
       const enabled = body.enabled === null ? null : body.enabled !== false
       await store.setInjectEnabled(sessionId, enabled)
       const defaultEnabled = config.injectDefaultEnabled !== false
-      json(res, 200, { ok: true, enabled: enabled ?? defaultEnabled, defaultEnabled, explicit: enabled !== null })
+      /*
+       * 工作区「项目记忆记录开关」（可选字段）：本端点回包与 GET 同名同义，
+       * 所以两个请求共用一份字段推导。
+       *
+       * **两个字段互不干扰**：只传 enabled 时下面整段是空转，行为与加字段前逐字
+       * 一致（注入开关是**读取**侧、每会话；项目记忆开关是**写入**侧、每工作区）。
+       *
+       * 写侧要求 `projectMemory` 是 boolean 且 cwd 非空 —— 没有工作区就不知道写
+       * 哪个项目，静默忽略（不报错）：把一个「关掉当前工作区记录」的意图落到
+       * 某个凭空造出来的项目上，比什么都不做更糟。
+       */
+      const workspaceCwd = (typeof body.cwd === 'string' ? body.cwd : '').trim()
+      if (typeof body.projectMemory === 'boolean' && workspaceCwd !== '') {
+        const hash = projectHashOf(workspaceCwd)
+        const meta = await store.readProjectMeta(hash)
+        // 读旧 meta → 只覆盖 autoMemory。整份 replace 会顺手抹掉 path / alias /
+        // locked / injectExcluded（改名、锁定归属、排除注入全丢），所以这里必须
+        // 展开旧值。meta 不存在时按 /remember 那套建一份最小 meta（含 path）：
+        // 新工作区第一次关开关就得能关掉，不能因为「目录里还没有 meta.json」静默失败。
+        await store.writeProjectMeta(hash, meta === undefined
+          ? { path: workspaceCwd, alias: null, locked: false, autoMemory: body.projectMemory }
+          : { ...meta, autoMemory: body.projectMemory })
+      }
+      // 回读真实值（不是回显请求里的意图值）：写失败/被别的路径改掉时，客户端
+      // 立刻能看出开关没落盘，而不是乐观更新后一直显示错的。
+      const projectHash = workspaceCwd === '' ? null : projectHashOf(workspaceCwd)
+      const projectMemoryEnabled = projectHash === null
+        ? null
+        : await store.isAutoMemoryEnabled(projectHash)
+      json(res, 200, {
+        ok: true,
+        enabled: enabled ?? defaultEnabled,
+        defaultEnabled,
+        explicit: enabled !== null,
+        projectHash,
+        projectPath: projectHash === null ? null : workspaceCwd,
+        projectMemoryEnabled,
+      })
       return
     }
 

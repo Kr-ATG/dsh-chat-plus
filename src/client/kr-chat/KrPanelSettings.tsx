@@ -12,17 +12,24 @@
  * createRoot 挂的树），props 传不过去，所以走共享 store 而不是组件内 state ——
  * 这是本文件相对上一版最大的结构变化（上一版齿轮与抽屉同在一个组件里）。
  *
- * 数据口径：6 条注入通道走 `/api/dsh-memory/*`，3 条外观偏好是 localStorage；归一化
- * 复用 Toggle.tsx 导出的 `normalizeInjectState` / `FALLBACK_INJECT_STATE`，不另写一套。
+ * 数据口径：6 条注入通道 + 1 条**工作区项目记忆记录**开关走 `/api/dsh-memory/*`
+ * （后者顺带复用 `/inject-state` 的 cwd / projectMemory 两个新字段，不另开端点），
+ * 3 条外观偏好是 localStorage；归一化复用 Toggle.tsx 导出的
+ * `normalizeInjectState` / `FALLBACK_INJECT_STATE`，不另写一套。
  * 踩过的坑：两处各写一份兜底口径（谁按 `!== false`、谁按 `=== true`）的结果，是同一个
  * 开关在两处显示成两个值 —— 用户会以为其中一个坏了，而两边读的是同一份 host 状态。
  *
- * 为什么分两组：「提示词通道」那几条真的会改注入文本（回合结束自动收口除外，见下），
+ * 为什么分三组：「提示词通道」那几条真的会改注入文本（回合结束自动收口除外，见下），
  * 「展示」那三条一个字都不进 prompt、只改本机观感。混在一列里，读者会以为「总结卡外框」
  * 也是往提示词里塞东西 —— 这正是本仓反复踩过的「两种不同的东西挤一张卡」的坑。
  * 自动收口（回合结束把残留的 in_progress 改回 pending）同属「插件内置、全局单值、无
  * 卸载入口」这一类能力，才并排放在注入组里；它一个字都不进 prompt 这件事由 hint 讲清。
  * 别把它挪进展示组：展示组是纯客户端 localStorage，而它走 host。
+ *
+ * 「工作区记忆」自成一组的理由（2026-10-15 新增）：它是**写入侧**（这个工作区要不要
+ * 记下新记忆），而「提示词通道」那一组是**读取侧**（把已有记忆注进提示词）—— 两件事
+ * 语义相反，并排放在一组会被读成同一种能力；它又**按工作区**存，与展示组那种全局
+ * 单值的 localStorage 偏好也不同源。所以既不能并进提示词通道，也不能塞进展示组。
  *
  * 为什么 DOM 常驻：`data-open` 是**唯一**开合判据，可见性交给 CSS 的
  * visibility / opacity / pointer-events。写成 `{open && <div/>}` 的话，关闭时元素直接从
@@ -43,6 +50,7 @@ import { FALLBACK_INJECT_STATE, normalizeInjectState } from '../triad/memory/Tog
 import { replyCardChromeEnabled, setReplyCardChromeEnabled, subscribeReplyCardChrome } from '../reply-card-chrome.js'
 import { setToolCallsVisible, subscribeToolCallsVisible, toolCallsVisible } from '../tool-calls-visible.js'
 import { setPlainTimelineVisible, subscribePlainTimelineVisible, plainTimelineVisible } from '../plain-timeline-visible.js'
+import { workspaceCwdOf } from '../client-ctx.js'
 import { getPanelSettingsStore } from './panel-settings-store.js'
 
 /**
@@ -81,9 +89,17 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
   const [state, setState] = useState<InjectStateView>(FALLBACK_INJECT_STATE)
   const [busy, setBusy] = useState(false)
 
-  /** 回读整份状态；失败按兜底形状（与 composer 卡同一份兜底，不另写）。 */
+  /**
+   * 回读整份状态；失败按兜底形状（与 composer 卡同一份兜底，不另写）。
+   *
+   * 顺带把**当前工作区**的 cwd 带上：抽屉里那行「工作区项目记忆记录」是按 cwd
+   * 派生的项目 hash 存的，不带 cwd 的话 host 只能回 null（不知道是哪个工作区），
+   * 那一行就永远显示成「未在工作区内」。cwd 每次请求都现取而不是缓存进 state：
+   * 右栏可以在同一个 sessionId 下换工作区，缓存会让开关指向上一个项目 —— 那会
+   * 变成**拨这个项目的开关、改的是另一个项目**，最不能接受的一类静默错误。
+   */
   const reload = useCallback((): void => {
-    void api.getInjectState(sessionKey)
+    void api.getInjectState(sessionKey, workspaceCwdOf(sessionKey))
       .then(res => { setState(normalizeInjectState(res)) })
       .catch(() => { setState(FALLBACK_INJECT_STATE) })
   }, [sessionKey])
@@ -182,6 +198,43 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
       .finally(() => { setBusy(false) })
   }, [reload])
 
+  /**
+   * 写「工作区项目记忆记录」开关（per-project `autoMemory`）。
+   *
+   * **独立于 pushChannel**：现有那几条 setter 各自只写自己的全局键，而这一条写的是
+   * **某个工作区**的项目元数据。合进 pushChannel 的话，两种「按什么维度存」的写入
+   * 混在一条分支链里，下一次改任何一边都容易顺手改到另一边 —— 这正是本仓反复踩的坑。
+   *
+   * 乐观更新 + 失败回读（与上面几条同一口径），但**回读要带 cwd**：host 写完后
+   * 会回读真实值，client 只认它回的 `projectMemoryEnabled`（布尔以外一律当作没拿到，
+   * 保留乐观值不复位）。cwd 传空串时 host 会静默忽略这次 projectMemory 写入 ——
+   * 所以调用点必须先确认 `projectCwd !== null` 才允许拨（下面渲染里就是这么判的）。
+   *
+   * 注意 `enabled` 原样传当前值：这个接口的 body 同时承载会话级注入开关，传
+   * `null` 会被 host 当成「清除本会话覆盖」，等于拨项目开关顺手把会话开关重置了。
+   */
+  const pushProjectMemory = useCallback((next: boolean): void => {
+    const cwd = workspaceCwdOf(sessionKey)
+    if (cwd === undefined) {
+      // 拿不到工作区就不该走到这里（渲染层已用 projectCwd 挡掉），兜底回读一次。
+      reload()
+      return
+    }
+    setBusy(true)
+    setState(prev => ({ ...prev, projectMemoryEnabled: next }))
+    void api.setInjectState(sessionKey, state.enabled !== false, { cwd, projectMemory: next })
+      .then(res => {
+        setState(prev => ({
+          ...prev,
+          projectMemoryEnabled: typeof res.projectMemoryEnabled === 'boolean' ? res.projectMemoryEnabled : prev.projectMemoryEnabled,
+          projectHash: typeof res.projectHash === 'string' && res.projectHash !== '' ? res.projectHash : prev.projectHash,
+          projectPath: typeof res.projectPath === 'string' && res.projectPath !== '' ? res.projectPath : prev.projectPath,
+        }))
+      })
+      .catch(reload)
+      .finally(() => { setBusy(false) })
+  }, [sessionKey, state.enabled, reload])
+
   const zhOn = state.zhEnabled !== false
   const htmlOn = state.htmlEnabled === true
   const soulOn = state.soulEnabled !== false
@@ -221,6 +274,36 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
   const toolCallsOn = useSyncExternalStore(subscribeToolCallsVisible, toolCallsVisible, toolCallsVisible)
   // 操作面板与上面两条同族：它也是「这张卡要不要出现在右栏」，同样只写 localStorage。
   const plainTimelineOn = useSyncExternalStore(subscribePlainTimelineVisible, plainTimelineVisible, plainTimelineVisible)
+
+  /*
+   * 工作区项目记忆记录（写入侧，per-project autoMemory，默认开）。
+   *
+   * 渲染判据是**当前工作区的 cwd**，不是 host 回的 projectMemoryEnabled：两者在正常
+   * 情况下一致，但「拿不到工作区」这件事只有 cwd 说得清。用 cwd 判「要不要渲染开关」、
+   * 用 host 回值判「开关在哪个位置」，于是不会出现「旧 host 还没重启、回包里没有新字段，
+   * 却也画出一个存不下的开关」这种假阳性 —— 拨不动的开关是骗人。
+   *
+   * cwd 每次渲染现取（workspaceCwdOf 只读快照、无副作用）而不是缓存进 state：右栏
+   * 可以在同一个 sessionId 下换工作区，缓存会让开关指向上一个项目 ——「拨这个项目的
+   * 开关、改的是另一个项目」是本仓最不能接受的一类静默错误。
+   */
+  const projectCwdRaw = workspaceCwdOf(sessionKey)
+  const projectCwd = projectCwdRaw !== undefined && projectCwdRaw !== '' ? projectCwdRaw : null
+  // 两件事都要成立才给开关：本机拿得到工作区 cwd **且** host 回包里带了工作区字段
+  // （projectPath 非 null，说明这版 host 认得 cwd / projectMemory 这套契约）。只满足
+  // 前者的旧 host 会回 null，那时给开关就是「拨了存不下」，同样走「不给开关」分支。
+  const projectKnown = projectCwd !== null && state.projectPath !== null
+  // 缺字段（旧 host / 请求失败）按「默认开」显示：这是**默认开**的能力，与 zh / soul
+  // 同口径；不要照 html / team 的 === true —— 那会让 client 已更新、host 还没重启的
+  // 那段窗口里开关自己跳一下。
+  const projectMemoryOn = state.projectMemoryEnabled !== false
+  const projectMemoryHint = projectCwd === null
+    ? '当前会话没有工作区，无法设置 —— 项目记忆按工作区分库记录。'
+    // 有工作区但 host 没回工作区字段（旧 host 还没重启）：同样不给开关。
+    // 画一个拨了存不下的开关，用户会以为关掉了，实际下一次回合照样记录。
+    : !projectKnown
+      ? '读取不到该工作区的项目记忆状态（宿主尚未提供此字段，重启 DSH 后再看）。'
+      : '关掉后这个工作区不再记录新记忆：不再自动提取，模型也不能手动往里记。已有记忆不受影响，照常参与注入。它管的是「记不记」，与「提示词通道」那组的注入（读取）是两回事。默认开。'
 
   return (
     <>
@@ -321,6 +404,43 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
             />
           </div>
 
+          {/* 「工作区记忆」自成一枚组标题：这一行是**写入侧**（这个工作区要不要记下
+              新记忆），与上面那组「提示词通道」（把已有记忆读着注进提示词）语义相反。
+              并排塞进上一组会被读成同一种能力 —— 用户关掉它以为只是「不注入」，
+              实际是整个工作区不再积累记忆。组说明写该行**按工作区**这条共性，
+              行 hint 只讲关掉后具体会怎样。 */}
+          <div className="kr-settings__group">
+            <span className="kr-settings__group-title">工作区记忆</span>
+            <span className="kr-settings__group-note">
+              按工作区（项目文件夹）分别记录，不是全局单值；换一个工作区就是另一份设置。
+            </span>
+            {/* 拿不到工作区就**不给开关**，只留一行说明：拨不动的开关是骗人。
+                判据是 `projectKnown`（cwd 拿得到 **且** host 回包里带了工作区字段）
+                而不是 host 回的 projectMemoryEnabled —— 旧 host 不回新字段时同样走
+                这个分支，不会画出一个存不下的开关。 */}
+            {projectKnown
+              ? (
+                <SettingsRow
+                  index={6}
+                  lead
+                  label="工作区项目记忆记录"
+                  hint={projectMemoryHint}
+                  on={projectMemoryOn}
+                  busy={busy}
+                  onToggle={() => { pushProjectMemory(!projectMemoryOn) }}
+                />
+              )
+              : (
+                <SettingsRow
+                  index={6}
+                  lead
+                  label="工作区项目记忆记录"
+                  hint={projectMemoryHint}
+                  tag="不可用"
+                />
+              )}
+          </div>
+
           {/* 展示组：与上面那几条**不是一类东西**，所以另起一枚组标题隔开。
               组说明承接标题、写该组**共性**（三条都是纯 localStorage 外观偏好：
               只改本机观感、不入 prompt、全局所有会话生效、随浏览器持久保存），
@@ -334,7 +454,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
               只改本机观感，一个字都不进提示词；全局所有会话生效，随本机浏览器持久保存（刷新 / 重启 DSH 后仍在）。悬停或聚焦某行可展开完整说明。
             </span>
             <SettingsRow
-              index={6}
+              index={7}
               lead
               label="总结卡外框"
               hint="关掉后 Seeker 对话流的总结卡不留边框与阴影，退回纯正文。"
@@ -346,7 +466,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
               onToggle={() => { setReplyCardChromeEnabled(!chromeOn) }}
             />
             <SettingsRow
-              index={7}
+              index={8}
               label="工具调用卡"
               hint="关掉后 Seeker 右栏不再显示技术向的「工具调用」台账（默认 5 行滚动窗口那张）；人话行动流不受影响。"
               on={toolCallsOn}
@@ -359,7 +479,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
                 人话的卡，关掉后右栏只剩技术台账，所以默认开、且 hint 要把这件事
                 说明白，免得用户关完发现"什么都不知道了"。 */}
             <SettingsRow
-              index={8}
+              index={9}
               label="操作面板"
               hint="关掉后 Seeker 右栏不再显示那张中文人话行动流（把工具调用翻译成「打开携程 · 机票」的卡）；工具调用台账与其余卡片不受影响。"
               on={plainTimelineOn}
@@ -370,7 +490,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
           </div>
         </div>
 
-        <p className="kr-settings__foot">硬编码在插件内、无卸载入口；全局单值，不受记忆注入开关影响。</p>
+        <p className="kr-settings__foot">硬编码在插件内、无卸载入口；其中「提示词通道」与「工作区记忆」是全局/按工作区存于 host 的开关（后者随工作区各不相同），「展示」那三条只在本机浏览器里生效。</p>
       </div>
     </>
   )

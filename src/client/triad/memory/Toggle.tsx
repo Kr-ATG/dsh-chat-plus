@@ -50,10 +50,16 @@ const HIDE_DELAY_MS = 120
  *
  * 邮箱（mail*）四个字段一律按「不可用」兜底：它是跨模块能力，旧 host 不回
  * 这些字段，猜一个值出来只会误导。
+ *
+ * 工作区三个字段（project*）一律按 null 兜底：null 是「不知道/不适用」，
+ * 而这三个字段的唯一消费者（大盘设置抽屉那行「工作区项目记忆记录」）正是靠
+ * null 决定**不渲染开关**。兜底成 true/false 会让它在拿不到工作区时凭空长出一个
+ * 拨了没用的开关 —— 拨不动的开关是骗人。
  */
 export const FALLBACK_INJECT_STATE: InjectStateView = {
   enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, htmlEnabled: true, soulEnabled: true, teamEnabled: false, todoClosureEnabled: true,
   mailEnabled: false, mailAvailable: false, mailWorkbenchEnabled: false, mailToolsMounted: false, mailAuthorized: false, mailAddress: null,
+  projectHash: null, projectPath: null, projectMemoryEnabled: null,
 }
 
 /**
@@ -91,6 +97,21 @@ export function normalizeInjectState(res: InjectStateView): InjectStateView {
     mailToolsMounted: res.mailToolsMounted === true,
     mailAuthorized: res.mailAuthorized === true,
     mailAddress: typeof res.mailAddress === 'string' ? res.mailAddress : null,
+    /*
+     * 工作区三字段与上面所有通道**刻意不同口径**：这里 null 是一个有意义的值
+     * （「不知道 / 不适用」），不是缺失兜底。
+     *
+     *  - projectMemoryEnabled：只有真 boolean 才认，其余（undefined / null /
+     *    字符串 / 数字）一律收敛成 null。旧 host 不回该字段 → null → UI 不渲染
+     *    开关。照 `!== false` 兜底会让「host 还没落地新契约」的那段窗口里凭空
+     *    长出一个显示为「开」的开关，而它拨不动也存不下 —— 正是本仓反复强调的
+     *    「拨不动的开关是骗人」。
+     *  - projectHash / projectPath：只有非空字符串才认，否则 null（空串是
+     *    「没有工作区」的另一种写法，收敛成同一个值，调用方只判 null 一处）。
+     */
+    projectMemoryEnabled: typeof res.projectMemoryEnabled === 'boolean' ? res.projectMemoryEnabled : null,
+    projectHash: typeof res.projectHash === 'string' && res.projectHash !== '' ? res.projectHash : null,
+    projectPath: typeof res.projectPath === 'string' && res.projectPath !== '' ? res.projectPath : null,
   }
 }
 

@@ -1019,6 +1019,136 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
     '抽屉写邮箱声明走 setMailInjectState（跨模块落 dsh-mail 的 injectEnabled）')
 }
 
+/*
+ * ── 工作区「项目记忆记录开关」（项目 meta 的 autoMemory）经 /inject-state 读写 ──
+ *
+ * 这个开关是**写入侧**的，不是注入（读取）侧：关掉它，该工作区不再自动提取记忆
+ * （index.ts:188 的提取闸门）、模型也不能手动记项目层（tools.ts:112 的写入闸门）。
+ * 宿主侧一直是同一个 per-project `autoMemory` 字段，本端点只是把它转出来给
+ * 「大盘设置」抽屉读、并接受回写，所以这组断言钉的是三件事：
+ *   1. 读得到**真值**（有 meta 读 meta、没 meta 走默认开）；
+ *   2. 写得到**盘上**（GET 回读得到、且 meta.json 真的存在）；
+ *   3. 写的时候**只覆盖 autoMemory**（alias / locked / injectExcluded / path 一个不丢）
+ *      —— 整份 replace 会把用户改过的别名和「锁定归属 / 排除注入」静默清空。
+ *
+ * 另外两条容易漏的语义：
+ *   · 无 cwd 时三件套必须是 null（不是 false、也不是凭空造一个项目）；
+ *   · `enabled`（每会话注入开关）与 `projectMemory`（每工作区记录开关）**互不干扰**
+ *     —— 只传 enabled 时回包与行为要和加字段前逐字一致。
+ *
+ * 隔离：DSH_HOME 已在脚本顶部指向工作区 `_tmp/smoke-triad-host-dsh-home`，临时
+ * 工作区目录也落在 `_tmp/` 下，全程碰不到用户真实的记忆库。
+ */
+{
+  const route = routes.get('/api/dsh-memory')
+  need(route !== undefined, 'memory prefix route reachable for the project-memory assertion')
+  if (route !== undefined) {
+    const { mkdirSync, readFileSync: readFile, writeFileSync, readdirSync } = await import('node:fs')
+    /** 临时工作区：真实存在的目录（路由只按路径派生 hash，不要求它是 DSH 工作区）。 */
+    const WORKSPACE = resolve(ROOT, '_tmp', 'project-memory-workspace')
+    mkdirSync(WORKSPACE, { recursive: true })
+    const projectsRoot = resolve(SMOKE_DSH_HOME, 'memories', 'dsh-memory', 'projects')
+    const metaPathOf = (hash) => resolve(projectsRoot, hash, 'meta.json')
+    const readMeta = (hash) => {
+      try { return JSON.parse(readFile(metaPathOf(hash), 'utf8')) } catch { return null }
+    }
+    const projectDirCount = () => {
+      try { return readdirSync(projectsRoot, { withFileTypes: true }).filter((e) => e.isDirectory()).length } catch { return 0 }
+    }
+    // handler 是异步的（且 POST 要走 readBody 的 data/end 两个事件），桩必须真的发事件。
+    const callJson = async (method, url, body) => {
+      const captured = { status: 0, body: null }
+      const res = {
+        writeHead: (status) => { captured.status = status },
+        end: (payload) => { try { captured.body = JSON.parse(payload) } catch { captured.body = null } },
+      }
+      const req = {
+        method,
+        url,
+        socket: { remoteAddress: '127.0.0.1' },
+        headers: { host: '127.0.0.1:3080' },
+        on: (event, handler) => {
+          if (event === 'data') handler(Buffer.from(JSON.stringify(body ?? {})))
+          else if (event === 'end') handler()
+          return req
+        },
+      }
+      route.handler(req, res)
+      await new Promise((r) => setTimeout(r, 120))
+      return captured
+    }
+
+    // ① 无 cwd：三件套全 null，且既有回包字段一个都不少（composer 卡片全靠这份回包）。
+    const none = await callJson('GET', '/api/dsh-memory/inject-state?sessionId=smoke-projmem')
+    need(none.status === 200, `GET /inject-state（无 cwd）answers 200（实得 ${none.status}）`)
+    need(none.body?.projectHash === null && none.body?.projectPath === null && none.body?.projectMemoryEnabled === null,
+      `无 cwd 时 project* 三件套全 null（实得 ${JSON.stringify({ h: none.body?.projectHash, p: none.body?.projectPath, e: none.body?.projectMemoryEnabled })}）`)
+    need(typeof none.body?.enabled === 'boolean' && typeof none.body?.defaultEnabled === 'boolean' && typeof none.body?.mailEnabled === 'boolean',
+      '新增字段不挤掉既有回包字段（enabled / defaultEnabled / mailEnabled 仍在）')
+
+    // ② 带 cwd 读：hash 是 12 位 hex、path 原样回显、开关默认开（meta 还不存在）。
+    const fresh = await callJson('GET', `/api/dsh-memory/inject-state?sessionId=smoke-projmem&cwd=${encodeURIComponent(WORKSPACE)}`)
+    need(typeof fresh.body?.projectHash === 'string' && /^[0-9a-f]{12}$/.test(fresh.body.projectHash),
+      `projectHash 是 12 位 hex（实得 ${JSON.stringify(fresh.body?.projectHash)}）`)
+    need(fresh.body?.projectPath === WORKSPACE, `projectPath 原样回显 cwd（实得 ${JSON.stringify(fresh.body?.projectPath)}）`)
+    need(fresh.body?.projectMemoryEnabled === true,
+      `meta 缺失时项目记忆默认开（实得 ${JSON.stringify(fresh.body?.projectMemoryEnabled)}）`)
+    const hash = fresh.body.projectHash
+    need(readMeta(hash) === null, '只读一次不带写：GET 不得凭空创建 meta.json')
+
+    // ③ 写入侧：POST projectMemory:false（meta 还不存在）→ 必须真的落盘，不能静默失败。
+    const off = await callJson('POST', '/api/dsh-memory/inject-state', {
+      sessionId: 'smoke-projmem', enabled: true, cwd: WORKSPACE, projectMemory: false,
+    })
+    need(off.status === 200 && off.body?.ok === true, `POST /inject-state（projectMemory:false）answers 200 ok（实得 ${off.status} / ${JSON.stringify(off.body)}）`)
+    need(off.body?.projectMemoryEnabled === false && off.body?.projectHash === hash && off.body?.projectPath === WORKSPACE,
+      `回包回读真实值 false（不是回显意图值，实得 ${JSON.stringify(off.body?.projectMemoryEnabled)}）`)
+    const created = readMeta(hash)
+    need(created !== null && created.autoMemory === false && created.path === WORKSPACE,
+      `meta 不存在时被创建且带上 path（实得 ${JSON.stringify(created)}）`)
+
+    // ④ 再 GET 同一 cwd：读到的必须是盘上的 false（证明落盘，而不是只在内存里）。
+    const afterOff = await callJson('GET', `/api/dsh-memory/inject-state?sessionId=smoke-projmem&cwd=${encodeURIComponent(WORKSPACE)}`)
+    need(afterOff.body?.projectMemoryEnabled === false,
+      `关闭后 GET 同一 cwd 读到 false（实得 ${JSON.stringify(afterOff.body?.projectMemoryEnabled)}）——读了却没落盘会让抽屉显示假状态`)
+
+    // ⑤ 只覆盖 autoMemory：先把 meta 写成带全字段的样子，再拨开关，其它字段一个都不能丢。
+    writeFileSync(metaPathOf(hash), JSON.stringify({
+      path: WORKSPACE, alias: '不要抹掉我', locked: true, injectExcluded: true, autoMemory: false,
+    }))
+    const back = await callJson('POST', '/api/dsh-memory/inject-state', {
+      sessionId: 'smoke-projmem', cwd: WORKSPACE, projectMemory: true,
+    })
+    need(back.body?.projectMemoryEnabled === true,
+      `POST projectMemory:true 能改回来（实得 ${JSON.stringify(back.body?.projectMemoryEnabled)}）`)
+    const kept = readMeta(hash) ?? {}
+    need(kept.alias === '不要抹掉我' && kept.locked === true && kept.injectExcluded === true && kept.path === WORKSPACE,
+      `写开关只覆盖 autoMemory，meta 其它字段不被抹掉（实得 ${JSON.stringify(kept)}）`)
+
+    // ⑥ `enabled` / `projectMemory` 互不干扰：只传 enabled 时新三件套走 null 分支，
+    //    既有三件套（ok/enabled/defaultEnabled/explicit）与加字段前逐字一致。
+    const enabledOnly = await callJson('POST', '/api/dsh-memory/inject-state', { sessionId: 'smoke-projmem', enabled: false })
+    need(enabledOnly.body?.enabled === false && enabledOnly.body?.explicit === true && enabledOnly.body?.defaultEnabled === true,
+      `只传 enabled 时既有回包语义不变（实得 ${JSON.stringify(enabledOnly.body)}）`)
+    need(enabledOnly.body?.projectHash === null && enabledOnly.body?.projectPath === null && enabledOnly.body?.projectMemoryEnabled === null,
+      '只传 enabled 时不得顺带改写任何项目开关（cwd 缺失 → 三件套 null）')
+    const afterEnabledOnly = await callJson('GET', `/api/dsh-memory/inject-state?sessionId=smoke-projmem&cwd=${encodeURIComponent(WORKSPACE)}`)
+    need(afterEnabledOnly.body?.projectMemoryEnabled === true,
+      '只拨会话注入开关不改工作区记录开关（两者互不干扰）')
+
+    // ⑦ 无 cwd 的 POST projectMemory：静默忽略（不报错、不写盘）——不知道是哪个项目时，
+    //    凭空造一个项目比什么都不做更糟（开关会落到一个用户看不见的 hash 上）。
+    const before = projectDirCount()
+    const noCwd = await callJson('POST', '/api/dsh-memory/inject-state', {
+      sessionId: 'smoke-projmem', enabled: true, projectMemory: false,
+    })
+    need(noCwd.status === 200 && noCwd.body?.ok === true, `无 cwd 时 POST projectMemory 不报错（实得 ${noCwd.status} / ${JSON.stringify(noCwd.body)}）`)
+    need(noCwd.body?.projectMemoryEnabled === null && noCwd.body?.projectHash === null,
+      '无 cwd 时 POST 不回一个假的项目状态（三件套仍为 null）')
+    need(projectDirCount() === before, `无 cwd 时 POST 不写任何项目目录（前 ${before} 后 ${projectDirCount()}）`)
+  }
+}
+
 const warns = logs.filter(([lvl]) => lvl === 'warn')
 if (warns.length > 0) {
   console.log('\n  warnings during apply:')

@@ -783,14 +783,18 @@ if (krEnabled) {
   } else {
     pass(`外观偏好行 busy 恒 false（${localRows[0]} 处：总结卡外框 / 工具调用卡 / 操作面板）`)
   }
-  // 抽屉必须两组分区：注入通道与纯外观不是一类东西，混一列会被读成同一种能力。
-  // 抽屉里的组标题是**硬编码中文**（与它其余 9 行同款），不走 i18n —— 断言按实际写法钉。
+  // 抽屉必须三组分区：注入通道 / 按工作区的记录开关 / 纯外观，三者混一列会被读成同一种能力。
+  // 抽屉里的组标题是**硬编码中文**（与它其余各行同款），不走 i18n —— 断言按实际写法钉。
   if (!/kr-settings__group-title">提示词通道|>提示词通道</.test(drawerSrc)) {
     fail('大盘设置抽屉缺「提示词通道」组标题')
+  } else if (!/>工作区记忆</.test(drawerSrc)) {
+    // 「项目记忆记录」是**写入侧**且**按工作区**存：并进「提示词通道」（读取侧、全局单值）
+    // 会被读成同一种能力，用户关掉它以为只是「不注入」，实际是整个工作区不再积累记忆。
+    fail('大盘设置抽屉缺「工作区记忆」组标题（写入侧开关被混进注入组，语义会被读错）')
   } else if (!/>展示</.test(drawerSrc)) {
     fail('大盘设置抽屉缺「展示」组标题（外观偏好会被读成一条注入能力）')
   } else {
-    pass('大盘设置抽屉：两组分区（提示词通道 / 展示）在位')
+    pass('大盘设置抽屉：三组分区（提示词通道 / 工作区记忆 / 展示）在位')
   }
   // 初始化必须在 apply 阶段跑（挂晚了会先画一遍带框卡片再闪成纯正文）。
   if (!/installReplyCardChrome/.test(entrySrc.replace(/\/\*[\s\S]*?\*\//g, ' '))) {
@@ -3582,7 +3586,7 @@ if (krEnabled) {
   }
 }
 
-// ── Seeker 右栏大盘「设置」抽屉（齿轮按钮 → 8 个开关）──────────────────
+// ── Seeker 右栏大盘「设置」抽屉（齿轮按钮 → 10 个开关）──────────────────
 //
 // 这组断言全部盯**静默失效**：齿轮位置写错（参与大盘 flex 流）会把右栏挤变形；
 // 类名与样式表对不上则整个抽屉是裸 DOM；把抽屉写成条件渲染就丢了退场动画；
@@ -3660,12 +3664,29 @@ if (krEnabled) {
       pass('大盘设置：复用同一套归一化口径 + 打开时重拉 host 状态')
     }
 
-    // 6) 8 个开关逐一在位：6 条注入通道走 host，2 条外观偏好走 localStorage。
+    // 6) 开关逐一在位：7 条 host 通道（6 条注入 + 1 条按工作区的「工作区项目记忆记录」）
+    //    + 3 条外观偏好。
+    //
+    //    行数**从源码推导**（数 `<SettingsRow`），不写死数字：写死过一次，加了新行之后
+    //    断言与常量就成了两个事实源，改一处漏一处只会得到一个「看起来在测、其实没测」
+    //    的绿勾。同理下面校验 `--row-i` 序号必须是从 0 起连续的整数 —— 新增行忘了顺延
+    //    后面的序号，错开浮现会两行同时冒出来，而这既不该报错也不会打日志。
     const hostWriters = [
       'setZhInjectState', 'setHtmlInjectState', 'setSoulInjectState',
       'setTeamInjectState', 'setTodoClosureState', 'setMailInjectState',
     ]
     const missingWriter = hostWriters.filter(name => !src.includes(name))
+    const rowCount = (src.match(/<SettingsRow\b/g) ?? []).length
+    // 12 处 = 4（中文 / 交互卡片 / 灵魂 / 团队）+ 2（邮箱「给开关 / 给角标」两分支）
+    //      + 1（自动收口）+ 2（工作区项目记忆「给开关 / 给角标」两分支）+ 3（展示组）。
+    // 两个三态行各写两个分支是**刻意的**：省略 on 的那一支才是「不给拨不动的开关」。
+    const expectedRows = 12
+    // 10 个行序号（0..9）：两分支共用同一个 index（同一行的两种形态，不该占两个错开槽位）。
+    const expectedIndexes = 10
+    const rowIndexes = [...src.matchAll(/index=\{(\d+)\}/g)].map(m => Number(m[1]))
+    const distinctIndexes = [...new Set(rowIndexes)].sort((a, b) => a - b)
+    const consecutive = distinctIndexes.length === expectedIndexes
+      && distinctIndexes.every((value, i) => value === i)
     if (missingWriter.length > 0) {
       fail(`大盘设置缺写入口：${missingWriter.join(', ')}`)
     } else if (!/setReplyCardChromeEnabled/.test(src) || !/setToolCallsVisible/.test(src)) {
@@ -3674,14 +3695,52 @@ if (krEnabled) {
       fail('外观偏好必须用 useSyncExternalStore 订阅（否则别的窗口改了本面板不跟随）')
     } else if (!/busy/.test(src)) {
       fail('host 写入缺少 busy 门控（写盘期间连点会出竞态，开关状态弹来弹去）')
+    } else if (rowCount !== expectedRows) {
+      fail(`大盘设置应有 ${expectedRows} 处 <SettingsRow>（4 注入 + 邮箱 2 分支 + 自动收口 + 工作区项目记忆 2 分支 + 展示 3），实得 ${rowCount}`)
+    } else if (!consecutive) {
+      fail(`行序号 --row-i 必须从 0 起连续到 ${expectedIndexes - 1}（新增行要顺延后面的序号，否则两行同时浮现）：实得 ${JSON.stringify(distinctIndexes)}`)
     } else {
-      pass('大盘设置：6 条注入通道 + 3 条外观偏好共 9 个开关接线完整（含 busy 门控）')
+      pass(`大盘设置：10 个开关行接线完整（7 条 host 通道 + 3 条外观偏好；--row-i 0..${expectedIndexes - 1} 连续，含 busy 门控）`)
+    }
+
+    // 6c) 「工作区项目记忆记录」这一行（2026-10-15 新增）：判据是**按工作区**的 host 字段，
+    //     不是凭空 true，且拿不到工作区时**不许**渲染开关（拨不动的开关是骗人）。
+    //
+    //     为什么钉这么细：这一行错了全是静默失效 —— 接 `on={true}` 会在关掉的项目上
+    //     显示成开；不接 workspaceCwdOf 则写的是「不知道哪个项目」；少了「不给开关」
+    //     分支就会画出一个拨了不落盘的开关。三者都不报错、不打日志。
+    //
+    //     两个分支的判据是**同一个 index**：同一行的两种形态不该占两个错开槽位
+    //     （占了的话行错开浮现会中间空一拍，看着像少了一行）。
+    //
+    //     截图这一行的两个分支：从 `{projectKnown` 到「展示」组那个 div 之前，是这一整块
+    //     JSX。用类名当结束锚点而不是注释文字 —— `src` 是**剥掉注释**之后的源码，拿注释
+    //     里的字做锚点会得到空串，断言就成了永远失败（或永远对着空串通过）。
+    const projectRowJsx = src.slice(
+      src.indexOf('{projectKnown'),
+      src.indexOf('kr-settings__group kr-settings__group--compact'),
+    )
+    const unavailableBranch = projectRowJsx.slice(projectRowJsx.lastIndexOf(': ('))
+    if (!/label="工作区项目记忆记录"/.test(src)) {
+      fail('大盘设置缺「工作区项目记忆记录」开关行')
+    } else if (!/on=\{projectMemoryOn\}/.test(src) || !/projectMemoryOn\s*=\s*state\.projectMemoryEnabled/.test(src)) {
+      fail('该行的 on 必须接 host 的 projectMemoryEnabled（凭空 true 会在关掉的项目上显示成开）')
+    } else if (!/workspaceCwdOf\(sessionKey\)/.test(src)) {
+      fail('该行必须从 workspaceCwdOf(sessionId) 取工作区（否则写的是「不知道哪个项目」）')
+    } else if (projectRowJsx === '' || unavailableBranch === '') {
+      fail('拿不到工作区时必须走「不给开关」分支（少了它就是给了一个拨不动的开关）')
+    } else if (/on=\{projectMemoryOn\}/.test(unavailableBranch) || !/tag="不可用"/.test(unavailableBranch)) {
+      fail('「拿不到工作区」那一支仍渲染了开关 —— 拨不动的开关是骗人')
+    } else if (!/projectMemory:\s*next/.test(src)) {
+      fail('该行写入必须带 projectMemory 字段（缺了就是拨了不落盘）')
+    } else {
+      pass('大盘设置：工作区项目记忆记录接 host 的 projectMemoryEnabled + workspaceCwdOf，无工作区时不渲染开关')
     }
 
     // 6b) 操作面板显隐（同族第三条）：抽屉里一行 + 大盘消费 + apply 初始化，
     //     三处缺一，用户拨了就没反应（而这既不报错也不打日志）。
     //
-    // 注意两处的文案来源**刻意不同**：抽屉里的行是硬编码中文（与它其余 8 行同款），
+    // 注意两处的文案来源**刻意不同**：抽屉里的行是硬编码中文（与它其余 9 行同款），
     // composer 侧走 i18n 键 plainTimelineLabel（键保留给别处复用/将来再入口）。
     // 断言要按各自的实际写法钉，不能拿 i18n 键去要求硬编码的那份。
     if (!/label="操作面板"/.test(src) || !/setPlainTimelineVisible\(!plainTimelineOn\)/.test(src)) {
@@ -3775,6 +3834,16 @@ if (krEnabled) {
       fail('hint 未挂原生 title 全文（截断后拿不到完整内容的兜底）')
     } else {
       pass('大盘设置：「展示」组紧凑排版三件套在位（行数封顶 / 悬停+聚焦展开 / 触摸降级 + title 兜底）')
+    }
+
+    // 9d) 「工作区记忆」组不能是紧凑组：它是**注记型**说明（关掉后会发生什么 + 与注入的
+    //     区别），被截成一行就等于读不全。反过来，「展示」组那种共性已提到组说明里的
+    //     短句才适用紧凑排版。混了会把长说明压掉一半，而这既不小也不报错。
+    const projectGroupRule = /<div className="kr-settings__group">\s*\n\s*<span className="kr-settings__group-title">工作区记忆/.test(raw)
+    if (!projectGroupRule) {
+      fail('「工作区记忆」组必须是普通组（不能带 --compact：说明会被压成一行读不全）')
+    } else {
+      pass('大盘设置：「工作区记忆」走普通排版 + 组说明写「按工作区」这条共性')
     }
 
     // 10) 入口位置：齿轮注入到顶栏标签行、紧跟 Seeker（用户 2026-10-15 点名要求）。

@@ -244,6 +244,26 @@ export interface InjectStateView {
    * 以为工具还在。
    */
   mailToolsMounted?: boolean
+  /**
+   * 当前**工作区**（cwd）派生的项目 hash（12 位 hex）；拿不到工作区时为 null。
+   *
+   * 与 `mail*` 那批同一路线：由 /inject-state 顺带回传，而不是另开一个新 GET。
+   * 这里的 null 语义是「不适用」而不是「关」——UI 据它决定要不要渲染那个
+   * 「项目记忆记录」开关（拨不动的开关是骗人）。
+   */
+  projectHash?: string | null
+  /** 回显请求里带的 cwd（供 UI 显示「当前工作区」）；无工作区时 null。 */
+  projectPath?: string | null
+  /**
+   * 该工作区的「项目记忆记录」开关（项目元数据的 autoMemory，**默认开**）。
+   *
+   * 这是**写入侧**闸门，与上面那批注入（读取侧）通道是两回事：关掉后该工作区
+   * 不再自动提取记忆、模型也不能手动记项目层，但已有的记忆照常参与注入。
+   *
+   * 拿不到工作区（无 cwd）时 host 回 null —— 那是「不知道是哪个项目」，
+   * 不是「关」。UI 据此**不渲染开关**，只给一行说明。
+   */
+  projectMemoryEnabled?: boolean | null
 }
 
 /**
@@ -412,9 +432,9 @@ export interface MemoryApi {
     pinned?: boolean
     importance?: number
   }) => Promise<{ ok: boolean; created: boolean; entry: MemoryEntryView }>
-  getInjectState: (sessionId: string) => Promise<InjectStateView>
+  getInjectState: (sessionId: string, cwd?: string) => Promise<InjectStateView>
   /** enabled=null → 清除本会话覆盖，回到默认值。 */
-  setInjectState: (sessionId: string, enabled: boolean | null) => Promise<InjectStateView & { ok: boolean }>
+  setInjectState: (sessionId: string, enabled: boolean | null, project?: { cwd?: string; projectMemory?: boolean }) => Promise<InjectStateView & { ok: boolean }>
   /** 中文记忆内置通道开关（全局单值，与主开关无联动）。 */
   getZhInjectState: () => Promise<ZhInjectStateView>
   setZhInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
@@ -506,8 +526,31 @@ export function createMemoryApi(): MemoryApi {
     deleteToday: (target = {}) => sendJson<{ ok: boolean; deleted: number }>('/delete-today', target),
     meta: (projectHash, patch) => sendJson<{ ok: boolean; meta: ProjectView }>('/meta', { projectHash, ...patch }),
     remember: (input) => sendJson<{ ok: boolean; created: boolean; entry: MemoryEntryView }>('/remember', input).then(withEntry),
-    getInjectState: (sessionId) => getJson<InjectStateView>(`/inject-state?sessionId=${encodeURIComponent(sessionId)}`),
-    setInjectState: (sessionId, enabled) => sendJson<InjectStateView & { ok: boolean }>('/inject-state', { sessionId, enabled }),
+    /*
+     * cwd 走 query 而不是另开端点：这一接口是抽屉/卡片读取「本会话 + 本工作区」
+     * 状态的唯一入口，再加一个 GET 等于把已有的轮询量翻倍（历史注释里记过
+     * 一分钟 498 次的请求风暴）。不传 cwd 时 URL 与老版本逐字一致，host 也照旧
+     * 认（新字段一律 nullable）。
+     */
+    getInjectState: (sessionId, cwd) => getJson<InjectStateView>(
+      `/inject-state?sessionId=${encodeURIComponent(sessionId)}`
+      + (typeof cwd === 'string' && cwd !== '' ? `&cwd=${encodeURIComponent(cwd)}` : ''),
+    ),
+    /*
+     * 第二个可选参数是「按工作区」的写入面，与 enabled 完全解耦：
+     *  - 不传 project 时 body 与老版本逐字一致（只写会话级注入开关）；
+     *  - 传 project 且带 projectMemory 时才去动该项目的 autoMemory。
+     * 合成一个对象而不是给函数加三四个位置参数，是为了让调用点看不出
+     * 「顺手多写了一个字段」——这正是「拨一个开关把另一个也改了」的来源。
+     */
+    setInjectState: (sessionId, enabled, project) => sendJson<InjectStateView & { ok: boolean }>('/inject-state', {
+      sessionId,
+      enabled,
+      ...(project !== undefined && typeof project.cwd === 'string' && project.cwd !== ''
+        ? { cwd: project.cwd }
+        : {}),
+      ...(project?.projectMemory !== undefined ? { projectMemory: project.projectMemory } : {}),
+    }),
     getZhInjectState: () => getJson<ZhInjectStateView>('/zh-inject-state'),
     setZhInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/zh-inject-state', { enabled }),
     getHtmlInjectState: () => getJson<ZhInjectStateView>('/html-inject-state'),
