@@ -19,11 +19,11 @@
  * 动效（用户对这块有明确偏好）：
  *   · 卡片入场走通用 kr-card-in；
  *   · 等待回答时标题右侧三点跳动 + 竖线呼吸，读作"在等你"；
- *   · 逐题错峰入场（kr-ask-row-in）；被选中的那条带一次 scale 回弹落位
- *     （kr-ask-pick-in），读作"被放上去的"，而不是"本来就是蓝的"；
+ *   · **回合收口时自动收起**（inline 模式，与思考过程卡同一套行为）：回答落定、
+ *     正式回复出来之后，问答退成标题一行让位给正文，点标题随时能再展开；
  *   · 展开/收起走 useHeightAnimation 的高度补间，不是 display 硬切。
  */
-import { memo, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useHeightAnimation, useMotionAllowed } from '../motion-utils.ts'
 import { toolArgsRaw } from '../tool-summary/activity-view-model.ts'
 import { isRunning } from '../tool-summary/tool-stats.ts'
@@ -136,6 +136,19 @@ export interface KrAskCardProps {
    * 分两栏摆就得来回对照才读得完整（与思考卡当年从右栏搬进对话流同一个理由）。
    */
   readonly inline?: boolean
+  /**
+   * 内联模式：回合的**总结卡出现了**（与 KrReasoningCard 同名同义，由
+   * ThinkingStepNodeView 用同一个 `summarizing` 传下来）。
+   *
+   * 翻转为 true 的那一刻收起卡片——用户要求「回复完成后这个提问也收起」：
+   * 问答是过程材料，正式回复落定后它该退成标题一行让位给正文，而不是继续摊在
+   * 答案上方占屏。此后点标题行随时能再展开重读。
+   *
+   * 判据必须是**翻转**而不是持续态：后者会在用户手动展开历史轮次后被下一次
+   * 重渲染立刻按回去，「点开看看」这个动作根本留不住（思考卡踩过同一个坑，
+   * 见 KrReasoningCard 里 summarize 自动折叠那段）。
+   */
+  readonly summarizing?: boolean
 }
 
 /**
@@ -147,10 +160,30 @@ export interface KrAskCardProps {
  * 的卡，等于用一块固定高度换一句"没有的事"，而对话流里每一行都在抢读者的注意力。
  * 所以没提问时这张卡不存在，有提问时它紧跟在思考卡下面。
  */
-export const KrAskCard = memo(function KrAskCard({ asks, inline = false }: KrAskCardProps) {
+export const KrAskCard = memo(function KrAskCard({ asks, inline = false, summarizing = false }: KrAskCardProps) {
   const motion = useMotionAllowed(true)
-  const [open, setOpen] = useState(true)
+  /*
+   * 初始态：**只认 summarizing**（这回合的总结卡出来没有），与思考卡同一口径。
+   *
+   * 不能让「等待回答」参与初始折叠：模型问完到用户答完这段时间卡是活的，
+   * 折叠了用户根本看不到它在问什么。历史轮次进来时 summarizing 本就是 true
+   * （那些回合的 tail.closing 早被清空，turnClosed 直接按 data.status 判定），
+   * 所以历史轮次开箱即折叠，正是要的效果。
+   */
+  const [open, setOpen] = useState(!(inline && summarizing))
   const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(open, motion)
+
+  /*
+   * 收口自动收起：只在 summarizing 由 false→true 的**那一次**翻转上触发。
+   * 与 KrReasoningCard 的实现逐字同构，两卡行为不漂移。
+   */
+  const wasSettlingRef = useRef(summarizing)
+  useEffect(() => {
+    const was = wasSettlingRef.current
+    wasSettlingRef.current = summarizing
+    if (!inline || !summarizing || was) return
+    setOpen(false)
+  }, [inline, summarizing])
 
   // 汇总状态：只要还有一次在等回答，整张卡就是"等待回答"。
   const summary = useMemo(() => {
@@ -215,30 +248,47 @@ export const KrAskCard = memo(function KrAskCard({ asks, inline = false }: KrAsk
         </span>
       </div>
 
-      <div className="kr-ask-body" ref={bodyRef} aria-hidden={open ? undefined : true}>
-        {bodyPresent && asks.map((entry) => (
-          <div className="kr-ask-group" key={entry.id}>
-            {entry.view.pairs.length > 0 ? (
-              entry.view.pairs.map((pair) => (
-                <AskPairRow
-                  key={pair.question.id}
-                  pair={pair}
-                  settled={entry.view.state !== 'waiting'}
-                />
-              ))
-            ) : (
-              /*
-               * 问题解析失败（形状不认识）时的降级：只报状态，不猜内容。
-               * 半懂不懂地渲染半截问题，比什么都不显示更糟——用户会以为那就是
-               * 模型问的原话。
-               */
-              <span className="kr-ask-fallback">
-                {entry.view.state === 'waiting' ? '模型正在提问，内容暂不可读' : '这次提问的内容无法解析'}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
+      {/*
+       * 折叠体用 `bodyPresent || open` 门控，与思考卡（KrReasoningCard）同一写法：
+       * useHeightAnimation 在收起动画播完后才把 present 置回 false，条件里带上 open
+       * 是给「收起途中又被展开」留一条立即挂回的路（只写 bodyPresent 会在快速连点
+       * 时出现一次空帧：高度补间在跑，内容却还没挂回来）。
+       *
+       * 折叠态叠加 inert + aria-hidden：收起的问答仍然留在 DOM 里（补间需要它），
+       * 但它既不该被读屏念出来，也不该被 Tab 键聚焦进去。
+       */}
+      {(bodyPresent || open) && (
+        <div
+          className="kr-ask-body"
+          ref={bodyRef}
+          data-open={open || undefined}
+          aria-hidden={open ? undefined : true}
+          {...(!open ? { inert: '' } : {})}
+        >
+          {bodyPresent && asks.map((entry) => (
+            <div className="kr-ask-group" key={entry.id}>
+              {entry.view.pairs.length > 0 ? (
+                entry.view.pairs.map((pair) => (
+                  <AskPairRow
+                    key={pair.question.id}
+                    pair={pair}
+                    settled={entry.view.state !== 'waiting'}
+                  />
+                ))
+              ) : (
+                /*
+                 * 问题解析失败（形状不认识）时的降级：只报状态，不猜内容。
+                 * 半懂不懂地渲染半截问题，比什么都不显示更糟——用户会以为那就是
+                 * 模型问的原话。
+                 */
+                <span className="kr-ask-fallback">
+                  {entry.view.state === 'waiting' ? '模型正在提问，内容暂不可读' : '这次提问的内容无法解析'}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 })

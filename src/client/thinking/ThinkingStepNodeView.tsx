@@ -847,11 +847,14 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
    *
    * 锚点缺失（回合刚开头、既没有 reasoning 也没有定型 step）时整卡不渲染——
    * 那种时刻本来也还没有提问。
+   *
+   * 收起时机与思考卡完全一致：把同一个 `summarizing` 传下去，回复落定后两卡
+   * 一起收成标题行让位给正文（用户要求「回复完成后这个提问也收起」）。
    */
   const turnAsks = useMemo(() => collectAsks(toolNodes), [toolNodes])
   const inlineAsk = KR_CHAT_ENABLED && KR_ASK_CARD_VISIBLE && isKrMode && projectionAllowsCard
     && ownsReasoningCard && turnAsks.length > 0
-    ? <KrAskCard asks={turnAsks} inline />
+    ? <KrAskCard asks={turnAsks} inline summarizing={summarizing} />
     : undefined
 
   if (shown.length === 0 && inlineReasoning === undefined && inlineAsk === undefined && gallery === undefined) return null

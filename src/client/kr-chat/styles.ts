@@ -4658,6 +4658,30 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
   min-width: 0;
 }
 
+/*
+ * 收起/展开的**淡入淡出**与思考卡同款（见 .kr-reasoning-list:not([data-open])）：
+ * 高度补间由 useHeightAnimation 用 WAAPI 改 inline height，这里只叠一层透明度——
+ * 收口那一下内容在被压扁的同时淡掉，不会出现「字挤在 0 高度里闪一帧」。
+ * data-open 同时是样式钩子与调试用的当前态读数。
+ */
+/*
+ * 收起/展开的**淡入淡出**与思考卡同款（见 .kr-reasoning-list:not([data-open])）：
+ * 高度补间由 useHeightAnimation 用 WAAPI 改 inline height，这里只叠一层透明度——
+ * 收口那一下内容在被压扁的同时淡掉，不会出现「字挤在 0 高度里闪一帧」。
+ *
+ * 时长故意比高度补间短（EXPAND_MS = 260ms，见 motion-utils）：先淡完再压扁，
+ * 反过来（淡出慢于收缩）会让内容在高度归零后还残留一帧半透明，读起来像闪。
+ * data-open 同时是样式钩子与调试用的当前态读数。
+ */
+.kr-card--ask[data-inline] .kr-ask-body:not([data-open]) {
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+
+.kr-card--ask[data-inline] .kr-ask-body[data-open] {
+  opacity: 1;
+}
+
 /* 同一次调用的多条问答之间比不同调用之间更紧一档。 */
 .kr-ask-group {
   display: flex;
@@ -4772,6 +4796,11 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
   }
   .kr-card--ask[data-inline],
   .kr-ask-chevron {
+    transition: none;
+  }
+  /* 高度补间关掉后，内容的显隐仍由 data-open 的 opacity 承担：
+     动画关闭时「展开有内容、收起没内容」照样成立，不靠动画撑可见性。 */
+  .kr-card--ask[data-inline] .kr-ask-body {
     transition: none;
   }
   /* 三点不跳时保持常态不透明度（同 .kr-agent-dots：静止的点仍是"这里有活动"

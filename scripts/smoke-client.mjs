@@ -1980,8 +1980,31 @@ if (krEnabled) {
     || !/export function parseAskQuestions/.test(askParseSrc)
     || !/export function pairAskAnswers/.test(askParseSrc)) {
     fail('ask-parse.ts 必须导出 buildAskView / parseAskQuestions / pairAskAnswers')
-  } else if (!/KR_ASK_CARD_VISIBLE/.test(thinkingSrc) || !/<KrAskCard asks=\{turnAsks\} inline \/>/.test(thinkingSrc)) {
-    fail('问答卡必须由 ThinkingStepNodeView 以 inline 形态挂载（贴在对话流里）')
+  } else if (!/KR_ASK_CARD_VISIBLE/.test(thinkingSrc)
+    || !/<KrAskCard asks=\{turnAsks\} inline summarizing=\{summarizing\} \/>/.test(thinkingSrc)) {
+    fail('问答卡必须由 ThinkingStepNodeView 以 inline 形态挂载并接收 summarizing'
+      + '（贴在对话流里 + 回复完成后跟着收起）')
+  } else if (!/if \(!inline \|\| !summarizing \|\| was\) return/.test(askCardSrc)
+    || !/useState\(!\(inline && summarizing\)\)/.test(askCardSrc)) {
+    // 用户要求「回复完成后这个提问也收起」：与思考卡**逐字同构**的收口收起。
+    //   · 只在 summarizing false→true 的那一次翻转上收起——写成持续态判据会
+    //     在用户手动展开历史轮次后被下一次重渲染立刻按回去；
+    //   · 初始态只看 summarizing——拿「等待回答」参与判定会在模型还在问的时候
+    //     就把卡折起来，用户根本看不到它在问什么。
+    fail('问答卡收口收起必须与思考卡同构（翻转触发 + 初始态只看 summarizing）')
+  } else if (!/role="button"[\s\S]{0,200}aria-expanded=\{open\}/.test(askCardSrc)) {
+    fail('问答卡收起后整行仍必须是可折叠按钮（点标题行 / Enter / 空格能再展开）')
+  } else if (!/\{\(bodyPresent \|\| open\) && \(/.test(askCardSrc)) {
+    // 折叠体与思考卡同一写法（KrReasoningCard 的 `(bodyPresent || open) &&`）：
+    // 收起动画播完才卸载，但收起途中又被展开要能立刻挂回，否则快速连点会出现空帧。
+    fail('问答卡折叠体必须用 (bodyPresent || open) 门控（同思考卡，防快速连点空帧）')
+  } else if (!/\{\.\.\.\(!open \? \{ inert: '' \} : \{\}\)\}/.test(askCardSrc)) {
+    // 压扁的内容仍留在 DOM 里（补间需要它），不加 inert 就能被 Tab 键聚焦进去。
+    fail('问答卡收起态必须叠加 inert（同思考卡，压扁内容不该被键盘聚焦）')
+  } else if (!/\.kr-ask-body:not\(\[data-open\]\)\s*\{[^}]*opacity:\s*0/.test(askCss)) {
+    // 高度补间由 useHeightAnimation 改 inline height；没有这层 opacity，收口那一下
+    // 会看到「字挤在 0 高度里闪一帧」。
+    fail('问答卡折叠体必须有 data-open 的 opacity 门控（淡入淡出，同 .kr-reasoning-list）')
   } else if (!/\{inlineReasoning\}\s*\{inlineAsk\}/.test(thinkingSrc)) {
     // 顺序就是需求本身：用户明确要求"放到思考的下方"。
     fail('问答卡必须渲染在思考卡**下方**（inlineReasoning 之后才是 inlineAsk）')
