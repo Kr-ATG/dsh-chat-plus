@@ -803,6 +803,17 @@ export interface GalleryResponse {
   readonly items: readonly GalleryItemView[]
   readonly sessions: readonly GallerySessionView[]
   readonly truncated: boolean
+  /**
+   * 被 `MAX_RESPONSE_ITEMS` 截掉的那一段（时间降序的后半截）。
+   *
+   * 为什么不干脆丢掉：画廊芯片要显示**真实数字**。计数若只按响应里的 items 算，
+   * 索引一旦超过 2000 条，芯片就会永远停在 2000 并随截断点漂 —— 用户看到的是
+   * 「我明明有更多」。截断是**传输**策略（一次响应别太大），不该污染计数口径，
+   * 所以这里把溢出段单独交出去，由路由层一并核对、只用于分类计数，不进响应体。
+   *
+   * 未截断时为空数组：常规语料（本机 199 条）这条路径一分钱不花。
+   */
+  readonly overflow: readonly GalleryItemView[]
 }
 
 /** 把整份缓存渲染成响应（路径全局去重，时间降序，截断到上限）。 */
@@ -822,7 +833,12 @@ function renderCache(cache: GalleryCache): GalleryResponse {
   }
   const items = [...byPath.values()].sort((a, b) => b.time - a.time)
   const truncated = items.length > MAX_RESPONSE_ITEMS
-  return { items: truncated ? items.slice(0, MAX_RESPONSE_ITEMS) : items, sessions, truncated }
+  return {
+    items: truncated ? items.slice(0, MAX_RESPONSE_ITEMS) : items,
+    overflow: truncated ? items.slice(MAX_RESPONSE_ITEMS) : [],
+    sessions,
+    truncated,
+  }
 }
 
 /* ── 聚合入口（TTL + stale-while-revalidate，与 usage-skill 同节奏）────── */
@@ -906,7 +922,9 @@ export async function collectGallery(deps: CollectDeps, force = false): Promise<
     void withLock(() => collectLocked(deps)).catch((error) => {
       deps.logger?.warn?.(`[dsh-chat-plus] gallery: 后台折叠失败: ${String(error)}`)
     })
-    return cachedResponse === null ? { items: [], sessions: [], truncated: false, stale: true } : { ...cachedResponse, stale: true }
+    return cachedResponse === null
+      ? { items: [], overflow: [], sessions: [], truncated: false, stale: true }
+      : { ...cachedResponse, stale: true }
   }
 
   // 有快照但还没对账（预热/磁盘直读）或 TTL 过期：先给快照，重扫丢后台。

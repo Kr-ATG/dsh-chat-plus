@@ -39,6 +39,32 @@ export interface GalleryMediaResponse {
   readonly sessions?: readonly GallerySession[]
   readonly truncated?: boolean
   readonly stale?: boolean
+  /**
+   * 全局分类计数（host 核对磁盘存在性之后、**未截断**的口径）。
+   *
+   * 存在的理由是 `items` 会被 MAX_RESPONSE_ITEMS 截断，而芯片上那个数字必须是
+   * 真实值：本地数 items 会在条目多时偏小，而「到底有多少张图」正是用户问的
+   * 那件事。旧 host 不下发这个字段，客户端回落本地计数（见 GalleryPanel）。
+   */
+  readonly kindTotals?: Readonly<Record<string, number>>
+  readonly error?: string
+  readonly message?: string
+}
+
+/** 单条删除失败（host 逐条回报，不静默吞）。 */
+export interface GalleryDeleteFailure {
+  readonly path: string
+  readonly error: string
+}
+
+/** POST /api/triad/gallery/delete 响应（业务成功与部分成功都走 HTTP 200）。 */
+export interface GalleryDeleteResponse {
+  readonly ok: boolean
+  /** 真的从磁盘删掉的条数。 */
+  readonly deleted?: number
+  readonly failed?: readonly GalleryDeleteFailure[]
+  /** 删除后 host 索引里剩余的条目数。 */
+  readonly remaining?: number
   readonly error?: string
   readonly message?: string
 }
@@ -71,6 +97,45 @@ export async function fetchGalleryMedia(refresh = false): Promise<GalleryMediaRe
 /** 磁盘成品的浏览器可显示地址（走画廊自己的 raw 路由：索引即白名单）。 */
 export function galleryRawUrl(path: string): string {
   return `/api/triad/gallery/raw?path=${encodeURIComponent(path)}`
+}
+
+/**
+ * 删除画廊条目（host 只接受索引内路径；**不可逆**，删的是磁盘文件）。
+ *
+ * 传空数组时不发请求：host 会把空数组判成 400，而「没有可见条目」在 UI 上是
+ * 一个正常状态（用户切到某个空分类再点删除），不该变成一次必然失败的往返。
+ *
+ * 部分失败（ok:false 且 deleted>0）也走 HTTP 200，所以这里**不看 res.ok 判业务成败**
+ * ——只看 payload.ok，把 failed 原样带回给面板显示「哪几条没删掉」。
+ *
+ * @param paths - 目标文件路径列表（host 侧逐条做索引准入 + lstat 核对）。
+ */
+export async function deleteGalleryPaths(paths: readonly string[]): Promise<GalleryDeleteResponse> {
+  if (paths.length === 0) return { ok: true, deleted: 0, failed: [] }
+  let res: Response
+  try {
+    res = await fetch('/api/triad/gallery/delete', {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ paths }),
+    })
+  } catch (cause) {
+    // 网络层失败（服务重启中 / 连接被拒）也要有可显示的文案，不能让面板吃一个
+    // 未捕获的 rejection —— 那会让退场动画之后的收尾整段静默消失。
+    return { ok: false, error: 'network', message: cause instanceof Error ? cause.message : String(cause) }
+  }
+  if (res.status === 404) {
+    return { ok: false, error: 'not-mounted', message: '画廊服务未挂载：请重启 DSH 服务后再试（host 半身在服务启动时注册路由）。' }
+  }
+  if (!res.ok) {
+    return { ok: false, error: 'http-' + String(res.status), message: `删除请求失败（HTTP ${res.status}）` }
+  }
+  try {
+    return await res.json() as GalleryDeleteResponse
+  } catch {
+    return { ok: false, error: 'bad-response', message: '删除响应不是合法 JSON。' }
+  }
 }
 
 /**

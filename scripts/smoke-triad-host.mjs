@@ -283,6 +283,376 @@ need(paths.some(p => p.startsWith('/api/triad/gallery')), 'media gallery route r
   need(resolveAdmittedPath('深圳一日游_20261006/slide_01.png', null, { cwd: null, items: context.items }) === null,
     '/raw 准入：会话 cwd 未知时拒绝相对路径（绝不拿 host 进程 cwd 当基准）')
 }
+/*
+ * ── 画廊分类计数（kindTotals）与分类删除（POST /delete）────────────────
+ *
+ * 这两块是「画廊里的任何分类都允许删除」这条需求的地基，而两者都极易**静默半通**：
+ *  · 计数少一个字段，面板就回落成 99+ 或本地小计（不报错）；
+ *  · 删除准入松一格，就是**不可逆的数据损失**——本插件的删除不落回收站。
+ *
+ * 所以这里钉的是**行为**而不是「源码里出现过某个词」（安全审计 2026-10-16 之后
+ * 全部改成行为断言；原先的两条源码正则与一条静默跳过已按审计意见移除）：
+ *  · 准入判据（纯函数）逐个喂真实文件 / 目录 / 符号链接 / 不存在的路径；
+ *  · 路由分发靠**真发一次 HTTP POST** 证明，不靠 prefix 名字检查；
+ *  · kindTotals 靠喂合成响应给真实 verifyResponse 证明计数语义，并另有一条
+ *    断言 HTTP 响应体里真的有这个字段；
+ *  · CSRF 两道闸门各有纯判据断言 + 走 HTTP 的回归断言（无/错 content-type、
+ *    cross-site、非法 Origin、合法 Origin）；
+ *  · 已存在的文件才可能被删掉，验证「删索引外的路径」这条真的拒绝；
+ *  · 删除目标的文件全是本脚本自建的临时文件（工作区 _tmp/ 下），碰不到用户数据。
+ */
+{
+  const { mkdirSync, symlinkSync, writeFileSync } = await import('node:fs')
+  const { classifyDeleteTarget, parseDeletePaths } = mod.galleryTest
+
+  /*
+   * ① 路由分发不在这里断言。
+   *
+   * 原来这里写的是 `paths.some(p => p.startsWith('/api/triad/gallery'))` ——
+   * 它只证明「有这么一条 prefix 路由」，既不证明 /delete 被分发到 handler，也和
+   * 上面那条 media gallery 路由断言完全重复（安全审计 2026-10-16 点名）。
+   * 真正的分发证明挪到 ⑤：对 /delete 真发一次 POST，断言拿到 handler 的 JSON 契约。
+   */
+  // ② 准入纯函数必须暴露（没有可测面 = 只能靠用户误删来发现问题）。
+  need(typeof classifyDeleteTarget === 'function',
+    'gallery __test exposes classifyDeleteTarget（删除准入纯函数）')
+  need(typeof parseDeletePaths === 'function', 'gallery __test exposes parseDeletePaths')
+  need(typeof mod.galleryTest.verifyResponse === 'function',
+    'gallery __test exposes verifyResponse（kindTotals 的行为断言要用它）')
+  // 修 1 的两道闸门纯判据也要可测（HTTP 那组在 ⑤b，这里钉判据本身）。
+  need(typeof mod.galleryTest.isJsonContentType === 'function',
+    'gallery __test exposes isJsonContentType（CSRF 闸门一的可测面）')
+  need(typeof mod.galleryTest.isCrossSiteWrite === 'function',
+    'gallery __test exposes isCrossSiteWrite（CSRF 闸门二的可测面）')
+  {
+    const { isJsonContentType, isCrossSiteWrite } = mod.galleryTest
+    // 闸门一：只有 application/json 算数，参数后缀容忍。
+    need(isJsonContentType('application/json') === true, 'content-type 判据：application/json 放行')
+    need(isJsonContentType('application/json; charset=utf-8') === true, 'content-type 判据：带 charset 后缀放行')
+    need(isJsonContentType('APPLICATION/JSON') === true, 'content-type 判据：大小写不敏感')
+    need(isJsonContentType('text/plain') === false, 'content-type 判据：text/plain 拒（CORS 简单请求）')
+    need(isJsonContentType('application/x-www-form-urlencoded') === false, 'content-type 判据：表单编码拒')
+    need(isJsonContentType('multipart/form-data; boundary=x') === false, 'content-type 判据：multipart 拒')
+    need(isJsonContentType(undefined) === false, 'content-type 判据：缺失拒（跨站简单请求就是这种形态）')
+    need(isJsonContentType(['application/json']) === true, 'content-type 判据：数组形态取首值（Node 头可能给数组）')
+    // 闸门二：只拒「存在且非法」。
+    need(isCrossSiteWrite({ 'sec-fetch-site': 'cross-site' }) === true, 'CSRF 判据：cross-site 拒')
+    need(isCrossSiteWrite({ 'sec-fetch-site': 'same-origin' }) === false, 'CSRF 判据：same-origin 放行')
+    need(isCrossSiteWrite({ origin: 'https://evil.example.com' }) === true, 'CSRF 判据：非法 Origin 拒')
+    need(isCrossSiteWrite({ origin: 'null' }) === true, 'CSRF 判据：Origin: null 拒（sandbox iframe）')
+    need(isCrossSiteWrite({ origin: 'http://127.0.0.1:3080' }) === false, 'CSRF 判据：loopback Origin 放行')
+    need(isCrossSiteWrite({ origin: 'http://localhost:3080' }) === false, 'CSRF 判据：localhost Origin 放行')
+    need(isCrossSiteWrite({}) === false, 'CSRF 判据：Origin 缺失放行（同源 fetch / curl 不带它）')
+  }
+
+  const DELETE_KIT = resolve(ROOT, '_tmp', 'smoke-gallery-delete')
+  try { rmSync(DELETE_KIT, { recursive: true, force: true }) } catch { /* 上一轮残留被占用时覆盖即可 */ }
+  mkdirSync(DELETE_KIT, { recursive: true })
+  const plain = resolve(DELETE_KIT, 'plain.png')
+  writeFileSync(plain, 'x')
+  const subdir = resolve(DELETE_KIT, 'subdir')
+  mkdirSync(subdir, { recursive: true })
+  writeFileSync(resolve(subdir, 'inner.png'), 'x')
+
+  // ③ 只删普通文件：目录、符号链接、不存在的路径一律拒（且**不递归**）。
+  need(classifyDeleteTarget(plain) === null, '/delete 准入：普通文件放行')
+  need(classifyDeleteTarget(subdir) === 'not-a-file',
+    '/delete 准入：目录被拒（not-a-file，绝不递归、不吃目录前缀）')
+  need(classifyDeleteTarget(resolve(DELETE_KIT, 'nope.png')) === 'missing',
+    '/delete 准入：不存在的路径 → missing（如实回报，不静默吞）')
+  /*
+   * 符号链接这条**不能静默跳过**（安全审计 2026-10-16 点名）。
+   *
+   * 旧写法是 `catch { /* 忽略 *\/ }` + `console.log('info ...跳过')` —— 在没开
+   * 开发者模式 / 无 SeCreateSymbolicLinkPrivilege 的机器上，这条防「删除放大」的
+   * 核心断言会**无声消失**，而冒烟照样 PASSED。那等于把最该被盯住的一条判据
+   * 变成了「本机恰好能建链接时才检查」。失败就是失败：拿不到这个前提说明环境
+   * 不足以验证它，必须报出来让人去补权限，而不是让它绿着过。
+   */
+  const link = resolve(DELETE_KIT, 'link.png')
+  try {
+    symlinkSync(plain, link, 'file')
+    need(classifyDeleteTarget(link) === 'not-a-file',
+      '/delete 准入：符号链接被拒（防「删一个格子 = 删掉链路另一头」的删除放大）')
+    // 拒删之后链接与目标都必须健在——判据错的表现就是这里没了。
+    need(existsSync(link) && existsSync(plain), '/delete 准入不通过时不产生任何副作用')
+  } catch (error) {
+    fail(`/delete 符号链接准入无法验证：本机建不出符号链接（${error?.code ?? error?.message}）。`
+      + ' 这条是防「删除放大」的核心判据，必须能跑；请以开发者模式或管理员权限重跑冒烟。')
+  }
+
+  // ④ 请求体校验：整单拒绝，绝不半接受。
+  need('error' in parseDeletePaths('nope'), '/delete 400：paths 非数组整单拒绝')
+  need('error' in parseDeletePaths([]), '/delete 400：空数组整单拒绝')
+  need('error' in parseDeletePaths(Array.from({ length: 2001 }, (_, i) => `p${i}`)), '/delete 400：超过 2000 条拒绝')
+  need('error' in parseDeletePaths(['ok.png', 42]), '/delete 400：含非字符串整单拒绝')
+  need('error' in parseDeletePaths(['']), '/delete 400：含空串整单拒绝')
+  {
+    // 去重键沿用索引归一（分隔符 + 大小写）：同一文件传两次只删一次。
+    const deduped = parseDeletePaths(['D:\\A\\B.PNG', 'd:/a/b.png'])
+    need(deduped.paths?.length === 1, `/delete：同一路径不同写法去重（实得 ${deduped.paths?.length}）`)
+  }
+
+  // ⑤ 真实删除走 HTTP 路由：先登记索引，再删；未索引的路径必须留在原地。
+  const route = routes.get('/api/triad/gallery')
+  if (route === undefined) {
+    fail('gallery route missing — 无法对拍 /delete 的 HTTP 契约')
+  } else {
+    /*
+     * 请求桩：`contentType` 默认给 `application/json` —— 因为**这正是修 1 之后
+     * 的正常请求形态**，不给的话每条断言都会先被 content-type 闸门打成 400，
+     * 后面那些删除语义就全测不到了。专门测闸门的两条断言显式传别的值 / null。
+     */
+    const callDelete = async (method, body, {
+      host = '127.0.0.1:3080',
+      peer = '127.0.0.1',
+      raw,
+      contentType = 'application/json',
+      extraHeaders = {},
+    } = {}) => {
+      const captured = { status: 0, body: null }
+      const res = {
+        writeHead: (status) => { captured.status = status },
+        end: (payload) => { try { captured.body = JSON.parse(payload) } catch { captured.body = payload ?? null } },
+        destroy: () => {},
+      }
+      const headers = { host, ...extraHeaders }
+      if (contentType !== null) headers['content-type'] = contentType
+      const req = {
+        method,
+        url: '/api/triad/gallery/delete',
+        socket: { remoteAddress: peer },
+        headers,
+        on: (event, handler) => {
+          if (event === 'data') handler(Buffer.from(raw ?? JSON.stringify(body ?? {})))
+          else if (event === 'end') handler()
+          return req
+        },
+        destroy: () => {},
+      }
+      route.handler(req, res)
+      await new Promise((r) => setTimeout(r, 200))
+      return captured
+    }
+
+    need((await callDelete('GET')).status === 405, '/delete 非 POST → 405 method-not-allowed')
+    need((await callDelete('POST', { paths: [plain] }, { peer: '10.0.0.9' })).status === 403,
+      '/delete 非 loopback peer → 403 forbidden（写路由同样过 fence）')
+    need((await callDelete('POST', { paths: [plain] }, { host: 'evil.example.com' })).status === 403,
+      '/delete 非本机 Host → 403 forbidden（DNS rebinding 面）')
+    need((await callDelete('POST', undefined, { raw: 'not-json' })).status === 400,
+      '/delete 非 JSON body → 400 bad-request')
+    need((await callDelete('POST', { paths: { nope: 1 } })).status === 400, '/delete paths 非数组 → 400')
+
+    /*
+     * ⑤b CSRF 盲删通路的回归护栏（安全审计 2026-10-16，修 1）。
+     *
+     * 攻击面：跨站页面用 CORS **简单请求**（`text/plain`，不触发 preflight）盲发
+     * POST，请求会真的送达并执行删除，而响应因无 CORS 头读不到 —— 用户无感知。
+     * 本插件的 prefix 路由抢在官方 `/api` 那层校验之前命中，拿不到官方 CSRF 防护，
+     * 所以这两道闸门（content-type + Origin/sec-fetch-site）必须自己钉住。
+     */
+    // 闸门一：没有 content-type 的简单请求。
+    {
+      /*
+       * 用**已索引**的专用文件验闸门：只断言「未索引文件没被删」是没有信息量的
+       * （它本来就在准入名单外）。这里先登记进索引，再发跨站请求 —— 若闸门被
+       * 摘掉，这个文件会真的消失。跑完显式摘掉，避免污染后面的 remaining 计数。
+       */
+      const csrfVictim = resolve(DELETE_KIT, 'csrf-victim.png')
+      writeFileSync(csrfVictim, 'x')
+      mod.galleryTest.rememberIndex([
+        { path: csrfVictim, name: 'csrf-victim.png', kind: 'image', source: 'file', time: 1, sessionId: 'smoke-csrf' },
+      ])
+      need(mod.galleryTest.isIndexed(csrfVictim) === true, '/delete CSRF 前置：csrf-victim 已在索引里')
+
+      const noType = await callDelete('POST', { paths: [csrfVictim] }, { contentType: null })
+      need(noType.status === 400 && noType.body?.error === 'bad-request',
+        `/delete 无 content-type → 400（跨站简单请求发不出 application/json，实得 ${noType.status}）`)
+      const textPlain = await callDelete('POST', { paths: [csrfVictim] }, { contentType: 'text/plain' })
+      need(textPlain.status === 400 && textPlain.body?.message === 'content-type must be application/json',
+        `/delete text/plain → 400 bad-request（实得 ${textPlain.status} / ${JSON.stringify(textPlain.body?.message)}）`)
+      const formType = await callDelete('POST', { paths: [csrfVictim] }, { contentType: 'application/x-www-form-urlencoded' })
+      need(formType.status === 400, '/delete 表单编码 content-type → 400（简单请求三件套都要挡）')
+      need(existsSync(csrfVictim),
+        '/delete content-type 闸门拦下的请求**没有删掉已索引文件**（闸门真在起作用的证据）')
+
+      const crossSite = await callDelete('POST', { paths: [csrfVictim] }, {
+        contentType: 'application/json', extraHeaders: { 'sec-fetch-site': 'cross-site' },
+      })
+      need(crossSite.status === 403 && crossSite.body?.error === 'forbidden',
+        `/delete sec-fetch-site: cross-site → 403（实得 ${crossSite.status}）`)
+      const badOrigin = await callDelete('POST', { paths: [csrfVictim] }, {
+        contentType: 'application/json', extraHeaders: { origin: 'https://evil.example.com' },
+      })
+      need(badOrigin.status === 403 && badOrigin.body?.error === 'forbidden',
+        `/delete 非法 Origin → 403（实得 ${badOrigin.status}）`)
+      need(existsSync(csrfVictim),
+        '/delete Origin / sec-fetch-site 闸门拦下的请求**没有删掉已索引文件**（盲删通路被堵住的证据）')
+
+      // 合法形态放行：charset 后缀 + loopback Origin + 无 Origin 三种，都要能走到业务层。
+      const withCharset = await callDelete('POST', { paths: [] }, { contentType: 'application/json; charset=utf-8' })
+      need(withCharset.status === 400 && withCharset.body?.error === 'bad-request',
+        '/delete application/json; charset=utf-8 不被闸门误伤（空 paths 走到业务校验，实得 '
+        + `${withCharset.status} / ${withCharset.body?.error}）`)
+      for (const site of ['same-origin', 'same-site', 'none']) {
+        const ok = await callDelete('POST', { paths: [] }, {
+          contentType: 'application/json', extraHeaders: { 'sec-fetch-site': site },
+        })
+        need(ok.status === 400 && ok.body?.error === 'bad-request',
+          `/delete sec-fetch-site: ${site} 放行到业务层（实得 ${ok.status}）`)
+      }
+      for (const origin of ['http://127.0.0.1:3080', 'http://localhost:3080', 'http://[::1]:3080']) {
+        const ok = await callDelete('POST', { paths: [] }, {
+          contentType: 'application/json', extraHeaders: { origin },
+        })
+        need(ok.status === 400 && ok.body?.error === 'bad-request',
+          `/delete 合法同源 Origin（${origin}）放行到业务层（实得 ${ok.status}）`)
+      }
+      // `Origin: null`（sandbox iframe / file:// 会发这个）解析不出主机，判非法。
+      const nullOrigin = await callDelete('POST', { paths: [] }, {
+        contentType: 'application/json', extraHeaders: { origin: 'null' },
+      })
+      need(nullOrigin.status === 403, '/delete Origin: null → 403（sandbox iframe / file:// 的形态）')
+      // Origin 缺失（同源 fetch / curl 的形态）必须放行 —— 缺失当非法会让删除直接不可用。
+      const noOrigin = await callDelete('POST', { paths: [] }, { contentType: 'application/json' })
+      need(noOrigin.status === 400 && noOrigin.body?.error === 'bad-request',
+        '/delete Origin 缺失放行到业务层（同源 fetch / curl 不带这个头）')
+      // 闸门必须**早于** body 解析：跨站请求连请求体都不该被读。
+      const crossWithBadBody = await callDelete('POST', undefined, {
+        raw: 'not-json', extraHeaders: { 'sec-fetch-site': 'cross-site' },
+      })
+      need(crossWithBadBody.status === 403,
+        '/delete 跨站 + 坏 body → 403（闸门早于 body 解析，不是先 400）')
+
+      mod.galleryTest.forgetIndexed(csrfVictim)
+      need(mod.galleryTest.isIndexed(csrfVictim) === false, '/delete CSRF 用例收尾：摘掉临时索引项')
+      rmSync(csrfVictim, { force: true })
+    }
+
+    // 未索引路径：即使文件真实存在也必须拒（这是不可逆删除的第一道闸）。
+    const free = resolve(DELETE_KIT, 'free.png')
+    writeFileSync(free, 'x')
+    const notIndexed = await callDelete('POST', { paths: [free] })
+    need(notIndexed.status === 200 && notIndexed.body?.ok === false
+      && notIndexed.body?.deleted === 0 && notIndexed.body?.failed?.[0]?.error === 'not-indexed',
+      `/delete 未索引路径 → not-indexed 且 deleted=0（实得 ${JSON.stringify(notIndexed.body)}）`)
+    need(existsSync(free), '/delete 未索引路径被拒后文件仍在原地（绝不删自由路径）')
+
+    // 已索引的普通文件：真删 + 从索引摘除 + remaining 计数。
+    const victim = resolve(DELETE_KIT, 'victim.png')
+    writeFileSync(victim, 'x')
+    mod.galleryTest.rememberIndex([
+      { path: victim, name: 'victim.png', kind: 'image', source: 'file', time: 1, sessionId: 'smoke-delete' },
+    ])
+    need(mod.galleryTest.isIndexed(victim) === true, '/delete 前置：victim 已在索引名单里')
+    const wiped = await callDelete('POST', { paths: [victim] })
+    need(wiped.status === 200 && wiped.body?.ok === true && wiped.body?.deleted === 1
+      && Array.isArray(wiped.body?.failed) && wiped.body.failed.length === 0
+      && wiped.body?.remaining === 0,
+      `/delete 索引内的普通文件真删（实得 ${JSON.stringify(wiped.body)}）`)
+    need(!existsSync(victim), '/delete 磁盘文件已删除（不可逆）')
+    need(mod.galleryTest.isIndexed(victim) === false,
+      '/delete 删完从准入名单摘除（同一进程内 /raw 立刻拒绝这些路径）')
+
+    // 索引里登记成目录：仍然拒（索引准入不能替代文件形状判据）。
+    mkdirSync(subdir, { recursive: true })
+    mod.galleryTest.rememberIndex([
+      { path: subdir, name: 'subdir', kind: 'page', source: 'file', time: 1, sessionId: 'smoke-delete' },
+    ])
+    const asDir = await callDelete('POST', { paths: [subdir] })
+    need(asDir.body?.deleted === 0 && asDir.body?.failed?.[0]?.error === 'not-a-file',
+      '/delete 索引里的目录仍被拒（not-a-file）')
+    need(existsSync(resolve(subdir, 'inner.png')), '/delete 目录被拒时不连带删除里面的文件（不递归）')
+  }
+
+  /*
+   * ⑥ kindTotals：**行为断言**，不是扫源码词（安全审计 2026-10-16 点名）。
+   *
+   * 旧写法是拿正则去匹配源码文本（断言 index.ts 里出现过 kindTotals / overflow
+   * 这两个词）—— 把 kindTotals 从响应体里删掉、只在别处留个同名标识符，断言照样
+   * pass；而这段自己的注释还写着「钉行为不钉源码词」，自相矛盾。
+   *
+   * 改成直接喂一份**合成的 GalleryResponse** 给 verifyResponse（真实实现，不是桩）：
+   *  · items 段：3 个真实文件（image×2 + page×1）+ 1 个不存在的（必须被核对剔除）；
+   *  · overflow 段：1 个真实文件（page）—— 它**不进 items**，但必须进计数。
+   * 这样「核对通过才计数」「overflow 也算」「按 kind 分组」三条语义全在同一断言里，
+   * 任何一条被改坏都会当场失败。
+   */
+  {
+    const { verifyResponse } = mod.galleryTest
+    const counted = resolve(DELETE_KIT, 'counted')
+    mkdirSync(counted, { recursive: true })
+    const mk = (name) => {
+      const p = resolve(counted, name)
+      writeFileSync(p, 'x')
+      return p
+    }
+    const item = (path, kind) => ({ path, name: path.split(/[\\/]/).pop(), kind, source: 'file', time: 1, sessionId: 'smoke-kinds' })
+    const response = {
+      items: [
+        item(mk('k1.png'), 'image'),
+        item(mk('k2.jpg'), 'image'),
+        item(mk('k3.html'), 'page'),
+        // 磁盘上不存在：verifyResponse 必须把它剔掉，且不计入任何 kind。
+        item(resolve(counted, 'ghost.pdf'), 'pdf'),
+      ],
+      // 被 MAX_RESPONSE_ITEMS 截掉的那一段：只进计数、不进 items。
+      overflow: [item(mk('k4.html'), 'page')],
+      sessions: [{ id: 'smoke-kinds', title: null, cwd: null, count: 4, lastTime: 1 }],
+      truncated: true,
+    }
+    const verified = verifyResponse(response, [])
+    need(verified.items.length === 3,
+      `verifyResponse 核对掉不存在的条目：items 剩 3（实得 ${verified.items.length}）`)
+    need(JSON.stringify(verified.kindTotals) === JSON.stringify({ image: 2, page: 2 }),
+      `kindTotals 按 kind 分组且含 overflow 段、不含被剔除项（实得 ${JSON.stringify(verified.kindTotals)}）`)
+    // 反证：把 overflow 拿掉，计数必须真的少一条 —— 证明它确实参与了计数，
+    // 而不是「恰好等于 items 的分布」蒙对的。
+    const noOverflow = verifyResponse({ ...response, overflow: [] }, [])
+    need(noOverflow.kindTotals?.page === 1,
+      `去掉 overflow 后 page 计数降为 1（实得 ${noOverflow.kindTotals?.page}）—— 证明 overflow 真的参与了计数`)
+    // 响应体本身不下发 overflow（它是传输细节，不是响应契约的一部分）。
+    need(verified.overflow === undefined,
+      'verifyResponse 不把 overflow 漏进核对后的响应对象（只在计数层消费）')
+  }
+  /*
+   * ⑥b /media 的响应体里**真的有** kindTotals 字段（A1 的对外契约）。
+   *
+   * 上面 ⑥ 钉的是计数语义，这一条钉的是「字段有没有被真的写进 HTTP 响应」——
+   * 把 kindTotals 从 json(...) 的载荷里删掉而保留内部标识符，只有这条能抓到。
+   * 冒烟环境没有真会话（sessions/persistence 都是空桩），所以这里只断言字段形状：
+   * 空索引下应为对象（client 用 `?? 0` 兜缺失键），非 undefined。
+   */
+  {
+    const mediaRoute = routes.get('/api/triad/gallery')
+    if (mediaRoute === undefined) {
+      fail('/media 契约无法对拍：gallery 路由缺席')
+    } else {
+      const captured = { status: 0, body: null }
+      mediaRoute.handler(
+        {
+          method: 'GET',
+          url: '/api/triad/gallery/media',
+          socket: { remoteAddress: '127.0.0.1' },
+          headers: { host: '127.0.0.1:3080' },
+          on: () => {},
+        },
+        {
+          writeHead: (status) => { captured.status = status },
+          end: (payload) => { try { captured.body = JSON.parse(payload) } catch { captured.body = null } },
+          destroy: () => {},
+        },
+      )
+      await new Promise((r) => setTimeout(r, 300))
+      need(captured.status === 200, `GET /media answers 200（实得 ${captured.status}）`)
+      need(captured.body !== null && typeof captured.body.kindTotals === 'object' && captured.body.kindTotals !== null,
+        `GET /media 响应体里真的有 kindTotals 字段（实得 ${JSON.stringify(captured.body?.kindTotals)}）——`
+        + ' 只保留内部标识符而不写进响应，这条会失败')
+    }
+  }
+  try { rmSync(DELETE_KIT, { recursive: true, force: true }) } catch { /* 清不掉不影响断言 */ }
+}
 // 本插件自己的两条 host 路由（截图 / download 进度）不能因融合丢掉。
 need(paths.some(p => p.startsWith('/api/chat-flow/screenshot')), 'chat-plus screenshot routes still registered')
 need(paths.some(p => p.startsWith('/api/chat-flow/download')), 'chat-plus download progress route still registered')

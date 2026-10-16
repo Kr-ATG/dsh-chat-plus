@@ -33,11 +33,19 @@ const SHEET = `
    也删掉了原「底部悬浮 Dock」的绝对定位（absolute / bottom / 50% / 毛玻璃底 /
    阴影 / 入场动画）——它现在就是工具条里的一个普通 flex 子项。 */
 .tg-dock{display:inline-flex;align-items:center;flex-wrap:wrap;gap:6px}
+/* 芯片本体是 div（外层做布局与 data 态），真正的「选中这个分类」是里面那枚
+   .tg-kind__pick —— 之所以不是单个 button：确认态里要放「确认/取消」两枚真按钮，
+   而 button 不能嵌套 button。视觉上两者合一，用户看到的仍是一枚胶囊。 */
 .tg-dock__item,.tg-kind{display:inline-flex;align-items:center;justify-content:center;gap:5px;
   padding:4px 10px;border-radius:999px;border:none;background:transparent;
   color:var(--dsw-alias-label-secondary,#6b7280);cursor:pointer;user-select:none;outline:none;
   font-family:inherit;font-size:12px;line-height:18px;
-  transition:background 280ms cubic-bezier(.32,.72,0,1),color 280ms cubic-bezier(.32,.72,0,1)}
+  transition:background 280ms cubic-bezier(.32,.72,0,1),color 280ms cubic-bezier(.32,.72,0,1),padding-right 200ms cubic-bezier(.16,1,.3,1)}
+.tg-kind__pick{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0;border:none;
+  background:transparent;color:inherit;font-family:inherit;font-size:inherit;line-height:inherit;
+  cursor:pointer;outline:none}
+.tg-kind__pick:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b82f6);outline-offset:2px;border-radius:999px}
+.tg-kind__pick:disabled{cursor:default}
 .tg-dock__item:hover,.tg-kind:hover{color:var(--dsw-alias-label-primary,#111827)}
 .tg-dock__item:active,.tg-kind:active{transform:scale(.97)}
 .tg-dock__item:focus-visible,.tg-kind:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b82f6);outline-offset:2px}
@@ -46,9 +54,90 @@ const SHEET = `
 
 .tg-dock__label{font-size:11px;line-height:14px;font-weight:500;white-space:nowrap;letter-spacing:.01em}
 .tg-dock__item[data-active="true"] .tg-dock__label,.tg-kind[data-active="true"] .tg-dock__label{font-weight:600}
-/* 计数：文字后面的一个淡数字（2026-10 简化：原先是悬浮在图标盒角上的徽标，
-   叠了四层装饰；现在就是行内一个 tabular-nums 数字）。 */
-.tg-dock__num{font-size:10.5px;line-height:14px;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary,#888)}
+/* 计数：真实数字（2026-10-16 起不再做两位数的近似显示）。
+   tabular-nums + nowrap 让 4~5 位数不换行；数字等宽，位数变多只是让胶囊变宽，
+   超长时由 .tg-dock 的 flex-wrap 换行，不截断、不缩写 —— 用户问的就是这个数。 */
+.tg-dock__num{font-size:10.5px;line-height:14px;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary,#888);
+  white-space:nowrap;font-feature-settings:"tnum" 1}
+
+/* ── 分类芯片上的删除键（2026-10-16 新增：分类级删除）─────────────
+   手感与 kr-chat 的 kr-memory__act 同一套：常态淡出并右移 3px，指针落到芯片上
+   或键盘聚焦时才浮现归位 —— 破坏性操作不该在工具条里常驻抢注意力。
+   与 kr-chat 的两处**刻意差异**：
+   ① 这里不能只靠 :hover。触摸屏没有 hover 通路，hover-only 等于「永远点不到」，
+      所以按 B3 走三档可见性兜底：触屏（hover:none）常显 / 键盘聚焦浮现 /
+      当前选中分类常显。
+   ② 隐藏态**只用 opacity + pointer-events**，不用 display:none，也不用
+      visibility:hidden —— 后两者会把元素移出可聚焦序列，键盘用户 Tab 一辈子
+      也到不了它（可见性依赖动画/隐藏的经典坑）。opacity:0 的元素仍可聚焦，
+      一旦聚焦 :focus-visible 就把它显出来。 */
+.tg-kind__del{display:inline-flex;align-items:center;justify-content:center;flex:none;
+  width:16px;height:16px;padding:0;margin-left:-1px;border:none;border-radius:5px;
+  background:transparent;color:var(--dsw-alias-label-tertiary,#888);cursor:pointer;
+  opacity:0;pointer-events:none;
+  transition:opacity 160ms ease,transform 200ms cubic-bezier(.16,1,.3,1),background 150ms ease,color 150ms ease;
+  transform:translateX(3px)}
+.tg-kind:hover .tg-kind__del,
+.tg-kind__del:focus-visible,
+.tg-kind[data-active="true"] .tg-kind__del{opacity:1;pointer-events:auto;transform:translateX(0)}
+.tg-kind__del:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary,#000) 12%,transparent);color:var(--dsw-alias-state-error-primary,#dc2626)}
+.tg-kind__del:active{transform:scale(.88)}
+.tg-kind__del:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b82f6);outline-offset:1px}
+/* 空分类：删除键仍在位（布局不跳）但不可点，且不被 hover 浮现规则点亮 ——
+   一枚"点了什么也不会发生"的垃圾桶比没有垃圾桶更糟。 */
+.tg-kind__del:disabled{opacity:0!important;pointer-events:none;cursor:default}
+.tg-kind:hover .tg-kind__del:disabled{opacity:0!important}
+/* 触屏常显（没有 hover 就没有浮现通路） */
+@media (hover:none){.tg-kind__del{opacity:.75;pointer-events:auto;transform:none}}
+
+/* 确认态：删除键那一下之后，芯片**原地**换成问题 + 确认 / 取消。
+   芯片本身撑宽一点（padding-right 让步），读起来像同一枚胶囊在展开，而不是
+   旁边凭空多出一截 UI。
+   两处 !important 是必要的：工作台主题（hub/theme.ts）用 !important 覆写了
+   .tg-dock__item 的 padding 与 background，普通优先级在这里赢不了它，确认态
+   的底色与内距会被吃回去（看起来就像"点了没反应"）。 */
+.tg-kind[data-confirm="true"]{gap:6px;padding-right:6px!important;background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#dc2626) 9%,transparent)!important}
+.tg-kind[data-confirm="true"] .tg-kind__pick,
+.tg-kind[data-busy="true"] .tg-kind__pick{color:var(--dsw-alias-label-primary,#111827)}
+.tg-kind__confirm{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;animation:tg-kind-confirm-in 180ms cubic-bezier(.16,1,.3,1)}
+@keyframes tg-kind-confirm-in{from{opacity:0;transform:translateX(4px)}to{opacity:1;transform:translateX(0)}}
+.tg-kind__ask{font-size:10.5px;line-height:14px;color:var(--dsw-alias-label-secondary,#6b7280);font-variant-numeric:tabular-nums}
+/* 「不可恢复」是确认态里唯一不可省的语义（删的是磁盘文件），所以它**不能**被
+   省略号截掉、也不能靠 title：小一号 + 告警色让它退到问句之后当附注，但仍与
+   问句连读成一句完整的话，触屏与键盘用户一眼可见。
+   刻意不写 overflow:hidden / text-overflow：那会把这四个字本身裁掉，等于回到
+   "后果只有鼠标用户看得到"的老问题。宽度不够时由外层降字号承担（见下面的窄屏档）。 */
+.tg-kind__warn{margin-left:4px;font-size:10px;color:var(--dsw-alias-state-error-primary,#dc2626);font-weight:600}
+.tg-kind__yes,.tg-kind__no{display:inline-flex;align-items:center;height:17px;padding:0 7px;border-radius:9px;
+  border:1px solid transparent;font-family:inherit;font-size:10.5px;font-weight:600;line-height:1;cursor:pointer;
+  transition:background 140ms ease,color 140ms ease,transform 130ms cubic-bezier(.2,.8,.2,1)}
+.tg-kind__yes{background:var(--dsw-alias-state-error-primary,#dc2626);color:#fff}
+.tg-kind__yes:hover{filter:brightness(1.1);transform:translateY(-1px)}
+.tg-kind__yes:active{transform:translateY(0) scale(.95)}
+.tg-kind__yes:disabled{opacity:.55;cursor:default;transform:none;filter:none}
+.tg-kind__no{background:transparent;color:var(--dsw-alias-label-secondary,#6b7280);border-color:var(--dsw-alias-border-l2,rgba(127,127,127,.22))}
+.tg-kind__no:hover{color:var(--dsw-alias-label-primary,#111827);background:color-mix(in srgb,var(--dsw-alias-label-primary,#000) 8%,transparent)}
+.tg-kind__no:active{transform:scale(.95)}
+.tg-kind__yes:focus-visible,.tg-kind__no:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b82f6);outline-offset:1px}
+/* 窄屏兜底：确认态比常态芯片宽（多了「不可恢复」四个字 + 两枚按钮），手机上再叠
+   一层字号与内距收缩。按 169 项这个最长现实值估算：常规档约 202px，这一档约
+   182px —— 落在最窄手机视口（320px）内，不会把工具条撑出横向滚动。
+   收缩的是**字号与留白**，不是省略号：语义一个字都不能少（见上面的说明）。
+   工具条本身是 flex-wrap，所以即便真的放不下，也是整体换行而不是溢出。 */
+@media (max-width:640px){
+  .tg-kind[data-confirm="true"]{gap:5px;padding-right:5px!important}
+  .tg-kind__confirm{gap:4px}
+  .tg-kind__ask{font-size:10px}
+  .tg-kind__warn{font-size:9.5px;margin-left:3px}
+  .tg-kind__yes,.tg-kind__no{height:16px;padding:0 6px;font-size:10px}
+}
+
+/* 删除中：芯片禁止重复点击，整枚胶囊轻微脉冲 —— 用「还在动」表达请求在飞，
+   而不是塞一枚转圈（工具条里转圈太多，已经有一个刷新的了）。
+   pointer-events:none 只挡鼠标，键盘的 Enter 由内层 button 的 disabled 拦。 */
+.tg-kind[data-busy="true"]{pointer-events:none;opacity:.72;background:color-mix(in srgb,var(--dsw-alias-label-primary,#000) 6%,transparent)!important}
+.tg-kind[data-busy="true"] .tg-kind__confirm{animation:tg-kind-busy 1.1s ease-in-out infinite}
+@keyframes tg-kind-busy{0%,100%{opacity:1}50%{opacity:.5}}
 
 .tg-search{position:relative;flex:1;min-width:140px;max-width:400px;margin-left:0}
 .tg-search__icon{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--dsw-alias-label-tertiary,#888);pointer-events:none;display:flex}
@@ -103,6 +192,18 @@ const SHEET = `
 .tg-card__play svg{filter:drop-shadow(0 2px 8px rgba(0,0,0,.5));opacity:.92;transition:transform 200ms cubic-bezier(.2,.8,.2,1)}
 .tg-card:hover .tg-card__play svg{transform:scale(1.12)}
 
+/* ── 分类删除的卡片退场（2026-10-16）──────────────────────────────
+   分类级删除是「整批一起走」，所以逐条淡出 + 轻微下沉缩放，靠内联的
+   animation-delay 错峰（见 GalleryPanel 的 delStaggerMs），读起来是「一条条
+   被抹掉」而不是整块闪没 —— 与 kr-chat 一键删记忆的 kr-memory-row-out 同款手感，
+   只是这里的卡片更大、位移收得更小（网格里横向抖一下会很晃）。
+   animation-fill-mode:both 保证 delay 期间也是首帧（opacity 1），不会提前消失。 */
+.tg-card--out{animation:tg-card-out 260ms cubic-bezier(.4,0,1,1) both;pointer-events:none}
+@keyframes tg-card-out{
+  from{opacity:1;transform:translateY(0) scale(1)}
+  to{opacity:0;transform:translateY(6px) scale(.94)}
+}
+
 /* ── 骨架屏（加载态）────────────────────────────────────────────── */
 .tg-skel{border-radius:12px;border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.12));background:var(--dsw-alias-bg-layer-1,rgba(127,127,127,.04));overflow:hidden;animation:tg-card-in 260ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-i,0) * 30ms)}
 .tg-skel__thumb{width:100%;aspect-ratio:4/3;position:relative;overflow:hidden;background:var(--dsw-alias-bg-module-platform,color-mix(in srgb,var(--dsw-alias-label-primary,#000) 4%,transparent))}
@@ -124,6 +225,23 @@ const SHEET = `
 .tg-stale{flex:none;display:flex;align-items:center;gap:8px;padding:6px 18px;font-size:11.5px;color:var(--dsw-alias-label-secondary,#6b7280);background:transparent;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.12));animation:tg-fade-in 200ms ease}
 .tg-stale__dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-tertiary,#888);animation:tg-pulse 1.4s ease-in-out infinite;flex:none}
 @keyframes tg-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+
+/* ── 删除失败提示行（2026-10-16）──────────────────────────────────
+   落在工具条下方、筛选条上方：删除是工具条上的动作，结果就近显示在同一视野里。
+   与 .tg-stale 同高同内距（前后不跳版），但用告警色区分「只是慢」与「真出了事」。
+   文案必须带条数与首条原因 —— 失败条目仍留在清单里，这行是它们的解释。 */
+.tg-del-error{flex:none;display:flex;align-items:center;gap:8px;padding:6px 18px;font-size:11.5px;
+  color:var(--dsw-alias-label-primary,#111827);
+  background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#dc2626) 8%,transparent);
+  border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#dc2626) 24%,transparent);
+  animation:tg-fade-in 180ms ease}
+.tg-del-error__icon{display:flex;flex:none;color:var(--dsw-alias-state-error-primary,#dc2626)}
+.tg-del-error__text{flex:1;min-width:0;word-break:break-word}
+.tg-del-error__close{flex:none;display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:10px;
+  border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#dc2626) 26%,transparent);
+  background:transparent;color:var(--dsw-alias-label-secondary,#6b7280);font-family:inherit;font-size:11px;cursor:pointer;
+  transition:background 140ms ease,color 140ms ease}
+.tg-del-error__close:hover{color:var(--dsw-alias-label-primary,#111827);background:color-mix(in srgb,var(--dsw-alias-label-primary,#000) 8%,transparent)}
 
 /* ── 时间筛选钮 + 预设弹层 ──────────────────────────────────────── */
 /* 注意：这里**不再**用 margin-left:auto —— 贴右已由外层 .tg-tools 承担；
@@ -282,6 +400,18 @@ const SHEET = `
   .tg-day,.tg-day::before,.tg-day__head,.tg-day__dot,.tg-day__rule,.tg-time-pop,.tg-search__time-tag,.tg-time-bar{animation:none!important}
   .tg-time-pop__preset,.tg-time-pop__apply,.tg-view__btn{transition:none!important}
   .tg-time-bar__icon{animation:none!important}
+  /* 分类删除（2026-10-16）：只关动画与位移，**不动布局与可见性规则** ——
+     删除键该浮现还是浮现（opacity 立即切换），确认态该出现还是出现，条目该被删
+     还是被删，只是不再有过渡帧。注意这里刻意**不写** visibility / display：
+     写了就等于让"看不看得见"取决于这段媒体查询是否命中。 */
+  .tg-card--out,.tg-kind__confirm,.tg-kind[data-busy="true"] .tg-kind__confirm,.tg-del-error{animation:none!important}
+  .tg-kind__del,.tg-kind__yes,.tg-kind__no,.tg-del-error__close{transition:opacity 120ms linear,background 120ms linear,color 120ms linear}
+  .tg-kind__del{transform:none}
+  .tg-kind__del:active,.tg-kind__yes:active,.tg-kind__no:active{transform:none}
+  .tg-kind__yes:hover,.tg-kind__yes:active{transform:none}
+  /* 刻意**不**在减弱动效下把退场卡片设成 opacity:0：动画关掉后它仍要等请求
+     回来才从数据里摘掉，这期间让它保持原样（kr-chat 一键删记忆同款口径），
+     否则会先"闪没"再等几百毫秒才真正消失。 */
 }
 `
 
