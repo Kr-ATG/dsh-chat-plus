@@ -193,7 +193,22 @@ export function KrMailDrawer(): JSX.Element {
         className="kr-mail-drawer"
         data-open={open ? 'true' : 'false'}
         role="dialog"
-        aria-modal="true"
+        /*
+         * aria-modal **只在打开时为真**，不能写死 "true"。
+         *
+         * 抽屉关闭时 DOM 仍然常驻（退场动画要求，见文件头注释），而官方快捷键服务
+         * 判定「当前处于模态」的方式是**纯 DOM 查询**：
+         *
+         *   document.querySelectorAll('[role="dialog"][aria-modal="true"], [role="menu"]')
+         *
+         * 它不看元素是否可见。写死 true 就等于给整个应用永久挂了一层模态，
+         * 官方快捷键（Mod+/ 速查、打开设置、新建会话…）全部被判成 modal 冲突而
+         * 静默 consume 掉 —— 用户症状就是「壳子里官方快捷键全都不好使」
+         * （2026-10-16 实测：移除这一个属性后 Mod+/ 立即恢复）。
+         *
+         * 注意 role="dialog" 本身无害，选择器要求 role 与 aria-modal 同时命中。
+         */
+        aria-modal={open ? true : undefined}
         aria-label="邮箱"
         aria-hidden={open ? 'false' : 'true'}
       >

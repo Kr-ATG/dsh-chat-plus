@@ -143,6 +143,11 @@ const DRAWER_STATE = `(function(){
   var navItems = d.querySelectorAll('.dsh-mail-nav-item').length;
   return {
     open: d.getAttribute('data-open'),
+    // 关闭态**必须**没有 aria-modal="true"：官方快捷键服务用
+    // querySelectorAll('[role="dialog"][aria-modal="true"], [role="menu"]') 判断
+    // 「当前是否处于模态」，且不看可见性。常驻 DOM 的抽屉写死 aria-modal="true"
+    // 会把整个应用的官方快捷键全部吞掉（2026-10-16 实测根因）。
+    ariaModal: d.getAttribute('aria-modal'),
     visibility: cb.visibility,
     opacity: Number(cb.opacity),
     pointerEvents: cb.pointerEvents,
@@ -422,6 +427,32 @@ async function main() {
     fail(`抽屉关着时仍在拦指针（scrim=${idle.scrimPE} drawer=${idle.pointerEvents}）——页面上会点不动任何东西`)
   } else {
     ok('抽屉关闭态不拦指针（scrim/drawer 都是 pointer-events:none）')
+  }
+
+  // ── 关闭态不得污染官方快捷键 ─────────────────────────────────────────
+  // 官方快捷键服务的模态判定是纯 DOM 查询、不看可见性（见 DRAWER_STATE 的注释）。
+  // 抽屉 DOM 常驻，所以关闭时必须有**零个** aria-modal="true" 的元素是自己贡献的；
+  // 打开时才允许出现（此时它确实是模态，吞掉快捷键是正确行为）。
+  if (idle.open === 'false') {
+    if (idle.ariaModal === 'true') {
+      fail('抽屉关闭态仍带 aria-modal="true" —— 官方快捷键（Mod+/ 速查等）会被整层吞掉')
+    } else {
+      ok('抽屉关闭态未占用 aria-modal（不污染官方快捷键）')
+    }
+    const modalCount = await evaluate(`(function(){
+      var els = document.querySelectorAll('[role="dialog"][aria-modal="true"], [role="menu"]');
+      var hit = [];
+      for (var i = 0; i < els.length; i++) {
+        var el = els[i];
+        if (el.className && String(el.className).indexOf('kr-mail-drawer') >= 0) hit.push(String(el.className));
+      }
+      return hit;
+    })()`)
+    if (Array.isArray(modalCount) && modalCount.length > 0) {
+      fail(`关闭态下选择器仍命中抽屉：${JSON.stringify(modalCount)}`)
+    } else {
+      ok('关闭态下官方模态选择器命中抽屉数 = 0')
+    }
   }
 
   // ── I. 两个抽屉各自独立开合（这是「不复用设置那份 store」的判据本身）──────
