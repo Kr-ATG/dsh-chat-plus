@@ -1,15 +1,19 @@
 /**
  * UsagePanel — 用量面板（贴入口弹出的定尺寸小卡片）。
  *
- * 只保留两件事：
- *  1. 热力图：52 周 Token 活动贡献图（每周/累计口径 + 指标下拉，点格子看当日明细）；
- *  2. token 消耗查询：顶部范围胶囊（今日/昨日/近 7 天/…/自定义）联动四格汇总
- *     （合计 / 输入 / 输出 / 缓存），下方一行元信息（天数 / 有量天数 / 模型数）。
+ * 两种形态，装配完全分开：
+ *  - compact 小卡片（默认）：热力图 + token 消耗查询（范围胶囊联动四格汇总 +
+ *    一行元信息）+ 当日模型明细。范围只作用于汇总；热力图是横跨历史的总览，
+ *    恒为全量 52 周，与 range.ts 的注释口径一致。尺寸交给 PopoverShell 的
+ *    compact 形态（内联宽高 + 视口夹紧），窄屏回退全屏。
+ *  - embedded（工作台「用量」页）：整流交给 ObservePanel —— 顶部范围 + 刷新 +
+ *    自动刷新、筛选行、5 张 KPI 卡、Tab + 堆叠柱状图 + 右侧拆分列表、底部热力图。
+ *    这里只保留页头与滚动容器，不把大盘那套状态塞进本文件（它自己的取数与
+ *    筛选逻辑有几百行，混在一起会让 compact 形态跟着一起变脆）。
  *
- * 范围只作用于第 2 项（所选区间的消耗）；热力图是横跨历史的总览，恒为全量 52 周，
- * 与 range.ts 的注释口径一致。
- *
- * 尺寸：交给 PopoverShell 的 compact 形态（内联宽高 + 视口夹紧），窄屏回退全屏。
+ * 历史遗留：契约要求「embedded 不再走 UsageHero / UsageTrendChart 装配」，所以
+ * 这两个 import 被移除——它们仍服务于 compact 形态里已经不再渲染的分支，留着
+ * 只会让打包器和读者都以为还在用。
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -25,6 +29,7 @@ import { useIsMobile } from '../../responsive'
 import { PshBody, PopoverShell, type PopoverAnchor } from '../../popover-shell'
 import { modalStaggerClass } from '../../triad-modal-animation'
 import { ensureHubStyles, CloseIcon, tokensIcon, inputIcon, outputIcon, hitIcon } from './hub'
+import { ObservePanel, toUsageDays } from './ObservePanel'
 
 /**
  * 卡片宽度（px）：比工作台小一个量级，仍能一行放下 52 周热力（9px 格）。
@@ -112,9 +117,6 @@ function dayLabel(date: string): string {
 
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
 
-import { UsageTrendChart } from './UsageTrendChart'
-import { UsageHero } from './UsageHero'
-
 export interface UsagePanelProps {
   closing?: boolean
   onClose: () => void
@@ -146,8 +148,14 @@ export function UsagePanel({ closing = false, onClose, anchor = null, embedded =
    * 跑完时，host 会立刻把持久化的折叠态返给我们（stale=true）而不让我们
    * 干等语料重扫。遇到这种就自己轮询下去，直到拿到新鲜的一轮，面板始终
    * 有内容可看，也不需要用户手动点刷新。
+   *
+   * 工作台嵌入形态直接短路：那条分支的整流已经交给 ObservePanel（它自己按
+   * 大盘口径取数），这里再拉一次就是打开一次用量页打两个 GET，还白算一整棵
+   * 永远不渲染的 Body。判断写在回调体**内部**、依赖里带上 embedded —— 把
+   * useEffect 本身挪进 if 会改变 hooks 顺序，切形态时直接崩。
    */
   useEffect(() => {
+    if (embedded) return undefined
     let alive = true
     let timer: ReturnType<typeof setTimeout> | null = null
     setError(null)
@@ -155,7 +163,9 @@ export function UsagePanel({ closing = false, onClose, anchor = null, embedded =
       usageApi.usage().then((p) => {
         if (!alive) return
         if (p.ok !== true) throw new Error('用量数据加载失败')
-        setDays(p.days)
+        // 快照形状是观测契约，状态声明还是历史的 UsageDay[]（compact 只读四桶与
+        // 日期）。共用 ObservePanel 导出的适配函数，字段逐个过手，不再双重断言。
+        setDays(toUsageDays(p.days))
         setRefreshing(false)
         setStale(p.stale === true)
         if (p.stale === true) timer = setTimeout(load, STALE_POLL_MS)
@@ -167,7 +177,7 @@ export function UsagePanel({ closing = false, onClose, anchor = null, embedded =
     }
     load()
     return () => { alive = false; if (timer !== null) clearTimeout(timer) }
-  }, [tick])
+  }, [tick, embedded])
 
   const { range, label: rangeLabel } = resolveRange(preset, custom)
   const inRangeDays = useMemo(() => filterDays(days ?? [], range), [days, range.start, range.end])
@@ -184,6 +194,30 @@ export function UsagePanel({ closing = false, onClose, anchor = null, embedded =
   const doRefresh = (): void => {
     setRefreshing(true)
     setTick(t => t + 1)
+  }
+
+  /**
+   * 工作台嵌入形态：整流交给观测大盘，本文件的取数与 Body 一概不参与。
+   *
+   * 放在 head **之前**提前返回，是因为 head 那条 IIFE 会先按 compact 的数据口径
+   * 装配一整棵 Body（四格汇总 / 趋势图 / 热力图）——嵌入学下它根本不渲染，纯属
+   * 白算；而且那棵树依赖的 days / sum / scoped 在嵌入学里也不是大盘的数据源，
+   * 留着只会让「页面上这份数字到底来自哪」多一种解释。
+   */
+  if (embedded) {
+    return (
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', width: '100%', boxSizing: 'border-box' }}>
+        {/* 页头保留原工作台的定位说明写法，下面的整块大盘由 ObservePanel 自理 */}
+        <header className="wb2-head wb2-rise">
+          <div className="wb2-head-l">
+            <span className="wb2-eyebrow"><i />Observe Telemetry</span>
+            <h1 className="wb2-title">观测 <em>/ 用量</em></h1>
+            <p className="wb2-sub">统计网关调用与会话日志调用；本地拒绝的请求不计入汇总。</p>
+          </div>
+        </header>
+        <ObservePanel />
+      </div>
+    )
   }
 
   const head = ((): JSX.Element => {
@@ -211,27 +245,8 @@ export function UsagePanel({ closing = false, onClose, anchor = null, embedded =
       onSelectDay={setSelectedDay}
       isMobile={isMobile}
       stale={stale}
-      embedded={embedded}
     />
   })()
-
-  if (embedded) {
-    return (
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', width: '100%', boxSizing: 'border-box' }}>
-        {/* 效果图第 4 页页头：英雄区之上的定位说明 */}
-        <header className="wb2-head wb2-rise">
-          <div className="wb2-head-l">
-            <span className="wb2-eyebrow"><i />Token Telemetry</span>
-            <h1 className="wb2-title">用量 <em>/ 烧了多少</em></h1>
-            <p className="wb2-sub">范围胶囊只作用于消耗汇总；热力带恒为全量 52 周，是横跨历史的总览。</p>
-          </div>
-        </header>
-        <div style={{ padding: '0 22px 26px', maxWidth: 1400, margin: '0 auto', boxSizing: 'border-box' }}>
-          {head}
-        </div>
-      </div>
-    )
-  }
 
   return (
     <PopoverShell
@@ -264,7 +279,7 @@ export function UsagePanel({ closing = false, onClose, anchor = null, embedded =
 }
 
 /** 卡片主体：查询行 + 汇总四格 + 热力图 + 当日明细。 */
-function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChangeCustom, provider, model, onChangeProvider, onChangeModel, metric, onMetric, mode, onMode, selectedDay, onSelectDay, isMobile, stale, embedded }: {
+function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChangeCustom, provider, model, onChangeProvider, onChangeModel, metric, onMetric, mode, onMode, selectedDay, onSelectDay, isMobile, stale }: {
   days: UsageDay[]
   range: DateRange
   rangeLabel: string
@@ -284,7 +299,6 @@ function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChang
   onSelectDay: (date: string | null) => void
   isMobile: boolean
   stale: boolean
-  embedded: boolean
 }): JSX.Element {
   const inRange = filterDays(days, range)
   // 下拉选项来自「范围 ∩ 全量」：范围决定看哪几天，选项本身要能选到该范围内
@@ -332,37 +346,14 @@ function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChang
           <span className="usm-uc-meta">共 {inRange.length} 天 · 有量 {activeDays} 天 · {modelCount.size} 个模型</span>
         </div>
       </div>
-      {/* 工作台嵌入形态：效果图英雄区（大数 + 指标卡 + 仪表）取代旧四格小汇总；
-          compact 小卡片保持旧四格（空间不够放英雄区）。 */}
-      {embedded && (
-        <UsageHero
-          days={days}
-          scoped={scoped}
-          range={range}
-          sum={sum}
-          hitRate={hitRate}
-          activeDays={activeDays}
-          modelCount={modelCount.size}
-        />
-      )}
-      {!embedded && (
+      {/* compact 形态只有四格小汇总：它没有英雄区的横向空间（工作台那版英雄区
+          已随大盘迁到 ObservePanel，本文件不再有 embedded 分支）。 */}
       <div className="usm-uc-stats" role="group" aria-label={`${rangeLabel} token 消耗`} style={isMobile ? { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } : undefined}>
         <Stat icon={tokensIcon(14)} label="合计用量" value={formatUnits(sum.total)} sub={`≈ ${formatExact(sum.total)}`} tone="var(--dsw-alias-state-business-primary, #4176e6)" />
         <Stat icon={inputIcon(14)} label="输入 Tokens" value={formatUnits(sum.input)} sub={`占 ${share(sum.input)}`} tone="#0ea5e9" />
         <Stat icon={outputIcon(14)} label="输出 Tokens" value={formatUnits(sum.output)} sub={`占 ${share(sum.output)}`} tone="#f59e0b" />
         <Stat icon={hitIcon(14)} label="缓存命中" value={formatUnits(sum.cache)} sub={`命中率 ${formatHitRate(hitRate)}`} tone="#10b981" />
       </div>
-      )}
-      {!embedded && (
-      <UsageTrendChart
-        days={scopedAll}
-        range={range}
-        rangeLabel={rangeLabel}
-        preset={preset}
-        selectedDate={selectedDay}
-        onSelectDate={onSelectDay}
-      />
-      )}
       <div className="usm-uc-card">
         <ActivityGrid
           days={scopedAll}

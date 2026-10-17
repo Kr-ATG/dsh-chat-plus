@@ -396,23 +396,21 @@ export function ActivityGrid({ days, mode, onMode, selectedKey, onSelect, metric
   const [metricMenuOpen, setMetricMenuOpen] = useState(false)
   const snapshot = useMemo(() => buildActivityGrid(days, mode, new Date(), metric), [days, mode, metric])
 
-  // 窄格子时（cellSize < 12）同步收窄圆角与星期标签列，否则留白比格子还抢眼。
-  const radius = Math.max(2, Math.round(cellSize * RADIUS / CELL))
-  const labelW = cellSize >= 12 ? 30 : 18
-
-  // 网格自然宽度（星期标签列 + 52 列格子 + 列间距），纯计算、不受容器影响。
-  // 用计算值而不是 scrollWidth：后者会被「当前是否挂着滚动条」反向影响，
-  // 判据一旦自反馈就会在临界宽度上抖动。
-  const naturalW = labelW + snapshot.columns * (cellSize + gap) - gap
   const scrollRef = useRef<HTMLDivElement | null>(null)
-  const [needsScroll, setNeedsScroll] = useState(false)
+  /**
+   * 容器实测宽度。0 = 还没量到（首帧）——此时按传入的 cellSize 画，量到后再回填。
+   *
+   * 大盘宽度是不定的（工作台可能全屏、也可能嵌在窄栏），拿固定 cellSize 去画，
+   * 宽屏下热力图会缩在左边一小块：52 列 × 14px 只有 780px，放在 2500px 的容器里
+   * 右边全空。所以格子边长改成「按容器宽度反解」：先算「如果铺满每格能多大」，
+   * 再夹在 [传入值, 上限] 之间——只允许变大到撑满，不允许小到点不中。
+   */
+  const [boxWidth, setBoxWidth] = useState(0)
   const measure = useCallback((): void => {
     const box = scrollRef.current
     if (box === null) return
-    // 判据统一用 offsetWidth（含滚动条占位，与挂不挂滚动条无关）：
-    // 它代表容器的可用外框宽度，是本次决策的稳定输入。
-    setNeedsScroll(box.offsetWidth < naturalW)
-  }, [naturalW])
+    setBoxWidth(box.offsetWidth)
+  }, [])
 
   useEffect(() => {
     measure()
@@ -423,11 +421,29 @@ export function ActivityGrid({ days, mode, onMode, selectedKey, onSelect, metric
     return () => { observer.disconnect() }
   }, [measure])
 
+  /** 上限 28px：再大就不像贡献图而像棋盘；到上限后整个网格居中，不硬拉满。 */
+  const fitCell = boxWidth > 0
+    ? Math.floor((boxWidth - (cellSize >= 12 ? 30 : 18) - gap * (snapshot.columns - 1)) / snapshot.columns)
+    : 0
+  const drawnCell = Math.max(cellSize, Math.min(28, fitCell > 0 ? fitCell : cellSize))
+
+  // 窄格子时（drawnCell < 12）同步收窄圆角与星期标签列，否则留白比格子还抢眼。
+  const radius = Math.max(2, Math.round(drawnCell * RADIUS / CELL))
+  const labelW = drawnCell >= 12 ? 30 : 18
+
+  // 网格自然宽度（星期标签列 + 52 列格子 + 列间距），纯计算、不受容器影响。
+  // 用计算值而不是 scrollWidth：后者会被「当前是否挂着滚动条」反向影响，
+  // 判据一旦自反馈就会在临界宽度上抖动。
+  const naturalW = labelW + snapshot.columns * (drawnCell + gap) - gap
+  const needsScroll = boxWidth > 0 && boxWidth < naturalW
+
   useEffect(() => ensureActivityStyles(), [])
 
-  const weekLabel = cellSize >= 12 ? WEEKDAYS : WEEKDAYS_SHORT
+  const weekLabel = drawnCell >= 12 ? WEEKDAYS : WEEKDAYS_SHORT
+  // 铺满时用 1fr 均分列宽，而不是按像素写死：格子数量固定 52，列宽由容器决定，
+  // 这样「量到宽度」与「浏览器最终布局」不会因为滚动条/取整差一像素而错位。
   const gridVars = {
-    '--dsh-activity-cell': `${cellSize}px`,
+    '--dsh-activity-cell': `${drawnCell}px`,
     '--dsh-activity-radius': `${radius}px`,
   } as CSSProperties
 
@@ -547,6 +563,8 @@ export function ActivityGrid({ days, mode, onMode, selectedKey, onSelect, metric
           ? { overflowX: 'auto', overflowY: 'hidden', marginTop: 12, paddingBottom: 2 }
           : { overflow: 'visible', marginTop: 12, paddingBottom: 2 }}
       >
+        {/* 居中而不是靠左：格子上限 22px，超宽屏下 52 列占不满容器，靠左会让右侧空出
+            一大片、看起来像没渲染完。需要横向滚动时同样居中，两种形态观感一致。 */}
         <div style={{ display: 'flex', flexDirection: 'column', width: 'fit-content', margin: '0 auto', ...gridVars }}>
           {/* 月份标签行（GitHub 惯例：新月份第一周列首标注，跳过首列；按列比例定位，与拉伸后的列对齐） */}
           <div style={{ position: 'relative', height: 16, marginLeft: labelW }}>
@@ -555,7 +573,7 @@ export function ActivityGrid({ days, mode, onMode, selectedKey, onSelect, metric
                 key={m.column}
                 style={{
                   position: 'absolute',
-                  left: `${m.column * (cellSize + gap)}px`,
+                  left: `${m.column * (drawnCell + gap)}px`,
                   top: 0,
                   fontSize: 11,
                   lineHeight: '16px',
@@ -576,7 +594,7 @@ export function ActivityGrid({ days, mode, onMode, selectedKey, onSelect, metric
                   flex: 'none',
                   width: labelW,
                   fontSize: 11,
-                  lineHeight: `${cellSize}px`,
+                  lineHeight: `${drawnCell}px`,
                   color: 'var(--dsw-alias-label-tertiary)',
                   textAlign: 'left',
                   paddingRight: 6,

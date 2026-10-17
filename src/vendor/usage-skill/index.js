@@ -49,7 +49,7 @@ import { apply as applySkills } from './skills-host.js';
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { applyUsageDelta, createUsageState, mergeInto, renderSignal, renderUsage, totalTokens, zeroBuckets } from "./usage.js";
+import { applyUsageDelta, createUsageState, mergeInto, modelCountersOf, renderSignal, renderUsage, totalTokens, zeroBuckets } from "./usage.js";
 import { ACCOUNT_REFRESH_MS, createAccountService, validateAccountConfig } from "./accounts.js";
 import { queryDeepseekBilling } from "./deepseek-billing.js";
 
@@ -75,7 +75,26 @@ const UPSTREAM_TIMEOUT_MS = 15000;
 // the bulk of the 4.5MB persisted cache, re-serialized and re-merged on every
 // aggregation pass. Bumping forces one full refold, after which the cache
 // settles at a few hundred KB and each pass stops paying for them.
-const CACHE_VERSION = 7;
+// v8: 逐日 / 逐模型条目多了失败数、重试数、重试后成功数、首字延迟与生成时长。
+// 结构变了必须升版：老缓存里 days 条目少了这些字段，混进 v8 的形状会让
+// 「今天有 0 次失败」和「这批数据压根没统计过失败」变成同一个值。
+// v7 缓存**不丢弃**：见 MIGRATABLE_CACHE_VERSIONS——历史 token 完全相同，
+// 丢掉的代价是上万条会话重折与一次空面板，而计数在后台重折里补得回来。
+const CACHE_VERSION = 9;
+
+/**
+ * 还能直接读进来、随后在后台补全计数的旧缓存版本。
+ *
+ * 只放**纯增量**的旧版本：v7 → v8 只多了计数字段，v8 → v9 只把「首字时刻」的
+ * 采集方式换成了独立流式事件（字段仍是同一批 ttftMs/genMs）。token 桶的形状
+ * 与语义一个字都没变，所以旧缓存里的总量、模型桶、命中率全部可以原样继续用。
+ * 清空重来的代价是 1600 多份会话日志（约 2000 万事件）全量重折，其间面板只剩
+ * 空数据——这是能避免的。
+ *
+ * 反过来，任何**改了 token 语义**的旧版本都不该进这张表——那样的缓存数据本身
+ * 是错的，迁移过来只是把错数据洗成对的形状。
+ */
+const MIGRATABLE_CACHE_VERSIONS = new Set([7, 8]);
 
 /** Credential references the in-panel editor may write (SenseNova console login). */
 const WRITABLE_CREDENTIAL_REFS = new Set(["SENSENOVA_USERNAME", "SENSENOVA_PASSWORD", "SENSENOVA_CONSOLE_TOKEN", "DEEPSEEK_USER_TOKEN"]);
@@ -192,21 +211,47 @@ let loadedCache = null;
 let loadPromise = null;
 let inflight = null;
 
+/**
+ * 日级计数字段（token 四桶之外的一切数值）。
+ *
+ * 收在一个数组里而不是逐字段点名，是因为这些字段要在四个地方保持一致：
+ * 序列化、反序列化、样本重报时撤销、以及渲染展开。漏掉任何一处都会让某个
+ * 口径在响应里静默消失或翻倍，而那种错在 UI 上看起来只是「数字不太对」。
+ *
+ * 模型桶用的是它的子集（见 usage.js 的 MODEL_COUNTER_FIELDS）：retries /
+ * retriedSuccess 来自不带模型归属的 llm/retry-started，只能记在日级。
+ */
+const ENTRY_COUNTERS = ["requests", "failed", "retries", "retriedSuccess", "ttftMs", "ttftSteps", "genMs", "genTokens"];
+
+/** 读出计数字段并补 0：老缓存（v8 之前）缺字段时给 0，而不是 undefined。 */
+function countersOf(source) {
+	const counters = {};
+	for (const field of ENTRY_COUNTERS) {
+		const value = source?.[field];
+		counters[field] = Number.isFinite(value) ? value : 0;
+	}
+	return counters;
+}
+
 /** Serialize one session's fold state (Maps → plain objects). */
 function serializeSession(state) {
 	const days = {};
 	for (const [date, entry] of state.days) {
 		const models = {};
-		for (const [model, buckets] of entry.models) models[model] = { ...buckets };
+		for (const [model, bucket] of entry.models) models[model] = { ...bucket };
 		days[date] = {
 			totals: { ...entry.totals },
 			models,
-			requests: entry.requests ?? 0,
+			...countersOf(entry),
 			compacted: entry.compacted ?? 0
 		};
 	}
 	return {
 		kind: state.kind ?? "persisted",
+		// 「这份折叠态还没统计过计数」必须落盘：loadCache 读完 v7 缓存后 saveCache
+		// 立刻会以 v8 写出，若不留这个标记，下次启动就会把「没统计过」的 0 当成
+		// 「确实没有失败」——一个看起来完整、实则全错的数字。
+		...(state.countersStale === true ? { countersStale: true } : {}),
 		consumed: state.consumed ?? 0,
 		...(state.revision === void 0 ? {} : { revision: state.revision }),
 		...(typeof state.title === "string" ? { title: state.title } : {}),
@@ -216,8 +261,20 @@ function serializeSession(state) {
 			day: state.lastSample.day,
 			hour: state.lastSample.hour,
 			model: state.lastSample.model,
-			buckets: { ...state.lastSample.buckets }
+			buckets: { ...state.lastSample.buckets },
+			// 重报样本要按这份计数整份撤销，所以它必须跟 buckets 一起持久化，
+			// 跨进程重启后的第一次替换才不会少减或多减。
+			counters: { ...(state.lastSample.counters ?? {}) }
 		},
+		// 待收口重试同样要落盘：重试的意图与结果可能分属两次折叠、甚至两次进程。
+		pendingRetries: state.pendingRetries instanceof Set ? [...state.pendingRetries] : [],
+		// 已结束 step 的起点：跨进程后仍可能收到迟到的重报，没有它就补不出首字延迟。
+		// 条数有上限（见 usage.js 的 RETAINED_STEP_STARTS），体积是常数。
+		recentStepStarts: state.recentStepStarts instanceof Map ? Object.fromEntries(state.recentStepStarts) : {},
+		// 进行中 step 的首字时刻：结算事件可能在下一批事件、甚至下一个进程才到，
+		// 不落盘就让这次计时白丢。只留未结算的 step，体积是常数。
+		streamFirstToken: state.streamFirstToken instanceof Map ? Object.fromEntries(state.streamFirstToken) : {},
+		recentFirstTokens: state.recentFirstTokens instanceof Map ? Object.fromEntries(state.recentFirstTokens) : {},
 		currentModel: state.currentModel,
 		openSteps: state.openSteps instanceof Map ? Object.fromEntries(state.openSteps) : {}
 	};
@@ -231,10 +288,11 @@ function parseSession(raw) {
 	state.consumed = Number.isSafeInteger(raw.consumed) ? raw.consumed : 0;
 	if (typeof raw.revision === "string") state.revision = raw.revision;
 	if (typeof raw.title === "string") state.title = raw.title;
+	if (raw.countersStale === true) state.countersStale = true;
 	if (raw.days !== null && typeof raw.days === "object") {
 		for (const [date, entry] of Object.entries(raw.days)) {
 			if (entry === null || typeof entry !== "object") continue;
-			const target = { totals: zeroBuckets(), models: new Map(), requests: 0, compacted: 0 };
+			const target = { totals: zeroBuckets(), models: new Map(), ...countersOf(entry), compacted: 0 };
 			const totals = entry.totals;
 			if (totals !== null && typeof totals === "object") {
 				target.totals.inputTokens = Number.isFinite(totals.inputTokens) ? totals.inputTokens : 0;
@@ -242,16 +300,17 @@ function parseSession(raw) {
 				target.totals.cacheReadTokens = Number.isFinite(totals.cacheReadTokens) ? totals.cacheReadTokens : 0;
 				target.totals.cacheWriteTokens = Number.isFinite(totals.cacheWriteTokens) ? totals.cacheWriteTokens : 0;
 			}
-			if (Number.isFinite(entry.requests)) target.requests = entry.requests;
 			if (Number.isFinite(entry.compacted)) target.compacted = entry.compacted;
 			if (entry.models !== null && typeof entry.models === "object") {
-				for (const [model, buckets] of Object.entries(entry.models)) {
-					if (buckets === null || typeof buckets !== "object") continue;
+				for (const [model, bucket] of Object.entries(entry.models)) {
+					if (bucket === null || typeof bucket !== "object") continue;
 					target.models.set(model, {
-						inputTokens: Number.isFinite(buckets.inputTokens) ? buckets.inputTokens : 0,
-						outputTokens: Number.isFinite(buckets.outputTokens) ? buckets.outputTokens : 0,
-						cacheReadTokens: Number.isFinite(buckets.cacheReadTokens) ? buckets.cacheReadTokens : 0,
-						cacheWriteTokens: Number.isFinite(buckets.cacheWriteTokens) ? buckets.cacheWriteTokens : 0
+						inputTokens: Number.isFinite(bucket.inputTokens) ? bucket.inputTokens : 0,
+						outputTokens: Number.isFinite(bucket.outputTokens) ? bucket.outputTokens : 0,
+						cacheReadTokens: Number.isFinite(bucket.cacheReadTokens) ? bucket.cacheReadTokens : 0,
+						cacheWriteTokens: Number.isFinite(bucket.cacheWriteTokens) ? bucket.cacheWriteTokens : 0,
+						// 模型桶只读模型维度成立的字段（retries/retriedSuccess 属于日级）。
+						...modelCountersOf(bucket)
 					});
 				}
 			}
@@ -270,8 +329,30 @@ function parseSession(raw) {
 				outputTokens: Number.isFinite(buckets.outputTokens) ? buckets.outputTokens : 0,
 				cacheReadTokens: Number.isFinite(buckets.cacheReadTokens) ? buckets.cacheReadTokens : 0,
 				cacheWriteTokens: Number.isFinite(buckets.cacheWriteTokens) ? buckets.cacheWriteTokens : 0
-			}
+			},
+			counters: countersOf(raw.lastSample.counters)
 		};
+	}
+	// 待收口重试：缓存里没有就是空集，与「没有重试过」同义。
+	if (Array.isArray(raw.pendingRetries)) {
+		for (const key of raw.pendingRetries) {
+			if (typeof key === "string" && key.length > 0) state.pendingRetries.add(key);
+		}
+	}
+	if (raw.recentStepStarts !== null && typeof raw.recentStepStarts === "object") {
+		for (const [key, time] of Object.entries(raw.recentStepStarts)) {
+			if (Number.isFinite(time)) state.recentStepStarts.set(key, time);
+		}
+	}
+	if (raw.streamFirstToken !== null && typeof raw.streamFirstToken === "object") {
+		for (const [key, time] of Object.entries(raw.streamFirstToken)) {
+			if (Number.isFinite(time)) state.streamFirstToken.set(key, time);
+		}
+	}
+	if (raw.recentFirstTokens !== null && typeof raw.recentFirstTokens === "object") {
+		for (const [key, time] of Object.entries(raw.recentFirstTokens)) {
+			if (Number.isFinite(time)) state.recentFirstTokens.set(key, time);
+		}
 	}
 	if (typeof raw.currentModel === "string") state.currentModel = raw.currentModel;
 	if (raw.openSteps !== null && typeof raw.openSteps === "object") {
@@ -282,25 +363,50 @@ function parseSession(raw) {
 	return state;
 }
 
+/**
+ * 把磁盘上的缓存内容收进内存。任何损坏都降级成空缓存，绝不抛。
+ *
+ * 对旧版本缓存（MIGRATABLE_CACHE_VERSIONS）做「原样接纳 + 标记重折」：
+ * token 桶的形状与语义从 v7 到 v8 一字未变，所以总量/模型桶/命中率可以
+ * 直接接着用；只有这次新增的计数字段是空的，于是给这批会话打上 countersStale，
+ * 让后台折叠把它们从头数一遍。第一屏立刻有数据（失败数暂时为 0），代价摊在
+ * 后台——比清空缓存干等全量重折好一个数量级。
+ *
+ * 导出是为了让单测能直连验证「v7 缓存如何被接纳」这条路径，不必伪造文件系统。
+ *
+ * @param parsed - JSON.parse 之后的缓存内容。
+ * @returns { version, sessions }；结构不可用时返回空缓存。
+ */
+export function adoptCache(parsed) {
+	const fresh = { version: CACHE_VERSION, sessions: {} };
+	const compatible = parsed !== null && typeof parsed === "object"
+		&& (parsed.version === CACHE_VERSION || MIGRATABLE_CACHE_VERSIONS.has(parsed.version))
+		&& parsed.sessions !== null && typeof parsed.sessions === "object";
+	if (!compatible) return fresh;
+	const migrating = parsed.version !== CACHE_VERSION;
+	const sessions = {};
+	for (const [id, entry] of Object.entries(parsed.sessions)) {
+		if (typeof id !== "string" || id.length === 0) continue;
+		const state = parseSession(entry);
+		// 旧版本迁移进来的会话：token 桶照用，计数一次都没统计过。不标的话，
+		// 「失败数 0」会被当成真的没失败——一个看起来完整、实则全错的数字。
+		if (migrating) state.countersStale = true;
+		sessions[id] = state;
+	}
+	return { version: CACHE_VERSION, sessions };
+}
+
 /** Load the cache once per process; any corruption degrades to a fresh cache. */
 async function loadCache() {
 	if (loadedCache !== null) return loadedCache;
 	loadPromise ??= (async () => {
-		const fresh = { version: CACHE_VERSION, sessions: {} };
 		try {
 			const raw = await readFile(cachePath(), "utf8");
-			const parsed = JSON.parse(raw);
-			if (parsed !== null && typeof parsed === "object" && parsed.version === CACHE_VERSION && parsed.sessions !== null && typeof parsed.sessions === "object") {
-				const sessions = {};
-				for (const [id, entry] of Object.entries(parsed.sessions)) {
-					if (typeof id === "string" && id.length > 0) sessions[id] = parseSession(entry);
-				}
-				return { version: CACHE_VERSION, sessions };
-			}
+			return adoptCache(JSON.parse(raw));
 		} catch {
 			/* first run or corrupt cache */
 		}
-		return fresh;
+		return { version: CACHE_VERSION, sessions: {} };
 	})();
 	loadedCache = await loadPromise;
 	return loadedCache;
@@ -450,11 +556,35 @@ async function runPooled(items, limit, worker) {
 async function foldPersistedSession(persistence, id, revision, previous) {
 	const state = previous ?? createUsageState();
 	const wasPersisted = state.kind === "persisted";
-	const fromSeq = wasPersisted ? state.consumed ?? 0 : 0;
+	// 迁移进来的旧折叠态（countersStale）：token 桶是对的，计数一次都没统计过。
+	// 必须从 seq 0 整份重折——增量折只能看到新事件，补不出历史计数。
+	// 注意先读日志再动状态：读失败时上层 catch 会保留旧缓存，面板不会变空。
+	const recount = state.countersStale === true;
+	const fromSeq = recount ? 0 : wasPersisted ? state.consumed ?? 0 : 0;
 	const events = await readPersistedEvents(persistence, id, fromSeq);
+	// 读到空日志时**不动**旧折叠态：那说明这次读没拿到东西（日志被清/路径变了），
+	// 拿它当「这个会话没用量」会把历史用量整份抹掉。countersStale 也留着，
+	// 下一轮再试。
+	if (recount && events.length > 0) {
+		state.days = new Map();
+		state.openSteps = new Map();
+		state.recentStepStarts = new Map();
+		state.streamFirstToken = new Map();
+		state.recentFirstTokens = new Map();
+		state.lastSample = null;
+		state.currentModel = null;
+		state.consumed = 0;
+		state.title = null;
+		state.pendingRetries = new Set();
+		state.countersStale = false;
+	}
 	if (!wasPersisted) {
 		state.days = new Map();
 		state.openSteps = new Map();
+		state.recentStepStarts = new Map();
+		state.streamFirstToken = new Map();
+		state.recentFirstTokens = new Map();
+		state.pendingRetries = new Set();
 		state.lastSample = null;
 		state.currentModel = null;
 		state.consumed = 0;
@@ -470,6 +600,10 @@ async function foldPersistedSession(persistence, id, revision, previous) {
 		// 确实有新事件却接不上：日志被截断/重写，从头重折。
 		state.days = new Map();
 		state.openSteps = new Map();
+		state.recentStepStarts = new Map();
+		state.streamFirstToken = new Map();
+		state.recentFirstTokens = new Map();
+		state.pendingRetries = new Set();
 		state.lastSample = null;
 		state.currentModel = null;
 		state.consumed = 0;
@@ -485,6 +619,7 @@ async function foldPersistedSession(persistence, id, revision, previous) {
 	if (revision !== void 0) state.revision = revision;
 	return state;
 }
+
 
 /**
  * Render whatever the persisted fold state already holds, without touching a
@@ -587,11 +722,18 @@ async function collectUsageLocked(ctx) {
 			const state = cache.sessions[session.id] ?? createUsageState();
 			if (state.kind !== "live") {
 				// Live/persisted transition: refold the whole in-memory log.
+				// 迁移来的旧折叠态也走这条分支（kind 是 persisted），整份重折——
+				// 顺带把 countersStale 清掉：重折完计数就是真的了。
 				state.days = new Map();
 				state.openSteps = new Map();
+				state.recentStepStarts = new Map();
+				state.streamFirstToken = new Map();
+				state.recentFirstTokens = new Map();
 				state.lastSample = null;
 				state.currentModel = null;
 				state.consumed = 0;
+				state.pendingRetries = new Set();
+				state.countersStale = false;
 			}
 			// DSH 0.1.2-alpha.4 removed the public `Session#events` accessor
 			// (only snapshotEvents() remains). Read whichever the host
@@ -639,7 +781,10 @@ async function collectUsageLocked(ctx) {
 		for (const { id, revision } of entries) {
 			if (attached.has(id)) continue;
 			const previous = cache.sessions[id];
-			if (previous !== void 0 && previous.kind === "persisted" && revision !== void 0 && sameFileRevision(previous.revision, revision)) {
+			// countersStale：从 v7 缓存迁移进来的折叠态 token 是对的、计数一次都没
+			// 统计过。它必须进 stale 列表重折一遍，否则「失败数」会永远停在 0。
+			const needsRecount = previous !== void 0 && previous.countersStale === true;
+			if (!needsRecount && previous !== void 0 && previous.kind === "persisted" && revision !== void 0 && sameFileRevision(previous.revision, revision)) {
 				if (previous.revision !== revision) previous.revision = revision;
 				continue;
 			}
