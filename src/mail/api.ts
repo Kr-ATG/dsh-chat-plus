@@ -32,6 +32,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
+import { rejectCrossSite } from '../shared/csrf.ts'
 import { probeCliVersion, resolveCliPath } from './cli.js'
 import { MAIL_TOOL_NAMES } from './tools.js'
 import type { MailHostContext } from './context.js'
@@ -162,6 +163,10 @@ async function handle(
   res: ServerResponse,
 ): Promise<void> {
   if (!loopbackAllowed(req)) { json(res, 403, { ok: false, error: 'loopback-only' }); return }
+  // 跨站闸门：同 loopbackAllowed 的局限，必须另判 Origin / sec-fetch-site。
+  if (rejectCrossSite(req.headers as Record<string, unknown>, (status, payload) => {
+    json(res, status, payload)
+  })) return
   let url: URL
   let rest: string
   const method = req.method ?? 'GET'

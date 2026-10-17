@@ -80,6 +80,9 @@ export { __test as spillTest, DEFAULT_ROOT_RE, SESSION_DIR_RE, admitSpillPath, s
 // 内置灵魂预设的可测面：预设是代码常量，某套被改坏或某张卡被 normalizeCard 过滤掉
 // 都不会抛错，只会让面板静默少一行。导出给 smoke 钉住 id 集合与卡片数。
 export { BUILTIN_SOUL_PRESETS, builtinPreset } from './triad/soul/presets.ts'
+// 跨站闸门的可测面：判据写歪不会抛错，只会静默放行（或静默误伤正常请求），
+// 所以必须能被冒烟直接对拍。见 shared/csrf.ts 头注释与 smoke-host 的判据断言组。
+export { __test as csrfTest, isCrossSiteRequest, rejectCrossSite, hostNameOf } from './shared/csrf.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'dsh-chat-plus'

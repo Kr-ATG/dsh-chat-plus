@@ -92,6 +92,17 @@ function presetOffscreenPlacement(profileDir: string): void {
  * @param profileDir 独立用户数据目录（cookies/登录态持久化）
  * @param port CDP 端口（调用方先 findFreePort）
  * @param args 附加参数（如 ['--app=about:blank']：无地址栏应用窗口，供内嵌贴合）
+ * @param allowedOrigins CDP WebSocket 允许的网页 Origin（逗号分隔）。
+ *   **缺省空串 = 不传该 flag**，即沿用 Chromium 111+ 的默认策略：带 Origin 的
+ *   连接一律拒绝。Node 侧的 CDP 客户端（本插件的 CdpConnection 与
+ *   @playwright/mcp）握手时**不带 Origin 头**，Chromium 对「无 Origin」放行，
+ *   所以收紧后我们自己的 CDP 通路完全不受影响。
+ *
+ *   为什么必须收紧（2026-10-17 安全审计）：原先写死 `--remote-allow-origins=*`，
+ *   实测**任意网页的 JS** 只要 `new WebSocket('ws://127.0.0.1:9400/...')` 就能
+ *   连上截图引擎（WebSocket 不受 CORS 约束），随后 `Page.navigate` 到 file://
+ *   读本机任意文件、`Runtime.evaluate` 执行任意脚本。HTTP 路由的跨站闸门挡不住
+ *   这条 —— 入口根本不是 HTTP。
  */
 export function launchChrome(
   chromePath: string,
@@ -99,14 +110,20 @@ export function launchChrome(
   port: number,
   args: string[] = [],
   logFile?: string,
+  allowedOrigins: string = '',
 ): ChromeRuntime {
+  // 只有显式给了白名单才写这个 flag；空串时整条不出现，走 Chromium 默认拒绝策略。
+  const originFlags = allowedOrigins.trim() === ''
+    ? []
+    : [`--remote-allow-origins=${allowedOrigins.trim()}`]
   fs.mkdirSync(profileDir, { recursive: true })
   presetOffscreenPlacement(profileDir)
   const hasAppMode = args.some(a => a.startsWith('--app='))
   const flags = [
     `--remote-debugging-port=${port}`,
     `--remote-debugging-address=127.0.0.1`,
-    `--remote-allow-origins=*`,
+    // 网页 Origin 白名单：缺省不写 = 沿用 Chromium「拒绝一切带 Origin 的连接」。
+    ...originFlags,
     `--user-data-dir=${profileDir}`,
     '--no-first-run',
     '--no-default-browser-check',

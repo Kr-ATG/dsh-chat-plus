@@ -657,6 +657,40 @@ if (gateTest === undefined) {
   if (measured.count !== 2 || measured.bytes <= 0) fail(`measureGroup 统计错误：${JSON.stringify(measured)}`)
   else pass(`measureGroup 统计正确（2 个工具 / ${measured.bytes} B）`)
 
+  /*
+   * 跨站闸门判据（shared/csrf.ts）：纯函数级对拍。
+   *
+   * 这组断言钉的是**安全修复本身**：2026-10-17 审计发现插件所有 prefix 路由
+   * 都站在官方 connection 鉴权之外（longest-prefix-wins），只做 loopback 判定，
+   * 任意网页一个 CORS 简单请求就能盲调 —— 实测能删今日记忆、改灵魂、让本机
+   * 弹出资源管理器、经截图引擎读本机文件外传。判据写歪了不会抛错，只会静默
+   * 放行（或误伤正常请求），所以必须能被冒烟直接断言。
+   */
+  const csrfCheck = typeof mod.isCrossSiteRequest === 'function' ? mod.isCrossSiteRequest : null
+  if (csrfCheck === null) {
+    fail('lib/index.js 未导出 isCrossSiteRequest（跨站闸门判据不可测）')
+  } else {
+    const cases = [
+      ['同源 fetch（截图客户端真实形态）', { host: '127.0.0.1:3080', origin: 'http://127.0.0.1:3080', 'sec-fetch-site': 'same-origin' }, false],
+      ['同源、无 Origin（截图 <img> / curl）', { host: '127.0.0.1:3080' }, false],
+      ['localhost 同源', { host: 'localhost:3080', origin: 'http://localhost:3080' }, false],
+      ['IPv6 同源', { host: '[::1]:3080', origin: 'http://[::1]:3080' }, false],
+      ['局域网同源（手机远程配对）', { host: '192.168.1.9:3080', origin: 'http://192.168.1.9:3080' }, false],
+      ['反代后 Host 无端口', { host: 'dsh.local', origin: 'https://dsh.local' }, false],
+      ['跨站 evil Origin', { host: '127.0.0.1:3080', origin: 'http://evil.example' }, true],
+      ['sec-fetch-site: cross-site', { host: '127.0.0.1:3080', 'sec-fetch-site': 'cross-site' }, true],
+      ['origin: null（sandbox iframe / file://）', { host: '127.0.0.1:3080', origin: 'null' }, true],
+      ['主机名同、端口异', { host: '127.0.0.1:3080', origin: 'http://127.0.0.1:9999' }, true],
+      ['chrome-extension 来源', { host: '127.0.0.1:3080', origin: 'chrome-extension://abc' }, true],
+    ]
+    const wrong = cases.filter(([, headers, expected]) => csrfCheck(headers) !== expected)
+    if (wrong.length > 0) {
+      fail('跨站闸门判据不符：' + wrong.map(([label]) => label).join(' / '))
+    } else {
+      pass(`跨站闸门判据正确（${cases.length} 组：同源全放行、跨站全拦）`)
+    }
+  }
+
   // 状态路由：客户端胶囊读/写与 /指令 同一张状态表（GET 读、POST 写）。
   const route = registered.find(spec => spec?.path === '/api/chat-flow/tools-gate')
   const callRoute = async (method, url, body) => {

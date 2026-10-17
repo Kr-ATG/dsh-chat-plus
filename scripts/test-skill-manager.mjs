@@ -34,7 +34,9 @@ writeFileSync(
   ] }, null, 2),
 )
 
-const mod = await import(pathToFileURL(join(process.cwd(), "vendor/usage-skill/skills-host.js")).href)
+// vendor/ 在 dsh-triad 并入 dsh-chat-plus 时整体迁到了 src/vendor/（路径原来是 dsh-triad 的，
+// 融合后没同步改，这个套件自那之后就一直是红的）。这里指向真实位置。
+const mod = await import(pathToFileURL(join(process.cwd(), "src/vendor/usage-skill/skills-host.js")).href)
 let handler = null
 mod.apply({ effect: (fn) => fn(), webServer: { register: (route) => { handler = route.handler; return () => {} } } })
 if (handler === null) { console.error("FAIL  route not registered"); process.exit(1) }

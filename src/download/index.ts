@@ -22,11 +22,12 @@
  */
 
 import { createWriteStream, statSync } from 'node:fs'
-import { mkdir, rm, stat } from 'node:fs/promises'
+import { mkdir, rename, rm, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import { rejectCrossSite } from '../shared/csrf.ts'
 
 /** 空闲超时：连续这么久没有任何字节进来就中止（防挂死连接）。 */
 const IDLE_TIMEOUT_MS = 90_000
@@ -157,6 +158,14 @@ async function runDownload(args: Record<string, unknown>, callId: string, signal
   if (signal.aborted) controller.abort()
   else signal.addEventListener('abort', onCallerAbort, { once: true })
 
+  /**
+   * 本次下载的临时文件名（`<dest>.part-<pid>-<rand>`）。
+   *
+   * 声明在 try 之外：失败分支要删它，而它要到算出 dest 之后才能确定。
+   * null = 还没走到建临时文件那步（此时磁盘上一个字节都没动，无需清理）。
+   */
+  let part: string | null = null
+
   // 空闲看门狗：每次收到字节都续期。
   let idleTimer: ReturnType<typeof setTimeout> | null = null
   const armIdle = (): void => {
@@ -198,6 +207,21 @@ async function runDownload(args: Record<string, unknown>, callId: string, signal
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
     }
+    /*
+     * 落盘走「先写同目录临时文件、成功再 rename」。
+     *
+     * 为什么必须这样（2026-10-17 修数据丢失）：原来直接 createWriteStream(dest)
+     * 流式覆盖，失败分支又统一 rm(dest) 清半截文件 —— 当 overwrite: true 且目标
+     * 是**用户已有的文件**时，一次网络中断就把用户原文件删了，用户只看到
+     * 「下载失败」，原文件没了且无从得知。实测复现：无 overwrite 时原文件保留
+     * （正常报「目标已存在」），overwrite + 断流时原文件「不存在」。
+     *
+     * 临时名带 pid + 随机段：同目录并发下载同名目标时不会互相截断
+     * （与 memory/engine/store.ts 的 atomicWrite 同一个坑，同一个修法）。
+     * 用同目录而不是系统 tmp：rename 只有在同一文件系统内才是原子的，
+     * 跨卷 rename 会退化成复制，反而丢掉原子性。
+     */
+    part = `${dest}.part-${String(process.pid)}-${Math.random().toString(36).slice(2, 8)}`
     state.dest = dest
 
     // 计数 transform：逐块累计 + 速度 EMA（400ms 窗口）。
@@ -221,8 +245,10 @@ async function runDownload(args: Record<string, unknown>, callId: string, signal
     await pipeline(
       Readable.fromWeb(response.body as unknown as import('node:stream/web').ReadableStream),
       counter,
-      createWriteStream(dest),
+      createWriteStream(part),
     )
+    // 整份下完才顶替目标：此刻原文件还在，rename 一步换过去。
+    await rename(part, dest)
 
     const finished = await stat(dest)
     state.status = 'completed'
@@ -245,8 +271,8 @@ async function runDownload(args: Record<string, unknown>, callId: string, signal
     state.status = aborted ? 'cancelled' : 'failed'
     state.error = aborted ? '已取消' : error instanceof Error ? error.message : String(error)
     state.finishedAt = Date.now()
-    // 失败/取消都清掉半截文件，不留垃圾。
-    if (state.dest !== '') await rm(state.dest, { force: true }).catch(() => {})
+    // 只清临时文件。**绝不能删 dest** —— overwrite 场景下它是用户的原文件。
+    if (part !== null) await rm(part, { force: true }).catch(() => {})
     prune()
     throw aborted
       ? new Error(`下载已取消：${url}`)
@@ -445,6 +471,10 @@ export function applyDownloadRoutes(webCtx: Record<string, any>): void {
     kind: 'prefix',
     path: '/api/chat-flow/download',
     handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse): void => {
+      // 跨站闸门：这条路由原本一行来源校验都没有（见 shared/csrf.ts 头注释）。
+      if (rejectCrossSite(req.headers as Record<string, unknown>, (status, payload) => {
+        json(res, status, payload)
+      })) return
       try {
         const parsed = new URL(req.url ?? '/', 'http://x')
         if (req.method === 'POST' && parsed.pathname === '/api/chat-flow/download/watch') {

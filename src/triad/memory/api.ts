@@ -7,6 +7,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
+import { rejectCrossSite } from '../../shared/csrf.ts'
 import { applyConfigOverrides, DEFAULT_CONFIG, publicConfig, type ConsolidateResult, type MemoryConfig, type MemoryEntry, type MemoryKind } from './types.js'
 import { compileAll } from './engine/compile.js'
 import { consolidateAll, consolidateScope } from './engine/consolidate.js'
@@ -116,6 +117,11 @@ async function handle(
     json(res, 403, { error: 'loopback-only' })
     return
   }
+  // 跨站闸门：loopbackAllowed 只看来源 IP 与 Host，浏览器跨站请求两者都满足，
+  // 挡不住 CSRF（实测跨站 POST /delete-today 能真删掉今日记忆）。见 shared/csrf.ts。
+  if (rejectCrossSite(req.headers as Record<string, unknown>, (status, payload) => {
+    json(res, status, payload)
+  })) return
   let url: URL
   let rest: string
   let method: string

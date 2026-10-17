@@ -559,6 +559,44 @@ New-Item -ItemType Junction -Path "$env:USERPROFILE\.dsh\profiles\web\node_modul
 
 ---
 
+## 安全模型
+
+### 本机 HTTP 路由的跨站闸门
+
+插件注册的 `/api/*` 路由比官方的 `/api` 前缀更长，而 DSH 的 webServer 是
+**longest-prefix-wins** 派发 —— 官方 handler 里那道 `connection.requestRejection`
+（含 Origin / sec-fetch-site 校验）对插件路由**根本不执行**。所以每一条插件路由
+都必须自己补来源校验，`src/shared/csrf.ts` 就是这层公共闸门。
+
+判据（只拒明确跨站，其余放行）：
+
+| 请求形态 | 判定 |
+|---|---|
+| `sec-fetch-site: cross-site` | 拒 |
+| `origin` 与 `host` 主机名不同 | 拒 |
+| `origin: null`（sandbox iframe / file://） | 拒 |
+| 同源（`same-origin` / 同主机名同端口） | 放行 |
+| **无 Origin**（curl、`<img>`、Node 脚本） | 放行 |
+
+刻意**不**要求「Origin 必须 loopback」：那会把 `http://192.168.x.x:3080`
+（手机远程配对、局域网访问）一起拒掉。判据按同源比对，对任何 host 都成立。
+
+覆盖范围：截图、download、open-path、office、记忆、灵魂、邮件、技能开关。
+
+### 截图引擎的 CDP 端口
+
+截图用的常驻无头 Chrome 带 `--remote-debugging-port`。**不要**给它加
+`--remote-allow-origins=*`：WebSocket 不受 CORS 约束，加了之后任意网页的 JS 都
+能 `new WebSocket('ws://127.0.0.1:9400/...')` 连上来，然后 `Page.navigate` 到
+`file://` 读本机任意文件。现在默认**不传**该 flag（Chromium 111+ 默认拒绝一切
+带 Origin 的连接），而 Node 侧 CDP 客户端不带 Origin，照常工作。
+
+### 已知的破坏性操作
+
+- 画廊「按分类删除」删的是**当前筛选后**的该分类条目，不是全量。确认前请注意筛选条件。
+
+---
+
 ## 开发
 
 ```powershell

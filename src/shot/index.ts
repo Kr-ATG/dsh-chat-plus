@@ -23,6 +23,7 @@ import { spawn } from 'node:child_process'
 import { URL } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { findLocalHtmlPaths } from '../shared/html-paths.ts'
+import { rejectCrossSite } from '../shared/csrf.ts'
 import { buildCardHtml, deriveTitle, type ShotEmbed, type ShotMessage } from './card.ts'
 import { resolveShotPreset, shotAspectRatio, shotPreset } from './presets.ts'
 import { configureRenderer, probePageHeight, renderPng, shutdownRenderer, diagnoseEngine } from './renderer.ts'
@@ -435,6 +436,20 @@ export function applyScreenshot(webCtx: Context): void {
     kind: 'prefix',
     path: ROUTE,
     handler: (req, res) => {
+      /*
+       * 跨站闸门（2026-10-17 安全审计）。
+       *
+       * 本插件的 prefix 路由比官方 /api 长，longest-prefix-wins 派发让官方那道
+       * connection.requestRejection 根本不执行 —— 这道闸门就是补它。
+       *
+       * 为什么不会误伤正常截图：客户端（client/shot/api.ts 的 post）带的是
+       * content-type: application/json + 同源 Origin + sec-fetch-site: same-origin，
+       * 闸门只拒 cross-site 与「Origin 与 Host 不同主机名」，同源一律放行；
+       * GET /image 那条（预览图 <img src>）不带 Origin，也放行。
+       */
+      if (rejectCrossSite(req.headers as Record<string, unknown>, (status, payload) => {
+        json(res, status, payload)
+      })) return
       const url = new URL(req.url ?? '/', 'http://localhost')
       const tail = url.pathname.slice(ROUTE.length)
       if (req.method === 'POST' && (tail === '/render' || tail === '' || tail === '/')) { void handleRender(req, res); return }

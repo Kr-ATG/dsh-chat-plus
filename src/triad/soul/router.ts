@@ -62,6 +62,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { URL } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
+import { rejectCrossSite } from '../../shared/csrf.ts'
 import type { MemoryConfig, MemoryEntry } from '../memory/types.js'
 import type { MemoryStore } from '../memory/engine/store.js'
 import { cardsFromDraft } from './cards.js'
@@ -115,6 +116,10 @@ async function handle(deps: SoulRouterDeps, req: IncomingMessage, res: ServerRes
     json(res, 403, { error: 'loopback-only' })
     return
   }
+  // 跨站闸门：灵魂是持久注入的人设，被跨站改写等于持久 prompt 注入。
+  if (rejectCrossSite(req.headers as Record<string, unknown>, (status, payload) => {
+    json(res, status, payload)
+  })) return
   let rest: string
   let method: string
   let search: URLSearchParams

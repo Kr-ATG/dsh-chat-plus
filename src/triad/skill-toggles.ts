@@ -45,6 +45,7 @@ import { join } from 'node:path'
 import { URL } from 'node:url'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
+import { rejectCrossSite } from '../shared/csrf.ts'
 
 /** Stable Cordis plugin name fragment (triad host apply). */
 export const name = 'skill-toggles'
@@ -363,26 +364,72 @@ function splitFrontmatter(raw: string): {
 }
 
 /**
- * 更新 SKILL.md:设置/移除开关字段,保留其它 frontmatter 字段与正文原样。
- * 禁用 = user-invocable: false + disable-model-invocation: true;
- * 启用 = 两者移除(缺省即允许)。
+ * frontmatter 的开关字段名。
+ */
+const TOGGLE_KEYS = new Set(['user-invocable', 'disable-model-invocation'])
+
+/**
+ * 更新 SKILL.md：设置/移除开关字段，**其余行一个字节都不动**。
+ * 禁用 = user-invocable: false + disable-model-invocation: true；
+ * 启用 = 两者移除（缺省即允许）。
+ *
+ * ## 为什么是「原地按行增删」而不是「解析成对象再重建」（2026-10-17 修数据损坏）
+ *
+ * 旧实现走 splitFrontmatter → 过滤 → 重新拼整个 frontmatter。而 splitFrontmatter
+ * 只认 `^[A-Za-z0-9_-]+: value` 形式的**顶层单行**，于是：
+ *
+ *   · 嵌套块（metadata: 及其缩进子行）—— 父行进了 fields，子行既不进 fields
+ *     也不进 body，重建时**整块消失**；
+ *   · 块标量（description: | 后面跟的缩进正文）—— 只剩 `description: |` 一行，
+ *     正文全丢 —— 而 description 正是模型选择技能的唯一依据，丢了技能就失效；
+ *   · 顶层列表（triggers: 后跟 '- xxx'）同理。
+ *
+ * 实测：kb-wiki-skill 的 25 行 frontmatter 掉到 4 行；diagram-design 丢 version。
+ * 且「关→开」往返修不回原状（不一致）。
+ *
+ * 现在的做法只碰两件事：
+ *   1. 删掉已有的 toggle 行（连同它们可能带的缩进续行——这种字段是单行标量，
+ *      续行只可能是缩进块，一并删除才不留下孤儿行）；
+ *   2. 需要禁用时，在 frontmatter 末尾追加两行。
+ * 其余行原样保留，顺序不变，格式不变（含 CRLF）。
+ *
+ * @param raw - SKILL.md 原文。
+ * @param enabled - true = 启用（移除开关行），false = 禁用（写入开关行）。
+ * @returns 改写后的全文。
  */
 function applyToggle(raw: string, enabled: boolean): string {
-  const parsed = splitFrontmatter(raw)
-  const toggleKeys = new Set(['user-invocable', 'disable-model-invocation'])
-  const kept = parsed.fields.filter(field => !toggleKeys.has(field.key))
-  const lines = kept.map(field => `${field.key}: ${field.value}`)
+  const match = /^---(\r?\n)([\s\S]*?)(\r?\n)---(\r?\n|$)/.exec(raw)
+  if (match === null) {
+    // 没有 frontmatter：正常技能一定有，这里只做兜底（不猜用户正文怎么开头）。
+    const eol = raw.includes('\r\n') ? '\r\n' : '\n'
+    const block = enabled ? '' : `user-invocable: false${eol}disable-model-invocation: true${eol}`
+    return `---${eol}${block}---${eol}${raw}`
+  }
+  const eol = match[1]! // frontmatter 自己用的换行符（保留 CRLF 文件的行尾）
+  const block = match[2]!
+  const tail = raw.slice(match[0].length)
+
+  const lines = block.split(/\r?\n/)
+  const kept: string[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!
+    const key = /^([A-Za-z0-9_-]+)\s*:/.exec(line)?.[1]
+    if (key !== undefined && TOGGLE_KEYS.has(key)) {
+      // 跳过本行 + 紧跟的缩进续行（toggle 是单行标量，续行只可能是误挂的块）。
+      while (index + 1 < lines.length && /^[ \t]+\S/.test(lines[index + 1]!)) index += 1
+      continue
+    }
+    kept.push(line)
+  }
   if (!enabled) {
-    lines.push('user-invocable: false')
-    lines.push('disable-model-invocation: true')
+    // 去掉尾部的空行再追加，避免禁用一次就多攒一个空行。
+    while (kept.length > 0 && kept[kept.length - 1]!.trim() === '') kept.pop()
+    kept.push('user-invocable: false')
+    kept.push('disable-model-invocation: true')
   }
-  const block = lines.join('\n')
-  if (parsed.hasFence) {
-    return `---\n${block}\n---\n${parsed.body}`
-  }
-  // 无 frontmatter 时创建;正文若以空行开头则保留一个空行分隔。
-  const body = parsed.body.startsWith('\n') ? parsed.body.slice(1) : parsed.body
-  return `---\n${block}\n---\n${body}`
+  // frontmatter 里若原本就带尾空行（YAML 常见），启用态要把它还回去。
+  const rebuilt = kept.join(eol)
+  return `---${eol}${rebuilt}${eol}---${eol}${tail}`
 }
 
 /** 读技能当前开关状态(true = 启用)。 */
@@ -612,6 +659,10 @@ async function handle(ctx: PluginContext, req: IncomingMessage, res: ServerRespo
     json(res, 403, { error: 'loopback-only' })
     return
   }
+  // 跨站闸门：技能开关会就地改写 SKILL.md（用户文件）。
+  if (rejectCrossSite(req.headers as Record<string, unknown>, (status, payload) => {
+    json(res, status, payload)
+  })) return
   const url = new URL(req.url ?? '/', 'http://localhost')
   const rest = url.pathname.slice(ROUTE_PREFIX.length)
   const method = req.method ?? 'GET'

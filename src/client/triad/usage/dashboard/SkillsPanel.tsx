@@ -22,6 +22,7 @@ import {
   IconTrashOutlineRegular as IconTrashOutline16,
   Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { escapeAttr } from '../../../../shared/sanitize-html.ts'
 import { modalStaggerClass } from '../../triad-modal-animation'
 import { ConfirmDialog } from '../../memory/ConfirmDialog'
 import { PshBody, PopoverShell } from '../../popover-shell'
@@ -736,11 +737,32 @@ function escapeHtml(s: string): string {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+/**
+ * 行内 markdown → HTML。
+ *
+ * ⚠ 链接分支必须用 escapeAttr，不能用 escapeHtml（2026-10-17 修 XSS）：
+ * 原来写的是 `href="$2"`，而 `$2` 只要求 https?: 开头、**完全没有转义双引号**。
+ * 一条 `[x](https://a.test/" onmouseover="alert(1))` 就能闭合 href 属性、
+ * 凭空长出事件处理器；这段 HTML 随后经 dangerouslySetInnerHTML 注入。
+ * 技能文件内容可由第三方技能包控制（zip / 文件夹上传安装），属于不受信输入，
+ * 用户点开预览即触发。
+ *
+ * 顺带把 URL 也按白名单再筛一次：正则本身只放 https?:，但这里再确认一遍协议，
+ * 防止未来有人放宽正则时把 javascript: 带进来。
+ *
+ * @param s - 单行文本。
+ * @returns 可直接拼进 HTML 的字符串（所有插值位置均已转义）。
+ */
 function inlineMd(s: string): string {
   return escapeHtml(s)
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+    .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, (_all, label: string, rawUrl: string) => {
+      // 正则捕获里已带 & 转义（escapeHtml 先跑），这里还原后再交给 URL 校验。
+      const url = rawUrl.replace(/&amp;/g, '&')
+      if (!/^https?:\/\//i.test(url)) return escapeHtml(label)
+      return `<a href="${escapeAttr(url)}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>`
+    })
 }
 
 function renderSkillMarkdown(text: string): string {

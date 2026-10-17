@@ -33,10 +33,26 @@ const ctx = {
   on: () => () => {},
   get: () => undefined,
   effect: (fn) => { fn?.(); return () => {} },
+  /*
+   * 延迟注入桩：host 半身的 apply 全部走 ctx.inject([...], cb)。
+   * 桩里「服务齐全」= 立刻同步执行回调（与 cordis 在依赖就绪时的行为一致），
+   * 否则 apply 一进来就 TypeError（2026-10-17 实测该测试早已红）。
+   */
+  inject: (deps, cb) => { cb(ctx) },
   settings: { get: () => ({ providers: {} }), register: () => () => {} },
   credentials: {}, sessions: {}, sessionPersistence: {}, llm: {},
 }
 await mod.apply(ctx, {})
+/*
+ * 等延迟注入里的异步装配跑完。
+ *
+ * applyTriadHost 是 async，内部 `await applySkillToggles(ctx)` 才把
+ * /api/skill-toggles 挂上去；而 ctx.inject 的回调是同步返回的，await 链挂在
+ * 微任务里。不让出几轮事件循环，下面第一发请求会撞上「route not mounted」。
+ */
+for (let i = 0; i < 50 && !routes.has("/api/skill-toggles"); i += 1) {
+  await new Promise(resolve => setTimeout(resolve, 20))
+}
 
 function call(prefix, method, url, body) {
   const handler = routes.get(prefix)

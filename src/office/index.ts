@@ -58,6 +58,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { admitPreviewPath, readGalleryDeps } from './admit.ts'
 import { ensureOfficeScratch, refreshOfficeScratch } from './scratch.ts'
 import { renderFileThumbnail } from '../shot/renderer.ts'
+import { rejectCrossSite } from '../shared/csrf.ts'
 
 const ROUTE = '/api/chat-flow/office'
 
@@ -604,6 +605,10 @@ export function applyOfficePreview(webCtx: Context): void {
     kind: 'prefix',
     path: ROUTE,
     handler: (req, res) => {
+      // 跨站闸门：这条路由族原本没有任何来源校验（只有路径准入名单）。
+      if (rejectCrossSite(req.headers as Record<string, unknown>, (status, payload) => {
+        json(res, status, payload)
+      })) return
       const url = new URL(req.url ?? '/', 'http://localhost')
       const tail = url.pathname.slice(ROUTE.length)
       if (tail === '/info' || tail === '/info/') { void handleInfo(webCtx, url, res); return }

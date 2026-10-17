@@ -32,6 +32,7 @@ import { execFile } from 'node:child_process'
 import { statSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { rejectCrossSite } from '../shared/csrf.ts'
 
 /** 本插件路由前缀（与既有 /api/chat-flow/* 家族一致）。 */
 const ROUTE_PATH = '/api/chat-flow/open-path'
@@ -137,6 +138,17 @@ export function applyOpenPathRoutes(webCtx: Record<string, any>): void {
     path: ROUTE_PATH,
     handler: async (req: any, res: any): Promise<void> => {
       try {
+        /*
+         * 跨站闸门（2026-10-17 安全审计）。
+         *
+         * 下面那道 connection.requestRejection 是**恒不生效**的：本模块由只注入
+         * 了 webServer 的子上下文调用，connectionOf() 的 Reflect.get 必然抛错、
+         * catch 后返回 undefined，于是整段校验被静默跳过（实测跨站 POST 直接
+         * 返回 200 并真的弹出资源管理器）。所以这里补一道真正会执行的自有判据。
+         */
+        if (rejectCrossSite(req.headers as Record<string, unknown>, (status, payload) => {
+          json(res, status, payload)
+        })) return
         // 认证：与官方 open-in-app 同一道 connection 信任栅栏（服务缺失时不做判断）。
         const connection = connectionOf(webCtx)
         if (connection && typeof connection.requestRejection === 'function') {
