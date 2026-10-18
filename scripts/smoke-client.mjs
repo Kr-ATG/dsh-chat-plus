@@ -2668,6 +2668,21 @@ if (krEnabled) {
   if (/SoulPanel|'soul'/.test(panelSrc)) {
     reasons.push('记忆面板内不得再挂灵魂子 Tab（灵魂是平级分类，入口只此一处）')
   }
+  // 两个工作区开关（自动记忆 / 排除注入）2026-10-18 迁到大盘设置卡片：
+  // 记忆面板里**不许**再有一份。两处各留一个入口的后果不是「多一个方便」，
+  // 而是「拨完一边、另一边还是旧值」—— 两处各自缓存一份 projects 快照。
+  // 判据要剥注释：本仓习惯在注释里写「这两个开关已经搬走」，那是叙述不是代码。
+  const panelClean = panelSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+  if (/autoMemory/.test(panelClean)) {
+    reasons.push('记忆面板不得再有 autoMemory 开关（已迁到大盘设置卡片，两处入口会各自缓存、互相不同步）')
+  }
+  if (/injectExcluded/.test(panelClean)) {
+    reasons.push('记忆面板不得再有 injectExcluded 开关（同上，已迁到大盘设置卡片）')
+  }
+  if (/css\.switchLine|css\.switchText/.test(panelClean)) {
+    reasons.push('记忆面板的项目上下文条不该再渲染开关行（switchLine / switchText 已无消费点）')
+  }
+
   const memoryBranch = /activeTab === 'memory'[\s\S]{0,400}?MemoryPanel[^>]*\/>/.exec(hubSrc)
   if (memoryBranch === null || /soulApi/.test(memoryBranch[0])) {
     reasons.push('记忆分类的 MemoryPanel 不得再接收 soulApi（灵魂入口只此一处）')

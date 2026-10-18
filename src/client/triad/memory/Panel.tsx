@@ -12,7 +12,8 @@
  *  - 左栏：全部记忆 / 变更 / 修订 / 回收站 导航 + 项目区 + 分类区 + 底部设置；
  *  - 顶栏：全局搜索（260ms 防抖，⌘K 聚焦）+ 统计（条数·项目·置顶·变更）+ 关闭；
  *  - 中栏列表头：计数 + 排序切换 / 整理 / 多选 / 刷新（多选时换成批量操作），
- *    选中具体项目时项目上下文条（别名 / 自动记忆 / 清空）出现在列表头下方；
+ *    选中具体项目时项目上下文条（别名 / 清空）出现在列表头下方 —— 自动记忆与
+ *    排除注入两个开关 2026-10-18 已迁到「大盘设置」卡片（按工作区逐个列出）；
  *  - 中栏：置顶大卡（星标 + 摘要 + 时间行）+ 时间分组紧凑行，选中蓝描边；
  *  - 右栏：标题 + 标鉴 chips + 重要度卡 + 正文 + 关联信息 + 历史记录 + 相关记忆。
  *
@@ -2104,7 +2105,8 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
                         </button>
                       </div>
                     )}
-                    {/* 项目上下文条：选中具体项目时出现（别名 / 自动记忆 / 清空） */}
+                    {/* 项目上下文条：选中具体项目时出现（别名 / 清空）。
+                        两个工作区开关（自动记忆 / 排除注入）已迁到大盘设置卡片 —— 见下方注释。 */}
                     {selectedProject !== undefined && !selecting && (
                       <div className={css.projContext}>
                         <span className={css.projName} title={selectedProject.path}>
@@ -2129,31 +2131,18 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
                             if (event.key === 'Escape') setAliasDraft(null)
                           }}
                         />
-                        <span className={css.switchLine}>
-                          <button
-                            type="button"
-                            className={css.switch}
-                            role="switch"
-                            aria-checked={selectedProject.autoMemory}
-                            aria-label={t('autoMemory')}
-                            disabled={busy}
-                            onClick={() => { void run(() => apiRef.current.meta(selectedProject.hash, { autoMemory: !selectedProject.autoMemory })) }}
-                          />
-                          <span className={css.switchText}>{t('autoMemory')}</span>
-                        </span>
-                        <span className={css.switchLine}>
-                          <button
-                            type="button"
-                            className={css.switch}
-                            role="switch"
-                            aria-checked={selectedProject.injectExcluded === true}
-                            aria-label={t('injectExclude')}
-                            disabled={busy}
-                            title={t('injectExcludeHint')}
-                            onClick={() => { void run(() => apiRef.current.meta(selectedProject.hash, { injectExcluded: !(selectedProject.injectExcluded === true) })) }}
-                          />
-                          <span className={css.switchText}>{t('injectExclude')}</span>
-                        </span>
+                        {/*
+                         * 这两个开关（自动记忆 / 排除注入）2026-10-18 整块搬到**大盘设置**
+                         * 卡片里去了，那里按工作区逐个列出来（`KrPanelSettings.tsx` 的
+                         * 「工作区记忆」组），一次能看到全部工作区、连着拨好几个。
+                         *
+                         * 为什么这里不留一份：同一个开关出现在两个地方，用户拨完一边、
+                         * 另一边还是旧值（两处各自缓存一份 projects 快照），看到的就是
+                         * 「明明关掉了却还开着」。一处入口、一份真相。
+                         *
+                         * 这里保留的只有**别名编辑**与**清空本项目记忆** —— 那是这个面板
+                         * 独有的、按条目操作的能力，设置卡片里没有。
+                         */}
                         <Tooltip label={t('clearProject')} side="top" delayMs={500}>
                           <button type="button" className={`${css.iconAction} ${css.iconActionDanger}`} aria-label={t('clearProject')} disabled={busy} onClick={handleClearProject}>
                             <IconTrashOutlineRegular size={14} />

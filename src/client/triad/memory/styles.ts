@@ -195,8 +195,8 @@ export const css = {
   addMeta: 'dsh-memory-add-meta',
   check: 'dsh-memory-check',
   switch: 'dsh-memory-switch',
-  switchText: 'dsh-memory-switch-text',
-  switchLine: 'dsh-memory-switch-line',
+  // switchText / switchLine 随 2026-10-18 那两个开关（自动记忆 / 排除注入）迁出
+  // 记忆面板而删除：它们只服务项目上下文条里那两行，留着就是零消费者的死类名。
   batchCount: 'dsh-memory-batch-count',
   error: 'dsh-memory-error',
   notice: 'dsh-memory-notice',
@@ -560,7 +560,6 @@ const SHEET = `
 .dsh-memory-check{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;line-height:19px;color:var(--m-text-2);cursor:pointer}
 .dsh-memory-check input{accent-color:var(--m-primary);margin:0}
 .dsh-memory-edit-buttons{display:flex;align-items:center;justify-content:flex-end;gap:8px}
-.dsh-memory-switch-line{display:inline-flex;align-items:center;gap:8px}
 /* 开关走**中性黑白**，不用主题蓝。
    开 = 主文字色的实心轨道 + 反色圆点（浅色主题：黑轨白点；深色：白轨黑点），
    关 = 一层淡灰轨道 + 三级字色圆点。开合靠明暗对比说清，与卡片里的文字同一套
@@ -570,7 +569,6 @@ const SHEET = `
 .dsh-memory-switch[aria-checked='true']{background:var(--m-text,var(--dsw-alias-label-primary,#1f2329))}
 .dsh-memory-switch[aria-checked='true']::after{transform:translateX(18px);background:var(--m-card-bg,var(--dsw-static-neutral-bluish-00,#fff))}
 .dsh-memory-switch:disabled{opacity:.5;cursor:default}
-.dsh-memory-switch-text{font-size:12.5px;line-height:19px;color:var(--m-text-2)}
 
 /* ── 通知 / 错误 ──────────────────────────────────────────────────── */
 .dsh-memory-error{flex:none;margin:12px 16px 0;padding:8px 12px;border-radius:9px;border:1px solid var(--m-err);background:var(--m-err-bg);font-size:12.5px;line-height:19px;color:var(--m-err)}

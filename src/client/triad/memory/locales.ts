@@ -82,9 +82,10 @@ export const zh = {
   clearProject: '清空该项目全部记忆',
   clearProjectConfirm: '确定清空项目「{name}」的 {count} 条记忆？此操作不可恢复。置顶记忆会保留，不会被删除。',
   addSaved: '已添加记忆',
-  autoMemory: '自动记忆',
-  injectExclude: '排除注入',
-  injectExcludeHint: '开启后，在这个项目的会话里不再注入任何记忆条目；自动提取、手动记忆与检索不受影响。',
+  // 历史注记：autoMemory / injectExclude / injectExcludeHint 三个键 2026-10-18 随
+  // 记忆面板里那两枚开关一起删除（开关已迁到大盘设置卡片，文案硬编码在
+  // KrPanelSettings.tsx 里，与卡片其余各行同款）。留着这三个键等于给后人
+  // 一个「这里还能拨」的错觉。
   collapse: '收起',
   multiSelect: '多选',
   selectAll: '全选',
@@ -416,9 +417,8 @@ export const en = {
   clearProject: 'Clear all memories in this project',
   clearProjectConfirm: 'Clear {count} memories in project "{name}"? This cannot be undone. Pinned memories are kept.',
   addSaved: 'Memory added',
-  autoMemory: 'Auto-memory',
-  injectExclude: 'Exclude injection',
-  injectExcludeHint: 'When on, no memory entries are injected into sessions of this project; auto-extraction, manual memories and search are unaffected.',
+  // Removed 2026-10-18: autoMemory / injectExclude / injectExcludeHint — the two
+  // switches moved to the panel-settings card (hardcoded Chinese labels there).
   collapse: 'Collapse',
   multiSelect: 'Select',
   selectAll: 'All',
