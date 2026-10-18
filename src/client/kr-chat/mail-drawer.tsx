@@ -1,10 +1,16 @@
 /**
- * dsh-chat-plus — Seeker 顶栏「邮箱」按钮 + 右侧只读邮件抽屉。
+ * dsh-chat-plus — Seeker 顶栏「邮箱」按钮 + 视口居中的只读邮件卡片。
  *
  * 用户诉求（2026-10-15）：「把入口搬迁到设置旁边，只是单独的查看而已」。
  * 于是邮箱从「统一工作台里的一个 Tab」搬到 Seeker 标签右侧那排动作按钮里，
- * 点开是一张从右滑入的抽屉，里面复用现成的 MailPanel（`embedded` 形态 ——
- * 抽屉自己就是外壳，不要面板自带的 PopoverShell 再套一层）。
+ * 点开是一张浮层，里面复用现成的 MailPanel（`embedded` 形态 ——
+ * 浮层自己就是外壳，不要面板自带的 PopoverShell 再套一层）。
+ *
+ * 2026-10-18 用户追加：「邮箱的页面我建议是弹卡片而不是抽屉」。于是外壳从
+ * 「右侧全高滑入抽屉」换成「视口居中的模态卡片」—— 只换几何，其余全不动。
+ * 为什么卡片更合适：邮件面板要三栏（文件夹 / 列表 / 正文），抽屉那 420px 宽度
+ * 触发不了面板自己的 @container 620px 阈值，永远退化成移动端单栏；卡片给到
+ * 1080px 就直接进三栏。何况邮箱是只读查看，不该像抽屉那样长期压缩对话宽度。
  *
  * 三块东西、三个归属，刻意不互相穿透：
  *
@@ -12,18 +18,20 @@
  *     没有对应的 slots 座位，只能照 Seeker / 齿轮那套做法建节点。按钮由
  *     kr-chat-controller 每 250ms 幂等调用一次，位置不对就搬回来。
  *  2. **开合状态**：mail-drawer-store（挂 window 槽位，跨 bundle 共享）。
- *     按钮与抽屉不同树不同根，props 传不过去，只能走共享 store。
- *  3. **抽屉本体**：body 级容器 + createRoot（`mountMailDrawer`）。
- *     为什么不挂在右栏 `.kr-split__side` 里（设置抽屉就在那儿）：邮箱面板需要
- *     的宽度（420px）比右栏本身还宽，且右栏在空白会话里整块不渲染 —— 挂进去
- *     会出现「顶栏有邮箱按钮、点了却什么都没出来」；body 级 fixed 浮层与右栏的
+ *     按钮与卡片不同树不同根，props 传不过去，只能走共享 store。
+ *     （store 与导出的名字仍带 drawer：改名要连带动 controller、冒烟与 e2e，
+ *     收益只是措辞，不值当。）
+ *  3. **卡片本体**：body 级容器 + createRoot（`mountMailDrawer`）。
+ *     为什么不挂在右栏 `.kr-split__side` 里（设置抽屉就在那儿）：卡片是**全视口
+ *     模态**，比右栏宽得多，且右栏在空白会话里整块不渲染 —— 挂进去会出现
+ *     「顶栏有邮箱按钮、点了却什么都没出来」；body 级 fixed 浮层与右栏的
  *     布局/裁剪/滚动完全解耦。
  *
- * 动效（用户明确偏好，且要求减弱动效下内容完整可见）：抽屉与遮罩的可见性**只**
+ * 动效（用户明确偏好，且要求减弱动效下内容完整可见）：卡片与遮罩的可见性**只**
  * 由 `data-open` 属性选择器决定，动画只负责过程 —— 于是 `prefers-reduced-motion`
- * 下把过渡整体关掉，抽屉照样是「打开即完整可见」，不存在停在半透明中间态。
+ * 下把过渡整体关掉，卡片照样是「打开即完整可见」，不存在停在半透明中间态。
  *
- * 首帧不发请求：抽屉的 **DOM 常驻**（否则退场动画没得播），但内部 MailPanel 用
+ * 首帧不发请求：卡片的 **DOM 常驻**（否则退场动画没得播），但内部 MailPanel 用
  * `hasOpened` 闩锁延迟到**第一次真正打开**才挂载。常驻 + 条件渲染的取舍点就在这里：
  * 动画只可能发生在「打开过之后」，而插件加载时不该凭空去打邮箱接口。
  */
@@ -142,7 +150,7 @@ export function applyMailButtonState(el?: Element | null): void {
 }
 
 /**
- * 抽屉本体：遮罩 + 右滑入面板。开合读共享 store，DOM 常驻、`data-open` 驱动显隐。
+ * 卡片本体：遮罩 + 居中面板。开合读共享 store，DOM 常驻、`data-open` 驱动显隐。
  */
 export function KrMailDrawer(): JSX.Element {
   const store = getMailDrawerStore()
@@ -167,8 +175,8 @@ export function KrMailDrawer(): JSX.Element {
   /*
    * Esc 关闭：只在打开期间挂监听。
    *
-   * 抽屉没开时 Esc 属于页面上别的东西（官方弹层、输入框取消等），抢过来关一个
-   * 看不见的抽屉是纯干扰。与 KrPanelSettings 的处理逐字同构。
+   * 卡片没开时 Esc 属于页面上别的东西（官方弹层、输入框取消等），抢过来关一个
+   * 看不见的卡片是纯干扰。与 KrPanelSettings 的处理逐字同构。
    */
   useEffect(() => {
     if (!open) return undefined
@@ -182,21 +190,24 @@ export function KrMailDrawer(): JSX.Element {
   return (
     <>
       {/* 遮罩：铺满视口，**只在打开时拦截指针**（常驻 pointer-events:auto 会把整页
-          点击一起吃掉）。左缘必然落在抽屉左侧，于是「点外面关闭」这条通路永远是通的。 */}
+          点击一起吃掉）。卡片四周都留着遮罩，于是「点外面关闭」这条通路永远是通的。 */}
       <div
         className="kr-mail-drawer__scrim"
         data-open={open ? 'true' : 'false'}
         onClick={() => { store.setOpen(false) }}
         aria-hidden="true"
       />
-      <aside
+      {/* 元素用 div 而不是 aside：aside 语义是「与正文相关的旁注」，而这是一张
+          模态对话框（role="dialog" 才是它的真实身份）。类名仍叫 kr-mail-drawer ——
+          e2e 与样式都按它定位，改名的收益只有措辞。 */}
+      <div
         className="kr-mail-drawer"
         data-open={open ? 'true' : 'false'}
         role="dialog"
         /*
          * aria-modal **只在打开时为真**，不能写死 "true"。
          *
-         * 抽屉关闭时 DOM 仍然常驻（退场动画要求，见文件头注释），而官方快捷键服务
+         * 卡片关闭时 DOM 仍然常驻（退场动画要求，见文件头注释），而官方快捷键服务
          * 判定「当前处于模态」的方式是**纯 DOM 查询**：
          *
          *   document.querySelectorAll('[role="dialog"][aria-modal="true"], [role="menu"]')
@@ -226,12 +237,12 @@ export function KrMailDrawer(): JSX.Element {
             />
           </div>
         )}
-      </aside>
+      </div>
     </>
   )
 }
 
-/** 跨 bundle 共享的抽屉根句柄（live reload 后旧根不回收，必须认一份）。 */
+/** 跨 bundle 共享的卡片根句柄（live reload 后旧根不回收，必须认一份）。 */
 const HOST_GLOBAL_KEY = '__dshChatPlusMailDrawerHost__'
 
 interface MailDrawerHost {
@@ -240,7 +251,7 @@ interface MailDrawerHost {
 }
 
 /**
- * 挂载抽屉到 body 级容器。幂等：同页面重复调用（live reload / 多次 apply）只挂一次。
+ * 挂载卡片到 body 级容器。幂等：同页面重复调用（live reload / 多次 apply）只挂一次。
  *
  * 与 kr-chat-controller 的 PANEL_HOST_GLOBAL_KEY 同一套理由：两份 bundle 各持一个
  * 模块级变量的话，两边都会往同一容器上 createRoot，React 会告警并让两棵树互相覆盖。
@@ -269,7 +280,7 @@ export function mountMailDrawer(): void {
   try {
     root.render(<KrMailDrawer />)
   } catch (error) {
-    // 抽屉挂不出来不该把整个控制器同步流程带崩（其它按钮还要照常工作）。
+    // 卡片挂不出来不该把整个控制器同步流程带崩（其它按钮还要照常工作）。
     console.error('[mail-drawer] mount failed', error)
     try { root.unmount() } catch { /* 未挂成，忽略 */ }
     container.remove()

@@ -22,7 +22,7 @@ bundles 层，不用手改配置文件。
 - [对话读起来更顺](#对话读起来更顺)
 - [五个工作台](#五个工作台)
 - [输入区与工具栏](#输入区与工具栏)
-- [Agent 邮箱（只读抽屉）](#agent-邮箱只读抽屉)
+- [Agent 邮箱（只读卡片）](#agent-邮箱只读卡片)
 - [供应商中心（设置 → 供应商）](#供应商中心设置--供应商)
 - [提示词通道：什么时候模型才知道这些围栏](#提示词通道什么时候模型才知道这些围栏)
 - [安装与卸载](#安装与卸载)
@@ -45,7 +45,7 @@ bundles 层，不用手改配置文件。
 | 给不会编程的人看「这轮做了什么」 | 右栏**操作面板**卡，中文人话时间线 |
 | 让 AI 记住我的偏好和身份 | 工作台**灵魂** + **记忆** |
 | 管 API Key / 代理 / 生图模型 | 官方设置弹窗 → [供应商](#供应商中心设置--供应商) |
-| 看 Agent 收到什么邮件、等验证码 | Seeker 标签右侧的**邮箱**按钮（只读抽屉，6 个 `mail_*` 工具） |
+| 看 Agent 收到什么邮件、等验证码 | Seeker 标签右侧的**邮箱**按钮（居中只读卡片，6 个 `mail_*` 工具） |
 
 ---
 
@@ -213,7 +213,7 @@ document.getElementById('b').onclick = () => { document.getElementById('v').text
 ## 五个工作台
 
 侧边栏工作台，每页独立（邮箱不在其中，它的入口在 Seeker 标签右侧，见
-[邮箱](#agent-邮箱只读抽屉)）：
+[邮箱](#agent-邮箱只读卡片)）：
 
 ### 记忆
 
@@ -284,12 +284,13 @@ document.getElementById('b').onclick = () => { document.getElementById('v').text
 
 ---
 
-## Agent 邮箱（只读抽屉）
+## Agent 邮箱（只读卡片）
 
 腾讯 Agent Mail 的专属邮箱（与你的个人邮箱完全隔离）。入口在 **Seeker 标签右侧的邮件按钮**，
-紧跟「大盘设置」齿轮 —— 点开从右边滑入一个**只读**面板：左列文件夹（收件箱 / 已发送 /
-回收站 / 垃圾邮件 + 只看未读 / 只看附件）、中间的邮件列表、选中后的正文与附件。
-面板窄时自动切成「列表 ↔ 正文」单栏，点邮件看内容、点返回回到列表。
+紧跟「大盘设置」齿轮 —— 点开在视口中央弹出**只读卡片**（约 1080×760，四周留边、点外面或按
+Esc 收起）：左列文件夹（收件箱 / 已发送 / 回收站 / 垃圾邮件 + 只看未读 / 只看附件）、
+中间的邮件列表、选中后的正文与附件。窗口压窄到卡片不足 620px 时，自动切成
+「列表 ↔ 正文」单栏，点邮件看内容、点返回回到列表。
 
 **只看，不发**：面板里没有写信、回复、转发、移入回收站、永久删除的入口。
 模型那侧同样只剩 6 个**只读**工具（`mail_account` / `mail_list` / `mail_search` /
@@ -307,7 +308,7 @@ document.getElementById('b').onclick = () => { document.getElementById('v').text
 |---|---|
 | 输入框上方 | **供应商标签** / **模型选择器** / **推理等级** / **优化提示词** 四个座位 |
 | 输入框左侧 | 记忆注入开关、工具闸门 |
-| Seeker 标签右侧 | **大盘设置**齿轮 + **邮箱**按钮（各自滑入一个右侧抽屉，见 [Seeker 视图](#seeker-视图双栏执行大盘)） |
+| Seeker 标签右侧 | **大盘设置**齿轮（右侧滑入抽屉）+ **邮箱**按钮（居中弹出卡片），见 [Seeker 视图](#seeker-视图双栏执行大盘) |
 | 消息操作行 | **对话截图**（无头浏览器渲染 markdown / 代码高亮 / mermaid，可长图）、**下载** |
 
 **download 工具**：模型可以把文件下给你，带实时进度条 / 速度 / ETA。
@@ -365,9 +366,9 @@ document.getElementById('b').onclick = () => { document.getElementById('v').text
 ### Agent 邮箱通道（跨模块，与邮箱工作台解耦）
 
 「Agent 邮箱」这一行与其余通道**不同源**：它由**邮箱模块**承载，卡片只是
-把它转出来，让你不必为了拨它再跑一趟邮箱抽屉。
+把它转出来，让你不必为了拨它再跑一趟邮箱卡片。
 
-它和邮箱工作台（抽屉里的邮箱设置页）的**总开关互不影响**：
+它和邮箱工作台（卡片里的邮箱设置页）的**总开关互不影响**：
 
 | 邮箱工作台 | 这一行 | 结果 |
 |---|---|---|
@@ -615,13 +616,13 @@ node scripts/smoke-triad-host.mjs    # 工作台 host：路由 + 记忆工具 + 
 node scripts/smoke-triad-client.mjs  # 工作台 client 纯逻辑
 node scripts/test-session-isolation.mjs  # 跨会话隔离（抽源码求值，真跑行为）
 node scripts/test-mail-two-phase.mjs     # 邮箱两阶段重放（host 能力）
-node scripts/test-mail-drawer.mjs        # 邮箱抽屉真浏览器 E2E（顶栏按钮 / 开合 / 只读）
+node scripts/test-mail-drawer.mjs        # 邮箱卡片真浏览器 E2E（顶栏按钮 / 居中几何 / 开合 / 只读）
 node scripts/test-skill-manager.mjs
 node scripts/test-skill-toggles.mjs
 node scripts/test-subagent-catalog.mjs
 ```
 
-或一把梭：`npm run smoke`（四个冒烟 + 会话隔离 + 邮箱两阶段 + 邮箱抽屉 E2E）、`npm test`（三个纯逻辑测试）。
+或一把梭：`npm run smoke`（四个冒烟 + 会话隔离 + 邮箱两阶段 + 邮箱卡片 E2E）、`npm test`（三个纯逻辑测试）。
 
 改动前建议先跑一遍确认基线是绿的。冒烟用 `node:vm` 假出 `window.__ModuleLoader__` 与 DOM
 跑真正的产物，或用桩 ctx 驱动 host 的 `apply()`。
@@ -656,7 +657,7 @@ src/
 ├── host.ts                     host 半身入口
 ├── client/                     浏览器半身
 │   ├── index.ts                装配入口（各子模块独立 try/catch）
-│   ├── kr-chat/                Seeker 双栏大盘（五张卡 + 控制器 + 样式 + 大盘设置抽屉 + 只读邮箱抽屉）
+│   ├── kr-chat/                Seeker 双栏大盘（五张卡 + 控制器 + 样式 + 大盘设置抽屉 + 只读邮箱卡片）
 │   ├── thinking/               思考行 / 工具行 / 步骤卡 / 总结卡
 │   ├── tool-summary/           工具调用聚合与活动抽屉
 │   ├── iu/                     iu 原生交互卡片（kinds/ 每种卡一对文件：纯逻辑 + React 体）

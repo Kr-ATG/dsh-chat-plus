@@ -2267,13 +2267,13 @@ if (krEnabled) {
 
 // ── 邮箱面板：纯查看（2026-10 入口搬迁 + 写操作 UI 全裁） ───────────────
 // 这一轮把邮件从「统一工作台第 6 个分类」搬成「Seeker 顶栏齿轮右侧的邮件按钮
-// + 右栏只读抽屉」（入口本体在 src/client/kr-chat/mail-drawer.tsx），同时把面板
+// + 只读浮层」（入口本体在 src/client/kr-chat/mail-drawer.tsx），同时把面板
 // 裁成**纯查看**：写邮件 / 回复 / 转发 / 移入回收站 / 永久删除全部删除。
 //
 // 旧契约（page 形态 / 无 open-closing-anchor / registerPanelSeat 座位）随搬迁
 // 整体作废：registerPanelSeat 那条装配路径（applyMailClient + MAIL_PANEL_ID）
 // 已删除，本文件不能再要求它存在，否则就是拿一把已经不用的尺子量。
-// 新契约两条：① 邮箱只剩**导出面**（抽屉 import 它）+ 工作台里已无 mail 分类；
+// 新契约两条：① 邮箱只剩**导出面**（浮层 import 它）+ 工作台里已无 mail 分类；
 // ② 面板是纯查看的（列表/搜索/读信/附件在位，写操作 UI 不存在）。
 {
   const mailPanelSrc = readFileSync(resolve(ROOT, 'src/client/triad/mail/Panel.tsx'), 'utf-8')
@@ -2290,7 +2290,7 @@ if (krEnabled) {
 
   const reasons = []
   // ① 导出面：新入口（mail-drawer.tsx）靠这几个 export 装配面板。
-  if (!/export \{ MailPanel, MailIcon/.test(mailIndexSrc)) reasons.push('mail/index.ts 必须导出 MailPanel / MailIcon（新抽屉入口 import 它）')
+  if (!/export \{ MailPanel, MailIcon/.test(mailIndexSrc)) reasons.push('mail/index.ts 必须导出 MailPanel / MailIcon（新浮层入口 import 它）')
   if (!/export \{ createMailApi, MailApiError \}/.test(mailIndexSrc)) reasons.push('mail/index.ts 必须导出 createMailApi')
   // 死代码必须真删掉：留着等于「还有第二个入口」的错觉。
   if (/applyMailClient/.test(indexClean)) reasons.push('applyMailClient 已是死代码，必须删除（否则让人以为还有注册的座位）')
@@ -2362,9 +2362,10 @@ if (krEnabled) {
   }
 }
 
-// ── 邮箱窄栏：容器查询（抽屉 420px 下必须命中）+ 列表↔详情切换 ──────────
-// 面板活在右栏抽屉里（宽 420px、max-width:94%），**与视口宽度无关**：
-// 用视口媒体查询在 2560px 的屏幕上永远不会命中，窄栏必须是容器查询驱动。
+// ── 邮箱窄栏：容器查询 + 列表↔详情切换 ────────────────────────────────
+// 面板宽度由外壳给（邮箱卡片最宽 1080px，窄窗口下被压小），**与视口宽度不是
+// 同一个数**：视口 1400px 时卡片可能只有 900px，视口媒体查询判的是另一回事。
+// 所以窄栏必须由容器查询驱动，量面板自己。
 // 另有一条踩过的坑要钉住：container-type 必须挂**有确定宽度的那个根**
 // （.dsh-mail-panel），挂到 display:contents 的官方 [data-slot="main"] 上
 // 不会有任何效果 —— 容器查询永远不匹配。
@@ -2379,13 +2380,13 @@ if (krEnabled) {
     reasons.push('container-type:inline-size 必须挂在 .dsh-mail-panel 根上（挂到 display:contents 的祖先上容器查询永不命中）')
   }
   if (!/container-name:mailpanel/.test(sheet)) reasons.push('容器要有 container-name（@container 用得到）')
-  // ② 阈值必须是 620px：抽屉 420px < 620px，窄栏是**默认形态**。
+  // ② 阈值必须是 620px：卡片宽 >620px 排三栏，压窄后落单栏范式。
   if (!/@container\s+mailpanel\s+\(max-width:\s*620px\)/.test(sheet)) {
-    reasons.push('@container mailpanel (max-width: 620px) 必须存在（420px 抽屉下必须命中）')
+    reasons.push('@container mailpanel (max-width: 620px) 必须存在（窄窗口 / 手机上落单栏范式）')
   }
-  // ③ 明确不许用视口媒体查询做窄栏布局（右栏宽度与视口无关）。
+  // ③ 明确不许用视口媒体查询做窄栏布局（面板宽度由外壳给，与视口不等同）。
   if (/@media\s*\(max-width:\s*900px\)/.test(sheet)) {
-    reasons.push('窄栏不得用视口媒体查询（@media max-width:900px）——右栏抽屉宽度与视口无关')
+    reasons.push('窄栏不得用视口媒体查询（@media max-width:900px）——面板宽度由外壳给，与视口宽度不是同一个数')
   }
   // ④ 单栏切换：选中详情时列表让位，两栏都靠 data 属性驱动。
   if (!/\.dsh-mail-panel \.dsh-mail-list-col\[data-has-selection='true'\]\{display:none\}/.test(sheet)) {
@@ -2410,7 +2411,7 @@ if (krEnabled) {
   }
 
   if (reasons.length > 0) fail('邮箱窄栏布局：' + reasons.join('；'))
-  else pass('邮箱窄栏布局：容器查询(620px，420px 抽屉必命中) + 文件夹横条 + 列表↔详情单栏切换 + 返回按钮 + 过渡动效与 reduced-motion 兜底')
+  else pass('邮箱窄栏布局：容器查询(620px) + 文件夹横条 + 列表↔详情单栏切换 + 返回按钮 + 过渡动效与 reduced-motion 兜底')
 }
 
 // ── 邮箱附件保存位置（用户自选目录）───────────────────────────────────

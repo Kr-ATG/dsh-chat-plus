@@ -13,7 +13,7 @@
  * （src/client/provider/webui/section.tsx，座位 settings.section / id provider-hub）。
  *
  * 邮件（原第 6 个分类）**也搬走了**（2026-10）：入口改到 Seeker 顶栏齿轮右侧的
- * 邮件按钮 + 右栏只读抽屉（src/client/kr-chat/mail-drawer.tsx），本工作台不再
+ * 邮件按钮 + 居中只读卡片（src/client/kr-chat/mail-drawer.tsx），本工作台不再
  * 有 mail 分类 —— 邮箱被裁成纯查看，塞进统一工作台里既占一格又得跟整页三栏
  * 布局较劲。
  */

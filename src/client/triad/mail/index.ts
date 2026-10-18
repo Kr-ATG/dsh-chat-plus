@@ -3,7 +3,7 @@
  *
  * 2026-10 入口搬迁：邮箱曾经是统一工作台里的第 6 个分类（官方 `main` 页 +
  * `sidebar.panellist` 菜单行，由 registerPanelSeat 装配）。现在它在 **Seeker
- * 顶栏齿轮右侧的邮件按钮** + 右栏只读抽屉里（`src/client/kr-chat/mail-drawer.tsx`
+ * 顶栏齿轮右侧的邮件按钮** + 视口居中的只读卡片里（`src/client/kr-chat/mail-drawer.tsx`
  * 直接 import 本文件的 `MailPanel` 与 `createMailApi`），工作台里已无邮件分类。
  *
  * 所以本文件只剩「导出面」这一件事：原来的 `applyMailClient`（registerPanelSeat

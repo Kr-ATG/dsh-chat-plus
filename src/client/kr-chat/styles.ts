@@ -5359,25 +5359,25 @@ body[data-ds-dark-theme] .kr-settings {
   }
 }
 
-/* ══ 邮箱（顶栏按钮 + body 级右滑入只读抽屉）═════════════════════════════════
+/* ══ 邮箱（顶栏按钮 + body 级居中弹卡片）═════════════════════════════════
  *
- * 与上面「大盘设置」是**一对**：按钮并排在 Seeker 标签右侧（齿轮之后），
- * 抽屉也是从右滑入。刻意复用同一套尺寸、时序与缓动 —— 两枚按钮并排读起来是
- * 一对，两张抽屉打开时的节奏也一致，不发明第二套动效语言。
+ * 2026-10-18 用户反馈「邮箱的页面我建议是弹卡片而不是抽屉」，于是外壳从
+ * 「右侧全高滑入抽屉」换成「视口居中的模态卡片」。改的是**形态**：入口按钮、
+ * 共享 store、三条关闭通路（面板关闭钮 / 点遮罩 / Esc）、aria-modal 只在打开
+ * 时为真 —— 全部照旧，一行没动。
  *
- * 三处与设置抽屉的**刻意差异**（其余一律照抄）：
+ * 为什么卡片比抽屉合适（这是判据，不是审美偏好）：
+ *  1. 邮件是「文件夹 + 列表 + 正文」三栏内容，抽屉只给 420px，面板自己的
+ *     @container 620px 阈值永远命中不了，只能退化成一栏到底的移动端范式；
+ *     卡片给到 1080px，面板直接进三栏，读信不用来回切。
+ *  2. 邮箱是**只读查看**，不是与对话并行的常驻工作区 —— 抽屉从侧边挤进来会
+ *     持续压缩对话宽度，卡片盖上去、看完就散，对话布局毫发不动。
  *
- *  1. 抽屉挂在 **body** 上而不是右栏 .kr-split__side 里，所以定位从
- *     position:absolute 换成 position:fixed。理由：邮箱面板要 420px，比右栏
- *     本身还宽；而且右栏在空白会话里整块不渲染，挂进去会出现「顶栏有按钮、
- *     点了没东西出来」。fixed 与右栏的布局/裁剪/滚动完全解耦。
- *  2. 宽度 420px（设置抽屉 380px）：邮件是「列表 + 正文」两栏切换，比九行开关
- *     更吃横向空间。
- *  3. 遮罩是**全视口**的（设置抽屉的遮罩只盖右栏）。所以这里没有「遮罩左缘 <
- *     抽屉左缘」这种同容器比较，可点区域天然是抽屉左边那一大片。
+ * 与设置抽屉（.kr-settings）的关系：那张是右栏内的局部浮层，这张是 body 级的
+ * 全视口模态，几何不同但**刻意复用同一套缓动与时长语言**，不发明第二套动效。
  *
  * z-index 取 2147482000：低于本插件的全屏 iframe/图片预览（2147483000），
- * 高于官方弹层与本插件其它浮层 —— 邮箱抽屉开着时，官方弹窗不该盖住它。
+ * 高于官方弹层与本插件其它浮层 —— 邮箱卡片开着时，官方弹窗不该盖住它。
  */
 
 /* 顶栏「邮箱」按钮：紧跟齿轮之后（kr-chat-controller 用 afterend 插入）。
@@ -5439,8 +5439,8 @@ body[data-ds-dark-theme] .kr-settings {
 }
 
 /* 遮罩：铺满**整个视口**（fixed），只在打开时拦截指针。
- * 常驻 pointer-events:auto 会把整页点击吃掉 —— 抽屉明明关着，页面上却点不动
- * 任何东西，是这类浮层最经典的 bug。 */
+ * 常驻 pointer-events:auto 会把整页点击吃掉 —— 卡片明明关着，页面上却点不动
+ * 任何东西，是这类浮层最经典的 bug。点遮罩关闭靠的就是这一层。 */
 .kr-mail-drawer__scrim {
   position: fixed;
   inset: 0;
@@ -5463,23 +5463,29 @@ body[data-ds-dark-theme] .kr-mail-drawer__scrim {
   background: rgba(0, 0, 0, .42);
 }
 
-/* 抽屉本体：贴右边缘、铺满视口高度。
+/* 卡片本体：视口居中、上下留边。
+ *
  * 开合全部由 data-open 这一个属性驱动（组件不做条件渲染），所以退场动画才有得播；
- * visibility 的延迟就是为它留的：关的时候等 260ms 过渡跑完再 hidden，否则退场
+ * visibility 的延迟就是为它留的：关的时候等 240ms 过渡跑完再 hidden，否则退场
  * 会被立刻掐断。这套写法与 .kr-settings 逐字同源。
  *
- * 宽度 420px / 上限 94%：上限留出遮罩余量 —— 铺满 100% 就等于没有「点外面关闭」
- * 这条通路了（窄屏手机上这条尤其重要）。 */
+ * 尺寸：宽 min(1080px, 100vw − 48px)，高 min(760px, 100vh − 64px)。
+ *  - 宽给到 1080px 是为了越过邮件面板自己的 @container 620px 阈值 —— 过了才排
+ *    三栏（文件夹 / 列表 / 正文），否则面板会退化成移动端单栏范式。
+ *  - 高与宽都留边：卡片**不是**全屏模态，四周露出的遮罩既说明「这是浮层」，
+ *    也留着「点外面关闭」这条通路（窄屏上尤其重要）。
+ *  - 用 min() 而不是 max-width/max-height 两条：宽高比与视口一起缩，不需要
+ *    第二条媒体查询兜底。 */
 .kr-mail-drawer {
   position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
+  top: 50%;
+  left: 50%;
   z-index: 2147482001;
   display: flex;
   flex-direction: column;
-  width: 420px;
-  max-width: 94%;
+  width: min(1080px, calc(100vw - 48px));
+  height: min(760px, calc(100vh - 64px));
+  height: min(760px, calc(100dvh - 64px));
   box-sizing: border-box;
   overflow: hidden;
   /* body 上不在 .kr-split 变量作用域里，--kr-card-bg 之类取不到真值时走 fallback
@@ -5492,34 +5498,35 @@ body[data-ds-dark-theme] .kr-mail-drawer__scrim {
   --kr-accent: var(--dsw-alias-state-business-primary, #4176e6);
   --kr-card-shadow: 0 1px 2px rgba(15, 17, 21, .05), 0 6px 14px -8px rgba(15, 17, 21, .18);
   background: var(--kr-card-bg);
-  border-left: 1px solid var(--kr-card-border);
-  border-radius: 14px 0 0 14px;
-  box-shadow: var(--kr-card-shadow), -10px 0 24px -16px rgba(15, 17, 21, .22);
+  border: 1px solid var(--kr-card-border);
+  border-radius: 16px;
+  box-shadow: var(--kr-card-shadow), 0 24px 60px -28px rgba(15, 17, 21, .38);
   opacity: 0;
   visibility: hidden;
-  transform: translateX(18px) scale(.99);
-  transform-origin: 100% 50%;
+  /* 关闭态：略微下沉 + 收一点，打开时「浮上来」。transform 里带着居中的
+     translate(-50%, -50%)，所以位移量都写在它后面（追加而不是覆盖）。 */
+  transform: translate(-50%, -50%) translateY(10px) scale(.985);
   pointer-events: none;
-  transition: opacity .26s cubic-bezier(0.16, 1, 0.3, 1), transform .26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear .26s;
+  transition: opacity .24s cubic-bezier(0.16, 1, 0.3, 1), transform .24s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear .24s;
 }
 
 .kr-mail-drawer[data-open="true"] {
   opacity: 1;
   visibility: visible;
-  transform: none;
+  transform: translate(-50%, -50%);
   pointer-events: auto;
-  transition: opacity .26s cubic-bezier(0.16, 1, 0.3, 1), transform .26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s;
+  transition: opacity .24s cubic-bezier(0.16, 1, 0.3, 1), transform .24s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s;
 }
 
-/* 深色下浮层靠「更实的描边 + 更黑的定向落影」分层（浅色那套 4% 黑描边压在深底上
+/* 深色下浮层靠「更实的描边 + 更黑的落影」分层（浅色那套 4% 黑描边压在深底上
  * 等于没有）。与 .kr-settings 同一口径。 */
 body[data-ds-dark-theme] .kr-mail-drawer {
   --kr-card-border: rgba(255, 255, 255, 0.09);
-  border-left-color: rgba(255, 255, 255, .09);
-  box-shadow: var(--kr-card-shadow), -10px 0 26px -16px rgba(0, 0, 0, .7);
+  border-color: rgba(255, 255, 255, .09);
+  box-shadow: var(--kr-card-shadow), 0 26px 64px -30px rgba(0, 0, 0, .85);
 }
 
-/* 面板容器：铺满抽屉。
+/* 面板容器：铺满卡片。
  * flex:1 1 0 + min-height:0 是「滚动子级能在 flex 列里正常收缩」的固定写法 ——
  * 少了 min-height:0，自动最小尺寸会把容器顶到内容高度，面板内部不再滚动。 */
 .kr-mail-drawer__body {
@@ -5530,17 +5537,17 @@ body[data-ds-dark-theme] .kr-mail-drawer {
   overflow: hidden;
 }
 
-/* 面板内容随抽屉一起浮现：只动 opacity/transform，不参与布局（纯合成器属性）。
- * 动画**只挂在打开态**上，理由与 .kr-settings__row 那段完全一致：抽屉是常驻 DOM，
+/* 面板内容随卡片一起浮现：只动 opacity/transform，不参与布局（纯合成器属性）。
+ * 动画**只挂在打开态**上，理由与 .kr-settings__row 那段完全一致：卡片是常驻 DOM，
  * 写在基础规则上会在挂载时就播完，等用户真点开时早已静止。 */
 .kr-mail-drawer[data-open="true"] .kr-mail-drawer__body {
-  animation: kr-mail-drawer-in .34s cubic-bezier(.2, .8, .2, 1) both;
+  animation: kr-mail-card-in .32s cubic-bezier(.2, .8, .2, 1) both;
 }
 
-@keyframes kr-mail-drawer-in {
+@keyframes kr-mail-card-in {
   from {
     opacity: 0;
-    transform: translateX(8px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -5550,9 +5557,9 @@ body[data-ds-dark-theme] .kr-mail-drawer {
 
 @media (prefers-reduced-motion: reduce) {
   /* 新加的全部过渡与动画一律关掉。
-   * 关键：抽屉与遮罩的可见性由 data-open 属性选择器直接决定（opacity / visibility /
+   * 关键：卡片与遮罩的可见性由 data-open 属性选择器直接决定（opacity / visibility /
    * pointer-events），**不依赖任何动画末帧** —— 动画掐掉后内容是「打开即完整可见」，
-   * 不会出现停在半透明或滑到一半的中间态。 */
+   * 不会出现停在半透明或浮到一半的中间态。 */
   .kr-mail-btn,
   .kr-mail-btn svg,
   .kr-mail-drawer__scrim,
@@ -5561,10 +5568,17 @@ body[data-ds-dark-theme] .kr-mail-drawer {
   .kr-mail-drawer[data-open="true"] {
     transition: none;
   }
-  /* 静态形变也要归位，否则按钮会永久停在按下被压扁 / 打开被抬起的中间态。 */
+  /* 静态形变也要归位，否则按钮会永久停在按下被压扁 / 打开被抬起的中间态。
+   * 卡片这里**不能**写 transform:none —— 它的居中靠的就是
+   * translate(-50%, -50%)，抹掉就会贴到视口右下角去。只能抹掉「打开时的
+   * 那一点点浮起」，居中照旧。 */
   .kr-mail-btn:active,
   .kr-mail-btn[data-open="true"] svg {
     transform: none;
+  }
+  .kr-mail-drawer,
+  .kr-mail-drawer[data-open="true"] {
+    transform: translate(-50%, -50%);
   }
   .kr-mail-drawer[data-open="true"] .kr-mail-drawer__body {
     animation: none;

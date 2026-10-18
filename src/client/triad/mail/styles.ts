@@ -5,11 +5,12 @@
  * `--m-*` 变量承担，**不污染 DSH 全局 token**；类名前缀 `dsh-mail-`。
  *
  * ── 布局基准：容器查询，不是视口媒体查询 ──────────────────────────────
- * 面板现在活在右栏抽屉里（宽 420px，`max-width:94%`），**宽度与视口无关**：
- * 2560px 的屏幕上这条抽屉照样只有 420px。所以窄栏范式由 `.dsh-mail-panel`
- * 上的 `container-type: inline-size` + `@container mailpanel (max-width: 620px)`
- * 决定 —— 420px 必然命中，**窄栏是默认形态**；>620px（旧的三栏整页场景）
- * 保持三栏，只作「不崩」的兜底。
+ * 面板活在顶栏邮箱按钮弹出的居中卡片里，宽 `min(1080px, 100vw − 48px)`。
+ * 宽度由外壳给、与视口不完全等同（窄窗口下会被压小），所以两种形态都由
+ * `.dsh-mail-panel` 上的 `container-type: inline-size` +
+ * `@container mailpanel (max-width: 620px)` 决定：>620px 排三栏（文件夹 /
+ * 列表 / 正文，桌面常态），≤620px 落窄栏范式（移动端邮箱：单栏 + 横条）。
+ * 2026-10-18 卡片化之前外壳只有 420px，窄栏是唯一形态；现在两种都真会被用到。
  *
  * ⚠️ `container-type` 必须挂在**有确定宽度的那个根**上（`.dsh-mail-panel`）。
  * 挂到 `display:contents` 的祖先（如官方 `[data-slot="main"]`）上不会有任何
@@ -136,7 +137,7 @@ const STYLE_ID = 'dsh-mail-styles'
 
 const SHEET = `
 /* ── 面板根：全部走 DSH 官方 alias token，明暗两套由官方主题切换驱动 ──
-   这里是**容器查询的容器根**：它宽度由父级（右栏抽屉 420px）决定，
+   这里是**容器查询的容器根**：它宽度由父级（邮箱卡片，最宽 1080px）决定，
    container-type 必须挂在这个有确定宽度的盒子上，挂到 display:contents 的
    祖先（官方 [data-slot="main"]）上不会有任何效果。 */
 .dsh-mail-panel{
@@ -310,7 +311,7 @@ const SHEET = `
 .dsh-mail-auth-code{margin:0;padding:10px 12px;border-radius:9px;background:var(--m-side);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.7;color:var(--m-text);white-space:pre-wrap;word-break:break-all;user-select:all}
 
 /* ══════════════════════════════════════════════════════════════════════
-   窄栏范式（容器查询）—— **右栏抽屉 420px 的默认形态**
+   窄栏范式（容器查询）—— 卡片被压到 ≤620px 时的形态（窄窗口 / 手机）
    ══════════════════════════════════════════════════════════════════════
    移动端邮箱范式：列表 ↔ 详情单栏切换，文件夹从竖列改顶部横条。
    两栏都常驻 DOM，靠「列表/详情谁显示」+ 入场上浮交接 —— 这样返回时
@@ -359,7 +360,7 @@ const SHEET = `
   .dsh-mail-panel .dsh-mail-brand-text{display:none}
 }
 
-/* 超窄抽屉（≤360px）：横条与顶栏再收一档 */
+/* 超窄（≤380px）：横条与顶栏再收一档 */
 @container mailpanel (max-width: 380px){
   .dsh-mail-panel .dsh-mail-top-btn{padding:0 8px}
   .dsh-mail-panel .dsh-mail-nav-item span:not([class]){font-size:12px}

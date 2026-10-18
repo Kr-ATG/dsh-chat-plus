@@ -358,14 +358,14 @@ export function mountKrChatController(): void {
   store.setActiveTab('kr')
 
   /*
-   * 邮箱抽屉挂到 body 级容器上（KR 对话控制器生命周期内挂一次，幂等）。
+   * 邮箱卡片挂到 body 级容器上（KR 对话控制器生命周期内挂一次，幂等）。
    *
-   * 为什么不挂在右栏 .kr-split__side 里（设置抽屉就在那儿）：邮箱面板要的 420px
-   * 比右栏本身还宽，且右栏在空白会话里整块不渲染 —— 挂进去就会出现「顶栏有邮箱
-   * 按钮、点了却什么都没出来」。body 级 fixed 浮层与右栏的布局 / 裁剪 / 滚动完全
-   * 解耦（理由详见 mail-drawer.tsx 的文件头注释）。
+   * 为什么不挂在右栏 .kr-split__side 里（设置抽屉就在那儿）：邮箱卡片是全视口
+   * 模态，比右栏宽得多，且右栏在空白会话里整块不渲染 —— 挂进去就会出现「顶栏有
+   * 邮箱按钮、点了却什么都没出来」。body 级 fixed 浮层与右栏的布局 / 裁剪 / 滚动
+   * 完全解耦（理由详见 mail-drawer.tsx 的文件头注释）。
    */
-  try { mountMailDrawer() } catch { /* 抽屉挂不出来不影响其余控制器能力 */ }
+  try { mountMailDrawer() } catch { /* 卡片挂不出来不影响其余控制器能力 */ }
 
   /** 本实例是否仍是当前生效的控制器（旧实例经此让位，不再写 DOM）。 */
   const owns = (): boolean => {
@@ -398,8 +398,8 @@ export function mountKrChatController(): void {
   /*
    * 邮箱按钮同理：打开态即时跟随它自己的共享 store，不等 250ms 轮询。
    *
-   * 与设置按钮是**两份独立的 store**（mail-drawer-store），所以两个抽屉各自
-   * 独立开合 —— 共用一份的话，打开邮箱会把大盘设置一起顶出来。
+   * 与设置按钮是**两份独立的 store**（mail-drawer-store），所以邮箱卡片与设置
+   * 抽屉各自独立开合 —— 共用一份的话，打开邮箱会把大盘设置一起顶出来。
    */
   {
     const mail = getMailDrawerStore()

@@ -13,7 +13,7 @@
  * 页面顶部因此不再需要 tab 栏，只留一行面包屑（工作台 / 当前分类）说明身在何处。
  *
  * 邮件分类（原第 6 格）已于 2026-10 摘除：入口搬到 Seeker 顶栏齿轮右侧的邮件
- * 按钮 + 右栏只读抽屉（src/client/kr-chat/mail-drawer.tsx）。
+ * 按钮 + 居中只读卡片（src/client/kr-chat/mail-drawer.tsx）。
  *
  * 实现取舍：
  *  - **不碰官方行 DOM**：官方 SidebarRoot 渲染 button.panelRow，我们在 document
