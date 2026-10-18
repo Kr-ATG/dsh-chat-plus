@@ -2,7 +2,7 @@
  * dsh-provider-effort — 样式（运行时幂等注入 <style>）。
  *
  * 三个入口：
- *  - `.peff-provider-badge-*`：供应商标签（官方品牌图标 + 品牌蓝渐染 chip）。
+ *  - `.peff-provider-badge`：供应商标签（纯文字 + 品牌蓝渐染；品牌图标已移除）。
  *  - `.peff-ms-*`：纯模型选择器（接管 `conversation.input.model` 座位）。
  *  - `.peff-eff-*`：推理等级滑动式弹出（含渐变轨道 + 粒子 canvas）。
  *
@@ -18,7 +18,6 @@
 export const css = {
   // 供应商标签
   providerBadge: 'peff-provider-badge',
-  providerBadgeIcon: 'peff-provider-badge-icon',
   // 模型座位
   msRoot: 'peff-ms-root',
   msTrigger: 'peff-ms-trigger',
@@ -46,7 +45,6 @@ export const css = {
   msProviders: 'peff-ms-providers',
   msProvider: 'peff-ms-provider',
   msProviderActive: 'peff-ms-provider-active',
-  msProviderIcon: 'peff-ms-provider-icon',
   msModels: 'peff-ms-models',
   msOption: 'peff-ms-option',
   msSelected: 'peff-ms-selected',
@@ -97,10 +95,9 @@ body[data-ds-dark-theme]{
   --peff-menu-surface:var(--dsw-static-neutral-bluish-850,#212123)
 }
 
-/* ---- 供应商标签（品牌图标 + 名，无框） ---- */
+/* ---- 供应商标签（纯文字，无框；品牌图标已移除） ---- */
 .peff-provider-badge{display:inline-flex;align-items:center;gap:5px;padding:0 2px;color:color-mix(in srgb,var(--peff-accent) 60%,var(--dsw-alias-label-secondary,#bbb));font-size:12px;font-weight:500;line-height:1;white-space:nowrap;transition:color 160ms ease}
 .peff-provider-badge:hover{color:var(--dsw-alias-label-primary,#eee)}
-.peff-provider-badge-icon{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;font-size:15px;flex:0 0 auto}
 
 /* ---- 纯模型选择器（接管 model 座位，不含推理等级） ---- */
 .peff-ms-root{position:relative;min-width:0}
@@ -125,7 +122,7 @@ body[data-ds-dark-theme]{
 .peff-ms-warning{background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-state-warn-label)}
 .peff-ms-retry{flex:0 0 auto;padding:0;border:none;background:transparent;color:inherit;font:inherit;font-weight:600;cursor:pointer}
 .peff-ms-groups{min-height:0;overflow-y:auto}
-/* 头部行：当前供应商（图标+名）| 模型数 + 刷新 */
+/* 头部行：当前供应商（纯文字）| 模型数 + 刷新 */
 .peff-ms-head{display:flex;align-items:center;gap:8px;padding:6px 9px 7px;margin-bottom:2px;border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-border-l3,#2a2d35) 70%,transparent)}
 .peff-ms-head-title{display:inline-flex;align-items:center;gap:7px;min-width:0;font-size:12.5px;font-weight:600;letter-spacing:.01em;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .peff-ms-head-right{display:inline-flex;align-items:center;gap:8px;margin-left:auto;flex:0 0 auto}
@@ -136,7 +133,7 @@ body[data-ds-dark-theme]{
 .peff-ms-refresh:active{transform:scale(.92)}
 .peff-ms-refresh-spin{animation:peff-ms-spin 800ms linear infinite;color:var(--peff-accent)}
 @keyframes peff-ms-spin{to{transform:rotate(360deg)}}
-/* 两栏：左供应商图标栏 / 右模型列表 */
+/* 两栏：左供应商文字栏 / 右模型列表 */
 .peff-ms-body{flex:1;min-height:0;display:flex;overflow:hidden}
 .peff-ms-providers{flex:0 0 148px;min-height:0;overflow-y:auto;padding:4px;border-right:1px solid color-mix(in srgb,var(--dsw-alias-border-l3,#2a2d35) 70%,transparent)}
 .peff-ms-provider{position:relative;display:flex;align-items:center;gap:7px;width:100%;padding:7px 9px;border:none;border-radius:9px;outline:none;background:transparent;color:var(--dsw-alias-label-secondary,#bbb);font-size:13px;line-height:18px;text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background-color 140ms ease,color 140ms ease}
@@ -144,7 +141,6 @@ body[data-ds-dark-theme]{
 /* 选中项：仅左侧实心强调条 + 文字加重（无底色填充）。 */
 .peff-ms-provider-active{color:var(--dsw-alias-label-primary,#eee);font-weight:600}
 .peff-ms-provider-active::before{content:'';position:absolute;left:1px;top:50%;transform:translateY(-50%);width:2.5px;height:14px;border-radius:2px;background:var(--peff-accent)}
-.peff-ms-provider-icon{display:inline-flex;align-items:center;flex:0 0 15px;width:15px;height:15px;font-size:15px}
 .peff-ms-models{flex:1;min-width:0;min-height:0;overflow-y:auto;padding:4px}
 .peff-ms-option{position:relative;display:flex;align-items:center;gap:8px;width:100%;min-height:40px;padding:7px 8px;border:none;border-radius:10px;outline:none;background:transparent;color:inherit;text-align:left;cursor:pointer;transition:background-color 140ms ease,transform 140ms cubic-bezier(.2,.9,.25,1)}
 .peff-ms-option:hover:not(:disabled),.peff-ms-option:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}

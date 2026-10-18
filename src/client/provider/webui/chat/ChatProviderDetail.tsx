@@ -42,7 +42,6 @@ import {
 } from './proxy.ts'
 import type { ProxySnapshot } from './proxy.ts'
 import { chatCopy, t as chatT } from './ModelListEditor.tsx'
-import { ProviderIcon } from '../provider-icons.tsx'
 import { deriveKeyRef, messageOf, protocolChoices } from './store.ts'
 import type { ModelsSettingsState } from './store.ts'
 import { fingerprintText, slotTitle, useKeyring } from './keyring.ts'
@@ -622,7 +621,6 @@ export function ChatProviderDetail(props: ChatProviderDetailProps): ReactNode {
             )
             : (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                <ProviderIcon provider={target.provider} name={shownName} size={18} />
                 {nameWritable
                   ? (
                     /* 标题即重命名入口：点一下聚焦到下方「显示名称」框（hover 浮出铅笔）。 */

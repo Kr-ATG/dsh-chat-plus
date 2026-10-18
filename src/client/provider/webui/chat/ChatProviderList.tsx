@@ -13,7 +13,6 @@ import { useEffect, useRef, useState } from 'react'
 import type { ReactNode, CSSProperties } from 'react'
 import { getPath } from '../schema-path'
 import { chatCopy, ensureProviderFieldStyles } from './ModelListEditor.tsx'
-import { ProviderIcon } from '../provider-icons.tsx'
 import { isProxyMember, proxyTagStyle, useProxySnapshot } from './proxy.ts'
 import type { ModelsSettingsState, ProviderRow } from './store.ts'
 
@@ -175,7 +174,6 @@ function NavRow({
       onClick={onSelect}
       onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect() } }}
     >
-      <ProviderIcon provider={row.entry.provider} name={row.entry.displayName} size={18} />
       <span style={preset === true ? navNamePresetStyle : navNameStyle}>{row.entry.displayName}</span>
       {isProxiedOn ? <span style={proxyTagStyle} title="走代理">P</span> : null}
       {preset === true ? null : <CredentialDot row={row} />}

@@ -8,7 +8,8 @@
  *
  * 视觉（紧凑、透明底、不发光）：触发按钮透明无框，hover / 打开只提亮文字；
  * 弹出层为静态实色面板，带 rise/sink 动效与标准层级投影。头部行展示当前供应商
- * （官方图标 + 名 + 模型数 + 刷新），左栏供应商图标导航（淡染选中 + 实心强调条），
+ * （名 + 模型数 + 刷新），左栏供应商**纯文字**导航（淡染选中 + 实心强调条；
+ * 品牌图标已按要求去掉，只留名字）——
  * 右栏模型行悬浮微移、选中行淡染 + 实心勾。（模型行不再展示「推理」星芒徽标：
  * 推理档位由右侧 EffortSeat 单独表达。）
  *
@@ -24,7 +25,6 @@ import {
   IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconRefreshOutlineRegular,
   IconWarningOutlineRegular, Toast,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { ProviderIcon } from '../webui/provider-icons'
 import { PROVIDER_DATA_CHANGED } from '../webui/chat/ModelListEditor.tsx'
 import type { ModelSeatInjected } from './types'
 import { css, ensureStyles } from './styles'
@@ -256,9 +256,6 @@ export function ModelSeat({ available, directory, load, select }: ModelSeatProps
           ))}
           <div className={css.msHead}>
             <span className={css.msHeadTitle}>
-              {activeGroup !== undefined ? (
-                <ProviderIcon provider={activeGroup.id} name={activeGroup.name} size={16} />
-              ) : null}
               {activeGroup?.name ?? '选择模型'}
             </span>
             <span className={css.msHeadRight}>
@@ -289,9 +286,6 @@ export function ModelSeat({ available, directory, load, select }: ModelSeatProps
                   title={group.name}
                   onClick={() => { setProviderId(group.id) }}
                 >
-                  <span className={css.msProviderIcon}>
-                    <ProviderIcon provider={group.id} name={group.name} size={15} />
-                  </span>
                   {group.name}
                 </button>
               ))}
