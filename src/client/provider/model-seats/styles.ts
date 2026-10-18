@@ -24,12 +24,6 @@ export const css = {
   msChevronOpen: 'peff-ms-chevron-open',
   msMenu: 'peff-ms-menu',
   msMenuOut: 'peff-ms-menu-out',
-  msHead: 'peff-ms-head',
-  msHeadTitle: 'peff-ms-head-title',
-  msHeadRight: 'peff-ms-head-right',
-  msCount: 'peff-ms-count',
-  msRefresh: 'peff-ms-refresh',
-  msRefreshSpin: 'peff-ms-refresh-spin',
   msStatus: 'peff-ms-status',
   msEmpty: 'peff-ms-empty',
   msError: 'peff-ms-error',
@@ -115,18 +109,9 @@ body[data-ds-dark-theme]{
 .peff-ms-warning{background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-state-warn-label)}
 .peff-ms-retry{flex:0 0 auto;padding:0;border:none;background:transparent;color:inherit;font:inherit;font-weight:600;cursor:pointer}
 .peff-ms-groups{min-height:0;overflow-y:auto}
-/* 头部行：当前供应商（纯文字）| 模型数 + 刷新 */
-.peff-ms-head{display:flex;align-items:center;gap:8px;padding:6px 9px 7px;margin-bottom:2px;border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-border-l3,#2a2d35) 70%,transparent)}
-.peff-ms-head-title{display:inline-flex;align-items:center;gap:7px;min-width:0;font-size:12.5px;font-weight:600;letter-spacing:.01em;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.peff-ms-head-right{display:inline-flex;align-items:center;gap:8px;margin-left:auto;flex:0 0 auto}
-.peff-ms-count{font-size:11px;line-height:16px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary);padding:0 2px}
-.peff-ms-refresh{display:grid;place-items:center;width:22px;height:22px;padding:0;border:none;border-radius:7px;outline:none;background:transparent;color:var(--dsw-alias-label-caption);cursor:pointer;transition:color 140ms ease,background-color 140ms ease,transform 140ms ease}
-.peff-ms-refresh:hover{color:var(--peff-accent);background:var(--dsw-alias-interactive-bg-hover)}
-.peff-ms-refresh:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb,var(--peff-accent) 35%,transparent)}
-.peff-ms-refresh:active{transform:scale(.92)}
-.peff-ms-refresh-spin{animation:peff-ms-spin 800ms linear infinite;color:var(--peff-accent)}
-@keyframes peff-ms-spin{to{transform:rotate(360deg)}}
-/* 两栏：左供应商文字栏 / 右模型列表 */
+/* 两栏：左供应商文字栏 / 右模型列表。
+   原先顶部还有一行「供应商名 + N 模型 + 刷新」，与左栏选中的供应商重复，
+   已整块移除；刷新仍在打开面板时自动发生（showPanel 里调 load）。 */
 .peff-ms-body{flex:1;min-height:0;display:flex;overflow:hidden}
 .peff-ms-providers{flex:0 0 148px;min-height:0;overflow-y:auto;padding:4px;border-right:1px solid color-mix(in srgb,var(--dsw-alias-border-l3,#2a2d35) 70%,transparent)}
 .peff-ms-provider{position:relative;display:flex;align-items:center;gap:7px;width:100%;padding:7px 9px;border:none;border-radius:9px;outline:none;background:transparent;color:var(--dsw-alias-label-secondary,#bbb);font-size:13px;line-height:18px;text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background-color 140ms ease,color 140ms ease}
@@ -219,8 +204,8 @@ body[data-ds-dark-theme] .peff-eff-thumb-core{box-shadow:0 0 0 1px rgba(130,160,
 .peff-eff-busy{opacity:.55;pointer-events:none}
 
 @media (prefers-reduced-motion: reduce){
-  .peff-ms-menu,.peff-ms-menu-out,.peff-ms-refresh-spin{animation:none}
-  .peff-ms-trigger,.peff-ms-option,.peff-ms-provider,.peff-ms-chevron,.peff-ms-refresh{transition:none}
+  .peff-ms-menu,.peff-ms-menu-out{animation:none}
+  .peff-ms-trigger,.peff-ms-option,.peff-ms-provider,.peff-ms-chevron{transition:none}
   .peff-ms-option:hover:not(:disabled){transform:none}
   .peff-eff-panel,.peff-eff-panel-out,.peff-eff-panel-value,.peff-eff-empty{animation:none}
   .peff-eff-thumb-ring{animation:none}

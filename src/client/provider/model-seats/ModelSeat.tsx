@@ -22,7 +22,7 @@ import {
 } from 'react'
 import type { ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import {
-  IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconRefreshOutlineRegular,
+  IconCheckOutlineRegular, IconChevronDownOutlineRegular,
   IconWarningOutlineRegular, Toast,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { PROVIDER_DATA_CHANGED } from '../webui/chat/ModelListEditor.tsx'
@@ -254,26 +254,6 @@ export function ModelSeat({ available, directory, load, select }: ModelSeatProps
               <button type="button" className={css.msRetry} onClick={reload}>重试</button>
             </div>
           ))}
-          <div className={css.msHead}>
-            <span className={css.msHeadTitle}>
-              {activeGroup?.name ?? '选择模型'}
-            </span>
-            <span className={css.msHeadRight}>
-              {activeGroup !== undefined && (
-                <span className={css.msCount}>{activeGroup.models.length} 模型</span>
-              )}
-              <button
-                type="button"
-                className={[css.msRefresh, loading ? css.msRefreshSpin : ''].join(' ')}
-                aria-label="刷新模型列表"
-                title="刷新模型列表"
-                disabled={loading}
-                onClick={reload}
-              >
-                <IconRefreshOutlineRegular size={14} />
-              </button>
-            </span>
-          </div>
           <div className={css.msBody}>
             <div className={css.msProviders} role="tablist" aria-label="供应商">
               {visibleGroups.map((group) => (
