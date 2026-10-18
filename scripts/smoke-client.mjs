@@ -3564,15 +3564,15 @@ if (krEnabled) {
   }
 
   /*
-   * kind 角标文案必须**单点定义**，两处渲染共用。
+   * kind 的 label 必须**单点定义**在 kind 模块里。
    *
    * 真事：截图管线那边原是一串三元表达式（… : '对比'），加了 piano 之后
    * 新 kind 掉进兜底分支，于是**同一张钢琴卡在对话里标「钢琴」、在截图里标
    * 「对比」**。用户看不出是漏改，只觉得「截图和实际不一样」。
    *
-   * 架构升级后单点在 kind 注册表：每个 kinds/<kind>.ts 自带 label，
-   * registry.ts 派生 IU_KIND_LABELS；IuCard 外壳与 shot/card.ts 都读 mod.label。
-   * 断言改为：① 每个 kind 模块都有 label 字段；② 两处消费方不得写死字面量。
+   * 那枚角标后来被整块移除（卡头只留标题 + 动作），但 label 仍是 kind 的对外
+   * 契约字段（注入文档、IU_KIND_LABELS 都读它），所以断言保留「每个 kind 都得
+   * 有 label」，并新增一条：卡头与截图外壳都不得再画 .dtt-iu__tag。
    */
   const kindDir = resolve(ROOT, 'src/client/iu/kinds')
   const kindModules = readdirSync(kindDir).filter(f => /^[a-z]+\.ts$/.test(f) && !['core.ts', 'contract.ts', 'registry.ts', 'types.ts', 'bodies.ts'].includes(f))
@@ -3583,15 +3583,18 @@ if (krEnabled) {
     }
   }
   const iuCardSrcForTag = readFileSync(resolve(ROOT, 'src/client/iu/IuCard.tsx'), 'utf8')
+  if (/dtt-iu__tag/.test(iuCardSrcForTag)) {
+    reasons.push('卡头不得再渲染类型角标 .dtt-iu__tag（该角标已取消）')
+  }
   if (/tag="(滑块|图表|清单|对比|钢琴|数据表|看板|表单|时间线|结构|仪表|自测)"/.test(iuCardSrcForTag)) {
-    reasons.push('IuCard 的角标不得写死中文字面量（必须读注册表的 label，否则两处会漂移）')
+    reasons.push('IuCard 不得写死 kind 的中文字面量（label 单点在 kind 模块里）')
   }
   const shotCardSrc = readFileSync(resolve(ROOT, 'src/shot/card.ts'), 'utf8')
-  if (!/mod\.label/.test(shotCardSrc)) {
-    reasons.push('截图管线必须读注册表模块的 label 取角标（不得自己写 kind 判定链）')
+  if (/dtt-iu__tag|fence\.tag/.test(shotCardSrc)) {
+    reasons.push('截图管线不得再渲染类型角标（该角标已取消）')
   }
   if (/kind === 'slider' \? '[^']*' : spec\.kind === 'chart'/.test(shotCardSrc)) {
-    reasons.push('截图管线不得再用 kind 三元链取角标（新增 kind 会静默掉进兜底）')
+    reasons.push('截图管线不得用 kind 三元链取任何展示文案（新增 kind 会静默掉进兜底）')
   }
 
   /*

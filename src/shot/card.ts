@@ -497,7 +497,6 @@ function injectEmbeds(body: string, embeds: readonly ShotEmbed[]): string {
  */
 export interface ShotIuFence {
   readonly title: string
-  readonly tag: string
   readonly body: string
   /**
    * 定位键：`fenceKey(围栏原文 JSON)` 算出的内容哈希。
@@ -511,8 +510,7 @@ export interface ShotIuFence {
 /** 与 IuCard 的 Head 同构（class 对齐，才能吃到 IU_CSS）。 */
 function iuFigureOf(fence: ShotIuFence): string {
   return `<figure class="dtt-iu"><div class="dtt-iu__head">`
-    + `<span class="dtt-iu__title">${escapeHtml(fence.title)}</span>`
-    + `<span class="dtt-iu__tag">${escapeHtml(fence.tag)}</span></div>`
+    + `<span class="dtt-iu__title">${escapeHtml(fence.title)}</span></div>`
     + `<div>${fence.body}</div></figure>`
 }
 
@@ -607,7 +605,6 @@ export async function buildCardHtml(input: ShotCardInput): Promise<ShotCardOutpu
         if (mod === undefined) continue
         iuFences.push({
           title: part.spec.title !== '' ? part.spec.title : '交互卡片',
-          tag: mod.label,
           body: mod.snapshot(part.spec as never),
           key: fenceKey(part.raw),
         })

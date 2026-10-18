@@ -117,15 +117,20 @@ function CardActions({ zoom, onZoom, onFullscreen }: {
   )
 }
 
-function Head({ title, tag, actions }: {
+/**
+ * 卡头：标题 + 右侧动作（缩放 / 全屏）。
+ *
+ * kind 类型角标（"表格" / "清单" 那枚小胶囊）已按要求移除——卡片只挑最必要的
+ * 信息显示，右上角不再挂类型标签。注册表里的 label 字段保留（对外契约、注入
+ * 文档与冒烟仍引用），只是不再渲染到卡头上。
+ */
+function Head({ title, actions }: {
   readonly title: string
-  readonly tag: string
   readonly actions?: JSX.Element | undefined
 }): JSX.Element {
   return (
     <div className="dtt-iu__head">
       <span className="dtt-iu__title">{title}</span>
-      <span className="dtt-iu__tag">{tag}</span>
       {actions}
     </div>
   )
@@ -290,7 +295,6 @@ function IuCardLive({ spec, onFill }: {
       <figure className="dtt-iu" style={style}>
         <Head
           title={spec.title}
-          tag={mod.label}
           actions={<CardActions zoom={zoom} onZoom={cycleZoom} onFullscreen={enterFullscreen} />}
         />
         {bodyNode}
@@ -321,7 +325,7 @@ function IuCardLive({ spec, onFill }: {
           <div className="dtt-iu-fs__stage">
             {/* 全屏里再渲染一份卡片：与内嵌卡共享 state，改一边两边同步。 */}
             <figure className="dtt-iu dtt-iu--fs" style={style}>
-              <Head title={spec.title} tag={mod.label} />
+              <Head title={spec.title} />
               {bodyNode}
             </figure>
           </div>

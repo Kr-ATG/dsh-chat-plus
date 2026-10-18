@@ -341,12 +341,16 @@ if (!/lang\.trim\(\)\.toLowerCase\(\) === 'iu'/.test(mdSrc)) {
 // kind 模块自身的同源纪律」。
 {
   const reasons = []
-  // ① card.ts 必须委派注册表（iuKindOf + mod.snapshot + mod.label）。
+  // ① card.ts 必须委派注册表（iuKindOf + mod.snapshot）。
   if (!/from '\.\.\/client\/iu\/kinds\/registry\.ts'/.test(cardSrc)) {
-    reasons.push('card.ts 必须 import kind 注册表（快照正文/角标都来自它）')
+    reasons.push('card.ts 必须 import kind 注册表（快照正文来自它）')
   }
-  if (!/iuKindOf\(/.test(cardSrc) || !/mod\.snapshot\(/.test(cardSrc) || !/mod\.label/.test(cardSrc)) {
-    reasons.push('card.ts 必须走 iuKindOf → mod.snapshot/mod.label 委派（不得手写 kind 分支）')
+  if (!/iuKindOf\(/.test(cardSrc) || !/mod\.snapshot\(/.test(cardSrc)) {
+    reasons.push('card.ts 必须走 iuKindOf → mod.snapshot 委派（不得手写 kind 分支）')
+  }
+  // 角标（.dtt-iu__tag）已整块移除：截图外壳也不该再画那一枚。
+  if (/dtt-iu__tag/.test(cardSrc)) {
+    reasons.push('截图外壳不得再渲染类型角标 .dtt-iu__tag（该角标已取消）')
   }
   if (/function iuBodyOf/.test(cardSrc)) {
     reasons.push('旧的手写镜像 iuBodyOf 不该残留（快照逻辑已收敛进各 kind 模块）')
@@ -358,8 +362,8 @@ if (!/lang\.trim\(\)\.toLowerCase\(\) === 'iu'/.test(mdSrc)) {
   if (/iushot/.test(cardSrc) || /iushot/.test(themeSrc)) {
     reasons.push('旧的 .iushot 独立规格不该残留（已改为复用 IU_CSS）')
   }
-  // ③ 外壳 class（figure/head/title/tag）仍在 card.ts 的 iuFigureOf 里拼。
-  for (const cls of ['figure class="dtt-iu"', 'dtt-iu__head', 'dtt-iu__title', 'dtt-iu__tag']) {
+  // ③ 外壳 class（figure/head/title）仍在 card.ts 的 iuFigureOf 里拼。
+  for (const cls of ['figure class="dtt-iu"', 'dtt-iu__head', 'dtt-iu__title']) {
     if (!cardSrc.includes(cls)) reasons.push(`截图外壳缺 ${cls}（吃不到 IU_CSS）`)
   }
   // ④ IU_CSS 必须是**导出**的常量 = 基座 + iuKindsCss()，注入与截图共用同一份。
