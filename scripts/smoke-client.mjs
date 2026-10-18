@@ -418,9 +418,6 @@ const expectedStyles = [
   // 首 token 平均平铺读数（src/client/stats-ttft/styles.ts）：只定分隔与入场，
   // 字号颜色全部继承官方 pill。apply 阶段随桥一起注入。
   'dsh-stats-ttft-styles',
-  // 底部状态栏归位（src/client/composer-dock/styles.ts）：把官方统计行从输入框
-  // 卡片外面搬进卡片内部底部居中。纯几何覆盖，官方结构一字不动。
-  'dsh-composer-dock-styles',
   ...(krEnabled ? ['dsh-kr-chat-styles'] : []),
 ]
 for (const expected of expectedStyles) {
@@ -1136,30 +1133,6 @@ if (typeof mod.ttftAverageMs !== 'function' || typeof mod.ttftFlatText !== 'func
     pass('首 token 平均平铺：平均/文本/回退口径正确（9.8秒样例 + 分秒分界 + 中英前缀）')
     pass('首 token 平均平铺：样式与动效兜底在位 + 桥读投影与窗口双路 + observer 追认 + aria 同步')
   }
-}
-
-// 底部状态栏归位（src/client/composer-dock/styles.ts）：官方把统计行渲染在输入框
-// 卡片**外面**，这里只做几何搬迁。契约三件：锚官方 data 属性、别碰 CSS Module
-// hash class、空 dock（hero 态）不能给卡片留白。
-{
-  const dockSrc = readFileSync(resolve(ROOT, 'src/client/composer-dock/styles.ts'), 'utf8')
-  const dockReasons = []
-  if (!code.includes('data-composer-card') || !code.includes('[data-composer-dock]:not(:empty)')) {
-    dockReasons.push('必须同时锚定 data-composer-card 与非空 [data-composer-dock]（hero 态空 dock 不能留白）')
-  }
-  // CSS Module 的选择器在源码里长这样：._hash_abc123。只拦这种真实引用，
-  // 别把标识符里的 _STYLE_ 误判成 hash（那会逼人为了过测改名）。
-  if (/\._[A-Za-z0-9]+_[A-Za-z0-9]+/.test(dockSrc)) {
-    dockReasons.push('不得引用 CSS Module 的 hash class（每次构建都变）')
-  }
-  if (!/prefers-reduced-motion[\s\S]{0,400}\[data-composer-dock\]/.test(dockSrc)) {
-    dockReasons.push('入场动效必须在 prefers-reduced-motion 下兜底')
-  }
-  if (/position:\s*absolute/.test(dockSrc)) {
-    dockReasons.push('不得用绝对定位搬迁：改包含块会把 overlayAnchor 里的 toast / 菜单锚点带歪')
-  }
-  if (dockReasons.length > 0) fail('底部状态栏归位契约：' + dockReasons.join('；'))
-  else pass('底部状态栏归位：纯 CSS 几何搬迁（官方 data 属性锚点 + 空 dock 不留白 + 动效兜底）')
 }
 
 const processSeat = cell('turn-process')

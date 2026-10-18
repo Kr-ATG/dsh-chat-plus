@@ -47,7 +47,6 @@ import { mountKrChatController } from './kr-chat/kr-chat-controller.tsx'
 import { KrTodoBridge } from './kr-chat/kr-todo-bridge.ts'
 import { TtftFlatBridge } from './stats-ttft/TtftFlatBridge.tsx'
 import { injectTtftFlatStyles } from './stats-ttft/styles.ts'
-import { injectComposerDockStyles } from './composer-dock/styles.ts'
 import { KR_CHAT_ENABLED } from './kr-chat/enabled.ts'
 import { applyTriadClient } from './triad/index.ts'
 import { applyProviderClient } from './provider/index.ts'
@@ -290,10 +289,6 @@ export function apply(ctx: ClientContext): void {
       KrTodoBridge,
     ))
   })
-
-  // 底部状态栏归位：官方把统计行渲染在输入框卡片**外面**，这里用纯 CSS 把它
-  // 搬进卡片内部、贴卡片底部居中（结构与官方 React 树一字不动，见模块内注释）。
-  guarded(ctx, 'composer dock layout', injectComposerDockStyles)
 
   // 首 token 平均平铺：官方会话统计把这数藏在点开的卡片里，这里把它追认进
   // 输入框下状态栏同一行。同槽再加一个隐形桥（order 1000，不占视觉行），
