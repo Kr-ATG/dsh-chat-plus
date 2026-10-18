@@ -5,13 +5,17 @@
  * 状态在本地 + localStorage 持久化，主题与动效跟随宿主。安全上没有新边界：
  * 所有渲染都是宿主自己的 DOM，不执行模型给的代码。
  *
- * ## 外壳只做四件事（kind 的差异全在 registry / bodies 里）
+ * ## 外壳只做三件事（kind 的差异全在 registry / bodies 里）
  *
  *  1. **Head**：标题 + 角标（角标文案读 registry 的 label，两处渲染同源）；
  *  2. **状态容器**：按围栏内容哈希做持久化 key（见 state.ts），把 state/setState
  *     注入 Body——Body 自己不持有 useState，刷新页面状态不丢；
- *  3. **Body 路由**：按 spec.kind 从 bodies.ts 取 React 体渲染（未知 kind → 不渲染）；
- *  4. **FillRow**：「填入输入框」，文案来自 registry 的 fillText(spec, state)。
+ *  3. **Body 路由**：按 spec.kind 从 bodies.ts 取 React 体渲染（未知 kind → 不渲染）。
+ *
+ * 曾经还有第 4 件 **FillRow**（底栏「填入输入框」），已按要求整块移除：卡片
+ * 不再自带任何底栏动作区，右下角不再有实心蓝按钮。注意与 html 卡片区分——
+ * html 卡片里的 `window.__dshFill` 是**模型自己页面里**调用的桥，那套仍然有效，
+ * 只是不再有插件替它画按钮。
  *
  * 新增一个 kind **不需要碰本文件**：只要它注册进 registry.ts（纯逻辑）与
  * bodies.ts（React 体），外壳自动接住。这正是老结构「一个 kind 改四处」的解药。
@@ -120,32 +124,9 @@ function Head({ title, tag, actions }: {
 }): JSX.Element {
   return (
     <div className="dtt-iu__head">
-      <span className="dtt-iu__dot" aria-hidden />
       <span className="dtt-iu__title">{title}</span>
       <span className="dtt-iu__tag">{tag}</span>
       {actions}
-    </div>
-  )
-}
-
-function FillRow({ onFill, text }: { readonly onFill?: IuFillFn | undefined; readonly text: () => string }): JSX.Element | null {
-  const [done, setDone] = useState(false)
-  if (onFill === undefined) return null
-  return (
-    <div className="dtt-iu__foot">
-      <button
-        type="button"
-        className={done ? 'dtt-iu__fill dtt-iu__fill--done' : 'dtt-iu__fill'}
-        onClick={() => {
-          const ok = onFill(text())
-          if (ok) {
-            setDone(true)
-            window.setTimeout(() => { setDone(false) }, 1600)
-          }
-        }}
-      >
-        {done ? '已填入 ✓' : '填入输入框'}
-      </button>
     </div>
   )
 }
@@ -313,7 +294,6 @@ function IuCardLive({ spec, onFill }: {
           actions={<CardActions zoom={zoom} onZoom={cycleZoom} onFullscreen={enterFullscreen} />}
         />
         {bodyNode}
-        <FillRow onFill={onFill} text={() => mod.fillText(spec as never, state as never)} />
       </figure>
       {fullscreen && typeof document !== 'undefined' && createPortal(
         <div className="dtt-iu-fs" role="dialog" aria-modal="true" aria-label={spec.title}>
@@ -343,7 +323,6 @@ function IuCardLive({ spec, onFill }: {
             <figure className="dtt-iu dtt-iu--fs" style={style}>
               <Head title={spec.title} tag={mod.label} />
               {bodyNode}
-              <FillRow onFill={onFill} text={() => mod.fillText(spec as never, state as never)} />
             </figure>
           </div>
         </div>,

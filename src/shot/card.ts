@@ -510,7 +510,7 @@ export interface ShotIuFence {
 
 /** 与 IuCard 的 Head 同构（class 对齐，才能吃到 IU_CSS）。 */
 function iuFigureOf(fence: ShotIuFence): string {
-  return `<figure class="dtt-iu"><div class="dtt-iu__head"><span class="dtt-iu__dot"></span>`
+  return `<figure class="dtt-iu"><div class="dtt-iu__head">`
     + `<span class="dtt-iu__title">${escapeHtml(fence.title)}</span>`
     + `<span class="dtt-iu__tag">${escapeHtml(fence.tag)}</span></div>`
     + `<div>${fence.body}</div></figure>`

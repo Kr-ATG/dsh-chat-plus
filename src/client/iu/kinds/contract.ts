@@ -65,7 +65,13 @@ export interface IuKind<S extends IuState = IuState, Spec extends IuSpecBase = I
   readonly parse: (raw: Record<string, unknown>) => Spec | undefined
   /** 初始本地状态（刷新后由持久化层覆盖，见 state.ts）。 */
   readonly initState: (spec: Spec) => S
-  /** 把当前状态拼成「填入输入框」的一句话（必须含真实数值，见 fillText 纪律）。 */
+  /**
+   * 把当前状态拼成一句可读的话（必须含真实数值）。
+   *
+   * 卡片底栏的「填入输入框」按钮已移除，本字段目前只剩**对外契约**意义：
+   * 回写文案生成器仍是 kind 必须实现的能力（smoke 直接断言它的输出），
+   * 今后若在 Body 里自绘回写入口，仍走这一份文案，不要在 Body 里重算。
+   */
   readonly fillText: (spec: Spec, state: S) => string
   /**
    * 静态快照 HTML（截图管线用；无 JS、无交互，按初始状态定格）。

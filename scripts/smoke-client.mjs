@@ -3213,7 +3213,7 @@ if (krEnabled) {
 // ── 对话内 iu 原生交互卡片（```iu 围栏 → IuCard）─────────────────────────
 //
 // 这组断言同样盯「静默失效」：围栏不命中只会显示成代码块；spec 校验写宽了会
-// 让半截 JSON 变成空卡片；回写链路断了点「填入输入框」毫无反应。
+// 让半截 JSON 变成空卡片；回写文案生成器坏了，回写链路就是空的。
 {
   const reasons = []
   if (typeof mod.splitIu !== 'function' || typeof mod.looksLikeIuFence !== 'function') {
@@ -3313,7 +3313,7 @@ if (krEnabled) {
     }
   }
 
-  // ⑥ 回写文案生成器（纯函数）：状态必须真的进入文案，否则「填入输入框」填了个空壳。
+  // ⑥ 回写文案生成器（纯函数）：状态必须真的进入文案，否则回写出去的是个空壳。
   if (typeof mod.sliderFillText !== 'function' || typeof mod.checklistFillText !== 'function') {
     reasons.push('缺少 sliderFillText / checklistFillText 导出（回写文案不可断言）')
   } else {

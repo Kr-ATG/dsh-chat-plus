@@ -8,12 +8,12 @@
  *
  * ## Body 的渲染契约（所有 kind 必须遵守）
  *
- * 外壳 IuCard 统一渲染 `<Head>`（标题 + 角标）与 `<FillRow>`（填入输入框），
- * **Body 只渲染中间那段正文**。这条约定让 `snapshot()`（纯逻辑侧）与 `Body`
- * （React 侧）的 DOM 范围严格对齐：两者都只描述「Head 之后、FillRow 之前」
- * 的那部分，class 与层级一一对应，截图就不会长歪。
+ * 外壳 IuCard 统一渲染 `<Head>`（标题 + 角标），**Body 只渲染中间那段正文**
+ * （底栏「填入输入框」已整块移除，卡片不再自带任何动作区）。这条约定让
+ * `snapshot()`（纯逻辑侧）与 `Body`（React 侧）的 DOM 范围严格对齐：两者都只
+ * 描述「Head 之后」的那部分，class 与层级一一对应，截图就不会长歪。
  *
- * ⚠ 因此 Body 里**不要**再自己渲染 Head / FillRow，也不要包一层 `<div>` 外壳
+ * ⚠ 因此 Body 里**不要**再自己渲染 Head，也不要包一层 `<div>` 外壳
  *   （外壳由 IuCard 提供）——直接返回正文片段即可。
  */
 
@@ -37,7 +37,7 @@ export interface IuBodyProps<S extends IuState, Spec extends IuSpecBase> {
   readonly spec: Spec
   readonly state: S
   readonly setState: IuSetState<S>
-  /** 「填入输入框」回调（外壳注入；Body 一般用不到，FillRow 在外壳）。 */
+  /** 回写回调（外部注入；卡片已无底栏按钮，保留给今后 Body 内自绘的入口用）。 */
   readonly onFill?: ((text: string) => boolean) | undefined
 }
 
