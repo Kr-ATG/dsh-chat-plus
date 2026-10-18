@@ -63,6 +63,9 @@ import { setToolCallsVisible, subscribeToolCallsVisible, toolCallsVisible } from
 import { setPlainTimelineVisible, subscribePlainTimelineVisible, plainTimelineVisible } from '../plain-timeline-visible.js'
 import { workspaceCwdOf } from '../client-ctx.js'
 import { getPanelSettingsStore } from './panel-settings-store.js'
+// 灵魂图标与 soul 工作台同一枚（内核 + 环绕弧）：同一个概念在两个入口必须是同一张脸，
+// 否则用户不会把「大盘这行」和「工作台那页」读成同一套能力。
+import { SoulIcon } from '../triad/soul/SoulPanel.js'
 
 /**
  * 模块级单例，不是每次渲染新建。
@@ -390,12 +393,16 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
               busy={busy}
               onToggle={() => { pushChannel('htmlEnabled', !htmlOn) }}
             />
+            {/* 灵魂注入：这一行就是灵魂契约（人设）进不进提示词的总闸门，
+                所以名字按「它到底管什么」来叫，而不是按被管理的东西叫 ——
+                原标签「灵魂人设」会被读成「改人设的入口」，而改人设在 soul 工作台。 */}
             <SettingsRow
               index={2}
-              label="灵魂人设"
-              hint="名字、语气与行为准则，跨会话恒定"
+              label="灵魂注入"
+              hint="关掉后名字、语气与行为准则不再进提示词（人设在 soul 工作台里照常保留，只是不生效）；每会话首步注入一次"
               on={soulOn}
               busy={busy}
+              icon={<SoulIcon />}
               onToggle={() => { pushChannel('soulEnabled', !soulOn) }}
             />
             <SettingsRow
@@ -616,6 +623,7 @@ function SettingsRow({
   on,
   busy = false,
   tag,
+  icon,
   onToggle,
 }: {
   readonly index: number
@@ -626,15 +634,20 @@ function SettingsRow({
   readonly on?: boolean
   readonly busy?: boolean
   readonly tag?: string
+  /** 行首图标（灵魂注入那行）：状态灯同款用法，开=呼吸、关=压暗。 */
+  readonly icon?: JSX.Element
   readonly onToggle?: () => void
 }): JSX.Element {
   return (
     <div
       className={lead ? 'kr-settings__row kr-settings__row--lead' : 'kr-settings__row'}
       style={{ '--row-i': String(index) } as CSSProperties}
+      // data-on 供图标样式判状态。只有 icon 的行读它，其余行挂上也没人用。
+      data-on={on === undefined ? undefined : on ? 'true' : 'false'}
     >
       <span className="kr-settings__main">
         <span className="kr-settings__label">
+          {icon !== undefined && <span className="kr-settings__row-icon">{icon}</span>}
           {label}
           {tag !== undefined && <span className="kr-settings__badge">{tag}</span>}
         </span>

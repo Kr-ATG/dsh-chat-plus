@@ -3673,7 +3673,7 @@ if (krEnabled) {
       'kr-settings__ws-name', 'kr-settings__ws-path', 'kr-settings__ws-flags',
       'kr-settings__ws-flag', 'kr-settings__ws-badge', 'kr-settings__ws-hint',
       'kr-settings__switch--mini',
-      'kr-settings__row', 'kr-settings__row--lead', 'kr-settings__main',
+      'kr-settings__row', 'kr-settings__row--lead', 'kr-settings__row-icon', 'kr-settings__main',
       'kr-settings__label', 'kr-settings__hint', 'kr-settings__badge',
       'kr-settings__switch', 'kr-settings__foot',
     ]
@@ -3785,6 +3785,24 @@ if (krEnabled) {
       fail('列表必须标出「当前」工作区（用 samePath 归一化比较，别拿字符串直接 !==）')
     } else {
       pass('大盘设置：工作区记忆列出全部工作区 + 逐行两个开关（记录 / 不注入）+ 逐行 busy + 三态兜底')
+    }
+
+    // 6d) 灵魂注入行：这行拨的是**灵魂契约进不进提示词**的闸门（host 的
+    //     soulInjectEnabled），不是「改人设」的入口。名字 2026-10-18 从「灵魂人设」
+    //     改成「灵魂注入」——旧名会被读成后者，而用户点进去发现改不了任何东西。
+    //     判据钉三件事：接线仍是 soulEnabled（改名不许顺手换通道）、缺字段口径
+    //     仍是 !== false（默认开的内置能力，抄 html/team 的 === true 会让 host 未重启
+    //     那段窗口显示成关）、图标状态由行上的 data-on 派生（不在 JS 里另算一份状态）。
+    if (!/label="灵魂注入"/.test(src)) {
+      fail('大盘设置这一行应叫「灵魂注入」：它控的是注不注入，旧名「灵魂人设」会被读成改人设的入口')
+    } else if (!/pushChannel\('soulEnabled', !soulOn\)/.test(src)) {
+      fail('「灵魂注入」必须仍接 soulEnabled（改名不换通道；写错 key 就是拨了不改注入行为）')
+    } else if (!/const soulOn = state\.soulEnabled !== false/.test(src)) {
+      fail('灵魂缺字段必须按 !== false 兜底（默认开的内置通道；=== true 会在 host 未重启时显示成关）')
+    } else if (!/icon=\{<SoulIcon \/>\}/.test(src)) {
+      fail('灵魂注入行缺状态灯图标（开=呼吸、关=压暗是这行唯一的即时视觉反馈）')
+    } else {
+      pass('大盘设置：灵魂注入行接线 soulEnabled + !== false 兜底 + 状态灯图标在位')
     }
 
     // 6b) 操作面板显隐（同族第三条）：抽屉里一行 + 大盘消费 + apply 初始化，

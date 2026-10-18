@@ -179,10 +179,10 @@ export const zh = {
   soulDraftHint: '两侧高亮的行表示各自独有的内容',
   soulDraftEmptySide: '（空）',
 
-  soulInjectLabel: '灵魂人设',
+  soulInjectLabel: '灵魂注入',
   soulInjectOn: '灵魂注入：开',
   soulInjectOff: '灵魂注入：关',
-  soulInjectHint: '每会话首步注入一次，与记忆注入开关互不影响',
+  soulInjectHint: '每会话首步注入一次，与记忆注入开关互不影响；关掉只是不生效，人设本身照常保留',
   soulInjectBuiltin: '内置',
   soulInjectReadFailed: '读取开关失败',
 
@@ -458,7 +458,7 @@ export const en = {
   soulDraftHint: 'Highlighted lines exist on one side only',
   soulDraftEmptySide: '(empty)',
 
-  soulInjectLabel: 'Soul persona',
+  soulInjectLabel: 'Soul injection',
   soulInjectOn: 'Soul injection: on',
   soulInjectOff: 'Soul injection: off',
   soulInjectHint: 'Injected once at the first step of each session; independent of the memory switch',
