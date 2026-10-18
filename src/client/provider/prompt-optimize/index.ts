@@ -3,8 +3,8 @@
  *
  * 原为独立插件 `dsh-prompt-optimize`（再上游是 dsh-webui 同模块），随「供应商
  * 中心」融合并入本包。并入时只改了导出名与相对路径，**座位与 order 逐字保留**：
- * 通过 `conversation.input.right` 槽位在供应商标签（`peff-provider`，order 10）
- * 左侧注册「优化提示词」图标（order 4，id `dsh-prompt-optimize`）。数据走
+ * 通过 `conversation.input.right` 槽位注册「优化提示词」图标（order 4，
+ * id `dsh-prompt-optimize`；原先的供应商标签 `peff-provider` / order 10 已移除）。数据走
  * host 半身已挂载的 /api/dsh-prompt-optimize，模型选择读取与模型座位同源的
  * per-session ModelDirectory。
  *
@@ -37,7 +37,7 @@ export function applyPromptOptimize(ctx: ClientContext): void {
     scope.slots.inject('conversation.input.right', () => scope.slots.register({
       name: 'conversation.input.right',
       id: 'dsh-prompt-optimize',
-      // 供应商标签 order 10、模型座位 order 20；本图标 order 4 位于团队按钮（order 5）左侧。
+      // 模型座位 order 20；本图标 order 4 位于团队按钮（order 5）左侧。
       order: 4,
       inject: (sessionId: SessionId): PromptOptimizeInjected => {
         const directory = models.directoryFor(sessionId)

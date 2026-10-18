@@ -2,11 +2,15 @@
  * dsh-provider-hub — model seats 注册入口。
  *
  * 通过 `ctx.modelDirectories`（ui-model-selection 提供）共享 per-session
- * ModelDirectory，注册三个入口（左→右：供应商标签、模型名、推理等级）：
- *  1. `conversation.input.right`（ProviderBadge，order 10）。
- *  2. `conversation.input.right`（ModelSeat，order 20，按供应商分组的两栏弹出）。
- *  3. `conversation.input.model`（EffortSeat，priority -100 覆盖官方
+ * ModelDirectory，注册入口（左→右：模型名、推理等级）：
+ *  1. `conversation.input.right`（ModelSeat，order 20，按供应商分组的两栏弹出）。
+ *  2. `conversation.input.model`（EffortSeat，priority -100 覆盖官方
  *     ModelSelect；光尘粒子 ParticleField 承载档位动画）。
+ *
+ * 曾经还有一个 ProviderBadge（order 10）在模型名左边显示当前供应商。composer
+ * 那行已经够挤了，供应商名对「现在用哪个模型」没有增量信息（模型名本身 + 弹出层
+ * 头部的供应商名都能看出来），按用户要求整块移除；代理 P 标仍在设置页的供应商
+ * 列表/详情里显示。
  */
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: 拉入 ui-conversation 的 SlotMap 合并声明（input.model / input.right）。
@@ -15,7 +19,6 @@ import type { ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ModelSeatInjected } from './types'
 import { ModelSeat } from './ModelSeat'
 import { EffortSeat } from './EffortSeat'
-import { ProviderBadge, type ProviderBadgeInjected } from './ProviderBadge'
 
 /**
  * 挂载供应商标签 + 模型选择座位 + 推理等级入口。
@@ -41,18 +44,7 @@ export function applyModelSeats(ctx: ClientContext): void {
     }
   }
 
-  // 供应商标签：当前供应商 chip（目录未加载时渲染空）。
-  scope.slots.inject('conversation.input.right', () => scope.slots.register({
-    name: 'conversation.input.right',
-    id: 'peff-provider',
-    order: 10,
-    inject: (sessionId: SessionId): ProviderBadgeInjected => {
-      const directory = models.directoryFor(sessionId)
-      return { directory: directory.store }
-    },
-  }, ProviderBadge))
-
-  // 模型选择入口：工具行右侧，供应商标签之后。
+  // 模型选择入口：工具行右侧。
   scope.slots.inject('conversation.input.right', () => scope.slots.register({
     name: 'conversation.input.right',
     id: 'peff-model',

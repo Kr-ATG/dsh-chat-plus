@@ -2,7 +2,6 @@
  * dsh-provider-effort — 样式（运行时幂等注入 <style>）。
  *
  * 三个入口：
- *  - `.peff-provider-badge`：供应商标签（纯文字 + 品牌蓝渐染；品牌图标已移除）。
  *  - `.peff-ms-*`：纯模型选择器（接管 `conversation.input.model` 座位）。
  *  - `.peff-eff-*`：推理等级滑动式弹出（含渐变轨道 + 粒子 canvas）。
  *
@@ -16,8 +15,6 @@
  */
 
 export const css = {
-  // 供应商标签
-  providerBadge: 'peff-provider-badge',
   // 模型座位
   msRoot: 'peff-ms-root',
   msTrigger: 'peff-ms-trigger',
@@ -94,10 +91,6 @@ const SHEET = `
 body[data-ds-dark-theme]{
   --peff-menu-surface:var(--dsw-static-neutral-bluish-850,#212123)
 }
-
-/* ---- 供应商标签（纯文字，无框；品牌图标已移除） ---- */
-.peff-provider-badge{display:inline-flex;align-items:center;gap:5px;padding:0 2px;color:color-mix(in srgb,var(--peff-accent) 60%,var(--dsw-alias-label-secondary,#bbb));font-size:12px;font-weight:500;line-height:1;white-space:nowrap;transition:color 160ms ease}
-.peff-provider-badge:hover{color:var(--dsw-alias-label-primary,#eee)}
 
 /* ---- 纯模型选择器（接管 model 座位，不含推理等级） ---- */
 .peff-ms-root{position:relative;min-width:0}
@@ -227,7 +220,7 @@ body[data-ds-dark-theme] .peff-eff-thumb-core{box-shadow:0 0 0 1px rgba(130,160,
 
 @media (prefers-reduced-motion: reduce){
   .peff-ms-menu,.peff-ms-menu-out,.peff-ms-refresh-spin{animation:none}
-  .peff-ms-trigger,.peff-ms-option,.peff-ms-provider,.peff-ms-chevron,.peff-ms-refresh,.peff-provider-badge{transition:none}
+  .peff-ms-trigger,.peff-ms-option,.peff-ms-provider,.peff-ms-chevron,.peff-ms-refresh{transition:none}
   .peff-ms-option:hover:not(:disabled){transform:none}
   .peff-eff-panel,.peff-eff-panel-out,.peff-eff-panel-value,.peff-eff-empty{animation:none}
   .peff-eff-thumb-ring{animation:none}
