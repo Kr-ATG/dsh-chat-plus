@@ -3650,6 +3650,11 @@ if (krEnabled) {
       'kr-settings__group-note', 'kr-settings__group--compact',
       // 两栏容器（2026-10-18 卡片化时新增）：左右两列各一个，缺了就是单列。
       'kr-settings__col--main', 'kr-settings__col--aside',
+      // 工作区列表（2026-10-18 逐工作区开关）：容器 / 行 / 名称 / 路径 / 两个开关位 / 三态提示。
+      'kr-settings__ws-list', 'kr-settings__ws-row', 'kr-settings__ws-main',
+      'kr-settings__ws-name', 'kr-settings__ws-path', 'kr-settings__ws-flags',
+      'kr-settings__ws-flag', 'kr-settings__ws-badge', 'kr-settings__ws-hint',
+      'kr-settings__switch--mini',
       'kr-settings__row', 'kr-settings__row--lead', 'kr-settings__main',
       'kr-settings__label', 'kr-settings__hint', 'kr-settings__badge',
       'kr-settings__switch', 'kr-settings__foot',
@@ -3709,12 +3714,14 @@ if (krEnabled) {
     ]
     const missingWriter = hostWriters.filter(name => !src.includes(name))
     const rowCount = (src.match(/<SettingsRow\b/g) ?? []).length
-    // 12 处 = 4（中文 / 交互卡片 / 灵魂 / 团队）+ 2（邮箱「给开关 / 给角标」两分支）
-    //      + 1（自动收口）+ 2（工作区项目记忆「给开关 / 给角标」两分支）+ 3（展示组）。
-    // 两个三态行各写两个分支是**刻意的**：省略 on 的那一支才是「不给拨不动的开关」。
-    const expectedRows = 12
-    // 10 个行序号（0..9）：两分支共用同一个 index（同一行的两种形态，不该占两个错开槽位）。
-    const expectedIndexes = 10
+    // 10 处 = 4（中文 / 交互卡片 / 灵魂 / 团队）+ 2（邮箱「给开关 / 给角标」两分支）
+    //      + 1（自动收口）+ 3（展示组）。
+    // 邮箱那个三态行写两个分支是**刻意的**：省略 on 的那一支才是「不给拨不动的开关」。
+    // 「工作区记忆」那一组 2026-10-18 改成了**逐工作区列表**（不再是固定的 SettingsRow），
+    // 因此不计入这个数字 —— 它的判据在下面 6c。
+    const expectedRows = 10
+    // 9 个行序号（0..8）：邮箱两分支共用同一个 index（同一行的两种形态，不该占两个错开槽位）。
+    const expectedIndexes = 9
     const rowIndexes = [...src.matchAll(/index=\{(\d+)\}/g)].map(m => Number(m[1]))
     const distinctIndexes = [...new Set(rowIndexes)].sort((a, b) => a - b)
     const consecutive = distinctIndexes.length === expectedIndexes
@@ -3735,38 +3742,31 @@ if (krEnabled) {
       pass(`大盘设置：10 个开关行接线完整（7 条 host 通道 + 3 条外观偏好；--row-i 0..${expectedIndexes - 1} 连续，含 busy 门控）`)
     }
 
-    // 6c) 「工作区项目记忆记录」这一行（2026-10-15 新增）：判据是**按工作区**的 host 字段，
-    //     不是凭空 true，且拿不到工作区时**不许**渲染开关（拨不动的开关是骗人）。
+    // 6c) 「工作区记忆」组（2026-10-18 改成逐工作区列表）：用户要求「显示出来所有工作区
+    //     每个单独进行开关，并且还需要有个开关是否排除注入」。
     //
-    //     为什么钉这么细：这一行错了全是静默失效 —— 接 `on={true}` 会在关掉的项目上
-    //     显示成开；不接 workspaceCwdOf 则写的是「不知道哪个项目」；少了「不给开关」
-    //     分支就会画出一个拨了不落盘的开关。三者都不报错、不打日志。
-    //
-    //     两个分支的判据是**同一个 index**：同一行的两种形态不该占两个错开槽位
-    //     （占了的话行错开浮现会中间空一拍，看着像少了一行）。
-    //
-    //     截图这一行的两个分支：从 `{projectKnown` 到「展示」组那个 div 之前，是这一整块
-    //     JSX。用类名当结束锚点而不是注释文字 —— `src` 是**剥掉注释**之后的源码，拿注释
-    //     里的字做锚点会得到空串，断言就成了永远失败（或永远对着空串通过）。
-    const projectRowJsx = src.slice(
-      src.indexOf('{projectKnown'),
-      src.indexOf('kr-settings__group kr-settings__group--compact'),
-    )
-    const unavailableBranch = projectRowJsx.slice(projectRowJsx.lastIndexOf(': ('))
-    if (!/label="工作区项目记忆记录"/.test(src)) {
-      fail('大盘设置缺「工作区项目记忆记录」开关行')
-    } else if (!/on=\{projectMemoryOn\}/.test(src) || !/projectMemoryOn\s*=\s*state\.projectMemoryEnabled/.test(src)) {
-      fail('该行的 on 必须接 host 的 projectMemoryEnabled（凭空 true 会在关掉的项目上显示成开）')
-    } else if (!/workspaceCwdOf\(sessionKey\)/.test(src)) {
-      fail('该行必须从 workspaceCwdOf(sessionId) 取工作区（否则写的是「不知道哪个项目」）')
-    } else if (projectRowJsx === '' || unavailableBranch === '') {
-      fail('拿不到工作区时必须走「不给开关」分支（少了它就是给了一个拨不动的开关）')
-    } else if (/on=\{projectMemoryOn\}/.test(unavailableBranch) || !/tag="不可用"/.test(unavailableBranch)) {
-      fail('「拿不到工作区」那一支仍渲染了开关 —— 拨不动的开关是骗人')
-    } else if (!/projectMemory:\s*next/.test(src)) {
-      fail('该行写入必须带 projectMemory 字段（缺了就是拨了不落盘）')
+    //     三条判据，缺一条都是**静默失效**：
+    //       · 列表数据源必须是 host 的 /projects（接 /inject-state 只拿得到当前工作区，
+    //         那样又退回「只显示一行」）；
+    //       · 两个开关必须分别接 autoMemory 与 injectExcluded —— 只接一个就是少了一半能力；
+    //       · 必须逐行 busy（projectBusy 是 hash 而不是 boolean）：用户会连着拨好几个，
+    //         全局 busy 会让其余行全变灰、读起来像卡住。
+    if (!/api\.projects\(\)/.test(src)) {
+      fail('工作区列表必须走 api.projects()（/inject-state 只回当前工作区，列表会退回一行）')
+    } else if (!/pushProjectFlag\(project\.hash, \{ autoMemory: !project\.autoMemory \}\)/.test(src)) {
+      fail('「记录」开关必须接 autoMemory（缺了就是拨了不改记录行为）')
+    } else if (!/pushProjectFlag\(project\.hash, \{ injectExcluded: !\(project\.injectExcluded === true\) \}\)/.test(src)) {
+      fail('「不注入」开关必须接 injectExcluded（用户点名的第二个开关）')
+    } else if (!/api\.meta\(hash, patch\)/.test(src)) {
+      fail('逐工作区写入必须走 api.meta(hash, patch)（写 /inject-state 只会改当前工作区）')
+    } else if (!/const \[projectBusy, setProjectBusy\] = useState<string \| null>/.test(src)) {
+      fail('逐行 busy 必须是 hash 而不是全局 boolean（否则拨一行、其余全变灰）')
+    } else if (!/projectsState === 'loading'/.test(src) || !/projectsState === 'error'/.test(src)) {
+      fail('列表必须处理 loading / error 两态（否则首屏或拉失败时是一片空白）')
+    } else if (!/samePath\(project\.path, projectCwd\)/.test(src)) {
+      fail('列表必须标出「当前」工作区（用 samePath 归一化比较，别拿字符串直接 !==）')
     } else {
-      pass('大盘设置：工作区项目记忆记录接 host 的 projectMemoryEnabled + workspaceCwdOf，无工作区时不渲染开关')
+      pass('大盘设置：工作区记忆列出全部工作区 + 逐行两个开关（记录 / 不注入）+ 逐行 busy + 三态兜底')
     }
 
     // 6b) 操作面板显隐（同族第三条）：抽屉里一行 + 大盘消费 + apply 初始化，

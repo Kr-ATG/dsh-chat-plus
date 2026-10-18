@@ -177,6 +177,7 @@ const CARD_STATE = `(function(){
     rows: d.querySelectorAll('.kr-settings__row').length,
     switches: d.querySelectorAll('.kr-settings__switch').length,
     groups: d.querySelectorAll('.kr-settings__group').length,
+    wsRows: d.querySelectorAll('.kr-settings__ws-row').length,
   };
 })()`
 
@@ -319,11 +320,113 @@ async function main() {
     else if (opened.asideBorder !== '1px') fail(`右栏左侧分隔线宽 ${opened.asideBorder}，应为 1px`)
     else ok(`两栏布局在位：grid ${colCount} 列（左 ${opened.mainWidth}px / 右 ${opened.asideWidth}px，中间 1px 分隔）`)
 
-    // 内容完整性：10 行 + 10 个开关 + 3 组
-    if (opened.rows !== 10) fail(`卡片里 ${opened.rows} 行设置，应为 10 行`)
-    else if (opened.switches !== 10) fail(`卡片里 ${opened.switches} 个开关，应为 10 个`)
+    // 内容完整性：9 行固定设置 + 3 组 + 逐工作区列表
+    if (opened.rows !== 9) fail(`卡片里 ${opened.rows} 行固定设置，应为 9 行`)
     else if (opened.groups !== 3) fail(`卡片里 ${opened.groups} 组，应为 3 组`)
-    else ok('卡片内容完整：10 行设置 / 10 个开关 / 3 组（提示词通道 + 工作区记忆 + 展示）')
+    else ok(`卡片内容完整：9 行固定设置 / 3 组（提示词通道 + 工作区记忆 + 展示）`)
+
+    // ── E2. 工作区列表：全部工作区 + 每行两个开关 ──────────────────────
+    // 用户点名：「显示出来所有工作区每个单独进行开关，并且还需要有个开关是否排除注入」。
+    // 三条：列表非空、每行两枚开关、当前工作区有「当前」标。
+    const ws = await evaluate(`(function(){
+      var card = document.querySelector('.kr-settings');
+      if (!card) return { missing: true };
+      var rows = [...card.querySelectorAll('.kr-settings__ws-row')];
+      return {
+        rows: rows.length,
+        names: rows.map(r => (r.querySelector('.kr-settings__ws-name') || {}).textContent || ''),
+        perRow: rows.map(r => r.querySelectorAll('.kr-settings__switch--mini').length),
+        current: rows.filter(r => r.getAttribute('data-current') === 'true').length,
+        hasPath: rows.every(r => Boolean(r.querySelector('.kr-settings__ws-path'))),
+        listScrolls: (function(){
+          var list = card.querySelector('.kr-settings__ws-list');
+          return list ? getComputedStyle(list).overflowY : null;
+        })(),
+      };
+    })()`)
+    log('WORKSPACES=' + JSON.stringify(ws))
+    if (ws.missing === true) {
+      fail('卡片里没有 .kr-settings__ws-row（工作区列表没渲染）')
+    } else if (ws.rows < 1) {
+      fail('工作区列表是空的（本机至少有 D:\\AI\\Dsh 一个工作区）')
+    } else if (!ws.perRow.every(n => n === 2)) {
+      fail(`工作区行不是每行两个开关：${JSON.stringify(ws.perRow)}（应各 2 个：记录 / 不注入）`)
+    } else if (ws.current !== 1) {
+      fail(`「当前」标命中 ${ws.current} 行，应恰好 1 行`)
+    } else if (!ws.hasPath) {
+      fail('工作区行缺路径副标题（重名工作区分不开）')
+    } else if (ws.listScrolls !== 'auto') {
+      fail(`工作区列表 overflow-y=${ws.listScrolls}，应为 auto（工作区多了会把展示组顶出卡片）`)
+    } else {
+      ok(`工作区列表在位：${ws.rows} 个工作区，每个 2 枚开关（记录 / 不注入），当前工作区已标注`)
+    }
+    // ── E3. 开关真的能拨、真的落盘 ───────────────────────────────────────
+    // 光有开关不算做到位：点下去要变成 aria-checked 的反面，并且 host 侧真的改了
+    // meta.json（这里直接回读 /api/dsh-memory/projects 核对，不看 UI 的乐观值）。
+    // 测「不注入」而不是「记录」：它是反语义开关（开=排除），接反了 UI 与行为相反。
+    const pick = await evaluate(`(function(){
+      var card = document.querySelector('.kr-settings');
+      if (!card) return { missing: true };
+      var row = card.querySelector('.kr-settings__ws-row[data-current="true"]')
+        || card.querySelector('.kr-settings__ws-row');
+      if (!row) return { missing: 'row' };
+      var switches = row.querySelectorAll('.kr-settings__switch--mini');
+      if (switches.length !== 2) return { missing: 'switches', got: switches.length };
+      return { hash: row.getAttribute('data-hash'), before: switches[1].getAttribute('aria-checked') };
+    })()`)
+    log('TOGGLE_BEFORE=' + JSON.stringify(pick))
+    if (pick.missing !== undefined) {
+      fail(`拨开关前置条件不满足：${JSON.stringify(pick)}`)
+    } else if (pick.hash === null || pick.hash === '') {
+      fail('工作区行缺 data-hash（e2e 没法按工作区定位开关）')
+    } else {
+      // 选择器整段由 Node 侧拼好再塞进页面：页面里那层不该再做模板插值。
+      const rowSel = `.kr-settings__ws-row[data-hash=${JSON.stringify(pick.hash)}]`
+      const clickFlag = `(function(){
+        var card = document.querySelector('.kr-settings');
+        var row = card.querySelector(${JSON.stringify(rowSel)});
+        if (!row) return false;
+        row.querySelectorAll('.kr-settings__switch--mini')[1].click();
+        return true;
+      })()`
+      const readFlag = `(function(){
+        var card = document.querySelector('.kr-settings');
+        var row = card.querySelector(${JSON.stringify(rowSel)});
+        var s = row ? row.querySelectorAll('.kr-settings__switch--mini')[1] : null;
+        return s ? s.getAttribute('aria-checked') : null;
+      })()`
+      // host 侧真相：直接读 /projects，不看 UI 的乐观值。
+      const hostFlag = `fetch('/api/dsh-memory/projects').then(function(r){ return r.json() }).then(function(d){
+        var hit = (d.projects || []).filter(function(p){ return p.hash === ${JSON.stringify(pick.hash)} })[0];
+        return hit ? hit.injectExcluded === true : null;
+      })`
+
+      const clicked = await evaluate(clickFlag)
+      if (clicked !== true) fail('找不到目标工作区行，开关点不到')
+      await sleep(1800)
+      const after = await evaluate(readFlag)
+      const hostAfter = await evaluate(hostFlag)
+      log('TOGGLE_AFTER=' + JSON.stringify({ before: pick.before, after, hostAfter }))
+      const wantAfter = pick.before !== 'true'
+      if (after === null) fail('拨完开关后那一行找不到了（列表被重渲染成别的形状）')
+      else if (after === pick.before) fail(`拨「不注入」后 aria-checked 仍是 ${after}（点击没接上写入）`)
+      else if (hostAfter !== wantAfter) {
+        fail(`UI 显示 ${after} 但 host 落盘的是 injectExcluded=${String(hostAfter)}（乐观更新骗了人）`)
+      } else {
+        ok(`「不注入」开关可拨且真落盘：UI ${pick.before} → ${after}，host injectExcluded=${String(hostAfter)}`)
+      }
+
+      // 拨回原值，别把用户的真实配置改掉。
+      await evaluate(clickFlag)
+      await sleep(1800)
+      const restored = await evaluate(readFlag)
+      const hostRestored = await evaluate(hostFlag)
+      if (restored !== pick.before || hostRestored !== (pick.before === 'true')) {
+        fail(`拨回原值失败：UI 期望 ${pick.before} 实得 ${restored}，host 期望 ${pick.before === 'true'} 实得 ${String(hostRestored)}（用户配置被改动了）`)
+      } else {
+        ok('「不注入」开关拨回原值成功（测试不污染用户配置）')
+      }
+    }
 
     // ── G. 截图（截前脱敏）──────────────────────────────────────────────
     const scrubbed = await evaluate(`(function(){

@@ -5225,6 +5225,186 @@ body[data-ds-dark-theme] .kr-settings {
   }
 }
 
+/* ══ 工作区记忆：逐工作区列表（2026-10-18）═════════════════════════════════
+ *
+ * 用户诉求：「这个应该是显示出来所有工作区每个单独进行开关，并且还需要有个
+ * 开关是否排除注入」。原来那一组只给**当前**工作区一行开关（写入侧 autoMemory），
+ * 现在改成列出全部工作区，每个工作区两个开关：
+ *
+ *   ┌ 名称 [当前]  路径            记录 ⬤   不注入 ⚪ ┐
+ *
+ * 为什么两个开关并排横着放而不是各占一行：一行一个开关会让 10 个工作区变成
+ * 20 行，右栏要滚很久；而这两个开关的语义是「同一工作区的两个维度」，横排
+ * 读起来是一组、纵向扫的时候按工作区对齐，比按开关对齐有用得多。
+ *
+ * 为什么列表限高可滚：工作区数量不受控（本机就 2 个，重度用户几十个），
+ * 不限高会把「展示」组顶到卡片外面去。max-height 用 em 跟着字号走。
+ */
+.kr-settings__ws-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 15em;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* 负外边距 + 等量内边距：让行的 hover 底色铺到组边界外一点点，
+     视觉上与上面「提示词通道」那些行的可点范围一致。 */
+  margin: 2px -6px 0;
+  padding: 0 6px;
+}
+
+.kr-settings__ws-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px;
+  border-radius: 7px;
+  transition: background-color .16s ease;
+}
+
+.kr-settings__ws-row:hover {
+  background: var(--kr-hover-bg);
+}
+
+/* 当前会话所在的那个工作区：左侧一道主色竖条 + 名称后面的「当前」角标。
+   为什么还要竖条：角标是文字，扫一眼容易漏；竖条在滚动时也能一眼定位。 */
+.kr-settings__ws-row--current {
+  box-shadow: inset 2px 0 0 var(--kr-accent);
+}
+
+.kr-settings__ws-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.kr-settings__ws-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: var(--kr-fs-12, 12px);
+  line-height: 1.4;
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kr-settings__ws-row:hover .kr-settings__ws-name {
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-settings__ws-badge {
+  flex: none;
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: var(--kr-fs-10, 10px);
+  line-height: 1.6;
+  color: var(--dsw-alias-state-business-primary, #4176e6);
+  background: color-mix(in srgb, var(--kr-accent) 12%, transparent);
+}
+
+/* 路径：等宽数字体 + 极小号，弱到不抢名称的注意力，但 hover 行的完整路径在
+   title 里，截断也不会丢信息。 */
+.kr-settings__ws-path {
+  font-size: var(--kr-fs-10-5, 10.5px);
+  line-height: 1.4;
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kr-settings__ws-flags {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+
+.kr-settings__ws-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.kr-settings__ws-flag-text {
+  font-size: var(--kr-fs-10-5, 10.5px);
+  line-height: 1.4;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+/* 列表里的迷你开关：与主开关同一套语言（轨道 + 圆点 + aria-checked），只缩小一档。
+   40×22 放在 10 行列表里太占横向空间，两枚并排就吃掉 100px；32×18 只吃掉 76px。 */
+.kr-settings__switch--mini {
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  margin-top: 0;
+}
+
+.kr-settings__switch--mini::after {
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+}
+
+.kr-settings__switch--mini[aria-checked="true"]::after {
+  transform: translateX(14px);
+}
+
+.kr-settings__switch--mini[aria-checked="true"]:active:not(:disabled)::after {
+  transform: translateX(14px) scale(.88);
+}
+
+/* 「不注入」是**反语义**开关：开=排除。用 warn 色而不是主色，让「这条被排除」
+   在扫视时自己跳出来 —— 用户最容易犯的错就是忘了某个工作区被排除过，
+   然后奇怪「为什么这个项目里模型什么都不知道」。 */
+.kr-settings__switch--warn[aria-checked="true"] {
+  background: var(--dsw-alias-state-warning-primary, #f59e0b);
+}
+
+/* 列表三态（加载中 / 读取失败 / 空）：一行灰字，不占开关位。 */
+.kr-settings__ws-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 2px;
+  font-size: var(--kr-fs-11, 11px);
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.kr-settings__ws-retry {
+  border: 1px solid var(--kr-card-border);
+  border-radius: 6px;
+  padding: 1px 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--kr-fs-10-5, 10.5px);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
+}
+
+.kr-settings__ws-retry:hover {
+  background: var(--kr-hover-bg);
+  color: var(--dsw-alias-label-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-settings__ws-row,
+  .kr-settings__ws-name,
+  .kr-settings__ws-retry {
+    transition: none;
+  }
+}
+
 /* 行：顶对齐（hint 多行时开关不能被拉到中间），开关再用 margin-top 压回
    标签中线 —— 与 .dsh-memory-inject-row 同款处理。 */
 .kr-settings__row {
