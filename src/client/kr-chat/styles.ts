@@ -4809,21 +4809,28 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
   .kr-card--ask[data-inline][data-state="waiting"] { border-left-color: var(--kr-accent); }
 }
 
-/* ══ 大盘设置（顶栏齿轮 + 右栏滑入抽屉）═════════════════════════════════════
+/* ══ 大盘设置（顶栏齿轮 + 视口居中弹卡片）═══════════════════════════════════
  *
  * 两块分处不同容器，定位策略**刻意不同**：
  *
  *  1. 齿轮 '.kr-panel-settings-btn' 在**顶栏**（官方 header 的 [role="tablist"] 里，
  *     紧跟 Seeker），必须留在文档流里 —— 写 absolute 会把它从标签行抽出来飘走。
- *  2. 遮罩 '.kr-settings__scrim' 与抽屉 '.kr-settings' 渲染在 .kr-split__side 里，
- *     那是一个 display:flex; flex-direction:column; overflow:hidden 的容器 ——
- *     任何一个 static 定位的子节点都会被当成 flex item，把大盘撑高或挤出滚动条。
- *     所以这两者一律 position:absolute，彻底退出 flex 流。这是本组样式最容易踩、
- *     后果最显眼的一个坑（大盘整块变形），改动前先看这一条。
+ *  2. 遮罩 '.kr-settings__scrim' 与卡片 '.kr-settings' 由 createPortal 挂到
+ *     document.body，一律 position:fixed 铺满视口。
+ *
+ * 2026-10-18 用户反馈「把大盘设置也变成弹出卡片，布局需要调整下」：
+ * 上一版是右栏内的右滑抽屉（absolute + 贴右边缘 + 380px），这一版是视口居中的
+ * 模态卡片（960px 上下、两栏）。**为什么必须 portal 出去**：抽屉的定位基准是
+ * .kr-split__side（440px 上下），留在那棵子树里最宽也只能盖住右栏，而且父级带
+ * overflow:hidden，超出部分直接被裁 —— 那不是「居中弹卡片」。
  *
  * 视觉语言全部复用大盘已有的 --kr-* 与 --dsw-alias-* 变量，不新造色板。
  * 开关刻意走中性黑白（与 dsh-memory-switch 同款），不用主题蓝：大盘里蓝色
  * 是「可操作的主行动」（按钮 / 链接）的语义，设置项开关不是主行动。
+ *
+ * ⚠️ 变量作用域：--kr-* 声明在 :root / .kr-split__side 上，body 级浮层拿不到
+ * 那条 .kr-split__side 分支（--kr-card-bg 之类在深色下会静默变白）。所以卡片
+ * 根上像邮箱卡片那样**重新声明一遍**，理由与 .kr-mail-drawer 那段同源。
  */
 
 /* 顶栏「大盘设置」齿轮：坐在 Seeker 标签**右侧**（用户点名要求的位置）。
@@ -4892,13 +4899,16 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--kr-accent) 35%, transparent);
 }
 
-/* 遮罩：铺满整栏，**只在打开时拦截指针**。
-   常驻 pointer-events:auto 会把大盘上所有卡片的点击一起吃掉 —— 抽屉明明关着，
+/* 遮罩：铺满**整个视口**（卡片已 portal 到 body），**只在打开时拦截指针**。
+   常驻 pointer-events:auto 会把页面上所有点击一起吃掉 —— 卡片明明关着，
    页面上却点不动任何东西，是这类浮层最经典的 bug。 */
 .kr-settings__scrim {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 80;
+  /* 低于本插件的全屏 iframe/图片预览（2147483000），高于官方弹层：
+     邮箱卡片是 2147482000/2147482001，这里与它同层但**不叠加使用**
+     （两个面板各自独立开合，同时打开时后打开的那个盖上面，语义可接受）。 */
+  z-index: 2147482000;
   background: rgba(15, 17, 21, .16);
   opacity: 0;
   visibility: hidden;
@@ -4917,58 +4927,73 @@ body[data-ds-dark-theme] .kr-settings__scrim {
   background: rgba(0, 0, 0, .38);
 }
 
-/* 抽屉本体：贴右边缘、铺满整栏高度。
+/* 卡片本体：视口居中、四周留边。
    开合全部由 data-open 这一个属性驱动（组件不做条件渲染），所以退场动画
-   才有得播；visibility 的延迟就是为它留的：关的时候等 260ms 过渡跑完再
+   才有得播；visibility 的延迟就是为它留的：关的时候等 240ms 过渡跑完再
    hidden，否则退场会被立刻掐断。这套写法照抄同仓库 .dsh-memory-inject-card。
  *
- * 宽度：380px / 上限 92%（用户 2026-10-15 要求「放宽点」）。
- * 上一版是 300px / 86%：hint 文案在 300px 里被折成 4~5 行，九行开关要滚很久，
- * 一行「标签 + 长说明 + 开关」的横向空间被压到 230px，读起来像一根细柱子。
- * 加宽到 380px 后主列有 ~280px 可放说明文字（约 25 个汉字一行），配合紧凑组的
- * 单行省略，绝大多数说明一行读完。
- * 上限用百分比而不是固定值：右栏本身可被拖拽（min 360 / max 520），拖到最窄时
- * 380px 会几乎盖满整栏，92% 让它跟着右栏收窄，遮罩始终留得下可点的一条。
- * 上限必须留出遮罩余量 —— 铺满 100% 就等于没有「点外面关闭」这条通路了。 */
+ * 尺寸：宽 min(1000px, 100vw − 48px)，高由内容决定、上限 100vh − 64px。
+ *  - 宽 1000px 是**两栏布局**的实测落点：左栏放 6 条长说明（约 550px），右栏放
+ *    1+3 条短说明（约 390px），中间一道 1px 分隔。上一版 960px 时右栏只有
+ *    353px，「展示」组两条说明被紧凑排版截成省略号 —— 加宽到 1000 并把比例从
+ *    1.55:1 收到 1.4:1，右栏才有 390px 把话说完整。
+ *  - 高度**不写死**：设置项只有 10 行，固定高度会留一大片空白。给 max-height
+ *    夹紧在视口内，内容短时卡片就短 —— 这才是「弹卡片」该有的样子。
+ *  - 用 min() 而不是 max-width 两条：与视口一起缩，不需要第二条媒体查询兜底。 */
 .kr-settings {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 90;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 2147482001;
   display: flex;
   flex-direction: column;
-  width: 380px;
-  max-width: 92%;
+  width: min(1000px, calc(100vw - 48px));
+  max-height: calc(100vh - 64px);
+  max-height: calc(100dvh - 64px);
   box-sizing: border-box;
   overflow: hidden;
   /* 浮层必须刷不透明底色：--kr-card-bg 就是大盘卡片那层 layer-1，深浅两套
-     主题都由 DSH token 给真值；透出底层内容会读不清。 */
+     主题都由 DSH token 给真值；透出底层内容会读不清。body 级浮层拿不到
+     .kr-split__side 那条变量分支，所以这里重新声明一遍（同 .kr-mail-drawer）。 */
+  --kr-card-bg: var(--dsw-alias-bg-layer-1, #ffffff);
+  --kr-card-border: var(--dsw-alias-border-l1, rgba(0, 0, 0, .06));
+  --kr-hairline: var(--dsw-alias-border-l1, rgba(0, 0, 0, .06));
+  --kr-hover-bg: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, .06));
+  --kr-accent: var(--dsw-alias-state-business-primary, #4176e6);
+  --kr-card-shadow: 0 1px 2px rgba(15, 17, 21, .05), 0 6px 14px -8px rgba(15, 17, 21, .18);
+  /* 字号档位：卡片里同样跟随官方「设置 → 字号」轴。只声明本卡片用得到的三档 ——
+     全量七档挂在 .kr-card--* 那六个卡根上，浮层不继承那条规则。 */
+  --kr-fs-12: max(11px, calc(var(--dsh-content-font-size, 14px) - 2px));
+  --kr-fs-11: max(10px, calc(var(--dsh-content-font-size, 14px) - 3px));
+  --kr-fs-10-5: max(9.5px, calc(var(--dsh-content-font-size, 14px) - 3.5px));
+  --kr-fs-10: max(9.5px, calc(var(--dsh-content-font-size, 14px) - 4px));
   background: var(--kr-card-bg);
-  border-left: 1px solid var(--kr-card-border);
-  border-radius: 14px 0 0 14px;
-  box-shadow: var(--kr-card-shadow), -10px 0 24px -16px rgba(15, 17, 21, .22);
+  border: 1px solid var(--kr-card-border);
+  border-radius: 16px;
+  box-shadow: var(--kr-card-shadow), 0 24px 60px -28px rgba(15, 17, 21, .38);
   opacity: 0;
   visibility: hidden;
-  transform: translateX(18px) scale(.99);
-  transform-origin: 100% 50%;
+  /* 关闭态：略微下沉 + 收一点，打开时「浮上来」。transform 里带着居中的
+     translate(-50%, -50%)，位移量都写在它后面（追加而不是覆盖）。 */
+  transform: translate(-50%, -50%) translateY(10px) scale(.985);
   pointer-events: none;
-  transition: opacity .26s cubic-bezier(0.16, 1, 0.3, 1), transform .26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear .26s;
+  transition: opacity .24s cubic-bezier(0.16, 1, 0.3, 1), transform .24s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear .24s;
 }
 
 .kr-settings[data-open="true"] {
   opacity: 1;
   visibility: visible;
-  transform: none;
+  transform: translate(-50%, -50%);
   pointer-events: auto;
-  transition: opacity .26s cubic-bezier(0.16, 1, 0.3, 1), transform .26s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s;
+  transition: opacity .24s cubic-bezier(0.16, 1, 0.3, 1), transform .24s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s;
 }
 
-/* 深色下浮层靠「更实的描边 + 更黑的定向落影」分层：浅色那套 4% 黑描边
+/* 深色下浮层靠「更实的描边 + 更黑的落影」分层：浅色那套 4% 黑描边
    压在深底上等于没有，只留下一条看不见的边界。 */
 body[data-ds-dark-theme] .kr-settings {
-  border-left-color: rgba(255, 255, 255, .09);
-  box-shadow: var(--kr-card-shadow), -10px 0 26px -16px rgba(0, 0, 0, .7);
+  --kr-card-border: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, .09);
+  box-shadow: var(--kr-card-shadow), 0 26px 64px -30px rgba(0, 0, 0, .85);
 }
 
 .kr-settings__head {
@@ -5030,15 +5055,54 @@ body[data-ds-dark-theme] .kr-settings {
   height: 14px;
 }
 
-/* 正文：矮屏（8 行 + 2 个组标题）必须能滚，不能被裁。
-   flex:1 1 0 + min-height:0 是滚动容器在 flex 列里唯一可靠的写法 ——
-   少了 min-height:0，flex item 的自动最小尺寸会把容器顶到内容高度。 */
+/* 正文：**两栏**。左栏提示词通道（6 行长说明），右栏工作区记忆 + 展示（1+3 行短说明）。
+ *
+ * 为什么是两栏而不是把卡片做窄：单列排下来 10 行 + 3 个组标题要滚一屏半，
+ * 而右栏那 4 行本来很短，并进左栏只会把高度再拉长。分两栏后两组在视觉上
+ * 也天然分开 ——「会改提示词的」在左，「只改观感的」在右，与分组语义同构。
+ *
+ * 高度：卡片是内容自适应（见 .kr-settings 的 max-height），所以这里用
+ * flex:1 1 auto + min-height:0，内容超出时才滚动。窄屏（≤ 760px）落回单列，
+ * 靠下面的媒体查询把 grid-template-columns 换成 1fr。 */
 .kr-settings__body {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 0 22px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 4px 14px 12px;
+  padding: 4px 18px 14px;
+}
+
+/* 两栏容器。min-width:0 是 grid 子项的必要写法：不写的话子项的最小内容宽度
+   （长说明里那个不可断行的英文串）会把列撑开，两栏比例失效、甚至溢出卡片。
+   左栏没有额外装饰，但这条 min-width 同样要给它。 */
+.kr-settings__col--main,
+.kr-settings__col--aside {
+  min-width: 0;
+}
+
+/* 右栏在左栏右侧画一道发丝分隔线。用 border-left + padding 而不是再套一层
+   背景色：卡片只有一层底色，加背景会让右栏读成一个独立的卡中卡。 */
+.kr-settings__col--aside {
+  padding-left: 22px;
+  border-left: 1px solid var(--kr-hairline);
+}
+
+/* 窄屏回退：卡片宽度掉到 760px 以下时两栏挤不下（左栏会折成 4~5 行），
+   改回单列、撤掉分隔线。用视口媒体查询而不是容器查询：卡片宽度 = min(960px,
+   100vw − 48px)，与视口宽度一一对应，这里没有「宽度与视口脱钩」的问题。 */
+@media (max-width: 820px) {
+  .kr-settings__body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .kr-settings__col--aside {
+    padding-left: 0;
+    border-left: none;
+  }
 }
 
 /* 与大盘其余滚动区同一套细滚动条（这些伪元素选择器不在上方那条共用规则组里，
@@ -5107,13 +5171,14 @@ body[data-ds-dark-theme] .kr-settings {
  *
  *  1. 行距与内边距收一档，行 hover 给一层淡底（可点范围的暗示），让三条读起来
  *     是一段连续列表，而不是三个独立小节；
- *  2. hint 常态压到**最多两行**（380px 下主列约 288px、每行约 26 个汉字，三条说明
- *     基本都能整句读完，真超长的才吃省略号），指针悬停或键盘聚焦（focus-within，
- *     TAB 到开关即触发）时展开成完整说明。这是本次「换展示方式」的核心：不是删字，
- *     是把长说明从常驻改成按需。全文始终在 DOM 里（只是视觉截断）+ 原生 title
- *     提示，读屏与鼠标悬停都拿得到完整内容。
- *     为什么是 2 行而不是 1 行：实测单行会把「工具调用卡」那条砍到只剩前半句
- *     （「…（默…」），省下的一行高度换不回读不全的说明 —— 2 行才是这条曲线的折中。
+ *  2. hint 常态压到**最多三行**，指针悬停或键盘聚焦（focus-within，TAB 到开关即
+ *     触发）时展开成完整说明。这是「换展示方式」的核心：不是删字，是把长说明从
+ *     常驻改成按需。全文始终在 DOM 里（只是视觉截断）+ 原生 title 提示，读屏与
+ *     鼠标悬停都拿得到完整内容。
+ *     行数怎么定的：最初是 2 行（那时右栏只有 353px，单行约 26 个汉字，2 行够读完
+ *     大半说明）。2026-10-18 卡片加宽到 1000px、右栏涨到 392px 之后，2 行会把
+ *     「工具调用卡」「操作面板」两条砍在句中，于是放到 3 行 —— 实测三条说明基本都
+ *     能整句读完，只有极长的才吃省略号。行数是**跟着栏宽走的**，右栏再变宽就该再调。
  *  3. @media (hover: none) 下关掉截断：触摸设备没有悬停这一说，一律展开 ——
  *     否则手机用户拿到的是一份读不全的说明（这类「只在桌面好看」的紧凑布局是
  *     最容易漏掉的一档）。
@@ -5135,9 +5200,9 @@ body[data-ds-dark-theme] .kr-settings {
 .kr-settings__group--compact .kr-settings__hint {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  max-height: 3.2em;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  max-height: 4.8em;
   overflow: hidden;
   transition: max-height .3s cubic-bezier(.16, 1, .3, 1);
 }
@@ -5338,6 +5403,13 @@ body[data-ds-dark-theme] .kr-settings {
   .kr-panel-settings-btn:active,
   .kr-settings__close:active {
     transform: none;
+  }
+  /* 卡片这里**不能**写 transform:none —— 它的居中靠的就是
+     translate(-50%, -50%)，抹掉就会贴到视口右下角去。只能抹掉「打开时
+     那一点点浮起」，居中照旧（同 .kr-mail-drawer 的处理）。 */
+  .kr-settings,
+  .kr-settings[data-open="true"] {
+    transform: translate(-50%, -50%);
   }
   .kr-panel-settings-btn[data-open="true"] svg {
     transform: none;

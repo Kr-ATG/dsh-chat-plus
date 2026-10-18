@@ -1,13 +1,23 @@
 /**
- * dsh-chat-plus — Seeker 右栏大盘的「大盘设置」抽屉（从右侧滑入的面板）。
+ * dsh-chat-plus — Seeker「大盘设置」卡片（视口居中的模态弹层）。
  *
  * 为什么存在：这些开关原先分散在两处 —— composer 输入框那枚「内置提示词通道」悬浮卡
  * （triad/memory/Toggle.tsx 的 BuiltinToggle）与邮箱工作台设置页。用户真正要拨它们的
  * 时刻，多半是盯着右栏大盘干活的时候：手得离开大盘、回到输入框、hover 展开、拨完再
- * 回来。于是把它们收敛成一张抽屉挂在右栏，composer 那张重复的卡整块删除。
+ * 回来。于是把它们收敛成一块设置面板，composer 那张重复的卡整块删除。
+ *
+ * 2026-10-18 用户反馈「把大盘设置也变成弹出卡片，布局需要调整下」，于是外壳从
+ * 「右栏内的右滑抽屉」换成「视口居中的模态卡片」，内部从单列长列表改成两栏：
+ *
+ *   左栏（提示词通道 6 行，说明最长）  右栏（工作区记忆 1 行 + 展示 3 行）
+ *
+ * 为什么必须跳出右栏：抽屉的定位基准是 `.kr-split__side`（440px 上下），做成卡片后
+ * 若仍留在那棵子树里，卡片最宽也只能盖住右栏 —— 那不是"居中弹卡片"，是"右栏里的
+ * 一块大点的浮层"。所以用 createPortal 挂到 document.body，与右栏的布局 / 裁剪 /
+ * overflow 彻底解耦（与邮箱卡片同一套做法）。
  *
  * **入口不在本组件里**：齿轮按钮由 kr-chat-controller 以裸 DOM 注入顶栏标签行、
- * 紧邻 Seeker 标签（用户点名要求的位置）。本组件只负责抽屉本体，开合读
+ * 紧邻 Seeker 标签（用户点名要求的位置）。本组件只负责卡片本体，开合读
  * `panel-settings-store`。两者分处不同的 React 根（一个是裸 DOM 按钮、一个是
  * createRoot 挂的树），props 传不过去，所以走共享 store 而不是组件内 state ——
  * 这是本文件相对上一版最大的结构变化（上一版齿轮与抽屉同在一个组件里）。
@@ -34,17 +44,18 @@
  * 为什么 DOM 常驻：`data-open` 是**唯一**开合判据，可见性交给 CSS 的
  * visibility / opacity / pointer-events。写成 `{open && <div/>}` 的话，关闭时元素直接从
  * DOM 里消失，退场动画（滑出 + 淡出）根本没有机会播 —— 用户看到的是「啪」一下不见。
- * 代价是抽屉里的按钮始终在 DOM 里，靠 CSS 的 `visibility: hidden` 把它们移出 tab 序列
+ * 代价是卡片里的按钮始终在 DOM 里，靠 CSS 的 `visibility: hidden` 把它们移出 tab 序列
  * （visibility 隐藏的元素不可聚焦，这是 CSS 自带的，不需要额外 tabIndex）。
  *
- * 为什么两块根节点都内联 `position: absolute`：本组件渲染在 `.kr-split__side`
- * （display:flex; flex-direction:column）内部，任何 static 定位的子节点都会成为一根
- * flex 项、把大盘撑高。这里只兜底「脱离文档流」这一件事，坐标 / 尺寸 / 动效全部归
- * styles.ts —— 内联只写与 CSS 同值的 position，不抢布局决策。
+ * 为什么不再内联 `position: absolute`：卡片 portal 到 document.body，坐标由 CSS 的
+ * `position: fixed` 决定（居中 + 视口夹紧）。之前内联 absolute 是因为渲染在
+ * `.kr-split__side` 这个 flex column 里、static 子节点会把大盘撑高；portal 之后
+ * 这个约束消失了，内联定位反而会与 CSS 打架。
  */
 
 import type { CSSProperties } from 'react'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
 import { createMemoryApi, type InjectStateView } from '../triad/memory/api.js'
 import { FALLBACK_INJECT_STATE, normalizeInjectState } from '../triad/memory/Toggle.js'
 import { replyCardChromeEnabled, setReplyCardChromeEnabled, subscribeReplyCardChrome } from '../reply-card-chrome.js'
@@ -68,9 +79,9 @@ export interface KrPanelSettingsProps {
 }
 
 /**
- * 大盘设置抽屉：遮罩 + 抽屉本体。开合状态来自共享 store（顶栏齿轮按钮 toggle 它）。
+ * 大盘设置卡片：遮罩 + 居中卡片本体。开合状态来自共享 store（顶栏齿轮按钮 toggle 它）。
  *
- * 对外只认一个 `sessionId`：抽屉里 6 条 host 通道的读取要带上它，好让 host 回传
+ * 对外只认一个 `sessionId`：卡片里 6 条 host 通道的读取要带上它，好让 host 回传
  * 「本会话」的那份状态。
  */
 export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Element {
@@ -79,7 +90,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
   /*
    * 开合走 useSyncExternalStore 而不是 useState：状态由**组件外**的顶栏按钮写，
    * 且那份 store 跨 bundle 实例共享。useState + 自定义事件也能做，但事件会丢
-   * （按钮先于抽屉挂载时那一次 toggle 没人接），而订阅式读值天然幂等。
+   * （按钮先于卡片挂载时那一次 toggle 没人接），而订阅式读值天然幂等。
    */
   const open = useSyncExternalStore(
     (cb) => store.subscribe(cb),
@@ -92,7 +103,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
   /**
    * 回读整份状态；失败按兜底形状（与 composer 卡同一份兜底，不另写）。
    *
-   * 顺带把**当前工作区**的 cwd 带上：抽屉里那行「工作区项目记忆记录」是按 cwd
+   * 顺带把**当前工作区**的 cwd 带上：卡片里那行「工作区项目记忆记录」是按 cwd
    * 派生的项目 hash 存的，不带 cwd 的话 host 只能回 null（不知道是哪个工作区），
    * 那一行就永远显示成「未在工作区内」。cwd 每次请求都现取而不是缓存进 state：
    * 右栏可以在同一个 sessionId 下换工作区，缓存会让开关指向上一个项目 —— 那会
@@ -105,7 +116,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
   }, [sessionKey])
 
   /**
-   * 会话切换 → 关掉抽屉 + 立刻重读；抽屉打开 → 重读一次。
+   * 会话切换 → 关掉卡片 + 立刻重读；卡片打开 → 重读一次。
    *
    * 两个触发条件合在一个 effect 里，是为了避免「sessionId 变化时 open 还是 true」
    * 那种跨帧状态下两条 effect 各发一次请求。展开看到的一定是最新值。
@@ -124,8 +135,8 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
   /**
    * Esc 关闭：监听只在打开期间挂。
    *
-   * 不常驻监听 —— 抽屉没开时，Esc 属于页面上别的东西（官方弹层、输入框取消等），
-   * 抢过来关一个看不见的抽屉是纯干扰。cleanup 同时负责组件卸载时摘干净。
+   * 不常驻监听 —— 卡片没开时，Esc 属于页面上别的东西（官方弹层、输入框取消等），
+   * 抢过来关一个看不见的卡片是纯干扰。cleanup 同时负责组件卸载时摘干净。
    */
   useEffect(() => {
     if (!open) return undefined
@@ -305,17 +316,16 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
       ? '读取不到该工作区的项目记忆状态（宿主尚未提供此字段，重启 DSH 后再看）。'
       : '关掉后这个工作区不再记录新记忆：不再自动提取，模型也不能手动往里记。已有记忆不受影响，照常参与注入。它管的是「记不记」，与「提示词通道」那组的注入（读取）是两回事。默认开。'
 
-  return (
+  const card = (
     <>
       {/* 遮罩：点它关闭。纯装饰，键盘用户走 Esc 与关闭按钮，故 aria-hidden 恒为 true。
           齿轮触发按钮**不在这里** —— 它由 kr-chat-controller 注入顶栏标签行、
-          紧邻 Seeker 标签（用户点名要求的位置），通过 panel-settings-store 与本抽屉联动。 */}
+          紧邻 Seeker 标签（用户点名要求的位置），通过 panel-settings-store 与本卡片联动。 */}
       <div
         className="kr-settings__scrim"
         data-open={open ? 'true' : 'false'}
         aria-hidden="true"
         onClick={() => { store.setOpen(false) }}
-        style={{ position: 'absolute' }}
       />
 
       <div
@@ -323,8 +333,8 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
         data-open={open ? 'true' : 'false'}
         role="dialog"
         aria-label="大盘设置"
+        aria-modal={open ? true : undefined}
         aria-hidden={!open}
-        style={{ position: 'absolute' }}
       >
         <div className="kr-settings__head">
           <span className="kr-settings__title"><GearIcon size={13} />大盘设置</span>
@@ -339,6 +349,10 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
         </div>
 
         <div className="kr-settings__body">
+          {/* 左栏：提示词通道。这一组每行都有一大段说明（团队协作 / Agent 邮箱那两条
+              尤其长），单列排下来要滚很久；卡片给到 960px 宽之后，把短的那两组挪到
+              右栏，左栏独占整列高度，长说明不再被挤成窄条。 */}
+          <div className="kr-settings__col kr-settings__col--main">
           <div className="kr-settings__group">
             <span className="kr-settings__group-title">提示词通道</span>
             <SettingsRow
@@ -403,6 +417,11 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
               onToggle={() => { pushChannel('todoClosureEnabled', !todoClosureOn) }}
             />
           </div>
+          </div>
+
+          {/* 右栏：工作区记忆 + 展示。两组都短（1 行 + 3 行），叠在一列里正好与左栏
+              那 6 行等高，读者一眼能把「会改提示词的」和「只改观感的」分到两半。 */}
+          <div className="kr-settings__col kr-settings__col--aside">
 
           {/* 「工作区记忆」自成一枚组标题：这一行是**写入侧**（这个工作区要不要记下
               新记忆），与上面那组「提示词通道」（把已有记忆读着注进提示词）语义相反。
@@ -445,7 +464,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
               组说明承接标题、写该组**共性**（三条都是纯 localStorage 外观偏好：
               只改本机观感、不入 prompt、全局所有会话生效、随浏览器持久保存），
               各行 hint 于是只讲「关掉后具体会怎样」——2026-10-15 之前这三句共性
-              在三条 hint 里各抄了一遍，是抽屉里最占地方的重复。
+              在三条 hint 里各抄了一遍，是设置面板里最占地方的重复。
               `--compact` 让这一组走紧凑排版（单行省略、悬停/聚焦展开全文），
               与注入组「每行一大段说明」的读法区分开。 */}
           <div className="kr-settings__group kr-settings__group--compact">
@@ -488,16 +507,29 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
               onToggle={() => { setPlainTimelineVisible(!plainTimelineOn) }}
             />
           </div>
+          </div>
         </div>
 
         <p className="kr-settings__foot">硬编码在插件内、无卸载入口；其中「提示词通道」与「工作区记忆」是全局/按工作区存于 host 的开关（后者随工作区各不相同），「展示」那三条只在本机浏览器里生效。</p>
       </div>
     </>
   )
+
+  /*
+   * portal 到 body：卡片是**全视口模态**，不能留在 .kr-split__side 那棵子树里。
+   *
+   * 留在里面的话，卡片的定位基准是右栏（440px 上下），最宽也只能盖住右栏 ——
+   * 那不是"居中弹卡片"，是"右栏里一块大点的浮层"。而且 .kr-split__side 带
+   * overflow:hidden，卡片超出部分会被直接裁掉。
+   *
+   * SSR / 首帧无 document 时退回原地渲染（本插件只在浏览器跑，这层纯兜底）。
+   */
+  if (typeof document === 'undefined') return card
+  return createPortal(card, document.body)
 }
 
 /**
- * 抽屉里的一行：左侧标签（可带角标）+ 副说明，右侧开关。
+ * 卡片里的一行：左侧标签（可带角标）+ 副说明，右侧开关。
  *
  * `on` 省略 = 这一行**不给开关**（邮箱模块没挂时那种「拨不动的开关」）。
  * `lead` 标出该组第一行：上方已经有组标题，不再叠一条分隔虚线。
@@ -553,7 +585,7 @@ function SettingsRow({
   )
 }
 
-/** 齿轮图标：抽屉标题用（顶栏那枚触发按钮在 kr-chat-controller 里以裸 DOM 注入，
+/** 齿轮图标：卡片标题用（顶栏那枚触发按钮在 kr-chat-controller 里以裸 DOM 注入，
  *  它自带一份同形状的 SVG 字符串 —— 那边不是 React 树，拿不到这个组件）。 */
 function GearIcon({ size = 15 }: { readonly size?: number }): JSX.Element {
   return (

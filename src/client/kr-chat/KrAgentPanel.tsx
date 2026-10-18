@@ -987,10 +987,10 @@ export const KrAgentPanel = memo(function KrAgentPanel({
         </div>
       )}
 
-      {/* 大盘设置：齿轮按钮 + 从右侧滑入的设置抽屉（组件自带触发器与遮罩，
-          全部绝对定位、不参与大盘的 flex 流）。把原先只住在 composer「内置提示词
-          通道」悬浮卡里的 8 个开关搬到大盘上 —— 用户在大盘里干活时不必再回到
-          输入框去拨开关。数据面不变：6 条注入通道仍走 /api/dsh-memory/*，
+      {/* 大盘设置：顶栏齿轮 + 视口居中的设置卡片（组件自己 createPortal 到 body，
+          不在这棵子树里渲染，也不参与大盘的 flex 流）。把原先只住在 composer
+          「内置提示词通道」悬浮卡里的 8 个开关搬到大盘上 —— 用户在大盘里干活时
+          不必再回到输入框去拨开关。数据面不变：6 条注入通道仍走 /api/dsh-memory/*，
           2 条外观偏好仍是 localStorage。 */}
       <KrPanelSettings sessionId={latestChatSessionId} />
 

@@ -3648,6 +3648,8 @@ if (krEnabled) {
       'kr-settings__head', 'kr-settings__title', 'kr-settings__close',
       'kr-settings__body', 'kr-settings__group', 'kr-settings__group-title',
       'kr-settings__group-note', 'kr-settings__group--compact',
+      // 两栏容器（2026-10-18 卡片化时新增）：左右两列各一个，缺了就是单列。
+      'kr-settings__col--main', 'kr-settings__col--aside',
       'kr-settings__row', 'kr-settings__row--lead', 'kr-settings__main',
       'kr-settings__label', 'kr-settings__hint', 'kr-settings__badge',
       'kr-settings__switch', 'kr-settings__foot',
@@ -3657,7 +3659,7 @@ if (krEnabled) {
     if (missingClass.length > 0) {
       fail(`KrPanelSettings 缺类名：${missingClass.join(', ')}（与样式契约不符）`)
     } else if (missingStyle.length > 0) {
-      fail(`styles.ts 缺选择器：${missingStyle.join(', ')}（抽屉会是裸 DOM）`)
+      fail(`styles.ts 缺选择器：${missingStyle.join(', ')}（卡片会是裸 DOM）`)
     } else {
       pass(`大盘设置：${required.length} 个类名在组件与样式表两侧逐字对齐`)
     }
@@ -3794,19 +3796,29 @@ if (krEnabled) {
       pass('大盘设置：邮箱行三态分级（未挂载时不给拨不动的开关）')
     }
 
-    // 8) 定位硬约束：**留在右栏的那两块**必须绝对定位。大盘是 flex column +
-    //    overflow:hidden，任何 static 子节点都会参与 flex 流、把右栏撑变形。
+    // 8) 定位硬约束（2026-10-18 卡片化后**整体反转**，改动前务必读完）：
     //
-    //    顶栏齿轮 `.kr-panel-settings-btn` **恰恰相反**：它在官方标签行里，
-    //    必须留在文档流 —— 写成 absolute 会飘出标签行。两条相反的约束都要钉，
-    //    因为改错任何一边都是"看着不对"，而它们长得几乎一样。
+    //    遮罩与卡片现在 portal 到 document.body、position:fixed 铺满视口 ——
+    //    它们是**全视口模态**，不再是右栏里的浮层。所以上一版那条
+    //    「必须 absolute，否则参与大盘 flex 流」已经不适用了：portal 出去之后
+    //    那棵 flex 子树里根本没有它们，absolute 反而是错的（会相对 body 定位
+    //    但又不跟随视口）。
+    //
+    //    顶栏齿轮 `.kr-panel-settings-btn` 的约束**没变**：它在官方标签行里，
+    //    必须留在文档流 —— 写成 absolute 会飘出标签行。
     for (const cls of ['kr-settings__scrim', 'kr-settings']) {
       const rule = new RegExp('\\.' + cls + '\\s*\\{([^}]*)\\}').exec(code)?.[1] ?? ''
       if (rule === '') {
         fail(`未找到 .${cls} 样式规则`)
-      } else if (!/position:\s*absolute/.test(rule)) {
-        fail(`.${cls} 必须 position:absolute（否则参与大盘 flex 流，把右栏撑高/挤变形）`)
+      } else if (!/position:\s*fixed/.test(rule)) {
+        fail(`.${cls} 必须 position:fixed（卡片已 portal 到 body，absolute 不跟随视口）`)
+      } else if (/position:\s*absolute/.test(rule)) {
+        fail(`.${cls} 不得再用 position:absolute（那是右栏抽屉那套定位，已作废）`)
       }
+    }
+    // portal 必须真的调 createPortal：留在 .kr-split__side 里最宽只能盖住右栏。
+    if (!/createPortal\(/.test(src)) {
+      fail('KrPanelSettings 必须 createPortal 到 body（留在右栏子树里卡片最宽只能盖住右栏，且被 overflow:hidden 裁掉）')
     }
     const gearRule = /\.kr-panel-settings-btn\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
     if (gearRule === '') {
@@ -3821,31 +3833,62 @@ if (krEnabled) {
     if (!/pointer-events:\s*none/.test(scrimRule)) {
       fail('.kr-settings__scrim 常态必须 pointer-events:none（否则关着也挡住大盘全部交互）')
     } else {
-      pass('大盘设置：右栏两块绝对定位 + 顶栏齿轮留在文档流（两条相反约束都对）')
+      pass('大盘设置：遮罩/卡片 fixed 全视口 + portal 到 body + 顶栏齿轮留在文档流（三条定位约束都对）')
     }
 
     // 9) 动效与减弱动效兜底：可见性不许依赖动画。
-    if (!/kr-settings[^}]*translateX\(/.test(code)) {
-      fail('抽屉缺少滑入位移（用户要求带动效，静态显隐不算做到位）')
-    } else if (!/prefers-reduced-motion[\s\S]{0,900}?\.kr-settings/.test(code)) {
-      fail('缺少 prefers-reduced-motion 兜底（减弱动效用户的抽屉可能停留在不可见态）')
+    //    位移从「右滑 translateX」换成「浮起 translateY + 缩放」——卡片是居中的，
+    //    横向滑入在居中外壳里读起来像「从右边飘过来」，方向语义不对。
+    if (!/\.kr-settings[^{]*\{[^}]*translateY\(/.test(code)) {
+      fail('卡片缺少浮起位移（用户要求带动效，静态显隐不算做到位）')
+    } else if (!/prefers-reduced-motion[\s\S]{0,1400}?\.kr-settings/.test(code)) {
+      fail('缺少 prefers-reduced-motion 兜底（减弱动效用户的卡片可能停留在不可见态）')
+    } else if (!/prefers-reduced-motion[\s\S]{0,1400}?translate\(-50%,\s*-50%\)/.test(code)) {
+      fail('减弱动效下必须把卡片的居中 transform 写回去（整体归零会让它贴到视口右下角）')
     } else {
-      pass('大盘设置：滑入位移 + 减弱动效兜底在位')
+      pass('大盘设置：浮起位移 + 减弱动效兜底（含居中归位）在位')
+    }
+    // 9b) 卡片几何：2026-10-18 从「右栏 380px 抽屉」改成「视口居中 960px 卡片」，
+    //     判据整体换了：不再是「够宽不折行」，而是「够宽能排两栏 + 四周留边」。
+    //
+    //     三条都要钉，因为每一条失效都是**静默的**：
+    //       · 宽度掉到 800px 以下 → 两栏挤不下（左栏说明折成 4~5 行）；
+    //       · 缺 min(..., 100vw - 48px) → 窄窗口下卡片被挤出视口两侧；
+    //       · 缺 max-height 夹紧 → 卡片撑出屏幕，底部内容被切掉。
+    const cardRule = /\.kr-settings\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
+    const cardWidth = Number(/width:\s*min\((\d+)px/.exec(cardRule)?.[1] ?? 0)
+    if (cardRule === '') {
+      fail('未找到 .kr-settings 样式规则')
+    } else if (cardWidth < 800) {
+      fail(`卡片宽度 ${cardWidth}px 太窄（两栏排不下，左栏说明会折成 4~5 行）`)
+    } else if (!/width:\s*min\(\d+px,\s*calc\(100vw\s*-\s*\d+px\)\)/.test(cardRule)) {
+      fail('.kr-settings 宽度必须写成 min(Npx, calc(100vw - 留边))（否则窄窗口下卡片被挤出视口）')
+    } else if (!/max-height:\s*calc\(100d?vh\s*-\s*\d+px\)/.test(cardRule)) {
+      fail('.kr-settings 需要 max-height 夹紧在视口内（内容超长时撑出屏幕，底部被切）')
+    } else {
+      pass(`大盘设置：卡片宽 ${cardWidth}px + min() 视口夹紧 + max-height 兜底（两栏放得下）`)
     }
 
-    // 9b) 抽屉宽度：2026-10-15 用户要求「放宽点」，300px 会把说明折成 4~5 行。
-    //     下限 360px 是这次诉求的判据本身；同时必须**留百分比上限**（右栏可拖到
-    //     最窄 360px，铺满就等于没有「点遮罩关闭」那条通路了）。
-    const drawerRule = /\.kr-settings\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
-    const drawerWidth = Number(/width:\s*(\d+)px/.exec(drawerRule)?.[1] ?? 0)
-    if (drawerRule === '') {
-      fail('未找到 .kr-settings 样式规则')
-    } else if (drawerWidth < 360) {
-      fail(`抽屉宽度 ${drawerWidth}px 太窄（用户要求放宽；说明文字会被折成 4~5 行）`)
-    } else if (!/max-width:\s*\d+%/.test(drawerRule)) {
-      fail('.kr-settings 需要百分比 max-width（右栏拖窄时抽屉要跟着收，且给遮罩留出可点区域）')
+    // 9b2) 两栏布局（2026-10-18 用户点名「布局需要调整下」）：
+    //
+    //      左栏 = 提示词通道 6 行（说明最长），右栏 = 工作区记忆 1 行 + 展示 3 行。
+    //      三处缺一即失效，而且**都不报错**：
+    //        · body 不是 grid → 两栏塌回单列，看着像没改；
+    //        · 缺 __col 两个容器 → 左栏那一组把右栏两组顶到下面去，白改；
+    //        · 缺窄屏回退 → 820px 以下两栏挤成两根细柱子，说明全折行。
+    const bodyRule = /\.kr-settings__body\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
+    if (!/display:\s*grid/.test(bodyRule)) {
+      fail('.kr-settings__body 必须是 grid（否则两栏塌回单列，用户要的布局调整等于没做）')
+    } else if (!/grid-template-columns:\s*minmax\(0,\s*[\d.]+fr\)\s+minmax\(0,\s*[\d.]+fr\)/.test(bodyRule)) {
+      fail('.kr-settings__body 需要两列 grid-template-columns（左右两栏）')
+    } else if (!src.includes('kr-settings__col--main') || !src.includes('kr-settings__col--aside')) {
+      fail('组件必须把三组拆进 kr-settings__col--main / --aside 两个容器（缺了就还是单列）')
+    } else if (!/kr-settings__col--main/.test(code) || !/kr-settings__col--aside/.test(code)) {
+      fail('styles.ts 缺 .kr-settings__col--main / --aside 规则（两栏容器无样式）')
+    } else if (!/@media \(max-width: 820px\)[\s\S]{0,400}?grid-template-columns:\s*minmax\(0,\s*1fr\)/.test(code)) {
+      fail('缺窄屏回退（820px 以下两栏挤成两根细柱子，说明全折行）')
     } else {
-      pass(`大盘设置：抽屉加宽到 ${drawerWidth}px + 百分比上限（宽屏少折行，窄栏不铺满）`)
+      pass('大盘设置：两栏布局（左 提示词通道 / 右 工作区记忆+展示）+ 窄屏回退单列')
     }
 
     // 9c) 「展示」组紧凑排版：两行上限 + 悬停/聚焦展开 + 触摸降级，三样缺一即失效
@@ -3853,7 +3896,7 @@ if (krEnabled) {
     const compactHintRule = /\.kr-settings__group--compact \.kr-settings__hint\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
     if (compactHintRule === '') {
       fail('缺少 .kr-settings__group--compact .kr-settings__hint 规则（「展示」组的紧凑排版失效）')
-    } else if (!/-webkit-line-clamp:\s*[12]\b/.test(compactHintRule)) {
+    } else if (!/-webkit-line-clamp:\s*[1-4]\b/.test(compactHintRule)) {
       fail('紧凑组 hint 未做行数封顶（用户要求换展示方式：长说明不该常驻铺满）')
     } else if (!/\.kr-settings__group--compact \.kr-settings__row:hover \.kr-settings__hint/.test(code)
       || !/\.kr-settings__group--compact \.kr-settings__row:focus-within \.kr-settings__hint/.test(code)) {
