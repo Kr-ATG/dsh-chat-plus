@@ -27,6 +27,9 @@ export const hm = {
   heroStatNum: 'hm-hero-stat-num',
   heroStatLabel: 'hm-hero-stat-label',
   heroOk: 'hm-hero-ok',
+  heroWarn: 'hm-hero-warn',
+  heroWarnDot: 'hm-hero-warn-dot',
+  cardHint: 'hm-card-hint',
   heroOkDot: 'hm-hero-ok-dot',
   quicks: 'hm-quicks',
   quick: 'hm-quick',
@@ -163,6 +166,15 @@ const SHEET = `
   background:color-mix(in srgb,var(--hm-card) 68%,transparent); border:1px solid var(--hm-border); border-radius:999px; padding:5px 12px;
 }
 .hm-hero-ok-dot{ width:7px; height:7px; border-radius:50%; background:var(--hm-green); box-shadow:0 0 0 3px color-mix(in srgb,var(--hm-green) 18%,transparent); animation:hm-pulse 2.2s ease-in-out infinite; }
+/* 健康告警态：只在真的积压时出现（回收站/禁用条目过多），比「永远运行正常」
+   的假状态灯诚实。hover 提亮 + 轻推，暗示「可以点进去处理」。 */
+.hm-hero-warn{display:inline-flex;align-items:center;gap:6px;padding:2px 9px 2px 8px;border:0;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e8a33d) 14%,transparent);color:var(--dsw-alias-state-warning-primary,#a8681a);font-size:11.5px;line-height:17px;font-weight:600;cursor:pointer;font-family:inherit;transition:background .16s ease,transform .12s ease}
+.hm-hero-warn:hover{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#e8a33d) 22%,transparent)}
+.hm-hero-warn:active{transform:scale(.97)}
+.hm-hero-warn:focus-visible{outline:2px solid var(--dsw-alias-state-warning-primary,#e8a33d);outline-offset:2px}
+.hm-hero-warn-dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+/* 卡片标题右侧的纯说明文字（不可点，替代原来那个骗人的「管理分类」按钮）。 */
+.hm-card-hint{font-size:11.5px;color:var(--hm-faint);font-weight:400}
 /* 快捷入口 */
 .hm-quicks{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
 .hm-quick{
@@ -297,6 +309,8 @@ const SHEET = `
   .hm-quicks{ grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 @media (prefers-reduced-motion:reduce){
+  .hm-hero-warn{transition:none}
+  .hm-hero-warn:active{transform:none}
   .hm-top,.hm-hero,.hm-quick,.hm-card,.hm-mem-card{ animation:hm-fade .2s ease both; }
   .hm-hero::before,.hm-hero::after{ animation:none; }
   .hm-hero-ok-dot{ animation:none; }

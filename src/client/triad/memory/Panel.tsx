@@ -599,6 +599,14 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
   // 34 万 px 列表高），一次挂载会把渲染主线程卡死数秒——这正是「点开记忆
   // 卡死」的第二层元凶（入口在有未读时直接跳变更 Tab）。默认 100 条一页。
   const [changeLimit, setChangeLimit] = useState(CHANGE_PAGE)
+  /**
+   * 修订列表的可见条数。
+   *
+   * 变更列表早就有分页（CHANGE_PAGE），修订列表却一次性渲染全部 —— 而修订
+   * 是每日/每次整理都写一条的，跑几个月就是几百条 DOM，进这个 tab 直接卡。
+   * 两个列表在视觉上是同一种东西，行为不该不一致。
+   */
+  const [revisionLimit, setRevisionLimit] = useState(CHANGE_PAGE)
   const [revisions, setRevisions] = useState<RevisionView[]>([])
   const [editing, setEditing] = useState<EditState | null>(null)
   const [moving, setMoving] = useState<MoveState | null>(null)
@@ -1575,7 +1583,11 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
         <div className={css.sectionTitle}>{t('relatedTitle')}<CountBadge key={entries.length} value={entries.length} inline /></div>
         <div className={css.sectionLine} />
         {entries.length === 0 ? (
-          <div className={css.historyDesc}>{related.loading ? t('consolidating') : t('relatedEmpty')}</div>
+          <div className={css.historyDesc}>
+            {/* 原来这里复用 t('consolidating')「整理中…」，但此刻根本没在整理，
+                只是在算相关记忆 —— 用错的加载文案比没有更让人困惑。 */}
+            {related.loading ? t('relatedLoading') : t('relatedEmpty')}
+          </div>
         ) : (
           <div className={css.relatedGrid}>
             {entries.map(relatedEntry => (
@@ -1755,8 +1767,11 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
             </span>
             <span className={css.importanceValue}>{Number(detail.importance).toFixed(1)}</span>
             <span className={css.topStatSep}>|</span>
-            <span className={css.importanceLabel}>{t('confidenceTitle')}</span>
-            <span className={css.importanceValue}>{Math.round(detail.confidence * 100)}%</span>
+            {/* 「有没有被注入过」是判断该不该删的唯一客观信号：从没命中过的条目
+                对模型从未产生过价值。原来它埋在页脚时间行里，等于看不见。 */}
+            <span className={css.importanceLabel} title={t('lastHitHint')}>
+              {detail.lastHitAt === null ? t('neverHit') : t('lastHitLabel', { time: relativeTime(detail.lastHitAt) })}
+            </span>
           </div>
           <div className={css.detailBody}>
             <MarkstreamMarkdown text={detail.content} streaming={false} />
@@ -1777,11 +1792,7 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
           )}
           {renderDetailExtras(detail)}
           <div className={css.detailFoot}>
-            <span>{t('versionTitle', { n: detail.version })}</span>
-            <span className={css.statDot} aria-hidden="true" />
             <span>{t('createdAtLabel', { time: absoluteTime(detail.createdAt) })}</span>
-            <span className={css.statDot} aria-hidden="true" />
-            <span>{detail.lastHitAt === null ? t('neverHit') : t('lastHitLabel', { time: relativeTime(detail.lastHitAt) })}</span>
           </div>
         </div>
       )
@@ -2041,16 +2052,24 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
           {error !== '' && <p className={css.error} role="alert">{error}</p>}
 
           {tab === 'home' ? (
-            <MemoryHome
-              api={apiRef.current}
-              entries={homeEntries}
-              projects={projects}
-              tags={allTags}
-              summary={summary}
-              changes={changes}
-              nav={homeNav}
-              refresh={() => { void refresh() }}
-            />
+            state.status === 'loading' ? renderSkeleton() : (
+              state.status === 'error' ? (
+                <div className={css.viewFull}>
+                  <div className={css.empty}>{t('loadFailed')}</div>
+                </div>
+              ) : (
+                <MemoryHome
+                  api={apiRef.current}
+                  entries={homeEntries}
+                  projects={projects}
+                  tags={allTags}
+                  summary={summary}
+                  changes={changes}
+                  nav={homeNav}
+                  refresh={() => { void refresh() }}
+                />
+              )
+            )
           ) : (
           <>
 

@@ -29,7 +29,6 @@ export interface MemoryHomeProps {
   refresh: () => void;
 }
 
-type SortKey = 'updated' | 'created' | 'important';
 
 /**
  * 种类 / 分类配色（2026-10 色彩收敛）：一律主文字色的不同透明度分层，
@@ -144,8 +143,6 @@ export function MemoryHome(props: MemoryHomeProps): JSX.Element {
   const { api, entries, projects, tags, summary, changes, nav, refresh } = props;
   const [q, setQ] = useState('');
   const [range, setRange] = useState<7 | 30>(7);
-  const [activeTab, setActiveTab] = useState('');
-  const [sort, setSort] = useState<SortKey>('updated');
   const [busyAI, setBusyAI] = useState(false);
   const [notice, setNotice] = useState('');
   const [linkOpen, setLinkOpen] = useState(false);
@@ -153,7 +150,18 @@ export function MemoryHome(props: MemoryHomeProps): JSX.Element {
   const [linkNote, setLinkNote] = useState('');
   const [clearArmed, setClearArmed] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const now = useMemo(() => new Date(), []);
+  /**
+   * 相对时间基准：**每分钟推进一次**，而不是挂载时算一次。
+   *
+   * 工作台是常驻页面（不随对话切换卸载），原来 useMemo(..., []) 只在首次挂载
+   * 取一次 now —— 页面开着几小时后，「3 分钟前」还是「3 分钟前」，所有条目
+   * 看起来都停在打开那一刻。
+   */
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => { setNow(new Date()); }, 60_000);
+    return () => { window.clearInterval(timer); };
+  }, []);
   const total = summary?.entryCount ?? entries.length;
   const todayCount = summary?.todayChanges ?? 0;
   const projectCount = summary?.projectCount ?? projects.length;
@@ -191,6 +199,25 @@ export function MemoryHome(props: MemoryHomeProps): JSX.Element {
     }
     return seen;
   }, [entries, viewedIds]);
+  /**
+   * 真实健康提示：只在**真的需要用户注意**时出现，否则返回 null 显示「运行正常」。
+   *
+   * 判据刻意只有两条，且都是用户能采取行动的：
+   *   · 回收站积压 —— 软废弃条目不会自己消失，攒多了该清（点一下进列表）；
+   *   · 禁用条目过多 —— 通常是「当时不想看」留下的，长期不处理等于白占检索预算。
+   * 不把「条目总数多」当问题：记忆多不是病。
+   */
+  const healthNote = useMemo(() => {
+    const trash = summary?.deprecatedCount ?? 0
+    const off = summary?.disabledCount ?? 0
+    if (trash >= 10) {
+      return { text: `${trash} 条待清理`, hint: `回收站里有 ${trash} 条软废弃记忆，点击查看（超过保留期会被自动清理）` }
+    }
+    if (off >= 10) {
+      return { text: `${off} 条已禁用`, hint: `有 ${off} 条记忆被禁用，不参与注入与检索；确认无用可删除` }
+    }
+    return null
+  }, [summary]);
   const recentChanges = useMemo(() => [...changes].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5), [changes]);
   const trend = useMemo(() => bucketTrend(changes, range), [changes, range]);
   const tp = useMemo(() => trendPath(trend.values, 268, 118, 10), [trend]);
@@ -198,15 +225,6 @@ export function MemoryHome(props: MemoryHomeProps): JSX.Element {
   const lastVal = trend.values.length > 0 ? trend.values[trend.values.length - 1] : 0;
   const lastX = 268 - 10;
   const lastY = 10 + (118 - 20) * (1 - lastVal / trendMax);
-  const tabEntries = useMemo(() => {
-    const list = activeTab === '' ? entries : entries.filter(e => e.tags.includes(activeTab));
-    const sorted = [...list];
-    if (sort === 'created') sorted.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    else if (sort === 'important') sorted.sort((a, b) => b.importance - a.importance);
-    else sorted.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    return sorted.slice(0, 8);
-  }, [entries, activeTab, sort]);
-  const submitSearch = (): void => { nav.goAll({ q: q.trim() === '' ? undefined : q.trim() }); };
   const onPickFile = async (file: File | undefined): Promise<void> => {
     if (!file) return;
     try { const text = (await file.text()).slice(0, 20000); nav.goAdd({ content: text, tags: file.name }); }
@@ -250,7 +268,9 @@ export function MemoryHome(props: MemoryHomeProps): JSX.Element {
         <label className={hm.search}>
           <span className={hm.searchIcon}><SearchGlyph /></span>
           <input className={hm.searchInput} value={q} placeholder='搜索记忆内容、项目、标签...' aria-label='搜索记忆' onChange={e => { setQ(e.currentTarget.value); }} onKeyDown={e => { if (e.key === 'Enter') submitSearch(); if (e.key === 'Escape' && q !== '') setQ(''); }} />
-          <span className={hm.searchKbd}>Ctrl + K</span>
+          {/* 这里原本写「Ctrl + K」，但真正的 ⌘K 监听在 Panel.tsx，按下会强制切到
+              「全部记忆」tab —— 在首页按它等于被弹走。首页搜索框只认 Enter。 */}
+          <span className={hm.searchKbd}>Enter</span>
         </label>
         <div className={hm.topIcons}>
           <button type='button' className={hm.topIconBtn} title='刷新' onClick={() => { refresh(); }}><svg width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='currentColor' strokeWidth='1.5' strokeLinecap='round' aria-hidden='true'><path d='M13.5 8a5.5 5.5 0 1 1-1.6-3.9' /><path d='M13.5 1.8v2.6h-2.6' /></svg></button>
@@ -266,14 +286,21 @@ export function MemoryHome(props: MemoryHomeProps): JSX.Element {
               <span className={hm.heroStat}><span className={hm.heroStatIcon} style={{ color: 'var(--dsw-alias-label-primary)' }}><FileGlyph /></span><span><span className={hm.heroStatNum}>{total}</span><br /><span className={hm.heroStatLabel}>总记忆数</span></span></span>
               <span className={hm.heroStat}><span className={hm.heroStatIcon} style={{ color: 'var(--dsw-alias-label-secondary)' }}><LinkGlyph /></span><span><span className={hm.heroStatNum}>{todayCount}</span><br /><span className={hm.heroStatLabel}>今日更新</span></span></span>
               <span className={hm.heroStat}><span className={hm.heroStatIcon} style={{ color: 'var(--dsw-alias-label-secondary)' }}><PlusGlyph /></span><span><span className={hm.heroStatNum}>{projectCount}</span><br /><span className={hm.heroStatLabel}>覆盖项目</span></span></span>
-              <span className={hm.heroOk}><span className={hm.heroOkDot} />运行正常</span>
+              {/* 健康指示器读真实数据：原来这里是硬编码的「运行正常」纯 span，
+                  无论库里积压多少废弃/禁用条目都显示一切正常 —— 一个永远为真的
+                  状态灯比没有更糟，用户会拿它当「记忆库没问题」的依据。 */}
+              {healthNote === null
+                ? <span className={hm.heroOk}><span className={hm.heroOkDot} />运行正常</span>
+                : <button type="button" className={hm.heroWarn} title={healthNote.hint} onClick={() => { nav.goAll({}); }}>
+                    <span className={hm.heroWarnDot} />{healthNote.text}
+                  </button>}
             </div>
           </section>
           <section className={hm.quicks}>
             <button type='button' className={hm.quick} onClick={() => { nav.goAdd(); }}><span className={hm.quickIcon} style={{ background: ink(12), color: ink(82) }}><FileGlyph /></span><span className={hm.quickTitle}>新增记忆</span><span className={hm.quickDesc}>记录重要信息，永久保存</span><span className={hm.quickArrow}>→</span></button>
-            <button type='button' className={hm.quick} onClick={() => { fileRef.current?.click(); }}><span className={hm.quickIcon} style={{ background: ink(10), color: ink(68) }}><LinkGlyph /></span><span className={hm.quickTitle}>添加文件</span><span className={hm.quickDesc}>上传文档/图片，快速解析</span><span className={hm.quickArrow}>→</span></button>
-            <button type='button' className={hm.quick} onClick={() => { setLinkOpen(v => !v); }}><span className={hm.quickIcon} style={{ background: ink(9), color: ink(56) }}><LinkGlyph /></span><span className={hm.quickTitle}>导入链接</span><span className={hm.quickDesc}>从 URL 获取内容</span><span className={hm.quickArrow}>→</span></button>
-            <button type='button' className={hm.quick} disabled={busyAI} onClick={() => { void runAI(); }}><span className={hm.quickIcon} style={{ background: ink(8), color: ink(46) }}><SparkGlyph /></span><span className={hm.quickTitle}>{busyAI ? '整理中...' : 'AI 生成'}</span><span className={hm.quickDesc}>AI 整理去重，合并相似记忆</span><span className={hm.quickArrow}>→</span></button>
+            <button type='button' className={hm.quick} onClick={() => { fileRef.current?.click(); }}><span className={hm.quickIcon} style={{ background: ink(10), color: ink(68) }}><LinkGlyph /></span><span className={hm.quickTitle}>导入文本</span><span className={hm.quickDesc}>读取文本文件内容作为一条记忆</span><span className={hm.quickArrow}>→</span></button>
+            <button type='button' className={hm.quick} onClick={() => { setLinkOpen(v => !v); }}><span className={hm.quickIcon} style={{ background: ink(9), color: ink(56) }}><LinkGlyph /></span><span className={hm.quickTitle}>记录链接</span><span className={hm.quickDesc}>存一条 URL 备忘（不抓取网页内容）</span><span className={hm.quickArrow}>→</span></button>
+            <button type='button' className={hm.quick} disabled={busyAI} onClick={() => { void runAI(); }}><span className={hm.quickIcon} style={{ background: ink(8), color: ink(46) }}><SparkGlyph /></span><span className={hm.quickTitle}>{busyAI ? '整理中...' : 'AI 整理'}</span><span className={hm.quickDesc}>合并重复、精炼表述、清理低价值</span><span className={hm.quickArrow}>→</span></button>
           </section>
           <input ref={fileRef} type='file' style={{ display: 'none' }} onChange={e => { void onPickFile(e.currentTarget.files?.[0]); e.currentTarget.value = ''; }} />
           {linkOpen && (
@@ -289,7 +316,9 @@ export function MemoryHome(props: MemoryHomeProps): JSX.Element {
           {notice !== '' && (<section className={hm.card}><span style={{ fontSize: 12 }}>{notice}</span></section>)}
           <div className={hm.split3}>
             <section className={hm.card}>
-              <div className={hm.cardHead}><span className={hm.cardTitle}>记忆分类</span><button type='button' className={hm.cardLink} onClick={() => { nav.goSettings(); }}>管理分类</button></div>
+              {/* 原先这里是「管理分类」按钮跳设置页，但设置页根本没有分类管理——点了等于
+                把用户骗到一个空页面。分类只能靠给记忆打标签，所以改成直接说明。 */}
+              <div className={hm.cardHead}><span className={hm.cardTitle}>记忆分类</span><span className={hm.cardHint}>按标签聚合</span></div>
               <div className={hm.catGrid}>
                 {catTiles.slice(0, 6).map((c, i) => (
                   <button key={c.tag === '' ? '__all' : c.tag} type='button' className={hm.catTile} onClick={() => { nav.goAll(c.tag === '' ? {} : { tag: c.tag }); }}>
@@ -327,25 +356,6 @@ export function MemoryHome(props: MemoryHomeProps): JSX.Element {
               </div>
             </section>
           </div>
-          <section className={hm.bottom + ' ' + hm.card}>
-            <div className={hm.cardHead}><span className={hm.cardTitle}>最近记忆</span>
-              <span><select className={hm.sortSel} value={sort} aria-label='排序' onChange={e => { setSort(e.currentTarget.value as SortKey); }}><option value='updated'>按更新时间</option><option value='created'>按创建时间</option><option value='important'>按重要度</option></select></span>
-            </div>
-            <div className={hm.tabs}>
-              <button type='button' className={activeTab === '' ? hm.tab + ' ' + hm.tabActive : hm.tab} onClick={() => { setActiveTab(''); }}>全部（{total}）</button>
-              {topTags.map(t => (<button key={t.tag} type='button' className={activeTab === t.tag ? hm.tab + ' ' + hm.tabActive : hm.tab} onClick={() => { setActiveTab(cur => (cur === t.tag ? '' : t.tag)); }}>{t.tag}（{t.count}）</button>))}
-            </div>
-            {tabEntries.length === 0 ? (<div className={hm.empty}>该分类暂无记忆</div>) : (
-            <div className={hm.memGrid}>
-              {tabEntries.map((e, i) => { const meta2 = KIND_META[e.kind] ?? KIND_META.fact; return (
-                <button key={e.id} type='button' className={hm.memCard} style={{ animationDelay: (i * 0.05).toFixed(2) + 's' }} onClick={() => { nav.pickEntry(e.id); }}>
-                  <span className={hm.memHead}><span className={hm.memIcon} style={{ background: meta2.soft, color: meta2.color }}><KindGlyph kind={e.kind} size={14} /></span><span className={hm.memTitle}>{entryTitle(e.content)}</span><span className={hm.memDots}>···</span></span>
-                  <span className={hm.memDesc}>{entrySnippet(e.content)}</span>
-                  <span className={hm.memTags}>{e.tags.slice(0, 2).map(t => (<span key={t} className={hm.memTag}>{t}</span>))}</span>
-                  <span className={hm.memFoot}><span className={hm.memTime}>{relativeTime(e.updatedAt, now)}</span></span>
-                </button>); })}
-            </div>)}
-          </section>
         </div>
         <div className={hm.side}>
           <section className={hm.card}>
