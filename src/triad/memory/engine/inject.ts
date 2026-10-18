@@ -2,7 +2,8 @@
  * dsh-memory 注入引擎：agent/pre-step 把「全局 identity + 当前项目 memory +
  * pinned + facts」组装为一条带来源的 user message 注入（source: { kind: 'plugin' }）。
  * 绝不写 system prompt（DSH persona complete:true 会静默丢弃）；
- * 只注入当前工作区项目 + 全局层；token 超预算按重要性截断，最低保留置顶。
+ * 只注入当前工作区项目 + 全局层；token 超预算按重要性截断，置顶先占预算但只占
+ * injectPinnedBudgetRatio（默认 40%），装不下的置顶退回普通池参与竞争。
  * 命中刷新：被注入的条目距上次命中 ≥1 天时刷新 lastHitAt 并加分。
  *
  * 除主注入外，本文件还承载四条**内置通道**（zh 中文偏好 / html+iu 卡片规范 /
@@ -311,7 +312,9 @@ export function createMemoryInjector(
       (entry.scope === 'global' || (entry.scope === 'project' && entry.projectHash === hash)))
     if (visible.length === 0) return null
 
-    // 常驻：pinned（无条件）+ 全局身份/偏好 + 长期沉淀；其余按当前任务检索 top-k。
+    // 常驻候选：pinned（不受 compileThreshold 过滤）+ 全局身份/偏好 + 长期沉淀；
+    // 其余按当前任务检索 top-k。注意这里只是「进候选池」，pinned 在注入文本里还要
+    // 过预算占比上限（见 buildInjectionText），超出的会退回普通池参与竞争。
     const pinned = visible.filter(entry => entry.pinned)
     const identity = visible.filter(entry =>
       entry.scope === 'global' && !entry.pinned && (entry.kind === 'identity' || entry.kind === 'preference'))
@@ -326,8 +329,23 @@ export function createMemoryInjector(
     if (selected.length === 0) return null
 
     // 命中刷新：从未命中或距上次命中 ≥1 天的条目加分并重置衰减起点（最多 MAX_HITS 条）。
+    //
+    // 取哪几条必须按「最久没被命中」排，不能直接拿 selected 的头部：selected 的前缀
+    // 是 pinned + identity + longterm（见上），而 pinned 在注入侧另有条数上限，
+    // 于是「取前 5 条」永远落在同一批置顶条目上——加分被它们反复吃掉，其余条目
+    // 的 lastHitAt 永不刷新，衰减只降不升，越冷越冷。改成 lastHitAt 升序（从未
+    // 命中=null 排最前）后，加分在整库范围内轮转，与「命中即有价值」的初衷一致。
+    //
+    // 用字符串比较而非 Date.parse：lastHitAt 一律是 toISOString() 产出的同格式
+    // ISO 串，字典序即时间序；Date.parse 遇到脏数据会给 NaN，让排序变成随机。
     const hitCandidates = selected
       .filter(entry => entry.lastHitAt === null || daysSince(entry.lastHitAt) >= 1)
+      .sort((a, b) => {
+        if (a.lastHitAt === b.lastHitAt) return 0
+        if (a.lastHitAt === null) return -1
+        if (b.lastHitAt === null) return 1
+        return a.lastHitAt.localeCompare(b.lastHitAt)
+      })
       .slice(0, MAX_HITS_PER_INJECTION)
     if (hitCandidates.length > 0) {
       const hitIds = new Set(hitCandidates.map(entry => entry.id))
@@ -375,30 +393,36 @@ export function createMemoryInjector(
     // 语言契约是否成立」，两者正交。放在闸门之后，就等于主开关一关中文记忆
     // 跟着消失，那这条通道就没有存在意义了。
     let messages = decision.messages
-    const zhEnabled = await store.isZhInjectEnabled(config.zhInjectDefaultEnabled !== false)
-    if (!zhEnabled) {
-      logger?.debug?.('[dsh-memory] zh injection off (switch disabled)')
-    } else if (!zhStepCounters.has(sessionId)) {
-      zhStepCounters.set(sessionId, 1)
-      try {
-        const zhText = await buildChineseBlock(payload.agent)
-        if (zhText !== '') {
-          messages = [...messages, createUserMessage({
-            content: [{ type: 'text', text: `${ZH_INJECTION_RULE}\n\n${zhText}` }],
-            source: {
-              kind: 'plugin:dsh-memory',
-              plugin: 'dsh-memory',
-              form: 'snapshot',
-              sections: [{ name: '中文偏好记忆', text: zhText }],
-            },
-          })]
-          logger?.debug?.(`[dsh-memory] zh injection ok (${zhText.length} chars)`)
-        } else {
-          logger?.debug?.('[dsh-memory] zh injection skipped (no chinese entries)')
+    // 开关读取必须放在 stepCounters 检查**之后**：isXxxInjectEnabled 内部每次都要
+    // readState()（整份 state.json，实测 200KB+ 且无缓存），而下面四条通道都只在
+    // 会话首步生效——放在前面等于每个 step 白读 4 次磁盘。「首次进入才读」的语义
+    // 不变：一旦本会话进过首步，stepCounters.has() 命中，开关根本不需要求值。
+    if (!zhStepCounters.has(sessionId)) {
+      const zhEnabled = await store.isZhInjectEnabled(config.zhInjectDefaultEnabled !== false)
+      if (!zhEnabled) {
+        logger?.debug?.('[dsh-memory] zh injection off (switch disabled)')
+      } else {
+        zhStepCounters.set(sessionId, 1)
+        try {
+          const zhText = await buildChineseBlock(payload.agent)
+          if (zhText !== '') {
+            messages = [...messages, createUserMessage({
+              content: [{ type: 'text', text: `${ZH_INJECTION_RULE}\n\n${zhText}` }],
+              source: {
+                kind: 'plugin:dsh-memory',
+                plugin: 'dsh-memory',
+                form: 'snapshot',
+                sections: [{ name: '中文偏好记忆', text: zhText }],
+              },
+            })]
+            logger?.debug?.(`[dsh-memory] zh injection ok (${zhText.length} chars)`)
+          } else {
+            logger?.debug?.('[dsh-memory] zh injection skipped (no chinese entries)')
+          }
+        } catch (error) {
+          // 中文通道失败绝不能影响主注入：记日志后继续往下走。
+          logger?.warn?.(`[dsh-memory] zh injection failed: ${error instanceof Error ? error.message : String(error)}`)
         }
-      } catch (error) {
-        // 中文通道失败绝不能影响主注入：记日志后继续往下走。
-        logger?.warn?.(`[dsh-memory] zh injection failed: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
 
@@ -412,25 +436,28 @@ export function createMemoryInjector(
     // ── 对话内 HTML 卡片能力规范注入（内置通道） ──────────────────────
     // 位置刻意：两道闸门之前。它回答的是「本客户端支持什么呈现能力」，
     // 与「记忆库要不要进上下文」正交。iu 的 kind 文档（含图形三件套）也随它注入。
-    const htmlEnabled = await store.isHtmlInjectEnabled(config.htmlInjectDefaultEnabled !== false)
-    if (!htmlEnabled) {
-      logger?.debug?.('[dsh-memory] html injection off (switch disabled)')
-    } else if (!htmlStepCounters.has(sessionId)) {
-      htmlStepCounters.set(sessionId, 1)
-      try {
-        messages = [...messages, createUserMessage({
-          content: [{ type: 'text', text: HTML_INJECTION_RULE }],
-          source: {
-            kind: 'plugin:dsh-memory',
-            plugin: 'dsh-memory',
-            form: 'snapshot',
-            sections: [{ name: '对话内 HTML 卡片', text: HTML_INJECTION_RULE }],
-          },
-        })]
-        logger?.debug?.('[dsh-memory] html injection ok')
-      } catch (error) {
-        // 失败绝不能影响主注入与其它通道。
-        logger?.warn?.(`[dsh-memory] html injection failed: ${error instanceof Error ? error.message : String(error)}`)
+    // 开关读取在 stepCounters 检查之内（理由见上方 zh 通道的注释）。
+    if (!htmlStepCounters.has(sessionId)) {
+      const htmlEnabled = await store.isHtmlInjectEnabled(config.htmlInjectDefaultEnabled !== false)
+      if (!htmlEnabled) {
+        logger?.debug?.('[dsh-memory] html injection off (switch disabled)')
+      } else {
+        htmlStepCounters.set(sessionId, 1)
+        try {
+          messages = [...messages, createUserMessage({
+            content: [{ type: 'text', text: HTML_INJECTION_RULE }],
+            source: {
+              kind: 'plugin:dsh-memory',
+              plugin: 'dsh-memory',
+              form: 'snapshot',
+              sections: [{ name: '对话内 HTML 卡片', text: HTML_INJECTION_RULE }],
+            },
+          })]
+          logger?.debug?.('[dsh-memory] html injection ok')
+        } catch (error) {
+          // 失败绝不能影响主注入与其它通道。
+          logger?.warn?.(`[dsh-memory] html injection failed: ${error instanceof Error ? error.message : String(error)}`)
+        }
       }
     }
 
@@ -440,11 +467,12 @@ export function createMemoryInjector(
     // 人设就跟着消失，而人设恰恰是最该跨会话恒定的那部分。
     // 没有任何启用卡片（或卡片正文全空）时 injectionContent() 返回空串，整条通道
     // 静默跳过——默认模板只在面板里当编辑起点，绝不冒充用户人设注入。
-    if (soulSource !== undefined) {
+    if (soulSource !== undefined && !soulStepCounters.has(sessionId)) {
+      // 开关读取在 stepCounters 检查之内（理由见上方 zh 通道的注释）。
       const soulEnabled = await store.isSoulInjectEnabled(config.soulInjectDefaultEnabled !== false)
       if (!soulEnabled) {
         logger?.debug?.('[dsh-memory] soul injection off (switch disabled)')
-      } else if (!soulStepCounters.has(sessionId)) {
+      } else {
         soulStepCounters.set(sessionId, 1)
         try {
           const soulText = await soulSource.injectionContent()
@@ -472,25 +500,28 @@ export function createMemoryInjector(
     // ── 团队协作（Agent Teams / 子代理委派）规范注入（内置通道） ────────
     // 位置同 html / soul：两道闸门之前。它回答的是「这活该怎么组织」，
     // 跟「记忆库要不要进上下文」正交；这套纪律跨会话恒定，不该随主开关一起消失。
-    const teamEnabled = await store.isTeamInjectEnabled(config.teamInjectDefaultEnabled !== false)
-    if (!teamEnabled) {
-      logger?.debug?.('[dsh-memory] team injection off (switch disabled)')
-    } else if (!teamStepCounters.has(sessionId)) {
-      teamStepCounters.set(sessionId, 1)
-      try {
-        messages = [...messages, createUserMessage({
-          content: [{ type: 'text', text: TEAM_INJECTION_RULE }],
-          source: {
-            kind: 'plugin:dsh-memory',
-            plugin: 'dsh-memory',
-            form: 'snapshot',
-            sections: [{ name: '团队协作', text: TEAM_INJECTION_RULE }],
-          },
-        })]
-        logger?.debug?.('[dsh-memory] team injection ok')
-      } catch (error) {
-        // 失败绝不能影响主注入与其它通道。
-        logger?.warn?.(`[dsh-memory] team injection failed: ${error instanceof Error ? error.message : String(error)}`)
+    // 开关读取在 stepCounters 检查之内（理由见上方 zh 通道的注释）。
+    if (!teamStepCounters.has(sessionId)) {
+      const teamEnabled = await store.isTeamInjectEnabled(config.teamInjectDefaultEnabled !== false)
+      if (!teamEnabled) {
+        logger?.debug?.('[dsh-memory] team injection off (switch disabled)')
+      } else {
+        teamStepCounters.set(sessionId, 1)
+        try {
+          messages = [...messages, createUserMessage({
+            content: [{ type: 'text', text: TEAM_INJECTION_RULE }],
+            source: {
+              kind: 'plugin:dsh-memory',
+              plugin: 'dsh-memory',
+              form: 'snapshot',
+              sections: [{ name: '团队协作', text: TEAM_INJECTION_RULE }],
+            },
+          })]
+          logger?.debug?.('[dsh-memory] team injection ok')
+        } catch (error) {
+          // 失败绝不能影响主注入与其它通道。
+          logger?.warn?.(`[dsh-memory] team injection failed: ${error instanceof Error ? error.message : String(error)}`)
+        }
       }
     }
 

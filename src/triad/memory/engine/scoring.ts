@@ -36,11 +36,22 @@ export function shouldPromote(entry: MemoryEntry, threshold: number): boolean {
   return false
 }
 
-/** 滚出窗口：超 60 天且 importance 低于阈值一半的短期条目直接删除。 */
-export function shouldEvict(entry: MemoryEntry, threshold: number): boolean {
+/**
+ * 滚出窗口：超 60 天且 importance 低于阈值一半的短期条目直接删除。
+ *
+ * 这是**唯一按价值**（分数）而不是按概率（有没有被读到）删记忆的规则，
+ * 因此它必须能真正生效：
+ *   · 旧实现里 `threshold/2 = 2.25`，而提取 prompt 要求模型自评 ≥8 才值得记、
+ *     代码又按 minImportance(7) 收 —— 初始 8 分的条目衰减 60 天后约 2.39，
+ *     仍然 > 2.25，**永远滚不出去**，这条规则等于空转；
+ *   · 现在改用与闲置清理同一个门槛（minImportanceForPrune 的一半），两条规则
+ *     的严格程度才落在同一量级：低于门槛一半的才是「确实没价值」，
+ *     在门槛与一半之间的交给「闲置清理 + 分数门槛」处理。
+ */
+export function shouldEvict(entry: MemoryEntry, threshold: number, importanceFloor = threshold): boolean {
   if (entry.layer !== 'short' || entry.pinned) return false
   const age = daysSince(entry.updatedAt)
-  return age >= 60 && entry.importance < threshold / 2
+  return age >= 60 && entry.importance < importanceFloor / 2
 }
 
 /** 注入排序分：pinned 最高，其次 importance 降序。 */

@@ -15,7 +15,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { mountMemoryRoutes } from './api.js'
 import { compileAll, workspaceHashOf } from './engine/compile.js'
-import { extractCandidates, isDuplicateContent, transcriptFromEvents } from './engine/extract.js'
+import { extractCandidatesWithOutcome, isDuplicateContent, transcriptFromEvents } from './engine/extract.js'
 import { createMemoryInjector } from './engine/inject.js'
 import { MemoryStore, entryIdOf, summarize } from './engine/store.js'
 import { createTodoClosure, type TurnStoppingAgent } from './engine/todo-closure.js'
@@ -23,7 +23,7 @@ import { setWebuiMemoryStore } from '../memory-store-singleton.js'
 import { mountSoul, SoulStore } from '../soul/index.js'
 import { createTicker } from './engine/ticker.js'
 import { registerMemoryTools } from './tools.js'
-import { applyConfigOverrides, DEFAULT_CONFIG, type MemoryConfig } from './types.js'
+import { applyConfigOverrides, DEFAULT_CONFIG, type MemoryConfig, type SessionTickerState } from './types.js'
 
 /** Stable Cordis plugin name。 */
 export const name = 'dsh-memory'
@@ -131,6 +131,20 @@ export function applyMemory(ctx: Context, input: Partial<MemoryConfig> | undefin
       turnBuffers.set(session.id, [])
       return
     }
+    // 压缩后重新注入：注入按设计只在会话首步做一次，而官方压缩
+    // （compaction/summary + compaction/end）把早期消息块投影成一条摘要替换掉，
+    // 插件注入的那条 user message 没有任何「豁免压缩」的标记——长会话压一次，
+    // 记忆就永久从上下文里消失了（后面每一轮都靠 stepCounters 判定「已注入过」
+    // 而静默跳过）。清掉本会话的 5 个 stepCounters，让压缩后的下一 step 重新注入。
+    //
+    // 两个事件都接是刻意的：summary 是内容真正落地的那一刻，end 是压缩事务结束
+    // 的那一刻（失败时也发，带 error）。只听 summary 会漏掉「压缩失败但历史已被
+    // 截断」的路径，只听 end 则可能早于摘要可用。disposeSession 幂等，重复清无害。
+    if (event.type === 'compaction/summary' || event.type === 'compaction/end') {
+      injector.disposeSession(session.id)
+      ctx.logger?.debug?.('[dsh-memory] step counters reset after ' + event.type + ': ' + session.id)
+      return
+    }
     if (event.type === 'turn/end') {
       const buffer = turnBuffers.get(session.id) ?? []
       turnBuffers.delete(session.id)
@@ -192,8 +206,12 @@ async function extractTurn(
   // 频率控制：turn 编号对 extractEveryTurns 取模（turn 从 1 开始）。
   if (config.extractEveryTurns > 1 && turnNumber % config.extractEveryTurns !== 1) return
 
-  // 失败退避：连续 3 次提取失败（0 候选/LLM 错误）后降频为每 10 轮一次，
-  // 避免在模型 API 不稳定时每轮都发起额外调用雪上加霜。
+  // 失败退避：连续 3 次**真失败**（LLM 抛错 / 超时 / finish≠stop / 输出解析不出来）
+  // 后降频为每 10 轮一次，避免模型 API 不稳定时每轮都白烧一次调用。
+  //
+  // 只看 extractFailStreak，不看 extractEmptyStreak：「模型说这轮没啥可记」是正常
+  // 且被 prompt 鼓励的克制行为，拿它降频等于惩罚正确判断。旧实现把两者合并计数，
+  // 实测 55% 的正常空结果把会话打进了降频态，覆盖率被系统性压低。
   const tickerState = await store.readState()
   const sessionState = tickerState.perSession[agent.id]
   if ((sessionState?.extractFailStreak ?? 0) >= 3 && turnNumber % 10 !== 1) return
@@ -209,14 +227,28 @@ async function extractTurn(
     void store.appendExtractLog(line).catch(() => { /* 诊断日志写不进去就当没有 */ })
   }
   logLine(`turn=${turnNumber} chars=${transcript.length} route=${agent.options.provider ?? 'default'} start`)
-  const candidates = await extractCandidates(ctx, agent, transcript, config)
-  logLine(`turn=${turnNumber} done ${Date.now() - startedAt}ms candidates=${candidates.length}`)
-  ctx.logger?.debug?.(`[dsh-memory] extract turn=${turnNumber} chars=${transcript.length} candidates=${candidates.length} route=${agent.options.provider ?? 'default'}`)
+  // 四态结果（ok / ok-empty / parse-fail / llm-error）必须分开记：旧实现把所有
+  // 路径塌缩成空数组，于是「模型说没啥可记」和「LLM 挂了」在退避逻辑里等价，
+  // 正常空结果把会话打成降频态，而真失败反倒淹没在噪音里。
+  //
+  // 诊断日志下沉给 extract 自己写（log 参数）：失败路径也要留痕，否则线上只有
+  // debug 日志时根本分不清「没调用」和「调用了但挂了」。
+  const result = await extractCandidatesWithOutcome(ctx, agent, transcript, config, store)
+  const candidates = result.candidates
+  logLine(`turn=${turnNumber} done ${Date.now() - startedAt}ms outcome=${result.outcome} candidates=${candidates.length}`)
+  ctx.logger?.debug?.(`[dsh-memory] extract turn=${turnNumber} chars=${transcript.length} outcome=${result.outcome} candidates=${candidates.length} route=${agent.options.provider ?? 'default'}`)
   if (candidates.length === 0) {
-    // 更新失败计数（退避状态）。
+    // 只有真失败才推高退避计数；正常空结果单独记，只用来观察「这个会话不太产
+    // 记忆」的趋势，不参与降频判定。两者一旦有结果就互相清零，语义不重叠。
+    const failed = result.outcome === 'parse-fail' || result.outcome === 'llm-error'
     const latest = await store.readState()
-    const per = latest.perSession[agent.id] ?? { turnCount: 0, lastInjectedStep: 0 }
-    per.extractFailStreak = (per.extractFailStreak ?? 0) + 1
+    const per: SessionTickerState = latest.perSession[agent.id] ?? { turnCount: 0 }
+    if (failed) {
+      per.extractFailStreak = (per.extractFailStreak ?? 0) + 1
+      per.extractEmptyStreak = 0
+    } else {
+      per.extractEmptyStreak = (per.extractEmptyStreak ?? 0) + 1
+    }
     latest.perSession[agent.id] = per
     await store.writeState(latest)
     return
@@ -278,10 +310,11 @@ async function extractTurn(
       after: entry.content,
     })
   }
-  // 成功：清零失败计数。
+  // 成功（有候选）：两套计数一起清零——有产出就既不是失败、也不再是连续空结果。
   const successState = await store.readState()
-  const successPer = successState.perSession[agent.id] ?? { turnCount: 0, lastInjectedStep: 0 }
+  const successPer: SessionTickerState = successState.perSession[agent.id] ?? { turnCount: 0 }
   successPer.extractFailStreak = 0
+  successPer.extractEmptyStreak = 0
   successState.perSession[agent.id] = successPer
   await store.writeState(successState)
   // 有新增/更新时刷新产物（增量编译）。

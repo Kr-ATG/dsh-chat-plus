@@ -119,6 +119,8 @@ export const css = {
   chipAccent: 'dsh-memory-chip-accent',
   chipWarn: 'dsh-memory-chip-warn',
   chipOk: 'dsh-memory-chip-ok',
+  chipMuteBtn: 'dsh-memory-chip-mute-btn',
+  chipOkBtn: 'dsh-memory-chip-ok-btn',
   chipTime: 'dsh-memory-chip-time',
   importanceRow: 'dsh-memory-importance-row',
   importanceIcon: 'dsh-memory-importance-icon',
@@ -439,6 +441,16 @@ const SHEET = `
 .dsh-memory-chip-warn{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:6px;background:var(--m-warn-bg);color:var(--m-warn);font-size:11px;line-height:17px;white-space:nowrap}
 .dsh-memory-chip-ok{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:6px;background:var(--m-ok-bg);color:var(--m-ok);font-size:11px;line-height:17px;white-space:nowrap}
 .dsh-memory-chip-time{margin-left:auto;font-size:12px;line-height:18px;color:var(--m-text-3);white-space:nowrap}
+/* 可点击的「确认」chip：外观沿用原 chip，补上「这玩意能点」的反馈。
+   确认是个低频但有意义的动作，静态标签会被当成纯装饰而永远没人点。 */
+.dsh-memory-chip-ok-btn,.dsh-memory-chip-mute-btn{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:6px;font-size:11px;line-height:17px;white-space:nowrap;border:0;cursor:pointer;font-family:inherit;transition:background .16s ease,color .16s ease,transform .12s ease,box-shadow .16s ease}
+.dsh-memory-chip-ok-btn{background:var(--m-ok-bg);color:var(--m-ok)}
+.dsh-memory-chip-mute-btn{background:var(--m-side);color:var(--m-text-2)}
+.dsh-memory-chip-ok-btn:hover{box-shadow:0 0 0 1px var(--m-ok) inset}
+.dsh-memory-chip-mute-btn:hover{background:var(--m-hover);color:var(--m-text)}
+.dsh-memory-chip-ok-btn:active,.dsh-memory-chip-mute-btn:active{transform:scale(.96)}
+.dsh-memory-chip-ok-btn:focus-visible,.dsh-memory-chip-mute-btn:focus-visible{outline:2px solid var(--m-primary);outline-offset:1px}
+@media (prefers-reduced-motion: reduce){.dsh-memory-chip-ok-btn,.dsh-memory-chip-mute-btn{transition:none}.dsh-memory-chip-ok-btn:active,.dsh-memory-chip-mute-btn:active{transform:none}}
 .dsh-memory-importance-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 14px;border-radius:10px;background:var(--m-soft)}
 .dsh-memory-importance-icon{flex:none;display:inline-flex;align-items:center;color:var(--m-primary)}
 .dsh-memory-importance-label{font-size:13px;line-height:20px;color:var(--m-text-2)}

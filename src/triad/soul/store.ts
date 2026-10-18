@@ -834,16 +834,36 @@ export class SoulStore {
     // 草案是「新的默认人格」：展示件跟着清掉（沿用旧主档的说明会变成
     // 「蒸馏出来的新人格挂着上一份人设的定位」），头像同理不继承。
     const meta = { version: active.base.version + 1, updatedAt: nowIso(), source: 'distill' as const }
-    await atomicWriteText(this.soulFile(), draft.content)
-    await atomicWriteJson(this.identityFile(), draft.identity)
-    await atomicWriteJson(this.activeFile(), { profileId: null, base: meta })
+    // 先算卡片，再由卡片**拼回** soul.md（与 writeBase 同口径）。
+    //
+    // 这里原本直接写 draft.content 原文：注入读的是卡片装配（injectionContent →
+    // assembleInjection(cards)），而面板全文视图读的是 soul.md —— 两份文本从此
+    // 各说一套，用户应用完蒸馏看到的人设和模型拿到的不是同一个。卡片是权威层，
+    // soul.md 只是它的全文投影，投影必须由权威层算出来。
     const cards = draft.cards !== undefined && draft.cards.length > 0
       ? dedupeCards(draft.cards)
       : cardsFromDraft(draft)
+    const text = composeSoulText(cards)
+    // 装配结果为空（卡片全禁用/正文全空）时保留草案原文：宁可让面板显示一份
+    // 没被注入的文本，也不要凭空把用户刚蒸馏出来的人设写成空文件。
+    // 面板对「内容为空」的判据是「灵魂未设置」，写空等于把这次蒸馏吞掉。
+    const soulText = text === '' ? draft.content : text
+    // identity 同理：能从卡片反推就用卡片（与 soul.md 同源，面板表单与全文视图
+    // 才一致）；反推不出来（卡片全空/全禁用）才退回草案字段，否则会把用户
+    // 刚填的身份字段清成四个空串。
+    const fromCards = identityFromCards(cards)
+    const identity = fromCards.name === '' && fromCards.role === ''
+      && fromCards.tone === '' && fromCards.language === ''
+      && fromCards.principles.length === 0
+      ? draft.identity
+      : fromCards
+    await atomicWriteText(this.soulFile(), soulText)
+    await atomicWriteJson(this.identityFile(), identity)
+    await atomicWriteJson(this.activeFile(), { profileId: null, base: meta })
     await atomicWriteJson(this.cardsFile(), { version: 1, cards } satisfies SoulCardsFile)
     return {
-      content: draft.content,
-      identity: draft.identity,
+      content: soulText,
+      identity,
       profileId: null,
       version: meta.version,
       updatedAt: meta.updatedAt,

@@ -1,7 +1,7 @@
 /**
  * dsh-memory 模型工具：AI 在对话中可主动调用的记忆操作。
- * memory_search / memory_remember / memory_pin / memory_tag / memory_forget
- * / memory_revise / memory_retire / memory_consolidate。
+ * memory_search / memory_remember / memory_pin / memory_verify / memory_tag
+ * / memory_forget / memory_revise / memory_retire / memory_consolidate。
  * 全部经 @deepseek-ai/dsh-tools 的 defineTool 注册，输出为模型可见文本。
  */
 
@@ -81,11 +81,17 @@ export function registerMemoryTools(
         // 软废弃条目（includeDeprecated 时才出现）：标注废弃状态。
         const deprecatedMark = entry.deprecated === true ? '〔已废弃·retire/revise 标记〕' : ''
         const rel = query.trim() !== '' ? `·相关${Math.round(score * 100)}%` : ''
+        // 单条正文截断：一条超长记忆（用户手记一整份规范）会把整个结果的预算
+        // 吃掉，后面几条直接进不了输出。按条截断后每条都保留「开头 + 省略号」，
+        // 模型能看出「这条被截了」，而不是在列表里看到半句残文。
+        const body = entry.content.length > SEARCH_CONTENT_MAX
+          ? `${entry.content.slice(0, SEARCH_CONTENT_MAX)}…`
+          : entry.content
         // id 必须输出：memory_pin / memory_tag / memory_forget 都以 entryId 为入参，
         // 而它们的唯一来源就是本工具的结果。
-        return `${entry.id} ${head}[${entry.importance}] ${scope}${layer}: ${entry.content}${disabledMark}${deprecatedMark}${verified}${rel}${tags}`
+        return `${entry.id} ${head}[${entry.importance}] ${scope}${layer}: ${body}${disabledMark}${deprecatedMark}${verified}${rel}${tags}`
       })
-      return `${lines.join('\n')}\n（首列为 entryId，可用于 memory_pin / memory_tag / memory_forget / memory_revise / memory_retire）`
+      return capSearchOutput(lines)
     },
   })))
 
@@ -144,6 +150,11 @@ export function registerMemoryTools(
         projectHash: entry.projectHash,
         summary: summarize(entry.content),
       })
+      // 与 HTTP 路由（/remember、/pin、/tag、/delete）同口径：写入后统一走
+      // compileAll 收口。它当前是空实现（注入改为内存现算，见 compile.ts 注释），
+      // 但调用点必须补齐——否则将来它恢复落盘或加上逻辑索引时，只有面板改的
+      // 记忆会进产物，模型工具改的那些永远漏在外面。
+      await compileAll(store, config)
       return created
         ? `已记住：${entry.content}（${scope === 'global' ? '全局' : '项目'}${tags.length > 0 ? `，标签：${tags.join(', ')}` : ''}）`
         : `已更新记忆：${entry.content}`
@@ -163,7 +174,37 @@ export function registerMemoryTools(
       if (id === '') throw new Error('entryId 不能为空')
       const entry = await store.patchEntry(id, { pinned: args.pinned !== false })
       if (entry === undefined) throw new Error(`记忆不存在：${id}`)
+      // 与 HTTP /pin 同口径（理由见 memory_remember 处注释）。
+      await compileAll(store, config)
       return entry.pinned ? `已置顶：${summarize(entry.content)}` : `已取消置顶：${summarize(entry.content)}`
+    },
+  })))
+
+  // ── memory_verify ────────────────────────────────────────────────────
+  //
+  // 为什么需要它：A 组把 patchEntry 的「编辑自动置 verified=true」去掉之后，
+  // verified 的语义终于干净了（= 用户显式确认过这条内容），但也就意味着
+  // **没有任何路径能把它置为 true 了**——memory_search 里那个〔待确认〕标记
+  // 从此永远擦不掉。面板与模型各给一个显式入口，语义才闭环。
+  disposers.push(ctx.tools.register(textTool({
+    name: 'memory_verify',
+    description: '标记一条记忆「已确认」（或取消确认）。只应在用户明确认可/否定该条内容时调用，不要自己替用户确认。',
+    parameters: {
+      entryId: { type: 'string', required: true, description: '记忆条目 id（用 memory_search 获取）。' },
+      verified: { type: 'boolean', description: 'true=已确认（默认），false=取消确认。' },
+    },
+    async execute(args) {
+      const id = String(args.entryId ?? '')
+      if (id === '') throw new Error('entryId 不能为空')
+      const verified = args.verified !== false
+      const entry = await store.patchEntry(id, { verified })
+      if (entry === undefined) throw new Error(`记忆不存在：${id}`)
+      // 不写变更流：确认状态是元数据微调，与置顶同理，不该给自己刷未读。
+      // 仍走 compileAll 收口（理由见 memory_remember 处注释）。
+      await compileAll(store, config)
+      return verified
+        ? `已确认：${summarize(entry.content)}`
+        : `已取消确认：${summarize(entry.content)}`
     },
   })))
 
@@ -189,6 +230,8 @@ export function registerMemoryTools(
         projectHash: entry.projectHash,
         summary: `改标签：${summarize(entry.content)}`,
       })
+      // 与 HTTP /update 同口径（理由见 memory_remember 处注释）。
+      await compileAll(store, config)
       return `标签已更新：${entry.tags.length > 0 ? entry.tags.join(', ') : '（无）'}`
     },
   })))
@@ -214,6 +257,8 @@ export function registerMemoryTools(
         projectHash: entry.projectHash,
         summary: `删除：${summarize(entry.content)}`,
       })
+      // 与 HTTP /delete 同口径（理由见 memory_remember 处注释）。
+      await compileAll(store, config)
       return `已删除记忆：${summarize(entry.content)}`
     },
   })))
@@ -334,6 +379,57 @@ export function registerMemoryTools(
   }
 }
 
+/**
+ * memory_search 单条正文的字符上限。
+ *
+ * 记忆条目允许写很长（用户手动记一条完整规范并不罕见），而搜索结果是一条
+ * 一条并排输出的：单条不封顶时，10 条各 800 字就能顶到 8000+ 字符。
+ */
+const SEARCH_CONTENT_MAX = 400
+
+/**
+ * memory_search 整段输出的字符上限（6000）。
+ *
+ * 官方 dsh-compaction-tool-result-pruner 的阈值是 8192，超了会**保留头 4096 +
+ * 尾 1024、从中间腰斩**。对「一行一条记忆」的列表来说，被腰斩掉的正是中间那几条
+ * ——模型会看到第 1-2 条与最后 1 条，中间凭空消失，还以为搜索结果只有这些。
+ * 所以本工具在 6000 就自己截断：一是低于裁剪器阈值，二是截断处明确告诉模型
+ * 「结果被截了、怎么拿到剩下的」，比无声腰斩可解释得多。
+ */
+const SEARCH_OUTPUT_MAX = 6000
+
+/** 搜索结果的收尾提示（entryId 是后续所有记忆工具的入参，必须每轮都带上）。 */
+const SEARCH_TAIL = '\n（首列为 entryId，可用于 memory_pin / memory_verify / memory_tag / memory_forget / memory_revise / memory_retire）'
+
+/** 截断提示的预留长度（含「另有 N 条未显示」里 N 的位数余量）。 */
+const SEARCH_TRUNC_HINT_RESERVE = 80
+
+/**
+ * 搜索结果整体封顶。
+ *
+ * 逐条累加而不是先 join 再 slice：先 join 再切会把最后一行切成半截（半个 entryId
+ * + 半句正文），模型拿半截 id 去调 memory_pin 只会得到一个「记忆不存在」。
+ * 截断时把被丢弃的条数写进提示，让「还有多少条没看到」是可数的。
+ */
+function capSearchOutput(lines: string[]): string {
+  // 收尾提示与截断提示都从预算里扣掉，6000 才是真的硬上限（而不是「正文 6000
+  // 再加两段提示」）。
+  const budget = SEARCH_OUTPUT_MAX - SEARCH_TAIL.length - SEARCH_TRUNC_HINT_RESERVE
+  const kept: string[] = []
+  let used = 0
+  for (const line of lines) {
+    // +1 = 换行符。第一条不占换行，多算一个字符无伤大雅（预算本就留了余量）。
+    const cost = line.length + 1
+    if (used + cost > budget) break
+    kept.push(line)
+    used += cost
+  }
+  // 全部装下：原样输出（不追加任何截断提示，避免模型误以为有遗漏）。
+  if (kept.length === lines.length) return `${lines.join('\n')}${SEARCH_TAIL}`
+  const dropped = lines.length - kept.length
+  return `${kept.join('\n')}\n…（另有 ${dropped} 条未显示）结果过长已截断，请用更窄的 query 或更小的 limit${SEARCH_TAIL}`
+}
+
 /** 按路径或 hash 解析项目筛选；解析失败返回 null（不筛）。 */
 function resolveProjectFilter(project: string): string | null {
   const trimmed = project.trim()
@@ -361,6 +457,7 @@ const TOOL_PRESENTATION: Record<string, { kind: 'read' | 'other'; title: (args: 
   memory_search: { kind: 'read', title: args => `记忆搜索：${String(args.query ?? '')}` },
   memory_remember: { kind: 'other', title: () => '记录记忆' },
   memory_pin: { kind: 'other', title: args => `置顶：${String(args.entryId ?? '')}` },
+  memory_verify: { kind: 'other', title: args => `确认：${String(args.entryId ?? '')}` },
   memory_tag: { kind: 'other', title: args => `改标签：${String(args.entryId ?? '')}` },
   memory_forget: { kind: 'other', title: args => `删除：${String(args.entryId ?? '')}` },
   memory_revise: { kind: 'other', title: args => `修订：${String(args.entryId ?? '')}` },

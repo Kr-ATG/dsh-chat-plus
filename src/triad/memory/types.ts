@@ -55,6 +55,17 @@ export interface MemoryEntry {
   deprecatedReason?: string
   /** 后继条目 id（revise 时指向新条目）。 */
   supersededBy?: string
+
+  // ── schema v4（整理轮转）─────────────────────────────────────────
+  /**
+   * 上次被 LLM 整理（consolidate）处理的时间 ISO。
+   *
+   * 为什么需要它：整理集合原本按 updatedAt 降序取前 N 条，而整理自己产出的
+   * 合并条目、晋升条目都会刷新 updatedAt —— 于是「刚被整理过的」永远排在最前，
+   * 老条目永远轮不到（饥饿）。改用本字段升序选取（null 最优先）后，
+   * 每个条目都能被均匀轮转，不会出现「20 条被反复咀嚼、其余永不处理」。
+   */
+  lastConsolidatedAt?: string
 }
 
 /** 显式记忆类型（compile 按此分组，不再靠标签硬猜）。 */
@@ -145,10 +156,21 @@ export interface StoreState {
 export interface SessionTickerState {
   /** 累计 turn 数。 */
   turnCount: number
-  /** 上次注入的 step 数。 */
-  lastInjectedStep: number
-  /** 连续提取失败（0 候选/LLM 错误）次数，用于退避降频。 */
+  /**
+   * 连续**真失败**（LLM 抛错 / 超时 / finish≠stop / 解析不出 JSON）次数，用于退避降频。
+   *
+   * 与 extractEmptyStreak 分开统计是刻意的：模型返回 {"memories":[]} 是
+   * 「本会话确实没啥值得记」，属于正常且被 prompt 鼓励的克制行为，不该触发降频
+   * （旧实现合并计数，导致 55% 的正常空结果把会话打成降频态，覆盖率被系统性压低）。
+   */
   extractFailStreak?: number
+  /**
+   * 连续**正常空结果**次数（模型明确返回空列表）。
+   *
+   * 只用来省成本：连续空说明这个会话不太产记忆，可以降频调用；一旦有候选立刻清零。
+   * 不参与「失败」语义，也不与 extractFailStreak 互相影响。
+   */
+  extractEmptyStreak?: number
 }
 
 /** 项目元数据（projects/<hash>/meta.json）。 */
@@ -183,6 +205,15 @@ export interface MemoryConfig {
   hitBonus: number
   /** 注入 token 预算（按字符近似）。 */
   injectTokenBudget: number
+  /**
+   * 置顶条目在注入预算里的占比上限（0-1，默认 0.4）。
+   *
+   * 旧实现让 pinned 无条件全量先进预算（注释还写着「不占预算」，与实现相反）：
+   * 实测本机 6 条置顶吃掉 3000 预算里的 2130（71%），把 identity 段挤到只剩 1 条、
+   * 检索 top-k 一条都进不去——置顶反而成了「把其它记忆全部饿死」的机制。
+   * 超限时按 importance 降序保留，其余置顶退到普通候选池参与正常竞争。
+   */
+  injectPinnedBudgetRatio: number
   /**
    * 每 N 个 step 刷新一次记忆注入（会话内）。
    * @deprecated 当前注入按设计只在会话首步进行一次（避免置顶内容多轮重复），
@@ -276,8 +307,47 @@ export interface MemoryConfig {
    * 闲置自动清理（天）：自动提取条目按「最后活跃时间」清理——最后命中时间
    * （从未命中则用创建时间）距今满 N 天的条目在每日编译时删除。置顶 / 已确认 /
    * 手动 / 禁用豁免（用户显式意图或价值确认）。0 = 关闭。
+   *
+   * 注意：本规则**不再单独生效**——它还要过 minImportanceForPrune 的分数门槛，
+   * 见该字段。
    */
   pruneNeverHitDays: number
+  /**
+   * 闲置清理的分数门槛：importance >= 该值的条目不参与按天清理（默认 7）。
+   *
+   * 为什么必须加这道闸：闲置清理原本只看「多久没被命中」，不看分数。
+   * 而注入每会话只做一次、top-k 实测 6 条，绝大多数条目在 N 天内根本不可能被命中
+   * ——等于按概率删记忆，而不是按价值删。加上分数门槛后，高价值条目只有
+   * shouldEvict（60 天 + 分数双阈值）才能滚出，两条规则的严格程度才回到同一量级。
+   */
+  minImportanceForPrune: number
+  /**
+   * 回收站保留天数：软废弃（retire / consolidate-drop）条目在 deprecatedAt
+   * 满 N 天后由每日编译**硬删**。0 = 永不自动清。
+   *
+   * 为什么需要它：软废弃的设计意图是「保留数据但不再参与检索/注入/编译」，
+   * 可它同时被 ticker 的全部规则跳过（不衰减/不晋升/不滚出/不清理），
+   * entryLimit 淘汰也显式排除它 —— 结果是「回收站只进不出」，只能手动
+   * memory_forget 逐条清。实测 27/134 条（20%）卡在回收站里永久占位。
+   *
+   * pinned 不豁免：pin 的语义是「这条活跃记忆很重要」，而软废弃已经宣告它
+   * 退出活跃集，历史 pin 标记不该变成永久居留权。实测回收站里 7 条是 pinned
+   * 的旧版本（todo 纪律/效率约束的历次修订），它们既占置顶预算又是重复内容。
+   */
+  deprecatedRetentionDays: number
+  /**
+   * **已被后继取代**的条目的保留天数（默认 7 天，0 = 跟随
+   * deprecatedRetentionDays）。
+   *
+   * 为什么要比普通回收站短得多：这类条目的内容已经被后继条目完整继承
+   * （supersededBy 指向它，而那条就在活跃库里）。保留它的唯一价值是「万一
+   * revise 改错了，能把旧文本翻出来对照」——这个需求是小时级的，不是月级的。
+   * 实测 27 条回收站里有 18 条带 supersededBy，它们纯粹是重复占位。
+   *
+   * 短保留期还给了一个额外好处：面板上「回收站」不再混着「已被新版本取代」
+   * 和「用户主动删掉」两类语义完全不同的条目。
+   */
+  supersededRetentionDays: number
 
   // ── schema v3：语义检索（embedding）配置 ────────────────────────────
   /**
@@ -304,6 +374,9 @@ export const DEFAULT_CONFIG: MemoryConfig = {
   decayLambda: 0.02,
   hitBonus: 2,
   injectTokenBudget: 6000,
+  // 置顶最多吃掉 40% 预算：剩下的 60% 留给 identity/长期沉淀/检索 top-k。
+  // 旧行为是「置顶全额先扣」（实测 71%），identity 段被挤到 1 条、top-k 全灭。
+  injectPinnedBudgetRatio: 0.4,
   injectRefreshSteps: 8,
   dailyCompileEnabled: true,
   extractMaxChars: 6000,
@@ -330,6 +403,18 @@ export const DEFAULT_CONFIG: MemoryConfig = {
   injectTopK: 8,
   entryLimit: 500,
   pruneNeverHitDays: 21,
+  // 闲置清理的分数门槛：>= 该分的条目不参与按天清理，交给 shouldEvict 的
+  // 「60 天 + 分数双阈值」判定。与提取 prompt 的「低于 8 视为噪音」同口径取 7，
+  // 比 compileThreshold(4.5) 高，确保中高分记忆不会被「没人读到」这种随机理由删掉。
+  minImportanceForPrune: 7,
+  // 回收站保留 30 天：软废弃条目不是「删除」而是「待确认删除」，给它一个
+  // 明确的出清期限，否则回收站只进不出（实测 20% 的库卡在这里）。
+  // 30 天而非 90 天：实测最老的软废弃条目只有 43 天，90 天等于「今天一条都不清」，
+  // 规则形同虚设；30 天能覆盖当前积压里最老的一批，又留足反悔窗口。
+  deprecatedRetentionDays: 30,
+  // 已被后继取代的条目 7 天就清：内容已完整继承到活跃条目里，留着的唯一
+  // 意义是「revise 改错了能翻回旧文本对照」，这是小时级需求不是月级。
+  supersededRetentionDays: 7,
   embeddingProvider: 'off',
   embeddingBaseUrl: '',
   embeddingModel: 'text-embedding-3-small',
@@ -339,14 +424,27 @@ export const DEFAULT_CONFIG: MemoryConfig = {
 
 /** LLM 整理操作（consolidate.ts 的 LLM 输出结构）。 */
 export interface ConsolidateOp {
-  /** merge=合并多条为一条；rewrite=重写单条；drop=删除；promote=升长期。 */
-  type: 'merge' | 'rewrite' | 'drop' | 'promote'
-  /** 参与该操作的条目 id（merge/drop/promote 可多条；rewrite 单条）。 */
+  /**
+   * merge=合并多条为一条；rewrite=重写单条；drop=删除；promote=升长期；
+   * conflict=两条互相矛盾——保留较新的、软废弃较旧的（**不合并**）。
+   *
+   * 为什么需要 conflict 而不是让模型 merge 掉：两条互相矛盾的事实（「用 A 方案」
+   * vs 「改用 B 方案」）被 merge 成一句话后，两个说法都留在同一段文字里，
+   * 下游模型读到的是一段自相矛盾的记忆，而它无从判断哪条有效。
+   * 显式表达冲突，才能把旧的那条标成 deprecated 并记下 supersededBy。
+   */
+  type: 'merge' | 'rewrite' | 'drop' | 'promote' | 'conflict'
+  /** 参与该操作的条目 id（merge/drop/promote/conflict 可多条；rewrite 单条）。 */
   ids: string[]
   /** merge/rewrite 的新内容（不含原条目中不存在的虚构信息）。 */
   content?: string
   /** merge/rewrite 的新标签。 */
   tags?: string[]
+  /**
+   * conflict 专用：哪一条是「较新、该保留」的。取值为 ids 中的某一项。
+   * 缺省时退化为「按 updatedAt 较新者胜」，绝不因为模型漏填就误删两条。
+   */
+  keepId?: string
 }
 
 /** 整理统计结果（供面板/工具返回）。 */
@@ -403,6 +501,7 @@ export const CONFIG_NUMBER_BOUNDS = {
   decayLambda: { min: 0, max: 0.5, int: false, step: 0.01 },
   hitBonus: { min: 0, max: 10, int: false, step: 0.5 },
   injectTokenBudget: { min: 1000, max: 60_000, int: true, step: 500 },
+  injectPinnedBudgetRatio: { min: 0, max: 1, int: false, step: 0.05 },
   injectRefreshSteps: { min: 1, max: 200, int: true, step: 1 },
   extractMaxChars: { min: 500, max: 60_000, int: true, step: 500 },
   minImportance: { min: 1, max: 10, int: false, step: 0.5 },
@@ -411,6 +510,9 @@ export const CONFIG_NUMBER_BOUNDS = {
   injectTopK: { min: 1, max: 50, int: true, step: 1 },
   entryLimit: { min: 50, max: 100_000, int: true, step: 50 },
   pruneNeverHitDays: { min: 0, max: 3650, int: true, step: 1 },
+  minImportanceForPrune: { min: 1, max: 10, int: false, step: 0.5 },
+  deprecatedRetentionDays: { min: 0, max: 3650, int: true, step: 30 },
+  supersededRetentionDays: { min: 0, max: 3650, int: true, step: 1 },
 } as const satisfies Record<string, { min: number; max: number; int: boolean; step: number }>
 
 /** 可调数值字段名。 */

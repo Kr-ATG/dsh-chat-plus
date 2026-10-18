@@ -530,6 +530,27 @@ async function handle(
       json(res, 200, { ok: true, entry: toView(entry) })
       return
     }
+    if (method === 'POST' && rest === '/verify') {
+      // 显式确认 / 取消确认。patchEntry 不再「编辑即确认」（见 store.patchEntry 注释），
+      // 于是 verified=true 只剩这一个入口 —— 没有它，自动提取的条目永远带着
+      // 〔待确认〕标记，用户既认可不了也清不掉。
+      const body = await readBody(req) as Record<string, unknown>
+      const entryId = requireString(body.entryId, 'entryId')
+      const verified = body.verified !== false
+      const entry = await store.patchEntry(entryId, { verified })
+      if (entry === undefined) throw new Error(`记忆不存在：${entryId}`)
+      await store.appendChange({
+        action: 'update',
+        entryId: entry.id,
+        scope: entry.scope,
+        projectHash: entry.projectHash,
+        summary: `${verified ? '已确认' : '已取消确认'}：${summarize(entry.content)}`,
+      })
+      // 与 /pin 同口径：不写变更流（元数据微调不刷未读），但统一走 compileAll 收口。
+      await compileAll(store, config)
+      json(res, 200, { ok: true, entry: toView(entry) })
+      return
+    }
     if (method === 'POST' && rest === '/enable') {
       const body = await readBody(req) as Record<string, unknown>
       const entryId = requireString(body.entryId, 'entryId')
@@ -560,8 +581,16 @@ async function handle(
         patch.tags = body.tags.filter((tag): tag is string => typeof tag === 'string' && tag.trim() !== '').map(tag => tag.trim()).slice(0, 8)
       }
       // 重要度 / 置顶 / 类型 / 层：面板编辑区可直接改（此前只能改内容与标签）。
+      //
+      // 上界统一为 10（/revise、/remember、模型工具、提取侧全是 1-10）。这里原本是
+      // 20，唯一来源是「注入命中加分」这条内部路径会临时把分数顶到 20 封顶；那是
+      // 引擎内部行为，不该反过来放宽用户输入的合法区间，否则面板能存进 18 分，
+      // 而所有其它入口都把它钳回 10，同一个字段两种口径。
+      //
+      // 保留一位小数（不取整）：命中加分会产生 9.62 这类值，面板只是编辑内容时
+      // 不该顺手把它的精度抹平。
       if (typeof body.importance === 'number' && Number.isFinite(body.importance)) {
-        patch.importance = Math.max(1, Math.min(20, Math.round(body.importance * 10) / 10))
+        patch.importance = Math.max(1, Math.min(10, Math.round(body.importance * 10) / 10))
       }
       if (typeof body.pinned === 'boolean') patch.pinned = body.pinned
       if (isMemoryKindValue(body.kind)) patch.kind = body.kind
@@ -915,6 +944,10 @@ async function handle(
       return
     }
     if (method === 'POST' && rest === '/rollback') {
+      // 回滚范围由 store.restoreRevision 读快照 meta.scope 自己决定（整理是逐 scope
+      // 跑的，整库替换会连带抹掉别的项目在这之后新记下的记忆）。路由侧**不**解析
+      // scope：两处各判一次，一旦口径分叉就会出现「面板说只回滚这个项目，实际整库
+      // 被覆盖」这类无从复现的破坏性行为。
       const body = await readBody(req) as Record<string, unknown>
       const revisionId = requireString(body.revisionId, 'revisionId')
       const ok = await store.restoreRevision(revisionId)

@@ -1,9 +1,10 @@
 /**
  * dsh-memory 编译引擎：把 entries 渲染成分层 md 产物并组装注入文本。
- * - 项目层：memory.md（短期时间线 + 长期沉淀）、facts.md、pinned.md
- * - 全局层：identity.md（身份/偏好）、facts.md、pinned.md
+ * - 注入文本（热路径）：identity + memory + pinned + facts 组装为带来源的 user message，
+ *   全程在内存里现算，不依赖任何磁盘产物
+ * - 落盘 md 产物：memory.md / facts.md / pinned.md / identity.md **不再自动生成**，
+ *   只在显式调用 writeExportArtifacts 时导出（全仓零读取方，见该函数注释）
  * - 每日：daily/<date>.md（openhanako 同款格式，跨项目）
- * - 注入：identity + memory + pinned + facts 组装为带来源的 user message 文本
  */
 
 import type { MemoryConfig, MemoryEntry } from '../types.js'
@@ -164,12 +165,16 @@ export interface InjectionSections {
 /**
  * 组装注入文本与 sections。
  *
- * 分组累积（不是"每段只取一条"）：pinned 无条件全量进入且不占预算；其余按
- * 归属分入 identity / memory / facts 三段，按重要性降序逐条累积直到 token
- * 预算耗尽。段头（[记忆·xxx]）本身也计入预算。
+ * 预算分两段：pinned 先吃，但**有上限**（config.injectPinnedBudgetRatio，默认 40%）；
+ * 装不下的置顶不丢弃，退回普通候选池按 importance 抢剩余预算——旧实现让 pinned
+ * 全额先扣，实测本机 6 条置顶吃掉 3000 预算里的 2130（71%），identity 段被挤到
+ * 只剩 1 条、检索 top-k 一条都进不去，置顶从「强调重点」退化成「把其它记忆饿死」。
+ *
+ * 普通池（不是"每段只取一条"）按归属分入 identity / memory / facts 三段，按重要性
+ * 降序逐条累积直到 token 预算耗尽。段头（[记忆·xxx]）本身也计入预算。
  *
  * @param entries - 注入可见条目（pinned + 检索命中）。
- * @param config - 注入预算。
+ * @param config - 注入预算与 pinned 占比上限。
  */
 export function buildInjectionText(
   entries: MemoryEntry[],
@@ -178,15 +183,33 @@ export function buildInjectionText(
   const budget = Math.max(1000, config.injectTokenBudget)
   const buckets: Record<keyof InjectionSections, string[]> = { identity: [], memory: [], pinned: [], facts: [] }
   const pinned = entries.filter(entry => entry.pinned)
+  // 缺字段时回退 0.4 而不是 1：手拼的 config 或旧 config.json 里没有这个字段时，
+  // 绝不能静默退回「pinned 全额先扣」那个已经被实测证明会饿死其它记忆的旧行为。
+  const pinnedRatio = Number.isFinite(config.injectPinnedBudgetRatio) ? config.injectPinnedBudgetRatio : 0.4
+  const pinnedQuota = Math.max(0, Math.floor(budget * pinnedRatio))
   // 置顶区块不带「# 置顶」二级标题：[记忆·置顶] 分组头已标识归属，
-  // 双重标志对模型纯冗余（renderPinned 的带标题版本仅供落盘产物使用）。
-  for (const entry of pinned) buckets.pinned.push(entryLine(entry))
+  // 双重标志对模型纯冗余（renderPinned 的带标题版本仅供显式导出使用）。
+  //
+  // 额度是硬上限：占满后剩下的置顶退回普通池参与竞争，而不是直接丢弃——
+  // 「置顶」表达的是用户想强调，不等于它比别的高价值记忆更重要，被额度挤下来的
+  // 那几条仍有资格按 importance 去抢剩下的预算。
+  let used = 0
+  const demoted: MemoryEntry[] = []
+  for (const entry of [...pinned].sort((a, b) => injectionRank(b) - injectionRank(a))) {
+    const line = entryLine(entry)
+    if (used + line.length + 1 > pinnedQuota) {
+      demoted.push(entry)
+      continue
+    }
+    used += line.length + 1
+    buckets.pinned.push(line)
+  }
 
-  // 其余按重要性降序（pinned 已单独处理），逐条计入预算。
+  // 其余按重要性降序（含被置顶额度挤下来的），逐条计入预算。
   const rest = entries
     .filter(entry => !entry.pinned)
+    .concat(demoted)
     .sort((a, b) => injectionRank(b) - injectionRank(a))
-  let used = buckets.pinned.reduce((sum, line) => sum + line.length + 1, 0)
   for (const entry of rest) {
     const section: keyof InjectionSections = entry.scope === 'global'
       ? (isIdentityEntry(entry) ? 'identity' : 'facts')
@@ -222,11 +245,42 @@ function sectionHeader(section: keyof InjectionSections): string {
   }
 }
 
-/** 全量编译入口：写项目层 + 全局层产物（ticker 调用）。 */
-export async function compileAll(store: MemoryStore, config: MemoryConfig): Promise<void> {
+/**
+ * 全量编译入口：**不再写任何 md 产物**（2026-10-18 起）。
+ *
+ * 为什么停写：memory.md / facts.md / pinned.md / identity.md 这 6 个产物
+ * （项目层 3 个 + 全局层 3 个）全仓零读取方——注入走 buildInjectionText 在内存里
+ * 现算，面板走 API 直接读 entries.json，没有任何代码或界面读过这些文件。而
+ * compileAll 有 27 个调用点（每次提取、每轮 ticker、面板每次置顶/启用/编辑、整理、
+ * 每日编译），每个都把全部条目重新渲染成 1.7MB 文本再原子写盘：纯 IO 与 CPU
+ * 开销，收益为零。
+ *
+ * 为什么保留成空函数而不是删掉调用点：调用点分属 api / ticker / tools /
+ * consolidate / index，它们并不关心「产物是否落盘」，改签名只会制造一堆无关改动。
+ * 真要落盘时走 writeExportArtifacts（显式导出）。
+ *
+ * 注意：磁盘上可能还留着上一版产物文件（陈旧内容）。它们不会被自动更新，也不会
+ * 被读取；需要一份准确的快照就调 writeExportArtifacts 覆盖。
+ */
+export async function compileAll(_store: MemoryStore, _config: MemoryConfig): Promise<void> {
+  // 空实现是刻意的：27 个调用点分属 api / ticker / tools / consolidate / index，
+  // 改签名会让它们全部报错，而它们本来也不该关心「产物是否落盘」。
+  // 保留成一个立即返回的 async 函数，调用点零改动，开销归零。
+}
+
+/**
+ * 显式导出 md 产物（按需生成，不再挂在 compileAll 上）。
+ *
+ * 用途：用户/调试需要一份人类可读的记忆快照时（导出、离线查看、手工比对）。
+ * 日常运行路径**不调用**它——理由见 compileAll 注释。
+ *
+ * disabled / deprecated 条目一律不导出（与注入口径一致）。这条口径从 compileAll
+ * 迁到这里：它是唯一真正落盘的路径，规则必须跟着写盘走，不能留在空函数里当摆设。
+ *
+ * 第二个形参与 compileAll 保持一致，方便调用方在两者之间替换；当前实现不需要它。
+ */
+export async function writeExportArtifacts(store: MemoryStore, _config: MemoryConfig): Promise<void> {
   const all = await store.readEntries()
-  // disabled 条目不进任何产物（memory.md / facts.md / pinned.md / identity.md）；
-  // deprecated 条目同理（软废弃 = 从产物与注入中消失，数据仍保留在库）。
   const entries = all.filter(entry => entry.disabled !== true && entry.deprecated !== true)
   const byProject = new Map<string, MemoryEntry[]>()
   for (const entry of entries) {

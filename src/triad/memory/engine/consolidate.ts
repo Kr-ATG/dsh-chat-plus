@@ -31,6 +31,15 @@ const CONSOLIDATE_AGENT: MinimalAgent = {
   session: { id: '', header: undefined },
 }
 
+/**
+ * 整理操作类型：权威定义在 types.ts（含 conflict / keepId），此处只做转出。
+ *
+ * 曾经在本文件重复定义过一份（并行改动时避免跨组改同一文件）。两份定义一旦
+ * 漂移，就会出现「parse 产出带 conflict 的对象、消费方按旧联合类型处理」的
+ * 静默错配，所以收归一处。
+ */
+export type { ConsolidateOp } from '../types.js'
+
 /** 整理范围：global 层，或某个 project。 */
 export type ConsolidateScope = 'global' | { projectHash: string }
 
@@ -119,7 +128,9 @@ export async function consolidateScope(
         source: { kind: 'plugin:dsh-memory', plugin: 'dsh-memory' },
       })],
       system: consolidateSystemPrompt(),
-      maxTokens: 4096,
+      // 4096 对「20 条输入 + 逐条推理再给 JSON」偏紧：推理模型的 reasoning 也吃
+      // 这份预算，截断后 JSON 不完整，整轮整理会白跑并报「无需整理」。翻倍到 8192。
+      maxTokens: 8192,
       signal: controller.signal,
     }
     const assembler = new BlockAssembler()
@@ -147,12 +158,23 @@ export async function consolidateScope(
     // 按 id 锚定应用（走 store 写串行队列，防并发覆盖）。
     let stats: ConsolidateStats = { merged: 0, rewritten: 0, dropped: 0, promoted: 0 }
     let events: Array<Omit<ChangeRecord, 'id' | 'at'>> = []
+    /** 本轮真正被整理「碰过」的条目 id（含合并源、改写目标、废弃、晋升）。 */
+    let touchedIds: string[] = []
     await store.replaceEntries(current => {
       const result = applyOps(current, ops)
       stats = result.stats
       events = result.events
+      touchedIds = result.touchedIds
       return result.next
     })
+    // 记录轮转时间戳：选集合按 lastConsolidatedAt 升序取（见 selectConsolidationSet），
+    // 不打这个戳的话，刚整理过的条目会永远排在最前，老条目一辈子轮不到。
+    // 合并源条目已被移除、写入会被忽略，这里一并传进去无害；日志写不进去也不影响整理结果。
+    if (touchedIds.length > 0) {
+      await store.markConsolidated(touchedIds).catch((error: unknown) => {
+        log(`markConsolidated failed (rotation timestamps not persisted): ${error instanceof Error ? error.message : String(error)}`)
+      })
+    }
 
     // 变更流（驱动面板「变更」tab 与 daily 日志）。
     for (const event of events) await store.appendChange(event)
@@ -212,11 +234,19 @@ export async function consolidateAll(
 function applyOps(
   entries: MemoryEntry[],
   ops: ConsolidateOp[],
-): { next: MemoryEntry[]; stats: ConsolidateStats; events: Array<Omit<ChangeRecord, 'id' | 'at'>> } {
+): {
+  next: MemoryEntry[]
+  stats: ConsolidateStats
+  events: Array<Omit<ChangeRecord, 'id' | 'at'>>
+  /** 本轮被整理碰过的条目 id（调用方据此写 lastConsolidatedAt，驱动轮转）。 */
+  touchedIds: string[]
+} {
   const byId = new Map(entries.map(entry => [entry.id, entry]))
   const stats: ConsolidateStats = { merged: 0, rewritten: 0, dropped: 0, promoted: 0 }
   const events: Array<Omit<ChangeRecord, 'id' | 'at'>> = []
   const removeIds = new Set<string>()
+  /** 记录「整理过哪些条目」：合并产物也要记，否则新条目每轮都排最前被反复咀嚼。 */
+  const touchedIds = new Set<string>()
   /** 待删条目的对象身份（配合 removeIds 兜住 rewrite 换 id 的情况）。 */
   const removeObjects = new Set<MemoryEntry>()
   const additions: MemoryEntry[] = []
@@ -232,6 +262,10 @@ function applyOps(
         if (content === '' || isSensitiveContent(content)) break
         const scope = sources[0].scope
         const projectHash = sources[0].projectHash
+        // 字段合成必须尊重源条目已有的事实，不能一律取第一条或写死默认值：
+        // 旧实现写死 verified=false、source=sources[0].source、createdAt=now，
+        // 把用户手写并确认过的记忆合并成「未确认的自动提取」，创建时间还被刷新成
+        // 今天——合并越频繁，时间线与可信度失真越严重。
         const merged: MemoryEntry = {
           id: entryIdOf(content, scope, projectHash),
           content,
@@ -239,16 +273,22 @@ function applyOps(
           projectHash: scope === 'project' ? projectHash : null,
           tags: sanitizeTags(op.tags),
           pinned: false,
-          createdAt: nowIso(),
+          // 合并条目代表这组事实最早被记录的时间点。
+          createdAt: earliestIso(sources.map(source => source.createdAt)),
           updatedAt: nowIso(),
           importance: Math.max(...sources.map(source => source.importance)),
           lastHitAt: null,
           layer: sources.some(source => source.layer === 'long') ? 'long' : 'short',
-          source: sources[0].source,
+          // 只要有一条是用户手写，结果就继承 manual：人工来源不该因为被自动整理
+          // 碰过一次就降级成 extract。
+          source: sources.some(source => source.source === 'manual') ? 'manual' : 'extract',
           version: 1,
           confidence: Math.max(...sources.map(source => source.confidence)),
-          verified: false,
-          kind: sources[0].kind,
+          // 同理，任一条被确认过就算确认过（合并只做去重，不做降级）。
+          verified: sources.some(source => source.verified),
+          // 跨 kind 合并后语义已无法归入单一类型，降级为 fact；沿用第一条会把
+          // preference 混进 identity 之类的分组，compile 的分段就错了。
+          kind: sameKind(sources) ? sources[0].kind : 'fact',
           provenance: undefined,
           embedding: undefined,
         }
@@ -275,6 +315,9 @@ function applyOps(
         } else if (clash === undefined || removeIds.has(merged.id) || clashIsSource) {
           additions.push(merged)
         }
+        // 合并产物同样打轮转戳：否则它带着全新的 lastConsolidatedAt=undefined，
+        // 下一轮又排在最前面被反复咀嚼，正是饥饿的另一半来源。
+        touchedIds.add(merged.id)
         for (const source of sources) {
           removeIds.add(source.id)
           removeObjects.add(source)
@@ -325,6 +368,8 @@ function applyOps(
           before,
           after: content,
         })
+        touchedIds.add(entry.id)
+        touchedIds.add(op.ids[0])
         stats.rewritten += 1
         break
       }
@@ -350,6 +395,7 @@ function applyOps(
             summary: `整理废弃：${summarize(entry.content)}`,
             before: entry.content,
           })
+          touchedIds.add(entry.id)
           stats.dropped += 1
         }
         break
@@ -367,8 +413,79 @@ function applyOps(
             projectHash: entry.projectHash,
             summary: summarize(entry.content),
           })
+          touchedIds.add(entry.id)
           stats.promoted += 1
         }
+        break
+      }
+      case 'conflict': {
+        // 两条记忆内容互相矛盾时，merge 只会产出一段自相矛盾的缝合怪，
+        // 后续注入时模型看到「A 对」和「A 错」同时存在，反而更容易选错。
+        // 正确处理：保留较新的一条，把较旧的软废弃，并在保留者内容里追加时间线，
+        // 让「曾经是 X，后来改成 Y」这段演进信息不丢失。
+        const candidates = op.ids
+          .map(id => byId.get(id))
+          .filter((entry): entry is MemoryEntry => entry !== undefined && entry.pinned !== true)
+        if (candidates.length < 2) break
+        // keepId 优先（模型显式指定）；缺省按 updatedAt 较新者胜——这是「用户后来说的
+        // 才算数」的保守解释，比按 importance 猜更贴近事实。updatedAt 相同则按
+        // createdAt，再相同就取数组里靠后的一条（LLM 输出顺序通常旧在前）。
+        const ranked = [...candidates].sort((a, b) => {
+          const byUpdated = a.updatedAt.localeCompare(b.updatedAt)
+          if (byUpdated !== 0) return byUpdated
+          return a.createdAt.localeCompare(b.createdAt)
+        })
+        const keeper = candidates.find(entry => entry.id === op.keepId) ?? ranked[ranked.length - 1]!
+        const losers = candidates.filter(entry => entry !== keeper && entry.deprecated !== true)
+        if (losers.length === 0) break
+        const keeperBefore = keeper.content
+        // 时间线只追加一次：重复整理同一对矛盾条目时不再叠一层「此前记录」。
+        if (!keeper.content.includes('（此前记录：')) {
+          const timeline = losers
+            .map(loser => `（此前记录：${loser.content}；${loser.updatedAt.slice(0, 10)} 已被更新）`)
+            .join('')
+          const nextContent = `${keeper.content}${timeline}`
+          // 内容变了 id 必须跟着变（id 由 content 派生），否则 id 与内容脱钩，
+          // 后续 upsertEntry 会把同一条记忆再插一遍。目标 id 已被别人占用时
+          // 宁可不追加时间线（裁决保留/废弃已经生效），也不制造 id 与内容不一致。
+          const nextId = entryIdOf(nextContent, keeper.scope, keeper.projectHash)
+          if (!byId.has(nextId)) {
+            byId.delete(keeper.id)
+            keeper.content = nextContent
+            keeper.id = nextId
+            byId.set(nextId, keeper)
+            keeper.updatedAt = nowIso()
+            keeper.version += 1
+          }
+        }
+        for (const loser of losers) {
+          loser.deprecated = true
+          loser.deprecatedAt = nowIso()
+          loser.deprecatedReason = 'consolidate-conflict'
+          loser.supersededBy = keeper.id
+          loser.updatedAt = nowIso()
+          loser.version += 1
+          touchedIds.add(loser.id)
+          events.push({
+            action: 'retire',
+            entryId: loser.id,
+            scope: loser.scope,
+            projectHash: loser.projectHash,
+            summary: `冲突废弃（保留较新条目）：${summarize(loser.content)}`,
+            before: loser.content,
+          })
+          stats.dropped += 1
+        }
+        touchedIds.add(keeper.id)
+        events.push({
+          action: 'update',
+          entryId: keeper.id,
+          scope: keeper.scope,
+          projectHash: keeper.projectHash,
+          summary: `冲突裁决（保留本条，时间线已并入）：${summarize(keeper.content)}`,
+          before: keeperBefore,
+          after: keeper.content,
+        })
         break
       }
     }
@@ -386,18 +503,28 @@ function applyOps(
     seen.add(addition.id)
     next.push(addition)
   }
-  return { next, stats, events }
+  return { next, stats, events, touchedIds: [...touchedIds] }
 }
 
 /**
- * 选整理集合：最近更新优先（增量演进模式，对齐 ReMe(原 MemoryScope) 的
- * auto_dream —— 每天只处理最新变更的小撮单元，而不是全库重排）。
- * 500 条旧条目不在一轮处理：每天只碰新进的 20 条，渐进消化；
- * 旧条目的过期治理（衰减/折叠/滚出）由规则层 daily compile 负责。
+ * 从未被整理过的条目统一用这个时间戳兜底排序：1970 早于任何真实时间戳，
+ * 于是「新入库、还没被整理过」的条目永远排在最前，先被消化。
+ */
+const NEVER_CONSOLIDATED_AT = '1970-01-01'
+
+/**
+ * 选整理集合：按「上次被整理的时间」升序轮转（最久没整理的最优先）。
+ *
+ * 为什么不能按 updatedAt 降序（旧实现）：整理自己产出的合并条目、改写条目、
+ * 晋升条目都会刷新 updatedAt，于是「刚被整理过的」永远排在最前、每轮反复咀嚼，
+ * 而 500 条里的老条目一辈子轮不到——整理看着在跑，实际只在那 20 条里打转。
+ * 换成 lastConsolidatedAt 升序后，每个条目都会被均匀轮转一次。
+ * 单轮仍然只处理 max 条（token 保护）；旧条目的过期治理仍由规则层 daily compile 负责。
  */
 function selectConsolidationSet(entries: MemoryEntry[], max: number): MemoryEntry[] {
   return entries
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .sort((a, b) =>
+      (a.lastConsolidatedAt ?? NEVER_CONSOLIDATED_AT).localeCompare(b.lastConsolidatedAt ?? NEVER_CONSOLIDATED_AT))
     .slice(0, max)
 }
 
@@ -406,14 +533,16 @@ function consolidateSystemPrompt(): string {
   return [
     'You are a memory consolidator for an AI assistant\'s long-term memory. You receive a set of existing memory entries (each with a stable id) and reorganize them into a cleaner, less redundant set — like the brain consolidating memories during sleep.',
     'Return ONLY a JSON object in this exact shape (no markdown, no commentary):',
-    '{"ops":[{"type":"merge","ids":["..."],"content":"...","tags":["..."]},{"type":"rewrite","id":"...","content":"...","tags":["..."]},{"type":"drop","ids":["..."]},{"type":"promote","ids":["..."]}]}',
+    '{"ops":[{"type":"merge","ids":["..."],"content":"...","tags":["..."]},{"type":"rewrite","id":"...","content":"...","tags":["..."]},{"type":"drop","ids":["..."]},{"type":"promote","ids":["..."]},{"type":"conflict","ids":["..."],"keepId":"..."}]}',
     'Rules:',
     '- "merge": combine 2+ near-duplicate or strongly-related entries into ONE concise entry. content must preserve all non-redundant facts; NEVER invent information not present in the inputs.',
     '- "rewrite": rewrite a single entry to be clearer, better worded, or better tagged. Only when it is genuinely ambiguous/redundant/poorly worded.',
     '- "drop": delete entries that are obsolete, fully superseded by a merge, or have no lasting value.',
     '- "promote": mark durable, frequently-relevant entries as long-term (ids only, no content).',
+    '- "conflict": use this INSTEAD of "merge" when two entries CONTRADICT each other (same subject, mutually exclusive claims — e.g. "uses pnpm" vs "uses npm", "prefers X" vs "dislikes X"). Do NOT merge contradictions: a merged entry would assert both sides and the reader cannot tell which one still holds.',
+    '  For a conflict: keep the NEWER entry (the one reflecting the user\'s later statement or later update), and list every superseded entry in ids. Set keepId to the id of the entry being kept. The pipeline soft-retires the older ones and appends a "（此前记录：…）" timeline note to the kept entry, so the evolution is not lost.',
+    '- Never merge/drop/rewrite/conflict-keep across clearly different topics.',
     '- Only reference ids that appear in the input. Omit untouched entries from ops entirely (they are kept as-is by default).',
-    '- Never merge/drop/rewrite across clearly different topics.',
     '- Write content in the original language of the entries.',
     '- If nothing needs reorganizing, return {"ops":[]}.',
   ].join('\n')
@@ -427,8 +556,11 @@ function consolidateUserPrompt(entries: MemoryEntry[]): string {
     tags: entry.tags,
     importance: entry.importance,
     layer: entry.layer,
+    // 冲突条款要求「保留较新的一条」，没有时间字段模型就只能瞎猜谁新。
+    // 只给到日期（10 字符）而不是完整 ISO：判断新旧够用，又不浪费 token。
+    updatedAt: entry.updatedAt.slice(0, 10),
   }))
-  return `Reorganize these memory entries (JSON array of {id, content, tags, importance, layer}):\n${JSON.stringify(view)}`
+  return `Reorganize these memory entries (JSON array of {id, content, tags, importance, layer, updatedAt}):\n${JSON.stringify(view)}`
 }
 
 /** 解析 LLM 输出为 ops（容错：剥 fence / 找最外层对象 / 逐条校验）。 */
@@ -454,7 +586,7 @@ export function parseConsolidateOutput(raw: string): ConsolidateOp[] {
     if (typeof item !== 'object' || item === null) continue
     const record = item as Record<string, unknown>
     const type = record.type
-    if (type !== 'merge' && type !== 'rewrite' && type !== 'drop' && type !== 'promote') continue
+    if (type !== 'merge' && type !== 'rewrite' && type !== 'drop' && type !== 'promote' && type !== 'conflict') continue
     const ids = Array.isArray(record.ids)
       ? record.ids.filter((id): id is string => typeof id === 'string' && id.trim() !== '').map(id => id.trim())
       : (typeof record.id === 'string' ? [record.id.trim()] : [])
@@ -465,6 +597,12 @@ export function parseConsolidateOutput(raw: string): ConsolidateOp[] {
       if (content === '') continue
       op.content = content
       op.tags = sanitizeTags(record.tags)
+    }
+    if (type === 'conflict') {
+      // keepId 是可选的：模型没给时 applyOps 会按 updatedAt 兜底裁决，
+      // 但给了就必须是 ids 里的成员，否则丢弃（防模型编造 id 造成越界）。
+      const keepId = typeof record.keepId === 'string' ? record.keepId.trim() : ''
+      if (keepId !== '' && op.ids.includes(keepId)) op.keepId = keepId
     }
     out.push(op)
   }
@@ -479,4 +617,28 @@ function sanitizeTags(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((tag): tag is string => typeof tag === 'string' && tag.trim() !== '').map(tag => tag.trim()).slice(0, 8)
     : []
+}
+
+/** 取一组 ISO 时间戳里最早的一个（合并条目沿用这组事实最初的记录时间）。 */
+function earliestIso(stamps: string[]): string {
+  let earliest = ''
+  let earliestMs = Number.POSITIVE_INFINITY
+  for (const stamp of stamps) {
+    if (typeof stamp !== 'string' || stamp === '') continue
+    // 按解析后的时间比较而不是字符串比较：历史数据里可能混有带本地时区偏移的
+    // ISO 串，字符串序会把 +08:00 的早时刻排到 Z 结尾的晚时刻之后。
+    const ms = Date.parse(stamp)
+    if (!Number.isFinite(ms)) continue
+    if (ms < earliestMs) {
+      earliestMs = ms
+      earliest = stamp
+    }
+  }
+  return earliest === '' ? nowIso() : earliest
+}
+
+/** 所有源条目 kind 是否一致（跨类型合并要降级为 fact）。 */
+function sameKind(sources: MemoryEntry[]): boolean {
+  const first = sources[0]?.kind
+  return sources.every(source => source.kind === first)
 }

@@ -24,9 +24,42 @@ export interface MinimalAgent {
 const EXTRACT_TIMEOUT_MS = 30_000
 
 /**
- * 解析 LLM 输出为候选列表（容错：剥 fence / 去 BOM / 找最外层对象；失败返回 []）。
+ * 提取诊断落盘能力（结构类型，只取 store 的日志方法）。
+ * 为什么不用整个 MemoryStore：提取引擎只需要「写一行日志」这一个能力，
+ * 收窄参数类型可以避免 store.ts 与 extract.ts 之间长出双向的类型依赖。
  */
-export function parseExtractOutput(raw: string): ExtractCandidate[] {
+export interface ExtractLogSink {
+  appendExtractLog(message: string): Promise<void>
+}
+
+/**
+ * 单轮提取的结果语义。
+ *
+ * 为什么要四态而不是「有候选 / 没候选」：旧实现把所有路径都塌缩成返回空数组，
+ * 于是「模型明确说没啥可记」和「LLM 挂了 / 输出截断 / JSON 解析不出来」在
+ * 调用方看来完全一样，只能一起记进失败退避计数——实测 55% 的正常空结果把
+ * 会话打成降频态，覆盖率被系统性压低，而真正的失败反而淹没在噪音里。
+ *   ok        = 拿到可用候选
+ *   ok-empty  = 调用成功但确实没有值得记的内容（正常，应清零失败计数）
+ *   parse-fail= 调用成功但输出无法解析成约定结构（失败）
+ *   llm-error = 抛错 / 超时 / finish≠stop / 无模型路由（失败）
+ */
+export type ExtractOutcome = 'ok' | 'ok-empty' | 'parse-fail' | 'llm-error'
+
+/** 提取结果（extractCandidatesWithOutcome 的返回）。 */
+export interface ExtractResult {
+  candidates: ExtractCandidate[]
+  outcome: ExtractOutcome
+  /** outcome 为 llm-error / parse-fail 时的原始原因摘要（供调用方落盘；ok/ok-empty 缺省）。 */
+  error?: string
+}
+
+/**
+ * 解析 LLM 输出为候选列表（内部实现）。
+ * 返回值三态：undefined=解析失败（不是合法 JSON / 结构不符），
+ * []=解析成功但模型判定没有值得记的内容，非空=候选。
+ */
+function parseExtractPayload(raw: string): ExtractCandidate[] | undefined {
   let text = raw.trim()
   // 剥 markdown code fence。
   const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(text)
@@ -36,16 +69,16 @@ export function parseExtractOutput(raw: string): ExtractCandidate[] {
   // 找最外层 JSON 对象。
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
-  if (start === -1 || end <= start) return []
+  if (start === -1 || end <= start) return undefined
   let parsed: unknown
   try {
     parsed = JSON.parse(text.slice(start, end + 1))
   } catch {
-    return []
+    return undefined
   }
-  if (typeof parsed !== 'object' || parsed === null) return []
+  if (typeof parsed !== 'object' || parsed === null) return undefined
   const memories = (parsed as { memories?: unknown }).memories
-  if (!Array.isArray(memories)) return []
+  if (!Array.isArray(memories)) return undefined
   const out: ExtractCandidate[] = []
   for (const item of memories) {
     if (typeof item !== 'object' || item === null) continue
@@ -64,6 +97,11 @@ export function parseExtractOutput(raw: string): ExtractCandidate[] {
     out.push({ content, scope, tags, importance })
   }
   return out
+}
+
+/** 兼容入口：解析失败与空结果都返回 []（既有调用方语义不变）。 */
+export function parseExtractOutput(raw: string): ExtractCandidate[] {
+  return parseExtractPayload(raw) ?? []
 }
 
 /** 提取 prompt：把「闲聊」与「值得记忆」分开，输出结构化 JSON。 */
@@ -93,20 +131,40 @@ export function extractUserPrompt(transcript: string): string {
 }
 
 /**
- * 通过 DSH 现有模型通道提取候选。
- * @returns 候选列表；任何失败返回 []（尽力而为的副产物）。
+ * 通过 DSH 现有模型通道提取候选，并给出可区分的四态结果。
+ *
+ * 失败一律不抛（提取是尽力而为的副产物，绝不能阻塞对话），但必须把失败原因
+ * 如实回传：调用方据此把「正常空结果」与「真失败」分开记两套退避计数。
+ *
+ * @param log 可选日志下沉口。给了就在失败路径落一行 extract.log——线上只有
+ *   debug 日志时，根本分不清「LLM 挂了」和「这轮没啥可记」。
  */
-export async function extractCandidates(
+export async function extractCandidatesWithOutcome(
   ctx: Context,
   agent: MinimalAgent,
   transcript: string,
   config: MemoryConfig,
-): Promise<ExtractCandidate[]> {
-  if (transcript.trim() === '') return []
+  log?: ExtractLogSink,
+): Promise<ExtractResult> {
+  /** 失败路径统一收口：落诊断日志 + 返回四态。日志 fire-and-forget，绝不反向打断提取。 */
+  const fail = (outcome: ExtractOutcome, detail: string): ExtractResult => {
+    if (log !== undefined) {
+      // 两层兜底缺一不可：
+      // 1) .catch 接住 appendExtractLog 内部 mkdir/appendFile 的异步失败（未处理 rejection
+      //    在 Node 24 默认终止进程）；
+      // 2) try/catch 接住日志口自身同步抛错的情况——诊断日志无论怎么写不进去，
+      //    都不能把「本轮提取失败」升级成「整个会话崩掉」。
+      try {
+        void log.appendExtractLog(`${outcome}: ${detail}`).catch(() => { /* 异步写失败就当没有 */ })
+      } catch { /* 同步抛错同样忽略 */ }
+    }
+    return { candidates: [], outcome, error: detail }
+  }
+  if (transcript.trim() === '') return { candidates: [], outcome: 'ok-empty' }
   const llm = ctx.get('llm')
-  if (llm === undefined) return []
+  if (llm === undefined) return fail('llm-error', 'llm service not available on context')
   const route = await resolveRoute(ctx, agent)
-  if (route === undefined) return []
+  if (route === undefined) return fail('llm-error', 'no LLM route (agent options unset and agentDefaultModel selection empty)')
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), EXTRACT_TIMEOUT_MS)
   try {
@@ -127,23 +185,50 @@ export async function extractCandidates(
       assembler.push(chunk)
     }
     const finish = assembler.finish
-    if (finish.kind !== 'stop') return []
+    // finish≠stop 表示超时中断或输出被截断：模型根本没走完，算真失败而不是「没内容」。
+    if (finish.kind !== 'stop') return fail('llm-error', `finish=${finish.kind} (timeout or truncated output)`)
     // 同时聚合 text 与 reasoning 块：部分推理模型（route=bai 等）在低 token
     // 预算下可能只产出 reasoning 而 text 为空，导致解析出 0 候选。
     const text = assembler.blocks()
       .filter(block => block.type === 'text' || block.type === 'reasoning')
       .map(block => (block as { text?: string }).text ?? '')
       .join(' ')
-    const candidates = parseExtractOutput(text)
+    const parsed = parseExtractPayload(text)
+    // 解析不出来 ≠ 没内容：模型可能只吐了半截 JSON 或压根没按格式来，
+    // 这属于失败（要退避降频），不能混进「正常空结果」。
+    if (parsed === undefined) {
+      return fail('parse-fail', `unparsable output (${text.length} chars): ${text.slice(0, 200)}`)
+    }
     // 应用 importance 下限 + 敏感凭据过滤（token/密钥/私钥绝不入库）。
-    return candidates.filter(candidate =>
+    const candidates = parsed.filter(candidate =>
       candidate.importance >= config.minImportance && !isSensitiveContent(candidate.content))
+    // 过滤后为空仍算 ok-empty：调用与解析都成功，只是没有可入库的候选，
+    // 这不是模型故障，不该推高失败计数。
+    return candidates.length === 0
+      ? { candidates: [], outcome: 'ok-empty' }
+      : { candidates, outcome: 'ok' }
   } catch (error) {
-    ctx.logger?.debug?.(`[dsh-memory] extract failed: ${error instanceof Error ? error.message : String(error)}`)
-    return []
+    const message = error instanceof Error ? error.message : String(error)
+    ctx.logger?.debug?.(`[dsh-memory] extract failed: ${message}`)
+    return fail('llm-error', message)
   } finally {
     clearTimeout(timer)
   }
+}
+
+/**
+ * 兼容入口：只要候选列表（既有调用方语义不变）。
+ * 新代码请改用 extractCandidatesWithOutcome——否则又退回「失败与空结果不可区分」。
+ */
+export async function extractCandidates(
+  ctx: Context,
+  agent: MinimalAgent,
+  transcript: string,
+  config: MemoryConfig,
+  log?: ExtractLogSink,
+): Promise<ExtractCandidate[]> {
+  const result = await extractCandidatesWithOutcome(ctx, agent, transcript, config, log)
+  return result.candidates
 }
 
 /** 敏感凭据模式（自动提取时命中即丢弃，防止密钥/token 入库）。 */
@@ -195,7 +280,10 @@ export function transcriptFromEvents(events: Array<{ type: string; data: unknown
       // - agent-instructions：AGENTS.md / 项目指令文件自动注入
       // - skill-catalog：DSH 技能目录（可用技能列表）自动注入
       // - skill-invocation：用户触发加载的技能内容
-      const injectedKinds = ['plugin', 'agent-instructions', 'skill-catalog', 'skill-invocation']
+      // - compact-checkpoint：DSH 官方上下文压缩后的摘要。它是模型对早前对话的
+      //   二次转述，既不是用户原话也不再是原始信息；当成 User 消息再提炼一遍，
+      //   等于把摘要的摘要写进记忆库，二手转述会一轮轮稀释掉原始事实。
+      const injectedKinds = ['plugin', 'agent-instructions', 'skill-catalog', 'skill-invocation', 'compact-checkpoint']
       if (typeof message.source?.kind === 'string' && (injectedKinds.includes(message.source.kind) || message.source.kind.startsWith('plugin:'))) continue
       lines.push(`User: ${textOfContent(message.content)}`)
     } else if (event.type === 'assistant/message') {

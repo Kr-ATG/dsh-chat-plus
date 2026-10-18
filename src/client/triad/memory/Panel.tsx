@@ -564,7 +564,12 @@ function PowerIcon({ size = 14, dim = false }: { size?: number; dim?: boolean })
   )
 }
 
-/** 重要度数值 → 条形百分比（初始 10、命中加分上不封顶；20 视为满格）。 */
+/**
+ * 重要度数值 → 条形百分比（初始 10、命中加分累积封顶 20；20 视为满格）。
+ *
+ * 满格仍取 20 而不是 10：命中加分能让条目涨到 20，若按 10 折算，
+ * 所有「被反复用到」的条目条形会一律顶格、失去区分度。
+ */
 function importancePercent(importance: number): number {
   if (!Number.isFinite(importance) || importance <= 0) return 0
   return Math.min(100, Math.round((importance / 20) * 100))
@@ -836,6 +841,17 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
 
   const handlePin = (entry: MemoryEntryView): void => {
     void run(() => apiRef.current.pin(entry.id, !entry.pinned))
+  }
+
+  /**
+   * 切换「已确认」状态。
+   *
+   * 与编辑分开：确认的语义是「用户核对了这条内容，认可它作为长期事实」，
+   * 而编辑只是改字。混在一起会让「改个标签」等于「确认」，〔待确认〕标记
+   * 从此再不出现——模型也就无法区分自己写的和用户认可过的。
+   */
+  const handleVerify = (entry: MemoryEntryView): void => {
+    void run(() => apiRef.current.verify(entry.id, !entry.verified))
   }
 
   // ── 主题化确认弹窗（替代 window.confirm：原生对话框样式/标题均不可定制） ──
@@ -1482,9 +1498,15 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
       <span className={css.chipMute}>{t(KIND_LABEL[entry.kind])}</span>
       {entry.layer === 'long' && <span className={css.chipWarn}><LayersIcon />{t('groupLongterm')}</span>}
       {entry.pinned && <span className={css.chipWarn}><PinIcon size={11} filled />{t('tabPinned')}</span>}
-      {entry.verified
-        ? <span className={css.chipOk}><VerifiedIcon />{t('verified')}</span>
-        : <span className={css.chipMute}>{t('unverified')}</span>}
+      <button
+        type="button"
+        className={entry.verified ? css.chipOkBtn : css.chipMuteBtn}
+        title={entry.verified ? t('verifyHintOn') : t('verifyHintOff')}
+        onClick={() => handleVerify(entry)}
+      >
+        {entry.verified ? <VerifiedIcon /> : null}
+        {entry.verified ? t('verified') : t('unverified')}
+      </button>
       {entry.deprecated === true && <span className={css.chipWarn}>{t('retiredTag')}</span>}
       {entry.disabled === true && <span className={css.chipMute}>{t('disabledTag')}</span>}
       <span className={css.chipTime} title={absoluteTime(entry.updatedAt)}>{relativeTime(entry.updatedAt)}</span>
@@ -1652,13 +1674,16 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
                 type="number"
                 className={css.numberInput}
                 min={1}
-                max={20}
+                max={10}
                 step={0.5}
                 value={editing.importance}
                 aria-label={t('importanceField')}
                 onChange={(event) => {
                   const next = Number(event.currentTarget.value)
-                  if (Number.isFinite(next)) setEditing({ ...editing, importance: Math.max(1, Math.min(20, next)) })
+                  // 手动评分上限 10：超过 10 的值只可能来自「命中加分累积」（封顶 20），
+                  // 那是系统对"这条确实被反复用到"的度量，不该由人手填。后端 /update
+                  // 与本处口径一致，避免 UI 放行、服务端拒绝的割裂。
+                  if (Number.isFinite(next)) setEditing({ ...editing, importance: Math.max(1, Math.min(10, next)) })
                 }}
               />
             </label>

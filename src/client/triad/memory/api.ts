@@ -130,6 +130,8 @@ export interface MemoryConfigView {
   decayLambda?: number
   hitBonus?: number
   injectTokenBudget?: number
+  /** 置顶条目最多占用的注入预算比例（0-1，默认 0.4）。 */
+  injectPinnedBudgetRatio?: number
   injectRefreshSteps?: number
   extractMaxChars?: number
   minImportance?: number
@@ -143,6 +145,8 @@ export interface MemoryConfigView {
   entryLimit?: number
   /** 从未命中自动清理（天）0=关闭；面板设置「编译与衰减」组。 */
   pruneNeverHitDays?: number
+  /** 闲置清理的分数门槛：importance ≥ 该分的条目不参与按天清理。 */
+  minImportanceForPrune?: number
   dailyCompileEnabled?: boolean
   consolidateEnabled?: boolean
   logApiRequests?: boolean
@@ -406,6 +410,14 @@ export interface MemoryApi {
   /** 相关记忆（详情面板）：以条目内容检索 top-N 相似条目（不含自身/已废弃）。 */
   related: (entryId: string, limit?: number) => Promise<{ entries: MemoryEntryView[] }>
   pin: (entryId: string, pinned: boolean) => Promise<{ ok: boolean; entry: MemoryEntryView }>
+  /**
+   * 显式确认 / 取消确认一条记忆。
+   *
+   * 与「编辑」区分开：patchEntry 曾经无条件把 verified 置 true，于是改个标签
+   * 就等于「确认过内容」，memory_search 输出里的〔待确认〕标记再也不会出现。
+   * 现在确认是一个独立动作，面板的 chip 点一下就能切换。
+   */
+  verify: (entryId: string, verified?: boolean) => Promise<{ ok: boolean; entry: MemoryEntryView }>
   enable: (entryId: string, enabled: boolean) => Promise<{ ok: boolean; entry: MemoryEntryView }>
   update: (entryId: string, patch: {
     content?: string
@@ -517,6 +529,7 @@ export function createMemoryApi(): MemoryApi {
       `/related?entryId=${encodeURIComponent(entryId)}${limit !== undefined ? `&limit=${limit}` : ''}`,
     ).then(response => ({ entries: (response.entries ?? []).map(normalizeEntry) })),
     pin: (entryId, pinned) => sendJson<{ ok: boolean; entry: MemoryEntryView }>('/pin', { entryId, pinned }).then(withEntry),
+    verify: (entryId, verified = true) => sendJson<{ ok: boolean; entry: MemoryEntryView }>('/verify', { entryId, verified }).then(withEntry),
     enable: (entryId, enabled) => sendJson<{ ok: boolean; entry: MemoryEntryView }>('/enable', { entryId, enabled }).then(withEntry),
     update: (entryId, patch) => sendJson<{ ok: boolean; entry: MemoryEntryView }>('/update', { entryId, ...patch }).then(withEntry),
     move: (entryId, target) => sendJson<{ ok: boolean; entry: MemoryEntryView }>('/move', { entryId, ...target }).then(withEntry),

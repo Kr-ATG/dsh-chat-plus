@@ -16,6 +16,7 @@ import type {
   MemoryKind,
   ProjectMeta,
   RevisionMeta,
+  SessionTickerState,
   StoreState,
 } from '../types.js'
 
@@ -120,6 +121,59 @@ export async function readJsonl<T>(file: string): Promise<T[]> {
 
 /** 修订版本保留上限（滚动清理，超过只保留最近 N 个）。 */
 const REVISION_KEEP = 20
+
+/**
+ * perSession 保留上限。
+ *
+ * state.json 实测被 1585 个会话记录撑到 205KB，而每个会话只存一个 turnCount，
+ * 全仓零清理。真正还会被再次读写的会话只有最近活跃的那几十个，裁到 500 条
+ * 既保住热点，又给这个文件一个确定的上界（否则它只随使用时长单调增长）。
+ */
+const PER_SESSION_KEEP = 500
+
+/**
+ * perSession 裁剪 + 废弃字段剥离（原地修改传入的 state）。
+ *
+ * 淘汰口径：turnCount 降序保留前 PER_SESSION_KEEP 个，同轮数按会话 id 稳定排序。
+ * state.json 里没有时间戳字段，turnCount 是唯一持久化的活跃度信号——为排序专门
+ * 加一个 lastSeenAt 反而要把每个会话记录撑大一圈，得不偿失。
+ *
+ * 剥离 lastInjectedStep：该字段随「注入改为每会话仅首步一次」而废弃，types.ts
+ * 已删除；老 state.json 里仍留着它，不剥就会跟着每次写盘一直回写到磁盘上。
+ * 用黑名单式 delete 而不是白名单重建，是为了将来给 SessionTickerState 加字段时
+ * 不会因为这里忘了同步而把新字段静默丢掉。
+ */
+function prunePerSessionState(state: StoreState): void {
+  // 坏文件（perSession 被写成数组/字符串）先兜回空表：后面所有索引访问都按对象来。
+  const raw = state.perSession as unknown
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    state.perSession = {}
+    return
+  }
+  const perSession = raw as Record<string, SessionTickerState | null | undefined>
+  // 删除走 unknown 索引：值类型含 undefined 的索引签名允许 delete，但显式断言
+  // 不依赖这条细则，读代码的人也不必先确认 TS 版本行为。
+  const mutable = perSession as unknown as Record<string, unknown>
+  const keys = Object.keys(perSession)
+  const kept: Array<{ key: string; turnCount: number }> = []
+  for (const key of keys) {
+    const value = perSession[key]
+    // 坏数据（null / 非对象）直接丢掉：读侧任何 .turnCount 都会炸。
+    if (value === null || typeof value !== 'object') {
+      delete mutable[key]
+      continue
+    }
+    delete (value as unknown as Record<string, unknown>).lastInjectedStep
+    kept.push({ key, turnCount: Number.isFinite(value.turnCount) ? value.turnCount : 0 })
+  }
+  if (kept.length <= PER_SESSION_KEEP) return
+  kept.sort((a, b) => b.turnCount - a.turnCount || a.key.localeCompare(b.key))
+  const next: Record<string, SessionTickerState> = {}
+  for (const { key } of kept.slice(0, PER_SESSION_KEEP)) {
+    next[key] = perSession[key] as SessionTickerState
+  }
+  state.perSession = next
+}
 
 /**
  * MemoryStore：所有记忆数据的读写入口。
@@ -336,13 +390,17 @@ export class MemoryStore {
       const index = entries.findIndex(entry => entry.id === id)
       if (index === -1) return undefined
       const current = entries[index]
+      // 编辑 ≠ 确认：verified 的语义是「用户显式确认过这条内容」，而手改一个
+      // 标签、点一下置顶、移个项目都不构成确认。旧实现无条件写 true，于是面板
+      // 上「待确认」标记只要被编辑过一次就永久消失，用户再也分不清哪些内容是
+      // 模型自己写的。patch 没带 verified 时展开语义会保留原值，不必显式赋值；
+      // 真要确认，由调用方在 patch 里显式传 verified: true。
       const merged: MemoryEntry = {
         ...current,
         ...patch,
         id,
         updatedAt: nowIso(),
         version: current.version + 1,
-        verified: true,
       }
       if (merged.scope === 'global') merged.projectHash = null
       const nextId = entryIdOf(merged.content, merged.scope, merged.projectHash)
@@ -504,6 +562,32 @@ export class MemoryStore {
     })
   }
 
+  /**
+   * 标记一批条目「刚被 LLM 整理处理过」，返回命中条数。
+   *
+   * 为什么要这个时间戳：整理集合原本按 updatedAt 降序取前 N 条，而整理自己产出的
+   * 合并/晋升条目又会刷新 updatedAt —— 刚整理完的永远排最前，老条目永远轮不到
+   * （饥饿）。改成按 lastConsolidatedAt 升序（null 最优先）后，每条都能被均匀轮转。
+   *
+   * 走 mutateEntries 复用同一条节流回刷队列，不另开写盘路径。
+   * 目标 id 不存在时静默跳过：整理过程会重算 id（内容变则 id 变），调用方手里的
+   * 是整理前的 id，部分失配属正常，不该让整批标记失败。
+   */
+  async markConsolidated(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0
+    const target = new Set(ids)
+    return this.mutateEntries(entries => {
+      const now = nowIso()
+      let count = 0
+      for (const entry of entries) {
+        if (!target.has(entry.id)) continue
+        entry.lastConsolidatedAt = now
+        count += 1
+      }
+      return count
+    })
+  }
+
   /** 原子替换全部条目（ticker 每日编译等批量场景；fn 返回新数组）。 */
   async replaceEntries(fn: (entries: MemoryEntry[]) => Promise<MemoryEntry[]> | MemoryEntry[]): Promise<MemoryEntry[]> {
     const next = await fn(this.entries)
@@ -600,6 +684,13 @@ export class MemoryStore {
     await this.appendLog('api', `[${nowIso()}] ${message}`)
   }
 
+  /**
+   * 读 ticker 状态。
+   *
+   * 读侧就做裁剪（而不是只在写侧）：所有写路径都是「readState → 改 → writeState」，
+   * 只要读出来的快照已经是裁剪过的，下一次写盘就自然把上界落地——不必为清理
+   * 额外造一条写路径。代价只是每次读多一次 O(n) 排序（n 是会话数，量级 1e3）。
+   */
   async readState(): Promise<StoreState> {
     const state = await readJson<StoreState>(this.stateFile(), {
       schemaVersion: 1,
@@ -607,10 +698,13 @@ export class MemoryStore {
       lastDailyDate: null,
     })
     if (state.perSession === undefined || state.perSession === null) state.perSession = {}
+    prunePerSessionState(state)
     return state
   }
 
+  /** 写 ticker 状态（写前同样裁剪：调用方可能自己拼了一个未裁剪的 state）。 */
   async writeState(state: StoreState): Promise<void> {
+    prunePerSessionState(state)
     await atomicWriteJson(this.stateFile(), state)
   }
 
@@ -884,7 +978,11 @@ export class MemoryStore {
 
   /**
    * 写入一个修订快照（整理前调用），返回修订 id。
-   * 保存 meta + 全量 entries，回滚时直接整体恢复。
+   *
+   * 快照仍是**全量** entries，但 meta.scope 记下这次整理动的是哪个范围
+   * （global / project:<hash> / all）——回滚时据此只覆盖该范围，见 restoreRevision。
+   * 不做「只存本 scope 条目」的瘦身：条目会跨 scope 迁移（面板「移项目」），
+   * 只存本 scope 的话回滚时找不到那些被移走/移入的条目，反而要猜。
    */
   async writeRevision(input: { entries: MemoryEntry[]; scope: string; trigger: 'daily' | 'manual' }): Promise<string> {
     const id = `rev_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`
@@ -925,11 +1023,53 @@ export class MemoryStore {
     return data.entries
   }
 
-  /** 回滚到某修订（整体恢复 entries，走写串行队列）。返回是否成功。 */
+  /** 读修订快照的元数据（回滚要据此判断范围）；不存在返回 null。 */
+  async readRevisionMeta(id: string): Promise<RevisionMeta | null> {
+    const data = await readJson<{ meta?: RevisionMeta } | null>(join(this.revisionsDir(), `${id}.json`), null)
+    const meta = data?.meta
+    if (meta === undefined || meta === null || typeof meta.id !== 'string') return null
+    return meta
+  }
+
+  /**
+   * 回滚到某修订。返回是否成功。
+   *
+   * 按快照 meta.scope 只替换该范围内的条目，其余 scope 原样保留：
+   * 整理是逐 scope 跑的（consolidateScope 一次只动 global 或某个 project），
+   * 而快照存的是全量。整库替换等于把「整理 A 项目之后、B 项目里新记下的记忆」
+   * 一起抹掉——用户回滚一次整理，丢掉的是完全无关的另一个项目的记忆。
+   * scope === 'all' 才是真的整库整理，此时保留原有的整库回滚语义。
+   */
   async restoreRevision(id: string): Promise<boolean> {
     const entries = await this.readRevisionEntries(id)
     if (entries === null) return false
-    await this.replaceEntries(() => entries)
+    const meta = await this.readRevisionMeta(id)
+    // 老快照（本改动之前写入）没有 scope 语义保证时按整库回滚，保持旧行为。
+    const scope = meta?.scope ?? 'all'
+    if (scope === 'all') {
+      await this.replaceEntries(() => entries)
+      return true
+    }
+    const matcher = scopeMatcher(scope)
+    if (matcher === null) {
+      // 认不出的 scope 标签：退回整库回滚，宁可多覆盖也不要「回滚了却没变化」。
+      await this.replaceEntries(() => entries)
+      return true
+    }
+    // 收窄后另存一个非空局部量：下面要在两个箭头函数闭包里用它，
+    // 不依赖「TS 是否保留闭包内 const 窄化」这条细则。
+    const belongs: (entry: MemoryEntry) => boolean = matcher
+    const scoped = entries.filter(belongs)
+    // 保留侧再按 id 剔一遍：id 含 scope+projectHash，正常情况两侧不会撞，但快照是
+    // 磁盘文件（可能被旧版本或手工改出重复 id）。一旦撞上，数组里同一个 id 出现
+    // 两次，后续按 id 查找永远命中先出现的那个旧版本——表现为「改了没反应」。
+    const scopedIds = new Set(scoped.map(entry => entry.id))
+    await this.replaceEntries(current => [
+      // 先保留当前库中不属于该 scope 的条目（含回滚之后新增的），
+      // 再用快照里属于该 scope 的条目覆盖该范围。
+      ...current.filter(entry => !belongs(entry) && !scopedIds.has(entry.id)),
+      ...scoped,
+    ])
     return true
   }
 
@@ -972,6 +1112,23 @@ export class MemoryStore {
       await atomicWriteText(join(dir, `${name}.md`), content)
     }
   }
+}
+
+/**
+ * 把修订快照的 scope 标签解析成「这条条目是否属于该范围」的判定函数。
+ *
+ * 标签格式由 consolidate.ts 的 scopeLabel 产出：global / project:<hash> / all。
+ * 认不出（旧版本写入的自由文本、hash 为空）时返回 null，调用方据此退回整库回滚——
+ * 与其按猜出来的范围「回滚了却没变化」，不如老实按老行为整库恢复。
+ */
+function scopeMatcher(scope: string): ((entry: MemoryEntry) => boolean) | null {
+  if (scope === 'global') return entry => entry.scope === 'global'
+  if (scope.startsWith('project:')) {
+    const hash = scope.slice('project:'.length).trim()
+    if (hash === '') return null
+    return entry => entry.scope === 'project' && entry.projectHash === hash
+  }
+  return null
 }
 
 /** 合并标签（保留旧标签 + 新标签，去重，上限 8）。 */
@@ -1047,6 +1204,10 @@ function migrateEntries(entries: unknown): MemoryEntry[] {
       kind: isMemoryKind(entry.kind) ? entry.kind : inferKind(entry.tags),
       provenance: entry.provenance,
       embedding: Array.isArray(entry.embedding) ? entry.embedding : undefined,
+      // 整理轮转时间戳：白名单式重建，这里漏带一次，老数据每次读盘都会丢该字段，
+      // 表现为「整理永远从最早那批开始」的饥饿修不掉。未整理过时留 undefined，
+      // JSON.stringify 会忽略它，正好等于「没整理过」的语义。
+      lastConsolidatedAt: typeof entry.lastConsolidatedAt === 'string' ? entry.lastConsolidatedAt : undefined,
       // disabled 是可选字段：仅 true 时保留（undefined=启用，落盘不冗余）。
       ...(entry.disabled === true ? { disabled: true } : {}),
       // schema v3：软废弃字段（仅真实废弃时保留）。

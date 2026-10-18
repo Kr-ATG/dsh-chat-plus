@@ -21,6 +21,7 @@ const BOUNDS = {
   decayLambda: { min: 0, max: 0.5, step: 0.01 },
   hitBonus: { min: 0, max: 10, step: 0.5 },
   injectTokenBudget: { min: 1000, max: 60000, step: 500 },
+  injectPinnedBudgetRatio: { min: 0, max: 1, step: 0.05 },
   extractMaxChars: { min: 500, max: 60000, step: 500 },
   minImportance: { min: 1, max: 10, step: 0.5 },
   consolidateMaxEntries: { min: 10, max: 2000, step: 10 },
@@ -28,6 +29,7 @@ const BOUNDS = {
   injectTopK: { min: 1, max: 50, step: 1 },
   entryLimit: { min: 50, max: 100000, step: 50 },
   pruneNeverHitDays: { min: 0, max: 3650, step: 1 },
+  minImportanceForPrune: { min: 1, max: 10, step: 0.5 },
 } as const
 
 /** 数值字段名。 */
@@ -213,6 +215,7 @@ export function SettingsTab({ config, busy = false, t, onPatch, onReset, listMod
         <SwitchRow label={t('injectDefaultOn')} hint={t('injectDefaultHint')} value={config.injectDefaultEnabled !== false} disabled={busy} onChange={setBool('injectDefaultEnabled')} />
         <NumberRow label={t('cfgInjectTopK')} hint={t('cfgInjectTopKHint')} field="injectTopK" value={num('injectTopK')} t={t} onCommit={setNum('injectTopK')} />
         <NumberRow label={t('cfgInjectTokenBudget')} field="injectTokenBudget" value={num('injectTokenBudget')} t={t} onCommit={setNum('injectTokenBudget')} />
+        <NumberRow label={t('cfgPinnedBudgetRatio')} hint={t('cfgPinnedBudgetRatioHint')} field="injectPinnedBudgetRatio" value={num('injectPinnedBudgetRatio') ?? 0.4} t={t} onCommit={setNum('injectPinnedBudgetRatio')} />
       </section>
 
       <section className={css.settingsGroup}>
@@ -231,6 +234,7 @@ export function SettingsTab({ config, busy = false, t, onPatch, onReset, listMod
         <NumberRow label={t('cfgHitBonus')} field="hitBonus" value={num('hitBonus')} t={t} onCommit={setNum('hitBonus')} />
         <NumberRow label={t('cfgEntryLimit')} hint={t('cfgEntryLimitHint')} field="entryLimit" value={num('entryLimit')} t={t} onCommit={setNum('entryLimit')} />
         <NumberRow label={t('cfgPruneNeverHit')} hint={t('cfgPruneNeverHitHint')} field="pruneNeverHitDays" value={num('pruneNeverHitDays') ?? 21} t={t} onCommit={setNum('pruneNeverHitDays')} />
+        <NumberRow label={t('cfgMinImportanceForPrune')} hint={t('cfgMinImportanceForPruneHint')} field="minImportanceForPrune" value={num('minImportanceForPrune') ?? 7} t={t} onCommit={setNum('minImportanceForPrune')} />
       </section>
 
       <section className={css.settingsGroup}>

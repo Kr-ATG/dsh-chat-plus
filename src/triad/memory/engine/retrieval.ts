@@ -59,25 +59,43 @@ export function keywordHit(query: string, entry: MemoryEntry): boolean {
   return terms.every(term => hay.includes(term))
 }
 
-/** 元数据加权系数（verified 优先；confidence/importance 缩放）。 */
+/**
+ * 元数据加权系数（**只做微调**，不主导排序）。
+ *
+ * 旧实现是 `(0.5 + confidence*0.5) * (0.5 + importance/20)`：
+ *   · importance=20 → 系数 1.5，importance=6 → 0.8，接近 2 倍 —— 足以让
+ *     「高分但完全不相关」的条目压过「低分但正好相关」的，检索结果被分数绑架；
+ *   · confidence 实测恒为 0.6（抽取侧）或 1（手动），是常数项，零区分度却
+ *     在公式里占了一个乘法因子，等于给所有条目乘同一个数。
+ * 现在压缩到 ±10% 以内：让相似度决定排序，元数据只在同分附近打破平局。
+ */
 function metaWeight(entry: MemoryEntry): number {
   let w = 1
-  if (entry.verified) w *= 1.15
-  const confidence = Number.isFinite(entry.confidence) ? entry.confidence : 0.6
+  if (entry.verified) w *= 1.05
   const importance = Number.isFinite(entry.importance) ? entry.importance : 10
-  w *= 0.5 + confidence * 0.5
-  w *= 0.5 + importance / 20
+  w *= 0.95 + Math.min(10, Math.max(0, importance)) / 100
   return w
 }
 
-/** 综合评分：n-gram 相似度 + 精确命中强加成 + 元数据加权。 */
+/**
+ * 综合评分：n-gram 相似度 + 精确命中加成 + 元数据微调。
+ *
+ * 相似度用「query 覆盖度」与 Jaccard 的加权，而不是纯 Jaccard：
+ * Jaccard 的分母是两边并集，**长条目的分母天然更大**，于是短条目被系统性抬高
+ * ——实测库里 60 字的条目比 600 字的条目更容易命中，哪怕后者才真正回答了问题。
+ * 覆盖度 `|q∩h| / |q|` 不受内容长度影响，能把这个偏置拉平。
+ */
 function hybridScore(query: string, entry: MemoryEntry): number {
   const q = normalize(query)
   if (q.trim() === '') return metaWeight(entry)
   const qGrams = ngrams(q)
   const hay = normalize(`${entry.content} ${entry.tags.join(' ')}`)
   const hGrams = ngrams(hay)
-  let score = jaccard(qGrams, hGrams)
+  let inter = 0
+  for (const gram of qGrams) if (hGrams.has(gram)) inter += 1
+  const coverage = qGrams.size === 0 ? 0 : inter / qGrams.size
+  const jac = jaccard(qGrams, hGrams)
+  let score = coverage * 0.6 + jac * 0.4
   if (keywordHit(query, entry)) score = Math.max(score, 0.5) + 0.3
   return score * metaWeight(entry)
 }
