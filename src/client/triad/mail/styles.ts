@@ -180,8 +180,6 @@ const SHEET = `
 .dsh-mail-top-btn:hover{background:var(--m-side-hover);color:var(--m-text)}
 .dsh-mail-top-btn:active{transform:scale(.96)}
 .dsh-mail-top-btn[data-busy='true'] svg{animation:dsh-mail-spin 900ms linear infinite}
-.dsh-mail-top-btn[data-watch='true']{color:var(--m-ok);border-color:color-mix(in srgb,var(--m-ok) 40%,transparent);background:color-mix(in srgb,var(--m-ok) 10%,transparent)}
-.dsh-mail-top-btn[data-watch='true']::after{content:'';position:absolute;top:5px;right:5px;width:6px;height:6px;border-radius:50%;background:var(--m-ok);animation:dsh-mail-pulse 1.8s ease-in-out infinite}
 .dsh-mail-close{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border:none;border-radius:9px;background:transparent;color:var(--m-text-2);cursor:pointer;transition:background .16s ease,color .16s ease,transform .12s ease}
 .dsh-mail-close:hover{background:var(--m-side-hover);color:var(--m-text)}
 .dsh-mail-close:active{transform:scale(.94)}
@@ -374,7 +372,6 @@ const SHEET = `
 @keyframes dsh-mail-fade{from{opacity:0}to{opacity:1}}
 @keyframes dsh-mail-toast-in{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes dsh-mail-spin{to{transform:rotate(360deg)}}
-@keyframes dsh-mail-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.42;transform:scale(.86)}}
 @keyframes dsh-mail-dot{0%,100%{opacity:1;box-shadow:0 0 0 0 color-mix(in srgb,var(--m-primary) 45%,transparent)}50%{opacity:.72;box-shadow:0 0 0 4px transparent}}
 @keyframes dsh-mail-shimmer{0%{background-position:100% 0}100%{background-position:0 0}}
 /* 减弱动效：只关动画 —— 绝不用 opacity:0 / visibility:hidden 之类藏内容，

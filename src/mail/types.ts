@@ -136,22 +136,25 @@ export type WriteReplay =
   | { action: 'trash'; id: string }
   | { action: 'delete'; id?: string; all?: boolean }
 
-/** 运行时配置（可被 cordis.patch.yml / 面板覆盖）。 */
+/**
+ * 运行时配置（可被 cordis.patch.yml / 面板覆盖）。
+ *
+ * 2026-10-18 删除 `watchEnabled`（连同整条「新邮件实时监听」）：那条能力跑起来
+ * 就是一个 `agently-cli message +watch` 常驻长轮询进程，而它产出的全部价值只有
+ * 「面板开着时弹一个 toast」。面板一关什么都没发生（没有系统通知、没有侧栏角标、
+ * 对话流里也看不见），而未读数本来就由 list 自带。
+ *
+ * 更要命的是它还会误报：事件缓冲从不清空，面板每次挂载都把历史事件当新邮件弹一遍。
+ * 代价（常驻进程 + 一条假提示）明显大过收益，所以整块删掉，而不是修。
+ *
+ * 老用户 config.json 里残留的 `watchEnabled` 由 applyMailConfigOverrides 的
+ * 「只认已知键」策略自然忽略，不需要迁移。
+ */
 export interface MailConfig {
   /** 总开关：关掉后工具与路由都不注册（插件其余能力不受影响）。 */
   enabled: boolean
   /** 对话首步是否注入「邮箱身份 + 使用约定」。 */
   injectEnabled: boolean
-  /**
-   * 是否常驻监听新邮件（`agently-cli message +watch` 长轮询）。
-   *
-   * **默认关闭**，理由两条：
-   *  1. watch 是常驻子进程，默认就起等于「装上插件就多一个长跑进程」，冒烟测试
-   *     与 CI 也会被它吊住不退出；
-   *  2. 未读角标靠 30 秒一次的 list 轮询已经够用，实时推送属于「用户要了才要」
-   *     的能力。用户在面板顶栏点铃铛开启后写入配置，此后每次启动自动起。
-   */
-  watchEnabled: boolean
   /** 附件默认下载目录（绝对路径；缺省 DSH storages 下）。 */
   downloadDir?: string
   /** CLI 调用超时（毫秒）。 */
@@ -162,7 +165,6 @@ export interface MailConfig {
 export const DEFAULT_MAIL_CONFIG: MailConfig = {
   enabled: true,
   injectEnabled: true,
-  watchEnabled: false,
   timeoutMs: 60_000,
 }
 
@@ -171,7 +173,6 @@ export function applyMailConfigOverrides(config: MailConfig, patch: Partial<Mail
   if (patch === undefined) return config
   if (typeof patch.enabled === 'boolean') config.enabled = patch.enabled
   if (typeof patch.injectEnabled === 'boolean') config.injectEnabled = patch.injectEnabled
-  if (typeof patch.watchEnabled === 'boolean') config.watchEnabled = patch.watchEnabled
   if (typeof patch.downloadDir === 'string' && patch.downloadDir.trim() !== '') config.downloadDir = patch.downloadDir.trim()
   if (typeof patch.timeoutMs === 'number' && Number.isFinite(patch.timeoutMs) && patch.timeoutMs >= 5_000) {
     config.timeoutMs = Math.min(600_000, Math.round(patch.timeoutMs))

@@ -191,7 +191,7 @@ try {
   // 「6 个 mail_* 工具都注册」断言就会跟着失败 —— 那是配置生效的正确行为，
   // 不是缺陷。冒烟测的是「插件能不能把工具挂上」，所以这里把开关钉成 true，
   // 让结果只取决于代码本身，不取决于跑测试时用户恰好把开关拨到哪边。
-  mod.apply(ctx, { mail: { enabled: true, injectEnabled: true, watchEnabled: false } })
+  mod.apply(ctx, { mail: { enabled: true, injectEnabled: true } })
   pass('apply(ctx) completed without throwing')
   const deadline = Date.now() + 3000
   while (Date.now() < deadline && ![...routes.keys()].some((p) => p.startsWith('/api/dsh-memory'))) {
@@ -1327,9 +1327,25 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
    */
   need(/ctx\.effect\(\(\)\s*=>\s*\(\)\s*=>\s*\{[^}]*toolsDispose/.test(mailIndexSrc),
     'ctx.effect 的注销回调必须包一层（外层立即执行，裸写会在注册下一行就把工具注销掉）')
-  // watchEnabled 是独立键：只拨它时不能被 enabled 的「未变化」早退吞掉。
-  need(/mountedWatch/.test(mailIndexSrc),
-    'watchEnabled 单独跟踪（只拨铃铛时不会被 enabled 未变的早退吞掉）')
+  /*
+   * 2026-10-18 反向断言：「新邮件实时监听」整块删掉后不得复活。
+   *
+   * 那条能力跑起来是一个 agently-cli message +watch 常驻长轮询进程，产出只有
+   * 「面板开着时弹一个 toast」，面板一关什么都没有；而且事件缓冲从不清空，
+   * 每次打开面板都会把历史事件当新邮件误报一遍。删掉是用户点名的决定（方案 A），
+   * 所以这里钉死：源码里不该再出现 watcher / watchEnabled / 事件缓冲。
+   */
+  need(!/MailWatcher|watchEnabled|mountedWatch|startWatch/.test(mailIndexSrc),
+    '邮箱装配层不得再有 watch（新邮件实时监听已整块下线，别复活常驻长轮询进程）')
+  need(!/listEvents|pushEvent|clearEvents/.test(readFileSync(resolve(ROOT, 'src/mail/store.ts'), 'utf8')),
+    'MailStore 不得再有新邮件事件缓冲（它从不清空，是「每次开面板误报新邮件」的根因）')
+  // 必须剥注释再判：文件头注释里**叙述**了「删掉 /events 与 /watch」，那是
+  // 解释不是代码，拿全文匹配会变成「越解释越违规」。
+  const mailApiClean = readFileSync(resolve(ROOT, 'src/mail/api.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+  need(!/rest === '\/events|rest === '\/watch/.test(mailApiClean),
+    '邮箱路由不得再挂 /events 与 /watch（功能下线了，路由留着就是给不存在的能力开后门）')
 
   // ④ 跨模块状态槽位：记忆卡片读邮箱状态不能走 ctx 赋值（cordis 会 throw）。
   need(/setMailStatusSource/.test(mailIndexSrc) && /clearMailStatusSource/.test(mailIndexSrc),

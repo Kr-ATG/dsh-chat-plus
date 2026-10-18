@@ -8,7 +8,7 @@
  *  1. store 先 load（待确认操作要能续上）；
  *  2. 解析配置（默认 → config.json → cordis.patch.yml 的 mail 段）；
  *  3. 路由恒挂（诊断面：关掉总开关后用户还得靠面板把它打开）；
- *  4. **工具与 watch 随 `enabled` 动态挂/卸**——面板上拨开关立即生效，
+ *  4. **工具随 `enabled` 动态挂/卸**——面板上拨开关立即生效，
  *     不需要重启 DSH（历史缺陷：`enabled` 是启动期装配开关，拨了界面显示
  *     已启用、运行中的进程毫无变化，用户只能靠重启，且看不到任何提示）；
  *  5. 其余模块各自 try/catch：一个挂不上不影响插件其它能力。
@@ -19,7 +19,6 @@
 
 import { MailService } from './service.js'
 import { MailStore } from './store.js'
-import { MailWatcher } from './watch.js'
 import { mountMailRoutes } from './api.js'
 import { registerMailTools } from './tools.js'
 import { createMailInjector } from './inject.js'
@@ -34,7 +33,6 @@ export interface MailHostConfig extends Partial<MailConfig> {}
 export interface MailHostHandle {
   service: MailService
   store: MailStore
-  watcher: MailWatcher
   config: MailConfig
   /** 当前是否已挂工具（诊断用：面板据此显示真实生效状态）。 */
   toolsMounted: () => boolean
@@ -49,14 +47,13 @@ export async function applyMailHost(ctx: MailHostContext, input: MailHostConfig 
   await store.load()
   const config = await store.resolveConfig(input)
   const service = new MailService(store, config, input)
-  const watcher = new MailWatcher(store, ctx.logger)
 
   // ── 路由（诊断面恒挂：关掉总开关后用户还得靠面板把它打开） ──────────
-  const routesDispose = mountMailRoutes(ctx, service, store, watcher)
+  const routesDispose = mountMailRoutes(ctx, service, store)
   ctx.effect(() => routesDispose, 'dsh-mail: routes')
 
   /*
-   * ── 工具与 watch 的动态挂/卸 ──────────────────────────────────────
+   * ── 工具的动态挂/卸 ──────────────────────────────────────────────
    *
    * `enabled` 的语义是「模型能不能用邮箱」，它必须**运行时**可改：
    * 面板上那个开关点了就生效，而不是「写进配置、等下次重启」。历史上它被
@@ -64,60 +61,41 @@ export async function applyMailHost(ctx: MailHostContext, input: MailHostConfig 
    * 而进程里什么都没发生 —— 用户唯一的出路是重启 DSH，且无从判断自己
    * 到底成功没有。
    *
-   * 这里订阅 service 的配置变更：打开就注册工具 + 起 watch，关掉就卸工具
-   * + 停 watch。装配期的第一次同步调用让「启动时就是开/关」与「运行中拨动」
-   * 走同一条代码路径（两条路径分开写必然有一边漏测）。
+   * 这里订阅 service 的配置变更：打开就注册工具，关掉就卸工具。装配期的
+   * 第一次同步调用让「启动时就是开/关」与「运行中拨动」走同一条代码路径
+   * （两条路径分开写必然有一边漏测）。
    */
   let toolsDispose: (() => void) | null = null
   let mountedEnabled: boolean | null = null
-  /** 上一次同步时的 watchEnabled（与 enabled 分开记：两个键各自独立变化）。 */
-  let mountedWatch: boolean | null = null
 
   const syncEnabled = (next: MailConfig): void => {
-    // enabled 未变时**不能直接 return**：watchEnabled 是另一个键，用户可能只拨了
-    // 那一个（面板顶栏的铃铛），早退会让它静默不生效。
-    const enabledChanged = mountedEnabled !== next.enabled
-    const watchChanged = mountedWatch !== next.watchEnabled
-    if (!enabledChanged && !watchChanged) return
+    if (mountedEnabled === next.enabled) return
     mountedEnabled = next.enabled
-    mountedWatch = next.watchEnabled
-    if (enabledChanged) {
-      if (next.enabled) {
-        // 模型工具
-        try {
-          toolsDispose = registerMailTools(ctx, service)
-          /*
-           * 注意这层多出来的箭头：`ctx.effect(cb)` 是**立即执行** cb、把它的
-           * 返回值当 disposer。写成 `ctx.effect(() => { toolsDispose?.(); ... })`
-           * 会在注册的下一行就把刚挂上的工具全注销掉（cb 立刻跑），而且是静默的
-           * —— 模型看不见 mail_*，路由却一切正常。必须包一层：外层立即执行、
-           * 返回内层函数作为真正的 disposer。
-           */
-          ctx.effect(() => () => { toolsDispose?.(); toolsDispose = null }, 'dsh-mail: tools')
-          ctx.logger?.info?.('[dsh-mail] tools registered')
-        } catch (error) {
-          toolsDispose = null
-          ctx.logger?.warn?.(`[dsh-mail] tools failed to register: ${error instanceof Error ? error.message : String(error)}`)
-        }
-      } else {
-        try {
-          toolsDispose?.()
-        } catch (error) {
-          ctx.logger?.warn?.(`[dsh-mail] tools failed to unregister: ${error instanceof Error ? error.message : String(error)}`)
-        }
-        toolsDispose = null
-        ctx.logger?.info?.('[dsh-mail] disabled by config: tools unregistered')
-      }
-    }
-    // watch 只跟随 enabled：总开关关着时不该起常驻子进程。
-    if (next.enabled && next.watchEnabled) {
+    if (next.enabled) {
+      // 模型工具
       try {
-        watcher.start()
+        toolsDispose = registerMailTools(ctx, service)
+        /*
+         * 注意这层多出来的箭头：`ctx.effect(cb)` 是**立即执行** cb、把它的
+         * 返回值当 disposer。写成 `ctx.effect(() => { toolsDispose?.(); ... })`
+         * 会在注册的下一行就把刚挂上的工具全注销掉（cb 立刻跑），而且是静默的
+         * —— 模型看不见 mail_*，路由却一切正常。必须包一层：外层立即执行、
+         * 返回内层函数作为真正的 disposer。
+         */
+        ctx.effect(() => () => { toolsDispose?.(); toolsDispose = null }, 'dsh-mail: tools')
+        ctx.logger?.info?.('[dsh-mail] tools registered')
       } catch (error) {
-        ctx.logger?.warn?.(`[dsh-mail] watcher failed to start: ${error instanceof Error ? error.message : String(error)}`)
+        toolsDispose = null
+        ctx.logger?.warn?.(`[dsh-mail] tools failed to register: ${error instanceof Error ? error.message : String(error)}`)
       }
     } else {
-      watcher.stop()
+      try {
+        toolsDispose?.()
+      } catch (error) {
+        ctx.logger?.warn?.(`[dsh-mail] tools failed to unregister: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      toolsDispose = null
+      ctx.logger?.info?.('[dsh-mail] disabled by config: tools unregistered')
     }
   }
 
@@ -154,9 +132,6 @@ export async function applyMailHost(ctx: MailHostContext, input: MailHostConfig 
   } catch (error) {
     ctx.logger?.warn?.(`[dsh-mail] injector failed to mount: ${error instanceof Error ? error.message : String(error)}`)
   }
-
-  // ── 卸载时收掉常驻 watch 进程 ───────────────────────────────────────
-  ctx.effect(() => () => { watcher.stop() }, 'dsh-mail: watch cleanup')
 
   /*
    * ── 跨模块状态槽位（供记忆侧的「内置提示词通道」卡片读）─────────────
@@ -218,7 +193,6 @@ export async function applyMailHost(ctx: MailHostContext, input: MailHostConfig 
   return {
     service,
     store,
-    watcher,
     config,
     toolsMounted: () => toolsDispose !== null,
   }

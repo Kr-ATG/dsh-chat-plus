@@ -45,7 +45,6 @@ export interface MailAccountView {
 export interface MailConfigView {
   enabled: boolean
   injectEnabled: boolean
-  watchEnabled: boolean
   /** 生效的附件保存目录（含用户覆盖）。 */
   downloadDir: string
   /** 工厂默认目录（设置页「恢复默认」回到这里）。 */
@@ -57,7 +56,6 @@ export interface MailConfigView {
   cliVersion: string | null
   dataDir: string
   tools: string[]
-  watching: boolean
 }
 
 /** 目录校验结果（真的试写一下，不是只看存在）。 */
@@ -114,14 +112,6 @@ export type MailWriteOutcome =
   | { status: 'pending'; token: string; summary: string; preview: Record<string, unknown> }
   | { status: 'done'; detail: Record<string, unknown> }
 
-/** 新邮件事件。 */
-export interface MailEventView {
-  message_id?: string
-  dir?: string
-  occurred_at?: string
-  at: number
-}
-
 /** 统一回包形状。 */
 type Envelope<T> = { ok: true } & T | { ok: false; error: string; needsAuth?: boolean; code?: number | null }
 
@@ -129,7 +119,7 @@ type Envelope<T> = { ok: true } & T | { ok: false; error: string; needsAuth?: bo
 export interface MailApi {
   account(): Promise<MailAccountView>
   config(): Promise<MailConfigView>
-  updateConfig(patch: Partial<Pick<MailConfigView, 'enabled' | 'injectEnabled' | 'watchEnabled' | 'downloadDir' | 'timeoutMs'>> & { reset?: boolean }): Promise<MailConfigView>
+  updateConfig(patch: Partial<Pick<MailConfigView, 'enabled' | 'injectEnabled' | 'downloadDir' | 'timeoutMs'>> & { reset?: boolean }): Promise<MailConfigView>
   /** 目录可用性预检（真的试写一下）。 */
   verifyDir(path: string): Promise<DirVerdict>
   list(query: { dir: string; limit?: number; cursor?: string; hasAttachments?: boolean; isUnread?: boolean; cache?: boolean }): Promise<MailPageView>
@@ -141,10 +131,6 @@ export interface MailApi {
   trash(id: string, confirmationToken?: string): Promise<MailWriteOutcome>
   remove(payload: { id?: string; all?: boolean; confirmationToken?: string }): Promise<MailWriteOutcome>
   downloadAttachment(payload: { msg: string; att?: string; downloadUrl?: string; outputDir?: string }): Promise<{ savedTo?: string; downloadUrl?: string; filename?: string; size?: number }>
-  /** 新邮件事件（watch 缓冲）+ 监听是否在跑。 */
-  events(): Promise<{ events: MailEventView[]; watching: boolean }>
-  clearEvents(): Promise<void>
-  setWatch(enabled: boolean): Promise<boolean>
 }
 
 /** 网络/业务错误（needsAuth 时 UI 显示「去授权」引导）。 */
@@ -269,17 +255,6 @@ export function createMailApi(): MailApi {
         '/api/dsh-mail/attachment',
         { method: 'POST', body: JSON.stringify(payload) },
       )
-    },
-    async events() {
-      const data = await request<{ events: MailEventView[]; watching: boolean }>('/api/dsh-mail/events')
-      return { events: data.events, watching: data.watching }
-    },
-    async clearEvents() {
-      await request<{ ok: true }>('/api/dsh-mail/events/clear', { method: 'POST', body: '{}' })
-    },
-    async setWatch(enabled) {
-      const data = await request<{ watching: boolean }>('/api/dsh-mail/watch', { method: 'POST', body: JSON.stringify({ enabled }) })
-      return data.watching
     },
   }
 }

@@ -20,10 +20,11 @@
  *   GET  /api/dsh-mail/pending            待确认操作列表
  *   POST /api/dsh-mail/pending/confirm    body: { token } —— 执行（host 原样重放参数）
  *   POST /api/dsh-mail/pending/cancel     body: { token }
- *   GET  /api/dsh-mail/events             新邮件事件（watch 缓冲）
- *   POST /api/dsh-mail/events/clear
- *   POST /api/dsh-mail/watch              起停新邮件监听（body: { enabled })
  *   GET  /api/dsh-mail/diagnose           CLI 路径/版本/数据目录（排查用）
+ *
+ * 2026-10-18 删掉三条：GET /events、POST /events/clear、POST /watch。它们只服务
+ * 「新邮件实时监听」，而那条能力已整块下线（判据见 types.ts 里 watchEnabled 的
+ * 删除说明）。路由留着等于给一个不存在的功能留后门，还会让面板误以为能拨它。
  *
  * 写操作的路由与工具**共用** MailService 的两阶段确认语义：不带
  * confirmationToken 的 POST 只拿令牌，带 token 才真正执行。面板上的「确认」
@@ -39,7 +40,6 @@ import type { MailHostContext } from './context.js'
 import type { MailService } from './service.js'
 import type { MailConfig, MailDir } from './types.js'
 import type { MailStore } from './store.js'
-import type { MailWatcher } from './watch.js'
 
 /** 路由前缀（与其它工作台并列，互不冲突）。 */
 export const MAIL_ROUTE_PREFIX = '/api/dsh-mail'
@@ -49,12 +49,11 @@ export function mountMailRoutes(
   ctx: MailHostContext,
   service: MailService,
   store: MailStore,
-  watcher: MailWatcher,
 ): () => void {
   return ctx.webServer.register({
     kind: 'prefix',
     path: MAIL_ROUTE_PREFIX,
-    handler: (req, res) => { void handle(ctx, service, store, watcher, req, res) },
+    handler: (req, res) => { void handle(ctx, service, store, req, res) },
   })
 }
 
@@ -158,7 +157,6 @@ async function handle(
   ctx: MailHostContext,
   service: MailService,
   store: MailStore,
-  watcher: MailWatcher,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
@@ -193,7 +191,6 @@ async function handle(
           cliVersion: await probeCliVersion(),
           dataDir: store.root,
           tools: MAIL_TOOL_NAMES,
-          watching: watcher.isRunning(),
           // 附件保存位置：生效目录（含用户覆盖）与工厂默认目录都给前端，
           // 设置页要能显示「当前」并支持「恢复默认」。
           downloadDir: service.defaultDownloadDir(),
@@ -208,7 +205,6 @@ async function handle(
       const patch: Partial<MailConfig> = {}
       if (typeof body.enabled === 'boolean') patch.enabled = body.enabled
       if (typeof body.injectEnabled === 'boolean') patch.injectEnabled = body.injectEnabled
-      if (typeof body.watchEnabled === 'boolean') patch.watchEnabled = body.watchEnabled
       if (typeof body.timeoutMs === 'number') patch.timeoutMs = body.timeoutMs
       if (body.reset === true) {
         await store.writeConfig({})
@@ -252,7 +248,6 @@ async function handle(
         dataDir: store.root,
         account: await service.account(),
         pending: (await service.pending()).length,
-        events: (await store.listEvents()).length,
       })
       return
     }
@@ -413,24 +408,6 @@ async function handle(
       json(res, 200, { ok: true, outcome: await service.confirmPending(token) })
       return
     }
-    if (method === 'GET' && rest === '/events') {
-      json(res, 200, { ok: true, events: await store.listEvents(), watching: watcher.isRunning() })
-      return
-    }
-    if (method === 'POST' && rest === '/events/clear') {
-      await store.clearEvents()
-      json(res, 200, { ok: true })
-      return
-    }
-    if (method === 'POST' && rest === '/watch') {
-      const body = await readBody(req)
-      const enabled = body.enabled !== false
-      if (enabled) watcher.start()
-      else watcher.stop()
-      json(res, 200, { ok: true, watching: watcher.isRunning() })
-      return
-    }
-
     json(res, 404, { ok: false, error: `no route for ${method} ${rest}` })
   } catch (error) {
     // 业务错误（含 CLI 退出码语义）回 200 + ok:false：前端统一按 payload 处理，

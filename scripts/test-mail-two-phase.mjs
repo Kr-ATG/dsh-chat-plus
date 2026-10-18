@@ -34,7 +34,7 @@ const ctx = {
   effect: (fn) => { const d = fn(); effects.push(d); return () => {} },
   on: () => () => {},
 }
-const handle = await mod.applyMailHost(ctx, { watchEnabled: false })
+const handle = await mod.applyMailHost(ctx, {})
 const service = handle.service
 
 pass(`mail service 装配完成（tools=${tools.length}）`)

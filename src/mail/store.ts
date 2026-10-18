@@ -4,7 +4,7 @@
  * 数据根：`${DSH_HOME:-~/.dsh}/mail/dsh-mail/`
  *
  *   store/config.json   运行时配置覆盖层（面板改动落这里，重启后仍生效）
- *   store/state.json    待确认写操作 + 新邮件事件环形缓冲
+ *   store/state.json    待确认写操作（+ 上次列表时间戳）
  *   cache/messages.json 最近一次列表结果（面板打开瞬间先渲染缓存，再刷新）
  *
  * 三条设计约束：
@@ -24,21 +24,16 @@ import { dirname, join } from 'node:path'
 import type { MailConfig, MailSummary, PendingConfirmation } from './types.js'
 import { DEFAULT_MAIL_CONFIG, applyMailConfigOverrides } from './types.js'
 
-/** 一条新邮件事件（watch 收到后落盘，面板据此提示）。 */
-export interface StoredWatchEvent {
-  message_id?: string
-  dir?: string
-  occurred_at?: string
-  /** 本地收到时间（毫秒）。 */
-  at: number
-}
-
-/** state.json 的形状。 */
+/**
+ * state.json 的形状。
+ *
+ * `events` 字段已于 2026-10-18 随「新邮件实时监听」整块下线（判据见
+ * types.ts 里 MailConfig 上方那段）。老文件里残留的 events 在 load 时被
+ * 忽略，下次 persist 就自然消失了 —— 不需要写迁移。
+ */
 interface MailState {
   /** 待确认写操作：token → 记录。 */
   pending: Record<string, PendingConfirmation>
-  /** 新邮件事件（最多 50 条，最新在前）。 */
-  events: StoredWatchEvent[]
   /** 上次列表缓存的时间戳（毫秒）。 */
   lastListAt: number
 }
@@ -50,7 +45,7 @@ interface MailCache {
   messages: MailSummary[]
 }
 
-const EMPTY_STATE: MailState = { pending: {}, events: [], lastListAt: 0 }
+const EMPTY_STATE: MailState = { pending: {}, lastListAt: 0 }
 
 /** 邮箱数据根。 */
 export function mailDataDir(): string {
@@ -102,7 +97,6 @@ export class MailStore {
     const raw = await readJson<Partial<MailState>>(this.stateFile, {})
     this.state = {
       pending: typeof raw.pending === 'object' && raw.pending !== null ? raw.pending : {},
-      events: Array.isArray(raw.events) ? raw.events.slice(0, 50) : [],
       lastListAt: typeof raw.lastListAt === 'number' ? raw.lastListAt : 0,
     }
     this.prunePending()
@@ -156,28 +150,6 @@ export class MailStore {
     delete this.state.pending[token]
     await this.persist()
     return true
-  }
-
-  /* ── 新邮件事件 ───────────────────────────────────────────────────── */
-
-  /** 记一条新邮件事件（最多保留 50 条）。 */
-  async pushEvent(event: StoredWatchEvent): Promise<void> {
-    await this.load()
-    this.state.events = [event, ...this.state.events].slice(0, 50)
-    await this.persist()
-  }
-
-  /** 读事件缓冲（面板「新邮件」提示）。 */
-  async listEvents(): Promise<StoredWatchEvent[]> {
-    await this.load()
-    return [...this.state.events]
-  }
-
-  /** 清空事件缓冲（用户看过之后）。 */
-  async clearEvents(): Promise<void> {
-    await this.load()
-    this.state.events = []
-    await this.persist()
   }
 
   /* ── 列表缓存 ─────────────────────────────────────────────────────── */

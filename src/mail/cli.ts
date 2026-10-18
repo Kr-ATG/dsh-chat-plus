@@ -27,7 +27,7 @@
  *     exit 1。发信是写操作，不能靠猜，故一律由调用方显式指定。
  */
 
-import { execFile, spawn, type ChildProcess } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -375,61 +375,6 @@ export function isCliRelative(path: string): boolean {
   if (path.trim() === '') return false
   if (isAbsolute(path)) return false
   return !/^[a-zA-Z]:/.test(path)
-}
-
-/* ── 流式监听（新邮件提醒） ───────────────────────────────────────────── */
-
-/** 新邮件事件（`message +watch --msg-format event` 的 NDJSON 行）。 */
-export interface WatchEvent {
-  dir?: string
-  message_id?: string
-  occurred_at?: string
-}
-
-/**
- * 起一个 `message +watch` 常驻进程，按行回调事件。
- * 返回停止函数（杀进程 + 清监听）。同一进程里只应存在一个（见 watch.ts）。
- */
-export function startWatch(
-  onEvent: (event: WatchEvent) => void,
-  onExit: (code: number | null, stderr: string) => void,
-): { stop: () => void; child: ChildProcess | null } {
-  const cli = resolveCliPath()
-  if (cli === null) {
-    onExit(null, 'agently-cli not found')
-    return { stop: () => {}, child: null }
-  }
-  const child = spawn(cli.path, ['message', '+watch', '--msg-format', 'event'], {
-    cwd: process.cwd(),
-    windowsHide: true,
-    shell: cli.needsShell,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-  let buffer = ''
-  let stderr = ''
-  child.stdout?.setEncoding('utf8')
-  child.stdout?.on('data', (chunk: string) => {
-    buffer += chunk
-    let index = buffer.indexOf('\n')
-    while (index >= 0) {
-      const line = buffer.slice(0, index).trim()
-      buffer = buffer.slice(index + 1)
-      if (line.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(line) as WatchEvent
-          if (typeof parsed === 'object' && parsed !== null) onEvent(parsed)
-        } catch {
-          /* 半行/坏行忽略 */
-        }
-      }
-      index = buffer.indexOf('\n')
-    }
-  })
-  child.stderr?.setEncoding('utf8')
-  child.stderr?.on('data', (chunk: string) => { stderr = (stderr + chunk).slice(-2000) })
-  child.on('exit', (code) => { onExit(code, stderr.trim()) })
-  child.on('error', () => { onExit(null, stderr.trim() || 'spawn failed') })
-  return { stop: () => { try { child.kill() } catch { /* 已退出 */ } }, child }
 }
 
 /* ── 诊断 ─────────────────────────────────────────────────────────────── */

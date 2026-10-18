@@ -213,10 +213,14 @@ export function MailPanel({ onClose, api, initialFolder, initialMessageId, embed
   const [detailLoading, setDetailLoading] = useState(false)
   const [account, setAccount] = useState<MailAccountView | null>(null)
   const [config, setConfig] = useState<MailConfigView | null>(null)
-  const [watching, setWatching] = useState(false)
+  /**
+   * 操作反馈 toast（下载完成 / 地址已复制 / 设置已保存）。
+   *
+   * 2026-10-18 之前这里还兼着「新邮件提示」——那条链路（watch 事件缓冲 + 5 秒
+   * 轮询）已随「新邮件实时监听」整块下线，见 types.ts 里 MailConfig 上方那段。
+   * toast 本身留着：它还是上面这几件同步操作的唯一反馈面。
+   */
   const [toast, setToast] = useState<string | null>(null)
-  /** 已展示过的新邮件事件时间戳（避免同一封反复弹 toast）。 */
-  const seenEvents = useRef(new Set<number>())
 
   /* ── 数据加载 ─────────────────────────────────────────────────────── */
 
@@ -336,31 +340,6 @@ export function MailPanel({ onClose, api, initialFolder, initialMessageId, embed
     void loadDetail(pane.id)
   }, [pane, loadDetail])
 
-  /* ── 新邮件提示（轮询 watch 事件缓冲） ────────────────────────────── */
-
-  useEffect(() => {
-    let alive = true
-    const tick = async (): Promise<void> => {
-      try {
-        const state = await api.events()
-        if (!alive) return
-        setWatching(state.watching)
-        const fresh = state.events.filter(event => !seenEvents.current.has(event.at))
-        if (fresh.length > 0) {
-          for (const event of fresh) seenEvents.current.add(event.at)
-          const count = fresh.length
-          setToast(count === 1 ? '收到 1 封新邮件' : `收到 ${count} 封新邮件`)
-          // 提示的同时刷新列表（用户此刻多半就在看收件箱）。
-          if (folder === 'inbox') void loadList('inbox', { q: query, unread: onlyUnread, attach: onlyAttach, fresh: true })
-        }
-      } catch { /* 轮询失败静默 */ }
-    }
-    void tick()
-    const timer = window.setInterval(() => { void tick() }, 5000)
-    return () => { alive = false; window.clearInterval(timer) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folder, query, onlyUnread, onlyAttach])
-
   // toast 3.6 秒后自动消失。
   useEffect(() => {
     if (toast === null) return undefined
@@ -443,28 +422,6 @@ export function MailPanel({ onClose, api, initialFolder, initialMessageId, embed
         />
       </div>
       <div className={css.topActions}>
-        <button
-          type="button"
-          className={css.topBtn}
-          data-watch={watching ? 'true' : undefined}
-          title={watching ? '正在监听新邮件（点击停止）' : '开启新邮件监听'}
-          onClick={() => {
-            void api.setWatch(!watching)
-              .then(next => {
-                setWatching(next)
-                // 记住这个偏好：开启后写入配置，下次启动自动起（默认关闭 ——
-                // 常驻 watch 进程不该是「装上插件」的默认副作用）。
-                return api.updateConfig({ watchEnabled: next })
-              })
-              .then(setConfig)
-              .catch(() => undefined)
-          }}
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6" />
-            <path d="M10.5 19a2 2 0 0 0 3 0" />
-          </svg>
-        </button>
         <button
           type="button"
           className={css.topBtn}
@@ -980,7 +937,7 @@ function DownloadDirSetting({ config, onSave, onVerifyDir, onPickDir }: {
 
 function SettingsView({ config, account, onClose, onSave, onVerifyDir, onPickDir }: SettingsViewProps): JSX.Element {
   const [busy, setBusy] = useState(false)
-  const toggle = async (key: 'enabled' | 'injectEnabled' | 'watchEnabled', value: boolean): Promise<void> => {
+  const toggle = async (key: 'enabled' | 'injectEnabled', value: boolean): Promise<void> => {
     setBusy(true)
     try { await onSave({ [key]: value }) } finally { setBusy(false) }
   }
@@ -1061,23 +1018,6 @@ function SettingsView({ config, account, onClose, onSave, onVerifyDir, onPickDir
         </div>
         <div className={css.settingRow}>
           <div>
-            <div className={css.settingLabel}>新邮件实时监听</div>
-            <div className={css.settingDesc}>
-              常驻 `agently-cli message +watch` 长轮询，收到新邮件立即提示（默认关闭，靠 30 秒一次的未读轮询）
-            </div>
-          </div>
-          <button
-            type="button"
-            className={`${css.switch} ${config?.watchEnabled === true ? css.switchOn : ''}`}
-            disabled={busy || config === null}
-            aria-label="新邮件实时监听"
-            onClick={() => { void toggle('watchEnabled', config?.watchEnabled !== true) }}
-          >
-            <span className={css.switchKnob} />
-          </button>
-        </div>
-        <div className={css.settingRow}>
-          <div>
             <div className={css.settingLabel}>CLI</div>
             <div className={css.settingDesc}>{config?.cliPath ?? '未找到 agently-cli'}</div>
           </div>
@@ -1086,7 +1026,7 @@ function SettingsView({ config, account, onClose, onSave, onVerifyDir, onPickDir
         <div className={css.settingRow}>
           <div>
             <div className={css.settingLabel}>数据目录</div>
-            <div className={css.settingDesc}>待确认操作、新邮件事件与列表缓存</div>
+            <div className={css.settingDesc}>待确认操作与列表缓存</div>
           </div>
           <div className={css.settingValue} title={config?.dataDir}>{config?.dataDir ?? ''}</div>
         </div>
