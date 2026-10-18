@@ -131,6 +131,24 @@ export function useSteppedFollow(text: string, running: boolean, _motion: boolea
   const pinnedRef = useRef(true)
   const followingRef = useRef(true)
   const selectingRef = useRef(false)
+  /**
+   * 「减少动态效果」的实时快照。
+   *
+   * 不进 useState：这个值只影响 scrollToBottom 的一个分支，而它每帧都可能被调用
+   * ——走 state 会让每次跟随都排一次 React 渲染。ref + matchMedia 监听即可。
+   */
+  const reducedMotionRef = useRef(false)
+  useEffect(() => {
+    try {
+      const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+      reducedMotionRef.current = query.matches
+      const change = (): void => { reducedMotionRef.current = query.matches }
+      query.addEventListener('change', change)
+      return () => query.removeEventListener('change', change)
+    } catch {
+      return undefined
+    }
+  }, [])
   const [edges, setEdges] = useState<FollowEdges>('none')
   const [overflow, setOverflow] = useState(false)
   const [following, setFollowingState] = useState(true)
@@ -159,11 +177,61 @@ export function useSteppedFollow(text: string, running: boolean, _motion: boolea
     setEdges(top ? (bottom ? 'both' : 'top') : (bottom ? 'bottom' : 'none'))
   }
 
-  const scrollToBottom = (): void => {
+  /*
+   * 平滑跟随：把「瞬移到底」换成「逐帧追上去」。
+   *
+   * 列表在流式期每落一步就往底部瞬移一次 scrollTop。视觉上是整列文字「咔」地
+   * 跳一行——因为瞬移不产生任何中间帧，人眼读到的就是一次硬跳。一屏九行的窗口
+   * 里，这一跳会连带把上面所有行一起推上去，读起来像画面在打嗝。
+   *
+   * 改成每帧走剩余距离的 28%（最小 1px），内容连续涌入时读作「内容在往下淌」，
+   * 停下来时最后几像素也自然收口，不会有「差半行没贴底」的悬空感。每帧只写
+   * scrollTop 一次，且**不在追逐过程中 measure**——measure 会 setState，每帧
+   * 一次就是每帧一次 React 调度，那才是真卡顿。收口时补一次。
+   *
+   * 追上之后必须精确落到 scrollHeight：28% 的步进永远差最后一两像素，不补齐
+   * 的话「是否贴底」的判定会一直悬在边界上。
+   */
+  const followRaf = useRef(0)
+  const cancelFollow = (): void => {
+    if (followRaf.current !== 0) {
+      cancelAnimationFrame(followRaf.current)
+      followRaf.current = 0
+    }
+  }
+  const stepFollow = (): void => {
+    const el = ref.current
+    if (el === null) {
+      followRaf.current = 0
+      return
+    }
+    const target = Math.max(0, el.scrollHeight - el.clientHeight)
+    const delta = target - el.scrollTop
+    if (!(delta > 0.5)) {
+      el.scrollTop = target
+      followRaf.current = 0
+      measure()
+      return
+    }
+    el.scrollTop = el.scrollTop + Math.max(1, delta * 0.28)
+    followRaf.current = requestAnimationFrame(stepFollow)
+  }
+
+  const scrollToBottom = (smooth = true): void => {
     const el = ref.current
     if (el === null) return
-    el.scrollTop = el.scrollHeight
-    measure()
+    // 系统开了「减少动态效果」时不做追逐：滚动本身就是一种动效，逐帧追底对
+    // 前庭敏感用户是明确的负担，直接瞬移。
+    if (!smooth || reducedMotionRef.current) {
+      cancelFollow()
+      el.scrollTop = el.scrollHeight
+      measure()
+      return
+    }
+    // 已经在追了就不再排一帧：循环自己会重算目标，重复排帧只会越排越多。
+    if (followRaf.current === 0) {
+      followRaf.current = requestAnimationFrame(stepFollow)
+    }
   }
 
   const setFollowing = (value: boolean): void => {
@@ -172,12 +240,26 @@ export function useSteppedFollow(text: string, running: boolean, _motion: boolea
     setFollowingState(value)
     if (value) {
       scrollToBottom()
+    } else {
+      cancelFollow()
     }
   }
 
   const onScroll = (event: React.UIEvent<HTMLDivElement>): void => {
     const el = event.currentTarget
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+    /*
+     * 平滑跟随期间不要自己掐断自己。
+     *
+     * 逐帧追底时 scrollTop 每帧都在变，scroll 事件随之连发；一旦某一帧的距离
+     * 因为内容刚撑高而超过 24px，这里就会把 following 判成 false，刚启动的追逐
+     * 立刻被 cancel —— 表现是「跟随追一下、停一下」，比瞬移还难受。
+     * 追逐进行中直接放行，收口那一帧再正常判定。
+     */
+    if (followRaf.current !== 0) {
+      pinnedRef.current = true
+      return
+    }
     const pinned = distance <= 24
     pinnedRef.current = pinned
     if (followingRef.current !== pinned) {
@@ -188,7 +270,14 @@ export function useSteppedFollow(text: string, running: boolean, _motion: boolea
   }
 
   const onWheel = (): void => {
-    // 滚轮事件由 onScroll 精确判断几何距离，不在此处强行掐断跟随
+    /*
+     * 用户一动手就**立刻**停下追逐。
+     *
+     * 滚轮事件早于 scroll 事件到达，如果等 onScroll 的几何判定，追逐可能已经在
+     * 用户滚动的同时又往前推了几帧 —— 手指在往上滚、列表还在往下追，抵消感非常
+     * 明显。这里直接取消，几何判定交给随后到达的 onScroll 恢复。
+     */
+    cancelFollow()
   }
 
   // 选中即停（选区释放前不跟随，避免跟随拽走选区）
@@ -212,6 +301,9 @@ export function useSteppedFollow(text: string, running: boolean, _motion: boolea
     if (!running || !pinnedRef.current || selectingRef.current) return
     scrollToBottom()
   }, [text, running])
+
+  // 卸载时掐掉未完成的追逐帧，否则回调会打到已脱离文档的节点上。
+  useEffect(() => cancelFollow, [])
 
   // 内容高度变化监测（DOM 节点追加、换行撑高、段落新增等）
   useEffect(() => {

@@ -45,6 +45,7 @@
  *    aria-valuenow 才是权威读数）。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { StatusIcon } from './StatusIcon.tsx'
 
 export interface DshTaskItem {
@@ -359,9 +360,17 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
           data-done={allDone ? 'true' : undefined}
           data-flash={flashDone ? 'true' : undefined}
         >
+          {/*
+            * 进度宽度走 CSS 变量 + scaleX，不写内联 width。
+            *
+            * width 是布局属性：每完成一项任务，这条 2.5px 的细条会带着父级重跑
+            * 一遍布局，而任务进度在流式期是一项项跳的。scaleX 只动合成器。
+            * 传百分比数值而不是 0..1 小数：CSS 侧的 calc 只做除以 100，读代码时
+            * 与上面的 percent 是同一个数，不会出现两套单位。
+            */}
           <div
             className="kr-task-progress-line__fill"
-            style={{ width: `${percent}%` }}
+            style={{ '--kr-progress': percent } as CSSProperties}
           >
             <span className="kr-task-progress-line__sheen" aria-hidden="true" />
           </div>

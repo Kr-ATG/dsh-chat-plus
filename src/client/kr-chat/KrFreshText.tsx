@@ -21,7 +21,18 @@ export interface KrFreshTextProps {
 }
 
 export const KrFreshText = memo(function KrFreshText({ text }: KrFreshTextProps) {
-  const previousRef = useRef<string | null>(null)
+  /*
+   * 挂载那一刻的文本整段算「已稳定」，不显影。
+   *
+   * 思考卡一屏上可能同时挂着几十段历史思考，每一段都是独立的 KrFreshText。若把
+   * 挂载时已有的文本当作「本次新增」，就会在打开会话/切轮次的那一帧让这几十段
+   * 全文一起播一遍显影 —— 实测一次 60 条动画同时在跑，而它们说的都是早就写完的
+   * 内容，没人需要看它们"被写出来"。
+   *
+   * 只有**挂载之后**的增量才进 fresh 段：这才是真正「正在被写」的那一段，也正好
+   * 一条思考流在任意时刻只有最后一段处在增长状态。节点数同时从几十降到 1~2。
+   */
+  const previousRef = useRef<string | null>(text)
   // 纯追加（流式的常态）时前缀即已稳定部分；一旦不是追加（重写、截断、换了一条
   // 思考），整段当作新增，绝不留一段永远不更新的旧文本。
   const stable = previousRef.current !== null && text.startsWith(previousRef.current)
