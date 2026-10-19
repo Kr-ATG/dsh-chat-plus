@@ -16,3 +16,4 @@ lib/index.js.map
 # 注意：**不要**忽略 lib/ —— 构建产物必须随仓库提交：
 # pnpm>=10 拦截 git 依赖的 prepare 脚本，安装方不跑构建，
 # lib/index.js + lib/client.js 就是交付物。
+_probe-entry.ts
