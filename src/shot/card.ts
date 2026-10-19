@@ -299,10 +299,36 @@ function fenceFigureOf(fence: ShotHtmlFence): string {
  */
 function iuCssFor(theme: ShotTheme, zoom = 1): string {
   const dark = baseOf(theme) === 'dark'
+  /*
+   * 令牌映射必须和 client 端**实际用到的**保持一致：基座改成「面 = bg-base、
+   * 抬升 = elevation-stroke、文字 = label-*、圆角 = radius-lg」之后，这几个
+   * 映射一个都不能漏 —— 漏一个，var() 就落到兜底值，截图里的卡片会变成
+   * 无底色透明块、或者用错主题的灰（暗色下尤其明显）。
+   *
+   * 截图页拿不到宿主注入的 --dsw-*（独立 file:// 页面），所以在这里把宿主的
+   * token 语义映射到截图自己的调色板变量上。
+   */
   const vars = [
-    `--dsw-alias-bg-layer-1:${dark ? 'rgba(255,255,255,.04)' : 'rgba(127,127,127,.04)'}`,
+    // 卡片面：融合后与正文同色 → 映射到截图卡片的卡片底色。
+    '--dsw-alias-bg-base:var(--card)',
+    '--dsw-alias-bg-layer-1:var(--card)',
     '--dsw-alias-bg-layer-2:var(--card2, rgba(127,127,127,.10))',
+    // 抬升笔画：.5px 描边直接取截图卡片的细边框色。
+    '--dsw-elevation-stroke:0 0 0 .5px var(--border2)',
+    '--dsw-alias-border-l1:var(--border2)',
+    '--dsw-alias-border-l2:var(--border2)',
+    '--dsw-alias-border-l2-darkmode-thin:var(--border2)',
     '--dsw-alias-border-l3:var(--border2)',
+    // 文字层级：标题用次要色、副说明用三级色（与对话流里的降级口径一致）。
+    '--dsw-alias-label-secondary:var(--fg2)',
+    '--dsw-alias-label-tertiary:var(--fg3)',
+    '--dsw-alias-label-caption:var(--fg3)',
+    '--dsw-alias-interactive-bg-hover:var(--card2, rgba(127,127,127,.10))',
+    // 圆角轴：截图的卡片圆角比宿主小（24px 外卡），内部元素对齐到 12/8。
+    '--dsw-radius-lg:12px',
+    '--dsw-radius-sm:8px',
+    '--ds-transition-duration:0s',
+    '--ds-ease-in-out:cubic-bezier(.4,0,.2,1)',
     '--dsw-alias-state-business-primary:var(--accent)',
   ].join(';')
   /*
@@ -314,8 +340,17 @@ function iuCssFor(theme: ShotTheme, zoom = 1): string {
    */
   const safeZoom = Number.isFinite(zoom) && zoom > 0 ? Math.min(3, Math.max(0.5, zoom)) : 1
   const zoomRule = safeZoom === 1 ? '' : `\n.dtt-iu{--iu-zoom:${safeZoom}}`
+  /*
+   * 字号轴与字族：iu 基座的 --iu-text-scale 建立在 --dsh-content-font-size 上
+   * （见 client/iu/styles.ts 文件头）。截图页没有宿主注入的这两个变量，不补的话
+   * 整套字号轴求值失败——calc 里出现非法量纲，font-size 声明被静默丢弃，
+   * 文字全部退回继承值（表现为「截图里 iu 卡文字比对话流里小一截 / 撑爆节点框」）。
+   * 客户端默认字号 14px，与对话流基准一致。
+   */
+  const fontVars = '--dsh-content-font-size:14px;--dsh-content-font-delta:0px;'
+    + '--dsw-font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif'
   // 截图是定格：关掉入场动效，避免「抓第一帧抓到半透明」。
-  return `.card{${vars}}\n${IU_CSS}${zoomRule}\n.dtt-iu{animation:none}`
+  return `.card{${vars};${fontVars}}\n${IU_CSS}${zoomRule}\n.dtt-iu{animation:none}`
 }
 
 /**

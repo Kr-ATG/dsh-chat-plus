@@ -251,7 +251,7 @@ const CSS = [
   '.dtt-iu__kmove[hidden] { display: block; visibility: hidden; opacity: 0; pointer-events: none; }',
   '.dtt-iu__kmove:not([hidden]) { visibility: visible; opacity: 1; animation: dtt-iu-kmove-in .2s cubic-bezier(.2,.7,.3,1);',
   '  transition: opacity .18s ease, transform .15s ease, filter .15s ease; }',
-  '.dtt-iu__kmove:hover { transform: translateY(-1px); filter: brightness(1.08); }',
+  '.dtt-iu__kmove:hover { filter: brightness(1.08); }',
   '.dtt-iu__kmove:active { transform: translateY(0); }',
   '.dtt-iu__kcol-body { display: flex; flex-direction: column; gap: 6px; padding: 4px 6px 8px; min-height: 44px; }',
   '.dtt-iu__kcol-body:empty::after { content: "空列 · 拖卡片进来"; text-align: center; padding: 10px 2px;',

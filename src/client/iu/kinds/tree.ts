@@ -251,7 +251,7 @@ const CSS = [
   '  border-radius: 10px; cursor: default;',
   '  transition: background-color .16s ease, transform .16s ease, box-shadow .16s ease, opacity .2s ease; }',
   '.dtt-iu__tnode[data-leaf="0"] > .dtt-iu__trow { cursor: pointer; }',
-  '.dtt-iu__trow:hover { background: var(--dsw-alias-bg-layer-2, rgba(127,127,127,.1)); transform: translateX(1px); }',
+  '.dtt-iu__trow:hover { background: var(--dsw-alias-bg-layer-2, rgba(127,127,127,.1)); }',
   '.dtt-iu__trow:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #4176e6); outline-offset: -2px; }',
   '/* 箭头：恒为 ▸ 字符，展开态旋转 90° 即成 ▾ —— 旋转有过渡，换字符没有，故选旋转 */',
   '.dtt-iu__twist { flex: none; width: 12px; text-align: center; opacity: .55;',

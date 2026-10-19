@@ -154,6 +154,9 @@ const BRIDGE_SOURCE = [
   '        if (isFinite(hw) && hw > 0) hostW = hw;',
   '        syncWidth();',
   '        schedule();',
+  '      } else if (data.kind === "surface") {',
+  '        applySurface(data);',
+  '        schedule();',
   '      } else if (data.kind === "ping") {',
   '        measure();',
   '      }',
@@ -224,6 +227,43 @@ const BRIDGE_SOURCE = [
   '    if (z === 1) b.style.zoom = "";',
   '    else b.style.zoom = String(z);',
   '  }',
+  '  /**',
+  '   * 应用宿主下发的「表面参数」：底色 / 字族 / 字号。',
+  '   *',
+  '   * 为什么需要这条通道（而不是多用几个写死的兜底值）：iframe 是 opaque origin，',
+  '   * **读不到宿主的任何 CSS 变量**。于是这个沙箱里的一切「跟宿主保持一致」都只能',
+  '   * 猜：底色写死 #16181d（实际宿主是 #151517，差一档，暗色下就是一块色差板）、',
+  '   * 字族写死系统栈（宿主可能被用户在设置里换过，字形对不上）、字号写死 14px',
+  '   * （用户把官方「设置 → 字号」调到 18 时，卡片里还是 14，读书节奏直接断开）。',
+  '   *',
+  '   * 所以由宿主把它**算好的**值推下来。三条都当不可信输入处理：',
+  '   *  · background / fontFamily 只接受字符串且长度有上限（防一串超长垃圾撑爆属性）；',
+  '   *  · fontSize 只接受有限的、落在 [8, 32] 的数字；',
+  '   *  · 全部走 setProperty，任一失败都各自 try/catch —— 底色失败不该拖垮字号。',
+  '   *',
+  '   * 只写 CSS 变量，不碰任何脚本能力：这条通道**不扩大沙箱边界**（宿主→iframe 单向，',
+  '   * iframe 仍然拿不到宿主 DOM）。',
+  '   */',
+  '  function applySurface(data) {',
+  '    var root = document.documentElement;',
+  '    if (!root || !root.style || !root.style.setProperty) return;',
+  '    try {',
+  '      if (typeof data.background === "string" && data.background !== "" && data.background.length < 120) {',
+  '        root.style.setProperty("--dsh-frame-surface", data.background);',
+  '      }',
+  '    } catch (e) {}',
+  '    try {',
+  '      if (typeof data.fontFamily === "string" && data.fontFamily !== "" && data.fontFamily.length < 400) {',
+  '        root.style.setProperty("--dsh-frame-font", data.fontFamily);',
+  '      }',
+  '    } catch (e) {}',
+  '    try {',
+  '      var fs = Number(data.fontSize);',
+  '      if (isFinite(fs) && fs >= 8 && fs <= 32) {',
+  '        root.style.setProperty("--dsh-frame-font-size", fs + "px");',
+  '      }',
+  '    } catch (e) {}',
+  '  }',
   '  function applyTheme(dark) {',
   '    var root = document.documentElement;',
   '    if (!root) return;',
@@ -286,13 +326,27 @@ const BASE_STYLE = [
   'html,body{margin:0;padding:0;}',
   'html{overflow:hidden;}',
   // 背景跟主题：模型页面（尤其片段）常常不自带 body 背景，iframe 画布默认纯白，
-  // 暗色主题下等于在总结卡里贴一块白纸板。这里补一层与宿主对齐的中性底色，
-  // 暗色值与官方 --dsw-static-neutral-bluish-1000 同值（iframe 内拿不到宿主变量，
-  // 只能写死）；transition 让主题切换时底色渐变而不是硬跳。
-  // 优先级刻意最低（无 !important、插在 head 最前）：模型自己写了背景照样盖掉它。
+  // 暗色主题下等于在总结卡里贴一块白纸板。
+  //
+  // ⚠ 这里曾经写死 `#16181d`，注释还声称「与官方同值」——**那是错的**：
+  // #16181d 是 --dsw-static-neutral-bluish-1000，而宿主暗色 bg-base 是
+  // bluish-950 = #151517。差一档，实测暗色下卡片里就是一块偏蓝的深色板，
+  // 而且跟正文底色对不齐（这正是「生成式 UI 不融合」最扎眼的一条）。
+  //
+  // 现在两层兜底：
+  //  1. 下面的写死值只在**宿主没下发 surface 时**兜底（截图页、第三方宿主）；
+  //  2. 正常链路里 HTMLElement 会通过 `surface` 把**宿主的真实计算值**推下来
+  //     （见 HtmlCard.tsx 的 pushSurface），写进 --dsh-frame-surface 覆盖掉兜底。
+  // 优先级仍是最低（无 !important、插在 head 最前）：模型自己写了背景照样盖掉它。
   'html{background:#fff;transition:background-color .25s ease;}',
   'html{color-scheme:light;}',
-  'html[data-ds-dark-theme]{background:#16181d;color-scheme:dark;}',
+  'html[data-ds-dark-theme]{background:#151517;color-scheme:dark;}',
+  // 宿主下发后的真实底色与之覆盖同一处；内联变量优先级天然高于选择器里的字面值。
+  'html{background:var(--dsh-frame-surface, transparent);}',
+  // 字族与字号跟随宿主（同样是最低优先级的兜底：模型自己设了 font-family /
+  // font-size 就能盖掉）。没有这两条时，用户在官方「设置 → 字号」调到 18，
+  // 正文变大了，卡片里还是 14 —— 一页里两种阅读节奏，比色差更明显。
+  'html,body{font-family:var(--dsh-frame-font, inherit);font-size:var(--dsh-frame-font-size, inherit);}',
 ].join('')
 
 /**

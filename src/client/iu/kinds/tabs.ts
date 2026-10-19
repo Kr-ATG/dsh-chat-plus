@@ -70,7 +70,7 @@ const CSS = [
   '.dtt-iu__tab { border: 0; background: transparent; color: inherit; font: inherit;',
   '  font-size: calc(12px * var(--iu-text-scale, 1)); font-weight: 500; border-radius: 8px; padding: 5px 14px;',
   '  cursor: pointer; opacity: .6; transition: opacity .18s ease, background-color .18s ease, transform .18s ease, box-shadow .18s ease; }',
-  '.dtt-iu__tab:hover { opacity: 1; transform: translateY(-1px); }',
+  '.dtt-iu__tab:hover { opacity: 1; }',
   '.dtt-iu__tab:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #4176e6); outline-offset: 2px; }',
   '.dtt-iu__tab--active { background: var(--dsw-alias-bg-layer-1, #fff); opacity: 1;',
   '  font-weight: 500; box-shadow: 0 1px 6px rgba(20,40,90,.18); }',

@@ -380,7 +380,7 @@ const CSS = [
   '  font: inherit; font-size: calc(11.5px * var(--iu-text-scale, 1)); border-radius: 8px;',
   '  padding: 2px 11px; cursor: pointer; opacity: .58; line-height: 1.7; white-space: nowrap;',
   '  transition: opacity .18s ease, background-color .18s ease, transform .18s ease, border-color .18s ease, color .18s ease; }',
-  '.dtt-iu__diff-pill:hover { opacity: 1; transform: translateY(-1px); }',
+  '.dtt-iu__diff-pill:hover { opacity: 1; }',
   '.dtt-iu__diff-pill:active { transform: translateY(0) scale(.95); }',
   '.dtt-iu__diff-pill[data-active] { opacity: 1; font-weight: 600; color: ' + BRAND + ';',
   '  border-color: color-mix(in srgb, ' + BRAND + ' 55%, transparent);',

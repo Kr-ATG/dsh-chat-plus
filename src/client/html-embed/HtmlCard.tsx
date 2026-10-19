@@ -55,6 +55,30 @@ function useDarkTheme(): boolean {
 }
 
 /**
+ * 订阅「正文表面参数」的变化：body 的 style 被官方改了（字号 / 字族 / 主题）。
+ *
+ * 为什么光靠 React 重渲染不够：官方的字号设置是**直接写 body.style 的 CSS 变量**
+ * （见 ui-theme 的 bootTheme），不经过本插件的任何状态，我们这边一次 re-render
+ * 都不会发生。于是用户把字号从 14 调到 18，正文变大了，而已经挂载的 html 卡片
+ * 还停在旧的 14px —— 必须有一条 DOM 层的通知。
+ *
+ * 只观察 body 的 style 属性（attributeFilter 精确到 style），开销极小；回调里
+ * 只做一次版本自增，真正的采集与下发在 SandboxFrame 里推。
+ *
+ * 返回一个自增版本号：它变化 → 上层 effect 重新推 surface。
+ */
+function useSurfaceTick(): number {
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    if (typeof document === 'undefined' || typeof MutationObserver !== 'function') return
+    const observer = new MutationObserver(() => { setTick(prev => prev + 1) })
+    observer.observe(document.body, { attributes: true, attributeFilter: ['style', THEME_ATTR] })
+    return () => { observer.disconnect() }
+  }, [])
+  return tick
+}
+
+/**
  * 把字节数写成人话（只用于卡片角落的小字）。
  */
 function formatBytes(size: number): string {
@@ -134,6 +158,14 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, onHeight, onFill
   const frameRef = useRef<HTMLIFrameElement | null>(null)
 
   /**
+   * 宿主表面参数的变化滴答（字号 / 字族 / 主题被官方改了 body.style）。
+   *
+   * 挂在这里而不是 HtmlCard：全屏层与内嵌层各有一个 SandboxFrame，两边都要跟。
+   * 值只用来触发 effect，本身不参与计算。
+   */
+  const surfaceTick = useSurfaceTick()
+
+  /**
    * 当前主题的实时引用。
    *
    * 消息监听器刻意不把 dark 放进依赖：那会在每次主题切换时重挂监听（没必要，
@@ -204,6 +236,48 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, onHeight, onFill
     }
   }, [])
 
+  /**
+   * 把宿主的「表面参数」推给 iframe：底色 / 字族 / 字号。
+   *
+   * 存在的理由：iframe 是 opaque origin，**读不到宿主任何 CSS 变量**。所以这个
+   * 沙箱里跟宿主对齐的一切都只能写死兜底值——底色曾经写死 #16181d（宿主实际
+   * #151517，暗色下就是一块偏蓝的色差板），字族与字号则完全没跟。
+   * 这三项全是宿主的**计算值**，只有宿主这边算得出来。
+   *
+   * 采集口径（都读 body 的计算样式，官方主题变量就挂在 body 上）：
+   *  · background —— body 底色。会话区底色由官方 canvas 决定，读 body 即真实值。
+   *  · fontFamily —— body 字族，随官方「设置 → 字体」里的文本字族变化。
+   *  · fontSize   —— body 字号，随「设置 → 字号」变化（范围 10–22）。
+   *
+   * 失败一律静默：拿不到就退回 iframe 里的写死兜底，不该影响卡片渲染。
+   */
+  const pushSurface = useCallback((): void => {
+    const win = frameRef.current?.contentWindow
+    if (win === null || win === undefined) return
+    let background = ''
+    let fontFamily = ''
+    let fontSize = 0
+    try {
+      const cs = getComputedStyle(document.body)
+      background = cs.backgroundColor
+      fontFamily = cs.fontFamily
+      fontSize = Number.parseFloat(cs.fontSize)
+    } catch {
+      // 拿不到就不下发，iframe 用兜底值。
+    }
+    try {
+      win.postMessage({
+        source: BRIDGE_TO_FRAME,
+        kind: 'surface',
+        background,
+        fontFamily,
+        fontSize: Number.isFinite(fontSize) ? fontSize : 0,
+      }, '*')
+    } catch {
+      // 表面参数同步失败不该影响渲染。
+    }
+  }, [])
+
   // 高度上报 + ready 握手 + fill 回写：三重校验后才接受，fill 只取 text 一个字段。
   const onFillRef = useRef(onFill)
   onFillRef.current = onFill
@@ -221,6 +295,7 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, onHeight, onFill
         pushTheme(darkRef.current)
         pushZoom(zoomRef.current)
         pushWidth()
+        pushSurface()
         return
       }
       // ④ fill 回写：卡片内调用 window.__dshFill(text) 把结果推给输入草稿。
@@ -241,10 +316,21 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, onHeight, onFill
     }
     window.addEventListener('message', onMessage)
     return () => { window.removeEventListener('message', onMessage) }
-  }, [onHeight, pushTheme, pushZoom, pushWidth])
+  }, [onHeight, pushTheme, pushZoom, pushSurface, pushWidth])
 
-  // dark 变化时主动推一次（iframe 已在运行，这条不会丢）。
-  useEffect(() => { pushTheme(dark) }, [dark, pushTheme, reloadKey])
+  /**
+   * dark 变化时主动推一次（iframe 已在运行，这条不会丢）。
+   *
+   * surface 必须跟着一起推：底色是**按主题算出来的**，只推 theme 不推 surface，
+   * 切到暗色后 iframe 仍停在亮色底色上——正是改造前「暗色下卡片里一块白/色差板」
+   * 的复现路径。重载（reloadKey）同样要补推。
+   */
+  useEffect(() => {
+    pushTheme(dark)
+    pushSurface()
+    // surfaceTick：宿主在设置里改字号/字族时只写 body.style，不会让本组件重渲染，
+    // 靠这个滴答把新值重新推下去（否则「调了字号，卡片里还是老字号」）。
+  }, [dark, pushTheme, pushSurface, reloadKey, surfaceTick])
 
   // zoom 变化时同样主动推（含重载后补推）。
   useEffect(() => { pushZoom(zoom) }, [zoom, pushZoom, reloadKey])
@@ -262,12 +348,18 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, onHeight, onFill
    */
   useEffect(() => {
     pushWidth()
+    pushSurface()
     const el = frameRef.current
     if (el === null || typeof ResizeObserver !== 'function') return
-    const observer = new ResizeObserver(() => { pushWidth() })
+    const observer = new ResizeObserver(() => {
+      pushWidth()
+      // 宽度变化常常伴随布局重排（侧栏折叠、进出全屏），底色/字号也可能已被
+      // 官方重新计算过，顺手补推一次成本几乎为零。
+      pushSurface()
+    })
     observer.observe(el)
     return () => { observer.disconnect() }
-  }, [pushWidth, fullscreen, reloadKey])
+  }, [pushWidth, pushSurface, fullscreen, reloadKey])
 
   return (
     <iframe
