@@ -2978,6 +2978,24 @@ if (krEnabled) {
     if (!/--k-scale:calc\(var\(--k-fs\)\/14px\)/.test(kitFlat)) {
       reasons.push('--k-scale 的除数必须是 14px（写成 14 会让 calc 求值成 px²，整条声明被丢弃）')
     }
+    /*
+     * ⑤g **自定义属性不得自引用**（2026-10-20 用户截图「页签挤一块」）。
+     *
+     * 曾经写成 `--k-fs:var(--dsh-frame-font-size,var(--k-fs))`：循环引用让整条
+     * 声明成为 guaranteed-invalid，而 invalid 的自定义属性**在继承时也是
+     * invalid** —— 后代拿到的 --k-scale 全部无效，所有 calc(… * var(--k-scale))
+     * 声明被丢弃，gap 回退 normal、条高回退 auto。表现就是三个页签文字紧贴。
+     *
+     * 这条只能靠静态检查钉住：浏览器不报错、不警告，视觉上只是「间距没了」。
+     */
+    for (const decl of mod.KIT_CSS.match(/--[a-z-]+\s*:[^;}]*/g) ?? []) {
+      const name = /^(--[a-z-]+)\s*:/.exec(decl)?.[1]
+      if (name === undefined) continue
+      const value = decl.slice(decl.indexOf(':') + 1)
+      if (new RegExp('var\\(\\s*' + name + '\\s*[,)]').test(value)) {
+        reasons.push('自定义属性 ' + name + ' 引用了自己（循环引用会让整条声明及其继承值全部失效）')
+      }
+    }
     for (const [sel, why] of [
       // k-bar 的高度包在 var(--k-bar-h, …) 里，模型可以覆盖；只断言 calc 那段在。
       ['calc(30px*var(--k-scale))', '堆叠条高度'],
