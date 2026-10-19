@@ -581,10 +581,29 @@ const perNodeCache = new WeakMap<object, readonly ExtractedItem[]>()
 
 /* ── 提取 ─────────────────────────────────────────────────────────────── */
 
-/** 递归收集一个调用树的全部调用（root + subCalls）。 */
-function collectBlocks(root: ToolCallBlock): ToolCallBlock[] {
+/**
+ * 递归收集一个调用树的全部调用（root + subCalls）。
+ *
+ * **`subCalls` 必须当可选字段处理。** 投影层不是每个节点都会挂这个键：运行中的
+ * PTC 子调用（`phase: 'start'` 阶段）就地给的是 `{ phase, callId, ... }` 形状，
+ * 快照里的历史节点也可能来自没带该字段的旧投影。原来直接
+ * `for (const child of root.subCalls)` 会在这种节点上抛 TypeError，被
+ * extractFromNode 的 try/catch 吞掉，于是**整个节点**的产出被判零 —— 一个缺字段
+ * 的子节点能让同一条 run_code 里已经落盘的 present 交付凭空消失。
+ * 2026-10-19 实测：present 在事件流里完整存在（含参数与 Presented 结果行），
+ * 在产出物卡里却恒为空，根因就是这里。
+ *
+ * 深度也加一道兜底：投影层自己封顶 256 层，异常数据不该把递归拖死。
+ */
+function collectBlocks(root: ToolCallBlock, depth = 0): ToolCallBlock[] {
   const out: ToolCallBlock[] = [root]
-  for (const child of root.subCalls) out.push(...collectBlocks(child))
+  if (depth >= 256) return out
+  const children = (root as { subCalls?: readonly ToolCallBlock[] }).subCalls
+  if (!Array.isArray(children)) return out
+  for (const child of children) {
+    if (typeof child !== 'object' || child === null) continue
+    out.push(...collectBlocks(child, depth + 1))
+  }
   return out
 }
 
@@ -807,8 +826,12 @@ function extractFromNode(tool: unknown): readonly ExtractedItem[] {
         for (const item of extractFromBlock(block)) out.push(item)
       }
       result = out
-    } catch {
+    } catch (error) {
       // 未知节点形状不该让整张卡消失：这一条按「没有产出」处理。
+      // 但**不能吞得无声无息**：上面那次「present 交付恒为空」就是这里的 catch
+      // 把 collectBlocks 的 TypeError 吃掉造成的，排查花了很多轮。留一条 warn，
+      // 下次同类问题直接出现在控制台里。
+      console.warn('[kr-outputs] extractFromNode failed', error)
       result = []
     }
   }
