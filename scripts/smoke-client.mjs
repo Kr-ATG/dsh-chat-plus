@@ -3263,8 +3263,21 @@ if (krEnabled) {
   if (/if \(pending\) return/.test(cardSrc)) {
     reasons.push('不得提前 return 占位组件（会卸载重建 <figure>，闭合那一刻卡片会跳）')
   }
-  if (!/\{pending \? pendingStage\(spec\.bytes\) : showSource \?/.test(cardSrc)) {
+  /*
+   * 2026-10-19：源码视图已砍（卡片上不再有任何控件），判据随之从
+   * `pending ? pendingStage : showSource ? ... : stage` 收成两分支。
+   * 钉住的仍然是同一件事：占位与真身是**同一个 <figure> 里的三元**，
+   * 不是两个组件、也不是提前 return。
+   */
+  if (!/\{pending \? pendingStage\(spec\.bytes\) : \(/.test(cardSrc)) {
     reasons.push('占位与真身必须在同一个 <figure> 内条件渲染（保住 DOM 节点 identity）')
+  }
+  // 卡片上不许再有常驻控件（2026-10-19 用户连续两次要求砍掉）。
+  if (/dtt-he__actions|dtt-he__btn/.test(cardSrc)) {
+    reasons.push('卡片上不得再有常驻控件（标题栏/动作按钮已按用户要求删除）')
+  }
+  if (/dtt-he__overlay/.test(cardSrc)) {
+    reasons.push('全屏层已删除，不该再出现在组件里')
   }
   // 占位内容里绝不能有 iframe —— 半截 HTML 挂进去只会白屏 + 每个 delta 重载。
   const pendingFn = /function pendingStage[\s\S]*?\n}/.exec(cardSrc)?.[0] ?? ''

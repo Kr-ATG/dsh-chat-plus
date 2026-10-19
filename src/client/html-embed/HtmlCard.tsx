@@ -20,13 +20,8 @@
  *  · prefers-reduced-motion 下关掉全部过渡。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import type { HtmlSpec } from './parse.ts'
 import { assembleHtmlDocument, BRIDGE_TO_FRAME, BRIDGE_TO_HOST, MAX_FRAME_HEIGHT, MIN_FRAME_HEIGHT } from './bridge.ts'
-import {
-  HE_ZOOM_DEFAULT, nextHeZoom, readHeZoom, writeHeZoom, type HeZoom,
-} from '../iu/prefs.ts'
-import { lockBodyScroll } from '../shared/scroll-lock.ts'
 
 /** 主题属性（与官方 ui-theme boot 脚本一致）。 */
 const THEME_ATTR = 'data-ds-dark-theme'
@@ -87,56 +82,62 @@ function formatBytes(size: number): string {
   return (size / 1024 / 1024).toFixed(1) + ' MB'
 }
 
-/** 图标：代码 / 预览切换。 */
-function CodeIcon(): JSX.Element {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M5.6 4 2 8l3.6 4" />
-      <path d="M10.4 4 14 8l-3.6 4" />
-    </svg>
-  )
+/**
+ * 卡片交互状态的宿主侧存储（P2 的 widgetState）。
+ *
+ * ## 为什么存 localStorage 而不是会话存储
+ *
+ * 这个状态的实际用途是「用户拖了个滑块 / 选了个分类，刷新后还在」。它属于
+ * **呈现偏好**，不属于会话内容：同一条消息在别的会话里看到，用户也希望是
+ * 自己上次调好的样子。
+ *
+ * ## key 怎么定
+ *
+ * 用正文内容的短哈希，不是消息 id：卡片是围栏正文的纯函数，同一条消息重渲染
+ * 时正文不变 → key 不变 → 状态还在；模型改了一版正文 → key 变了 → 旧状态
+ * 自然失效（这是对的，版式变了状态本来就没有意义）。
+ *
+ * ## 容量口径
+ *
+ * 单卡 ≤16 KiB（与 iframe 侧 runtime.ts 的判据一致，两边都要挡：iframe 侧挡
+ * 是省一次 postMessage，宿主侧挡是防伪造）。
+ */
+const CARD_STATE_PREFIX = 'dsh-html-card-state:'
+const CARD_STATE_MAX = 16 * 1024
+
+/** 正文的短哈希（FNV-1a 32 位，够用且无需异步）。 */
+function hashContent(text: string): string {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash.toString(36)
 }
 
-/** 图标：重新加载（重挂 iframe，用于页面自己跑挂了的情形）。 */
-function ReloadIcon(): JSX.Element {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M13.4 8a5.4 5.4 0 1 1-1.6-3.8" />
-      <path d="M13.6 2.6v3.2h-3.2" />
-    </svg>
-  )
+/** 读回某张卡片的持久化状态；没有或损坏都返回 null（不抛）。 */
+function readCardState(key: string): Record<string, unknown> | null {
+  try {
+    const raw = window.localStorage.getItem(CARD_STATE_PREFIX + key)
+    if (raw === null) return null
+    if (raw.length > CARD_STATE_MAX) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    return parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
 }
 
-/** 图标：复制源码。 */
-function CopyIcon(): JSX.Element {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="5.4" y="5.4" width="8.2" height="8.2" rx="1.8" />
-      <path d="M10.6 5.4V4a1.8 1.8 0 0 0-1.8-1.8H4A1.8 1.8 0 0 0 2.2 4v4.8A1.8 1.8 0 0 0 4 10.6h1.4" />
-    </svg>
-  )
-}
-
-/** 图标：全屏。 */
-function ExpandIcon(): JSX.Element {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6 2.4H2.4V6" />
-      <path d="M10 13.6h3.6V10" />
-      <path d="M13.6 6V2.4H10" />
-      <path d="M2.4 10v3.6H6" />
-    </svg>
-  )
-}
-
-/** 图标：关闭（全屏层）。 */
-function CloseIcon(): JSX.Element {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
-      <path d="M4 4l8 8" />
-      <path d="M12 4l-8 8" />
-    </svg>
-  )
+/** 写回状态；超限或存不下都静默放弃（不该因为存不下就让卡片报错）。 */
+function writeCardState(key: string, state: Record<string, unknown>): void {
+  try {
+    const encoded = JSON.stringify(state)
+    if (encoded.length > CARD_STATE_MAX) return
+    window.localStorage.setItem(CARD_STATE_PREFIX + key, encoded)
+  } catch {
+    // 隐私模式 / 配额满：状态存不下就存不下，卡片照常用。
+  }
 }
 
 /**
@@ -145,13 +146,15 @@ function CloseIcon(): JSX.Element {
  * `fullscreen` 只影响尺寸策略：全屏时高度铺满容器，不再跟随内容高度上报
  * （那个高度是为对话流里的内联卡片服务的）。
  */
-function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, onHeight, onFill }: {
+function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, stateKey, onHeight, onFill }: {
   readonly doc: string
   readonly dark: boolean
   readonly fullscreen: boolean
   readonly reloadKey: number
   /** 内容缩放档位（下发到 iframe 内部应用，见 bridge.ts 的 applyZoom）。 */
   readonly zoom: number
+  /** 交互状态的存储键（正文哈希）；空串表示这张卡片不用状态能力。 */
+  readonly stateKey: string
   readonly onHeight?: ((height: number) => void) | undefined
   readonly onFill?: ((text: string) => boolean) | undefined
 }): JSX.Element {
@@ -255,13 +258,28 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, onHeight, onFill
     const win = frameRef.current?.contentWindow
     if (win === null || win === undefined) return
     let background = ''
+    let foreground = ''
     let fontFamily = ''
     let fontSize = 0
+    let accent = ''
     try {
       const cs = getComputedStyle(document.body)
       background = cs.backgroundColor
+      foreground = cs.color
       fontFamily = cs.fontFamily
       fontSize = Number.parseFloat(cs.fontSize)
+      /*
+       * 主色（kit 的 --k-accent 来源）。探针元素读链接色：卡片里唯一需要强调色
+       * 的地方是「一组数据里最该被看见的那一项」，宿主的链接色在所有主题下都被
+       * 调过对比度，最稳。拿不到就留空，iframe 退回 kit 的写死兜底。
+       */
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--dsw-alias-label-link, currentColor)'
+      probe.style.display = 'none'
+      document.body.appendChild(probe)
+      const resolved = getComputedStyle(probe).color
+      probe.remove()
+      if (typeof resolved === 'string' && resolved !== '' && resolved !== 'rgba(0, 0, 0, 0)') accent = resolved
     } catch {
       // 拿不到就不下发，iframe 用兜底值。
     }
@@ -270,11 +288,36 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, onHeight, onFill
         source: BRIDGE_TO_FRAME,
         kind: 'surface',
         background,
+        foreground,
         fontFamily,
         fontSize: Number.isFinite(fontSize) ? fontSize : 0,
+        accent,
       }, '*')
     } catch {
       // 表面参数同步失败不该影响渲染。
+    }
+  }, [])
+
+  /**
+   * 把持久化的交互状态推给 iframe。
+   *
+   * 与主题/宽度同理：挂载那一刻直接推不可靠（srcDoc 异步解析），所以 ready
+   * 握手时补推一次才是主路径。没有存过就不推——让 iframe 侧保持 `null`，
+   * 模型代码用默认值初始化，而不是拿一个空对象去覆盖自己的默认值。
+   */
+  const stateKeyRef = useRef(stateKey)
+  stateKeyRef.current = stateKey
+  const pushState = useCallback((): void => {
+    const win = frameRef.current?.contentWindow
+    if (win === null || win === undefined) return
+    const key = stateKeyRef.current
+    if (key === '') return
+    const saved = readCardState(key)
+    if (saved === null) return
+    try {
+      win.postMessage({ source: BRIDGE_TO_FRAME, kind: 'state', state: saved }, '*')
+    } catch {
+      // 状态同步失败不该影响渲染。
     }
   }, [])
 
@@ -286,7 +329,7 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, onHeight, onFill
       // ① 来源窗口必须是本卡片自己的 iframe（opaque origin 下 origin 恒为 "null"，
       //    所以只能比窗口引用，比不了 origin）。
       if (frameRef.current === null || event.source !== frameRef.current.contentWindow) return
-      const data = event.data as { source?: unknown; kind?: unknown; height?: unknown; text?: unknown } | null
+      const data = event.data as { source?: unknown; kind?: unknown; height?: unknown; text?: unknown; state?: unknown } | null
       if (data === null || typeof data !== 'object') return
       // ② 命名空间标记，避免把模型页面自己的 postMessage 当成桥消息。
       if (data.source !== BRIDGE_TO_HOST) return
@@ -296,6 +339,28 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, onHeight, onFill
         pushZoom(zoomRef.current)
         pushWidth()
         pushSurface()
+        // 状态最后推：先保证「能显示」，再谈「能恢复」。
+        pushState()
+        return
+      }
+      /*
+       * ③b 交互状态回传：卡片内调用 window.__dshState.set({...})。
+       *
+       * 与 fill 同一条通道、同一套不信任口径：typeof 校验 + 必须是普通对象 +
+       * 序列化后 ≤16KiB。存不下就静默丢弃——状态是锦上添花，不该让它影响卡片。
+       */
+      if (data.kind === 'state') {
+        const key = stateKeyRef.current
+        if (key === '') return
+        const next = (data as { state?: unknown }).state
+        if (next === null || typeof next !== 'object' || Array.isArray(next)) return
+        try {
+          const encoded = JSON.stringify(next)
+          if (encoded.length > CARD_STATE_MAX) return
+          writeCardState(key, next as Record<string, unknown>)
+        } catch {
+          // 循环引用之类：丢弃，不影响卡片。
+        }
         return
       }
       // ④ fill 回写：卡片内调用 window.__dshFill(text) 把结果推给输入草稿。
@@ -316,7 +381,7 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, onHeight, onFill
     }
     window.addEventListener('message', onMessage)
     return () => { window.removeEventListener('message', onMessage) }
-  }, [onHeight, pushTheme, pushZoom, pushSurface, pushWidth])
+  }, [onHeight, pushTheme, pushZoom, pushSurface, pushWidth, pushState])
 
   /**
    * dark 变化时主动推一次（iframe 已在运行，这条不会丢）。
@@ -429,30 +494,21 @@ export const HtmlCard = memo(function HtmlCard({ spec, pending = false, onFill }
   readonly onFill?: ((text: string) => boolean) | undefined
 }): JSX.Element {
   const dark = useDarkTheme()
-  const [showSource, setShowSource] = useState(false)
   const [height, setHeight] = useState<number | null>(null)
   /** 已收到的上报次数（首次落位不加过渡，见上面的高度策略）。 */
   const reports = useRef(0)
   const [animated, setAnimated] = useState(false)
-  const [reloadKey, setReloadKey] = useState(0)
-  const [fullscreen, setFullscreen] = useState(false)
-  const [copied, setCopied] = useState(false)
-  /*
-   * 内容缩放：纯呈现偏好，走 localStorage（刷新即记住，不需要动 host）。
-   * 实际缩放由 iframe 内部应用（见 bridge.ts 的 applyZoom）——外层缩放会与
-   * 高度桥上报的 px 对不上。
-   */
-  const [zoom, setZoom] = useState<HeZoom>(() => readHeZoom())
-
-  const cycleZoom = useCallback((): void => {
-    setZoom((prev) => {
-      const next = nextHeZoom(prev)
-      writeHeZoom(next)
-      return next
-    })
-  }, [])
 
   const doc = useMemo(() => assembleHtmlDocument(spec.html), [spec.html])
+
+  /*
+   * 状态键：只有正文真的用了 `__dshState` 才给（否则每张纯静态卡片都会在
+   * localStorage 里占一个空记录）。哈希的是**正文内容**，见 hashContent 的说明。
+   */
+  const stateKey = useMemo(
+    () => (spec.html.includes('__dshState') ? hashContent(spec.html) : ''),
+    [spec.html],
+  )
 
   const onHeight = useCallback((next: number): void => {
     reports.current += 1
@@ -461,39 +517,8 @@ export const HtmlCard = memo(function HtmlCard({ spec, pending = false, onFill }
     if (reports.current > 1) setAnimated(true)
   }, [])
 
-  /*
-   * 全屏时锁滚动，并支持 Esc 退出。
-   *
-   * ⚠ 两条踩过的坑，改这段前先读：
-   *  1. **全屏态不得持久化**。它给 body 挂 overflow:hidden，存进 localStorage
-   *     后刷新即恢复全屏 = 用户看到「整页滚不动」，且完全不知道是自己上次开的。
-   *  2. **卸载必须还原**。卡片会随消息重渲染被卸载，不还原就让 body 永久停在
-   *     overflow:hidden（表现同样是「对话流滚不动」）。
-   *     锁走共用的引用计数实现（shared/scroll-lock.ts），多卡同时全屏也不会
-   *     互相把对方的锁放开；释放函数在 effect cleanup 里一定被调到。
-   */
-  useEffect(() => {
-    if (!fullscreen) return
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setFullscreen(false)
-    }
-    const release = lockBodyScroll()
-    document.addEventListener('keydown', onKey)
-    return () => {
-      release()
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [fullscreen])
-
-  const copySource = useCallback((): void => {
-    void navigator.clipboard.writeText(spec.html).then(() => {
-      setCopied(true)
-      window.setTimeout(() => { setCopied(false) }, 1600)
-    }).catch(() => undefined)
-  }, [spec.html])
-
   const frame = (
-    <SandboxFrame doc={doc} dark={dark} fullscreen={fullscreen} reloadKey={reloadKey} zoom={zoom} onHeight={onHeight} onFill={onFill} />
+    <SandboxFrame doc={doc} dark={dark} fullscreen={false} reloadKey={0} zoom={1} stateKey={stateKey} onHeight={onHeight} onFill={onFill} />
   )
 
   /*
@@ -506,108 +531,27 @@ export const HtmlCard = memo(function HtmlCard({ spec, pending = false, onFill }
    */
   return (
     <figure className={pending ? 'dtt-he dtt-he--pending' : 'dtt-he'}>
-      <figcaption className="dtt-he__bar">
-        <span className={pending ? 'dtt-he__title dtt-he__title--muted' : 'dtt-he__title'} title={pending ? undefined : spec.title}>
-          {pending ? 'HTML 卡片' : spec.title}
-        </span>
-        {/* 占位态的字节数放在舞台里（跟随进度条一起读），成品态放标题栏。 */}
-        {!pending && <span className="dtt-he__meta">{formatBytes(spec.bytes)}</span>}
-        {/* 占位期不给动作按钮：没有可复制/可全屏的内容，给了只会误导。 */}
-        {!pending && (
-        <span className="dtt-he__actions">
-          <button
-            type="button"
-            className={showSource ? 'dtt-he__btn dtt-he__btn--active' : 'dtt-he__btn'}
-            aria-pressed={showSource}
-            title={showSource ? '看预览' : '看源码'}
-            onClick={() => { setShowSource(prev => !prev) }}
-          >
-            <CodeIcon />
-          </button>
-          <button
-            type="button"
-            className={copied ? 'dtt-he__btn dtt-he__btn--active' : 'dtt-he__btn'}
-            title={copied ? '已复制' : '复制源码'}
-            onClick={copySource}
-          >
-            <CopyIcon />
-          </button>
-          <button
-            type="button"
-            className={zoom === HE_ZOOM_DEFAULT ? 'dtt-he__btn' : 'dtt-he__btn dtt-he__btn--active'}
-            title={`缩放：${Math.round(zoom * 100)}%（点击切下一档）`}
-            aria-label={`当前缩放 ${Math.round(zoom * 100)}%，点击切换`}
-            onClick={cycleZoom}
-          >
-            <span className="dtt-he__zoom-num">{Math.round(zoom * 100)}%</span>
-          </button>
-          <button
-            type="button"
-            className="dtt-he__btn"
-            title="重新加载"
-            onClick={() => { setReloadKey(prev => prev + 1) }}
-          >
-            <ReloadIcon />
-          </button>
-          <button
-            type="button"
-            className="dtt-he__btn"
-            title="全屏"
-            onClick={() => { setFullscreen(true) }}
-          >
-            <ExpandIcon />
-          </button>
-        </span>
-        )}
-      </figcaption>
-
-      {pending ? pendingStage(spec.bytes) : showSource ? (
-        <pre className="dtt-he__code"><code>{spec.html}</code></pre>
-      ) : (
+      {/*
+        * 卡片上**没有任何常驻控件**（2026-10-19，用户连续两次要求砍掉）。
+        *
+        * 先砍标题栏（标题 + 字节数 + 五个动作按钮），再把那五个按钮本身也砍了。
+        * 结论是一条明确的定位：**卡片是正文的一部分，不是嵌进来的组件**。
+        * 任何常驻控件——哪怕只在 hover 时浮现——都在提示用户「这是一块外来的东西」。
+        *
+        * 逐个交代为什么不需要：
+        *  · 标题/字节数：卡片内容自己通常有 h1；字节数是纯调试信息。
+        *  · 源码/复制：围栏正文就在会话里，消息本身可复制。
+        *  · 缩放：属于「查看器」心智，这张卡片不需要被查看器管理。
+        *  · 重载：iframe 只在正文变化时重建，跑挂了刷新消息即可。
+        *  · 全屏：同上，卡片就是正文里的一屏内容。
+        */}
+      {pending ? pendingStage(spec.bytes) : (
         <div
           className={animated ? 'dtt-he__stage dtt-he__stage--settled' : 'dtt-he__stage'}
           style={{ height: height === null ? MIN_FRAME_HEIGHT * 4 : height }}
         >
           {frame}
         </div>
-      )}
-
-      {fullscreen && typeof document !== 'undefined' && createPortal(
-        <div className="dtt-he__overlay" role="dialog" aria-modal="true" aria-label={spec.title}>
-          <div className="dtt-he__overlay-bar">
-            <span className="dtt-he__title">{spec.title}</span>
-            <span className="dtt-he__actions">
-              <button
-                type="button"
-                className={zoom === HE_ZOOM_DEFAULT ? 'dtt-he__btn' : 'dtt-he__btn dtt-he__btn--active'}
-                title={`缩放：${Math.round(zoom * 100)}%（点击切下一档）`}
-                onClick={cycleZoom}
-              >
-                <span className="dtt-he__zoom-num">{Math.round(zoom * 100)}%</span>
-              </button>
-              <button
-                type="button"
-                className="dtt-he__btn"
-                title="重新加载"
-                onClick={() => { setReloadKey(prev => prev + 1) }}
-              >
-                <ReloadIcon />
-              </button>
-              <button
-                type="button"
-                className="dtt-he__btn"
-                title="关闭（Esc）"
-                onClick={() => { setFullscreen(false) }}
-              >
-                <CloseIcon />
-              </button>
-            </span>
-          </div>
-          <div className="dtt-he__overlay-stage">
-            <SandboxFrame doc={doc} dark={dark} fullscreen reloadKey={reloadKey} zoom={zoom} onFill={onFill} />
-          </div>
-        </div>,
-        document.body,
       )}
     </figure>
   )
