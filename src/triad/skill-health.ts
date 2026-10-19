@@ -14,7 +14,7 @@
  * 只读：不做任何修复/写入；issue 分 error / warn 两级。
  */
 
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -84,12 +84,39 @@ export interface HealthReport {
   issues: HealthIssue[]
 }
 
+interface DirentLike { name: string }
+
+/**
+ * 技能根下的目录条目，符号链接/junction 也算。
+ *
+ * 安装器（ego lite 的 `~/.agents/skills/ego-browser` 就是一例）常把技能以
+ * junction 挂进技能根；Node 的 readdir 对 junction 给 isDirectory()=false +
+ * isSymbolicLink()=true，只按 isDirectory() 过滤会把整片技能当不存在。
+ */
+async function listRootDirEntries(root: string): Promise<DirentLike[]> {
+  const entries = await readdir(root, { withFileTypes: true })
+  const out: DirentLike[] = []
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      out.push({ name: entry.name })
+      continue
+    }
+    if (!entry.isSymbolicLink()) continue
+    try {
+      if ((await stat(join(root, entry.name))).isDirectory()) out.push({ name: entry.name })
+    } catch {
+      // 断链：跳过
+    }
+  }
+  return out
+}
+
 /** 扫描一个根目录；返回健康技能数，顺带把目录名/有效名写回 nameSet。 */
 async function scanRoot(root: string, nameSet: Set<string>): Promise<{ healthy: number; issues: HealthIssue[] }> {
   const issues: HealthIssue[] = []
-  let entries = []
+  let entries: DirentLike[] = []
   try {
-    entries = (await readdir(root, { withFileTypes: true })).filter((entry) => entry.isDirectory())
+    entries = await listRootDirEntries(root)
   } catch {
     return { healthy: 0, issues }
   }

@@ -3,7 +3,7 @@
  *
  * 两条 host 路由，都在浏览器侧消费：
  *
- *  1. 生图画廊 spill 读取（见下方说明）；
+ *  1. 生图画廊 spill 读取 + 落盘物化（见下方说明）；
  *  2. 对话截图渲染（自 dsh-webui 移植，见 src/shot/index.ts）：
  *     POST /api/chat-flow/screenshot/render|save|reveal +
  *     GET /api/chat-flow/screenshot/image|diagnose，
@@ -18,18 +18,30 @@
  *
  *   GET /api/chat-flow/generated-images?file=<spill 绝对路径>
  *
+ * 官方右侧 Sidebar 的文档预览只认**真实文件**，data URL 不是文件，所以另有一条
+ * 落盘路由（实现见 src/spill/materialize.ts，注册紧跟在读图路由之后）：
+ *
+ *   GET  /api/chat-flow/generated-images/materialize?file=<spill 绝对路径>
+ *   POST /api/chat-flow/generated-images/materialize   （body: { file })
+ *
+ * 它把 spill 文本里的图片解码/下载成真实文件（`<DSH_HOME>/storages/
+ * dsh-chat-plus-generated/<sha1 前 16 位>/img-N.png`），返回绝对路径给客户端。
+ *
  * 安全约束（只做必要最小暴露）：
- *  - 只允许读取 `ctx.spillStore` 的 root 之内的文件（路径穿越一律 403）；
+ *  - 两条路由共用同一套准入：`admitSpillPath(file, spillRoots(active))`（见
+ *    src/spill/index.ts，可信 root = 历史 root ∪ 当前 root），路径穿越一律 403；
  *  - 只接受后缀 `.txt` 且大小 ≤ 24MB（当前生图模型最高 2720×1536，
  *    base64 约 9MB，护栏防呆不拦正常结果）；
- *  - 只返回从文件里解析出的图片 URL 列表（data: 或 http(s)），绝不回传
- *    文件原文；解析失败返回 ok:false，绝不 500 泄出错误细节。
+ *  - 读图路由只返回解析出的图片 URL 列表（data: 或 http(s)），绝不回传文件原文；
+ *    解析失败返回 ok:false，绝不 500 泄出错误细节；
+ *  - 落盘路由会写盘，所以 GET/POST 都过 `rejectCrossSite`（跨站写必须挡）。
  */
 
 import { readFileSync, statSync } from 'node:fs'
 import { resolve, sep, extname } from 'node:path'
 import { applyScreenshot } from './shot/index.ts'
 import { admitSpillPath, spillRoots } from './spill/index.ts'
+import { MATERIALIZE_ROUTE, handleMaterialize, parseGeneratedResult } from './spill/materialize.ts'
 import { applyDownloadRoutes, applyDownloadTool } from './download/index.ts'
 import { applyOpenPathRoutes } from './open-path/index.ts'
 import { applyOfficePreview } from './office/index.ts'
@@ -77,6 +89,16 @@ export { __test as officeScratchTest, ensureOfficeScratch, currentOfficeScratch 
 // spill 准入的可测面：root 形状判据 + 路径准入纯函数（供 smoke 钉住「历史 root
 // 可读、任意路径不可读」这对往返）—— 判错的表现是「画廊里的生图格子全空」。
 export { __test as spillTest, DEFAULT_ROOT_RE, SESSION_DIR_RE, admitSpillPath, spillRoots } from './spill/index.ts'
+// 生图 spill 落盘（materialize）：解析器已从本文件搬去 spill/materialize.ts 并 export，
+// 两条路由共用同一份（搬走时行为逐字未变）。纯函数（目录键 / 扩展名 / data URL 解码 /
+// magic number 判据）与路由常量一并导出给 smoke —— 它们写错了都不会抛错，只会静默
+// 落出一批裂图，或者把每次点击都变成一次重复解码。
+export { parseGeneratedResult }
+export {
+  MATERIALIZE_ROUTE, materializeRoot, materializeCacheDir, materializeImages,
+  extensionFor, decodeDataUrl, looksLikeImage, reusable, fetchImageBytes,
+  __test as materializeTest,
+} from './spill/materialize.ts'
 // 内置灵魂预设的可测面：预设是代码常量，某套被改坏或某张卡被 normalizeCard 过滤掉
 // 都不会抛错，只会让面板静默少一行。导出给 smoke 钉住 id 集合与卡片数。
 export { BUILTIN_SOUL_PRESETS, builtinPreset } from './triad/soul/presets.ts'
@@ -87,52 +109,12 @@ export { __test as csrfTest, isCrossSiteRequest, rejectCrossSite, hostNameOf } f
 /** Stable Cordis plugin name. */
 export const name = 'dsh-chat-plus'
 
-/** 生图结果 spill 文件（纯文本 JSON）大小上限：2720×1536 PNG base64 约 9MB，留余量到 24MB。 */
+/**
+ * 生图结果 spill 文件（纯文本 JSON）大小上限：2720×1536 PNG base64 约 9MB，留余量到 24MB。
+ * 解析器（parseGeneratedResult）已搬到 src/spill/materialize.ts 并 export：落盘路由与
+ * 本文件的读图路由必须共用同一份解析，否则会出现「画廊显示 3 张、落盘只有 2 张」。
+ */
 const MAX_SPILL_BYTES = 24 * 1024 * 1024
-
-/** 从 OpenAI 兼容响应体提取图片 URL（b64_json → data URL，其次 url）。 */
-function collectImageUrls(data: unknown): string[] {
-  const urls: string[] = []
-  if (!Array.isArray(data)) return urls
-  for (const item of data) {
-    if (typeof item !== 'object' || item === null) continue
-    const record = item as { b64_json?: unknown; url?: unknown }
-    let url: string | null = null
-    if (typeof record.b64_json === 'string' && record.b64_json !== '') {
-      url = `data:image/png;base64,${record.b64_json.replace(/\s+/g, '')}`
-    } else if (typeof record.url === 'string' && record.url !== '') {
-      url = record.url
-    }
-    if (url !== null && !urls.includes(url)) urls.push(url)
-  }
-  return urls
-}
-
-/** 解析生图结果 JSON 文本，提取 { ok, urls, model }（对齐客户端 parse.ts）。 */
-function parseGeneratedResult(text: string): { ok: boolean; urls: string[]; model: string | null } {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    return { ok: false, urls: [], model: null }
-  }
-  if (typeof parsed !== 'object' || parsed === null) return { ok: false, urls: [], model: null }
-  const record = parsed as Record<string, unknown>
-  if (record.ok !== true) return { ok: false, urls: [], model: null }
-  const data = record.data as { data?: unknown } | undefined
-  let urls = collectImageUrls(data?.data)
-  if (urls.length === 0 && Array.isArray(record.imageUrls)) {
-    urls = record.imageUrls.filter((item): item is string => typeof item === 'string' && item !== '')
-  }
-  if (urls.length === 0) {
-    for (const key of ['imageUrl', 'imageDataUrl'] as const) {
-      const value = record[key]
-      if (typeof value === 'string' && value !== '') urls.push(value)
-    }
-  }
-  const model = typeof record.model === 'string' && record.model !== '' ? record.model : null
-  return { ok: urls.length > 0, urls, model }
-}
 
 /** 路由：读 spill 文件 → 解析提取图片 URL（仅可信 spill root 内的 .txt，≤24MB）。 */
 function handleGeneratedImages(ctx: Record<string, any>, req: any, res: any): void {
@@ -211,6 +193,22 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
       path: '/api/chat-flow/generated-images',
       handler: (req: any, res: any) => handleGeneratedImages(webCtx, req, res),
     }), 'dsh-chat-plus: generated-images route')
+    /*
+     * 生图画廊「落盘」（exact，紧跟读图路由之后）：把只存在于 spill 文本里的
+     * 图片解码/下载成真实文件，好让官方右侧 Sidebar 能像打开普通文件一样打开
+     * 它们（Sidebar 的文档预览只认真实文件，data URL 不是文件）。
+     *
+     * 必须注册成 exact 而不是把读图路由改成 prefix：webServer 是 longest-prefix-
+     * wins 且精确表优先，两条 exact 各自成立、互不遮蔽——把老路由改成 prefix 会
+     * 让 /generated-images 这条现存契约的路由形状变化（客户端与冒烟都按 exact 断言过）。
+     *
+     * handler 自己带跨站闸门（GET/POST 都挡）：这条会往磁盘写文件，不是只读。
+     */
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: MATERIALIZE_ROUTE,
+      handler: (req: any, res: any) => handleMaterialize(webCtx, req, res),
+    }), 'dsh-chat-plus: generated-images materialize route')
     // 对话截图：常驻无头浏览器渲染 + render/save/reveal/image/diagnose
     // （prefix 路由；applyScreenshot 内部自己挂 effect 与回收）。
     applyScreenshot(webCtx)

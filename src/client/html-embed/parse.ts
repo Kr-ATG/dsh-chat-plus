@@ -24,13 +24,12 @@
  *     中断），不该永远停在「预渲染中」——非流式期一律回退成代码块，让人看到
  *     真实的半截内容。
  *
- *  4. **超长一律回退代码块**。iframe 是独立文档，一次挂载的代价远高于一张 SVG
- *     卡片；80KB 以上的内容多半是模型把整站贴进来了，渲染出来也没法看。非法/
- *     超长输入静默回退原文，绝不抛错（渲染期异常会卸载整棵 React 树）。
+ *  4. **非法输入一律回退代码块**。空内容、只有注释、没有可渲染标签的围栏静默
+ *     回退原文，绝不抛错（渲染期异常会卸载整棵 React 树）。**不设体积闸门**：
+ *     卡片高度由宿主按上报值给框（见 bridge.ts 的 MAX_FRAME_HEIGHT），页面自己
+ *     多长都不影响对话流；再按字符数截断只会在中文卡片上误伤（同一句 80K 字符，
+ *     中文是英文的三倍字节），拦不住真正的「整站贴进来」，只拦得住写得长的好卡片。
  */
-
-/** 单个 html 围栏的内容上限（字符）。超出回退成代码块。 */
-const MAX_HTML_CHARS = 80_000
 
 /** 从 HTML 里抠标题：优先 <title>，其次第一个 h1 文本，都没有就用兜底名。 */
 function titleOf(html: string): string {
@@ -160,8 +159,8 @@ export function splitHtml(text: string, streaming = false): readonly HtmlPart[] 
     const head = text.slice(cursor, match.index)
     if (head !== '') parts.push({ kind: 'md', text: head })
     const body = (match[1] ?? '').trim()
-    // 空内容 / 超长 / 无可渲染标签（含「只有注释」）→ 回退原文（当普通代码块显示）。
-    if (body === '' || body.length > MAX_HTML_CHARS || !hasVisibleTag(body)) {
+    // 空内容 / 无可渲染标签（含「只有注释」）→ 回退原文（当普通代码块显示）。
+    if (body === '' || !hasVisibleTag(body)) {
       parts.push({ kind: 'md', text: match[0] as string })
     } else {
       parts.push({

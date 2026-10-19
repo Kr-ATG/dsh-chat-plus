@@ -4,7 +4,8 @@
  * 回答一个问题：**所有对话产出过的图片 / 网页 / 演示 / 文档，在哪儿一次看全。**
  *
  * 布局：工具条（类别 chips + 时间筛选 + 搜索 + 视图切换 + 刷新）→ 筛选条
- * （会话 / 时间，选中时出现）→ 卡片网格或时间轴 → Lightbox。
+ * （会话 / 时间，选中时出现）→ 卡片网格或时间轴。点卡片 = 在**官方右侧栏**
+ * 打开该条（本面板没有自己的预览层）。
  *
  * 时间能力（2026-10-04 增补）：
  *  · 时间轴视图 —— 按天分组，左侧竖轨 + 日期钉住头，卡片仍走同一张 GalleryCard；
@@ -15,16 +16,16 @@
  * 增量折叠，stat 核对过才下发）；generated（生图/生视频）条目经既有的
  * /api/chat-flow/generated-images 二次解析成可显示 URL。
  *
- * 三类内容的两种打开方式（2026-10-06 收口为「一律弹窗内预览」）：
- *  · 图片 / 视频 / 音频 / 网页 → Lightbox 内直接预览（网页走沙箱 iframe，
- *    host 已注入 base 与 CSP sandbox，成品页读不到宿主同源状态）；
- *  · PDF → Lightbox 内嵌插件自己的 /office/pdf（真 PDF，浏览器查看器）；
- *  · PPT / Word / Excel → Lightbox 内由 host 出页图并翻页。
+ * 打开方式（2026-10-19 收口为「一律官方侧栏」）：
+ *  · 磁盘成品（图片 / 音视频 / 网页 / PDF / Office）→ 直接把文件地址交给官方
+ *    右侧栏的文档预览 tab。PDF / Office 由插件的 sidebar-doc 渲染器接管（官方
+ *    内嵌 pdf.js 对带 /ID 的 PDF 必崩），音视频由 sidebar-media 接管（官方把
+ *    mp4 / mp3 列为「没有渲染器」）；
+ *  · 生图 / 生视频 → 内容只存在于 spill 的 .txt 里，先请 host 落成真实图片文件
+ *    （materialize 路由，幂等）再交右栏。
  *
- *  为什么原来这三类走「打开官方右栏」：那时假设官方文档预览可用。实测在本机
- *  官方那条 Office 链路是坏的（LibreOffice 转换写盘被沙箱拒，报 impl_store
- *  failed），于是画廊里点一个 ppt 的结果是「面板关了、右栏弹一条转换失败」。
- *  现在改成插件自己出页图，同一套准入口径，也不再依赖宿主侧 TEMP 的权限状况。
+ *  这条路径的上一版是「插件自己的 Lightbox」，再上一版是「按扩展名分裂」。
+ *  两者都被推翻：用户要的是一份文件只有一个查看器，就是官方侧边栏。
  *
  *  缩略图（同为 2026-10-06）：html / ppt / word / pdf 的卡片此前只有一枚类型
  *  图标 —— 一整屏长得一样的占位图，认不出哪张是哪张。现在经 host 的
@@ -32,8 +33,8 @@
  *  LibreOffice / PDFium 栅格化），失败时回落原来的类型图标。
  *
  * 动效（渐进式微调，不推翻工作台既有骨架）：卡片入场级联上浮、hover 浮起 +
- * 缩略图缓推、类别徽标下滑浮现、骨架屏微光、Lightbox 缩放入场与关闭钮旋转、
- * 刷新图标旋转。全部尊重 prefers-reduced-motion（样式表里统一关）。
+ * 缩略图缓推、类别徽标下滑浮现、骨架屏微光、刷新图标旋转。全部尊重
+ * prefers-reduced-motion（样式表里统一关）。
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -47,6 +48,7 @@ import {
   formatRelativeTime,
   formatSize,
   galleryRawUrl,
+  generatedUrlCache,
   inTimeRange,
   KIND_LABEL,
   officeRenderable,
@@ -62,8 +64,8 @@ import {
   type TimeRange,
 } from './api.js'
 import { ensureGalleryStyles } from './styles.js'
-import { generatedUrlCache, canInlinePreview, MediaLightbox } from './media-lightbox.js'
-import { tryOpenInSidebar } from '../../open-preview.js'
+import { canInlinePreview, MediaLightbox } from './media-lightbox.js'
+import { openWorkspacePreview } from '../../open-preview.js'
 import { getClientCtx } from '../../client-ctx.js'
 
 /** 类别 chips 的展示顺序（全部之后，按产出频率排）。 */
@@ -384,8 +386,8 @@ function shrinkThumbToDisplaySize(img: HTMLImageElement): void {
 
 /**
  * 生图/生视频条目的缩略图：spill 文件 2~9MB，不能首屏全解析 ——
- * IntersectionObserver 进视口才请求，解析结果进共享缓存
- * （media-lightbox 的 generatedUrlCache，Lightbox 打开时秒回）。
+ * IntersectionObserver 进视口才请求，解析结果进共享缓存（api.ts 的
+ * generatedUrlCache：网格重进视口与弹窗打开都复用同一份，重开秒回）。
  *
  * 解析失败（spill 被清理 / 内容不是生图结果 / 读取被拒）**整卡隐藏**，由
  * `onUnresolvable` 上报路径、面板把它从清单里剔掉（2026-10-06 用户点名：
@@ -425,7 +427,7 @@ function GeneratedThumb({ path, alt, thumbClass = 'tg-card__thumb', onUnresolvab
 
     async function load(): Promise<void> {
       const resolved = await resolveGeneratedUrls(path)
-      // 只有成功才写共享缓存（Lightbox 打开时秒回）；失败不写，下次进视口重试。
+      // 只有成功才写共享缓存（重进视口 / 落盘前都要用它）；失败不写，下次进视口重试。
       if (resolved.length > 0) generatedUrlCache.set(path, resolved)
       if (resolved.length === 0) {
         setFailed(true)
@@ -563,8 +565,8 @@ interface CardProps {
   readonly compact?: boolean
   /**
    * 分类删除的退场延迟（毫秒）。给了就说明这条正在被删：卡片改走 tg-card-out
-   * 退场动画、按这个延迟错峰淡出，且不再可点（退场中再点开会弹一个正在消失的
-   * 条目的 Lightbox）。undefined = 正常态。
+   * 退场动画、按这个延迟错峰淡出，且不再可点（退场中再点会把一个正在消失的
+   * 条目塞进右栏，那一下体验更怪）。undefined = 正常态。
    */
   readonly outMs?: number
 }
@@ -651,6 +653,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
   const [kind, setKind] = useState<KindFilter>('image')
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  /** 弹窗当前打开的条目下标（null = 关着）。可见清单变了由渲染处的上界守卫兜住。 */
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   /**
    * 从清单里剔除的路径（两件事同口径，都只增不减）：
@@ -971,48 +974,32 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
   }, [customFrom, customTo])
 
   /**
-   * 打开一个条目（2026-10-06 收口）：**能内联的一律进 Lightbox**。
+   * 打开一个条目：**就地弹窗**（2026-10-19 二次改版，用户点名要弹窗回来）。
    *
-   * 此前 ppt / word / excel 走的是「关掉工作台页 + 官方右栏预览」，理由是那条
-   * 链路有原生保真度。实测本机官方 Office 转换是坏的（LibreOffice 写盘被沙箱
-   * 拒），于是点一个 ppt 只会让面板消失、右栏弹一句转换失败 —— 比不响应更糟。
-   * 现在三类都由 host 出页图在弹窗里预览，「预览文档」按钮仍保留在弹窗底部，
-   * 想要官方那条路（或下载）随时可走。
+   * 这条路径已经来回走过三次，把结论钉在这里：
+   *  1. 2026-10-06 前：按扩展名分裂（Office 走右栏、其余进弹窗）；
+   *  2. 2026-10-19 上旬：全部改走官方右栏 —— 确实统一了，但**代价是离开画廊**。
+   *     官方右栏的 DOM 在全局面板占主列时整个是 hidden 的（RightbarRoot 的
+   *     `visible = activePanelId === null`），所以在画廊里点一张图必然把工作台
+   *     页关掉、跳回会话才能看见 —— 用户的原话是「为啥点了就跳转到会话」。
+   *  3. 现在：**画廊回到弹窗**。它是横向扫一遍的地方（一次看十几张、来回翻、
+   *     快速关掉），弹窗才对；产出物卡仍然走右栏（那是「这次做出来了什么」，
+   *     点开该在旁边长期停着）。
    *
-   * 判据用 `canInlinePreview`（类别 + 扩展名）：csv / tsv / rtf 这些同类别但
-   * 引擎不认的扩展名会回落到「下载」，而不是让用户对着占位图等一场注定失败的
-   * 渲染。
+   * 只有一种情况不进弹窗：**弹窗里渲染不出来的类别**（canInlinePreview 为 false，
+   * 例如 rtf / csv 这类同类别但引擎不认的扩展名）。它们退回官方右栏 —— 那里
+   * 至少能给出文件信息与下载入口，比在弹窗里摆一张「不支持预览」的占位图好。
    */
   const openItem = useCallback((item: GalleryItem) => {
     if (!canInlinePreview(item.kind, item.path)) {
-      const anchor = document.createElement('a')
-      anchor.href = galleryRawUrl(item.path)
-      anchor.download = item.name
-      document.body.appendChild(anchor)
-      anchor.click()
-      anchor.remove()
+      openWorkspacePreview(item.path, {
+        sessionId: item.sessionId,
+        cwd: sessionById.get(item.sessionId)?.cwd ?? undefined,
+      })
       return
     }
     setLightboxIndex(visible.indexOf(item))
-  }, [visible])
-
-  /** 跳到条目所属会话：官方 uiWorkspace.openSession + 关掉工作台页。 */
-  const openSessionOf = useCallback((item: { readonly sessionId: string }) => {
-    try {
-      const ctx = getClientCtx()
-      const workspace = ctx?.get?.('uiWorkspace') as { openSession?: (id: string) => void } | undefined
-      if (workspace !== undefined && typeof workspace.openSession === 'function') {
-        workspace.openSession(item.sessionId)
-        try {
-          const layout = ctx?.get?.('layout') as { selectPanel?: (id: string | null) => void } | undefined
-          layout?.selectPanel?.(null)
-        } catch { /* 面板关不掉不阻塞跳转 */ }
-        return
-      }
-    } catch { /* 服务不可用：走兜底 */ }
-    // 兜底：至少把会话 id 抄给用户（极旧宿主拿不到 uiWorkspace）。
-    window.alert('无法直接跳转，会话 id：' + item.sessionId)
-  }, [])
+  }, [visible, sessionById])
 
   /* ── 分类删除的执行（2026-10-16）───────────────────────────────────── */
 
@@ -1467,7 +1454,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
       {/* 主体 */}
       {/* ── Coverflow 焦点轮播（2026-10 深空改版，效果图第 5 页顶部）──
            取当前可见列表前 5 条做 3D 焦点舞台：中间那张放大正对，两侧旋转退后。
-           数据是真条目，点击任意一张 = 打开该条 Lightbox（与网格同一入口）。
+           数据是真条目，点击任意一张 = 在官方右栏打开该条（与网格同一入口）。
            条目不足 3 条不渲染（轮播没有意义），时间轴视图也不渲染。 */}
       {view === 'grid' && items !== null && error === null && visible.length >= 3 && (
         <div className="wb2-cover" aria-label="焦点产出轮播">
@@ -1592,10 +1579,14 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
 
       {/* 类别筛选已上移到工具条（刷新钮之后），此处不再重复渲染 */}
 
-      {/* Lightbox（共享组件：画廊与产出物卡同一套预览与全屏）。
-          上界守卫必须带：gonePaths 剔除条目后 visible 会缩短，旧 index 可能越界
-          （越界时 MediaLightbox 内部 item===undefined 会 return null，不崩但弹窗
-          凭空消失，比不显示更怪）。 */}
+      {/*
+        预览弹窗（2026-10-19 重做样式）。上界守卫必须带：gonePaths 剔除条目后
+        visible 会缩短，旧下标可能越界 —— 越界时组件内部 item === undefined
+        会 return null，不崩但弹窗凭空消失，比不显示更怪。
+
+        取图地址分两类：磁盘成品走画廊 /raw（索引即白名单）；生图/生视频的
+        内容只在 spill 里，由组件自己经 resolveGeneratedUrls 解析成 data URL。
+      */}
       {lightboxIndex !== null && lightboxIndex >= 0 && lightboxIndex < visible.length && (
         <MediaLightbox
           items={visible}
@@ -1603,11 +1594,22 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
           fileUrlOf={(item) => galleryRawUrl(item.path)}
           onNavigate={setLightboxIndex}
           onClose={() => { setLightboxIndex(null) }}
-          onOpenSession={(item) => { openSessionOf(item); setLightboxIndex(null) }}
+          onOpenSession={(item) => {
+            try {
+              const ctx = getClientCtx()
+              const workspace = ctx?.get?.('uiWorkspace') as { openSession?: (id: string) => void } | undefined
+              workspace?.openSession?.(item.sessionId)
+              ctx?.get?.('layout')?.selectPanel?.(null)
+            } catch { /* 服务不可用：留在弹窗里，不影响预览 */ }
+            setLightboxIndex(null)
+          }}
           onOpenSidebar={(item) => {
-            // 出口保留：官方的原生保真度（字体、复杂排版）仍是备选路径。
             const session = sessionById.get(item.sessionId)
-            if (tryOpenInSidebar(item.path, { sessionId: item.sessionId, cwd: session?.cwd ?? undefined })) setLightboxIndex(null)
+            const opened = openWorkspacePreview(item.path, {
+              sessionId: item.sessionId,
+              cwd: session?.cwd ?? undefined,
+            })
+            if (opened.ok) setLightboxIndex(null)
           }}
         />
       )}

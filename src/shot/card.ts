@@ -359,7 +359,7 @@ function iuCssFor(theme: ShotTheme, zoom = 1): string {
  * 与对话流一致，围栏就是卡片本身，不保留源码块。
  *
  * **按 `data-fence-k`（围栏正文的内容哈希）精确匹配，不按「第几个 language-html」找**。
- * 后者在正文含被回退成代码块的围栏时必然错位：空内容 / 只有注释 / 超 80KB 的
+ * 后者在正文含被回退成代码块的围栏时必然错位：空内容 / 只有注释的
  * 围栏走 splitHtml 的 md 分支，但 markdown 侧照样给它打 `language-html` 标记，
  * 于是「第 0 个合法围栏」会命中「第 0 个 language-html 块」——也就是那个**非法**
  * 围栏的位置。结果是卡片插错位置 + 合法位置残留一坨源码块。

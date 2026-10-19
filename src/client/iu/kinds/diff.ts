@@ -371,12 +371,14 @@ const SUCCESS = 'var(--dsw-alias-state-success-primary, #27ae60)'
 const ERROR = 'var(--dsw-alias-state-error-primary, #e8503a)'
 const BRAND = 'var(--dsw-alias-state-business-primary, #4176e6)'
 const BORDER = 'var(--dsw-alias-border-l3, rgba(127,127,127,.18))'
-const LAYER2 = 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,.1))'
+/* 层级面 token（#fff / #2c2c2e）不能当「淡底」用：压在 4% 灰的卡面上会变成反差色块。
+   这里统一换成随主题走的 label 比例色（与全套 iu 卡同一口径）。 */
+const LAYER2 = 'color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent)'
 
 const CSS = [
   '/* diff：工具条（pill 切换）+ 等宽行级对比 + split 两栏 */',
   '.dtt-iu__diff-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 6px 0 8px; }',
-  '.dtt-iu__diff-pill { border: 1px solid ' + BORDER + '; background: transparent; color: inherit;',
+  '.dtt-iu__diff-pill { border: .5px solid ' + BORDER + '; background: transparent; color: inherit;',
   '  font: inherit; font-size: calc(11.5px * var(--iu-text-scale, 1)); border-radius: 8px;',
   '  padding: 2px 11px; cursor: pointer; opacity: .58; line-height: 1.7; white-space: nowrap;',
   '  transition: opacity .18s ease, background-color .18s ease, transform .18s ease, border-color .18s ease, color .18s ease; }',
@@ -388,15 +390,19 @@ const CSS = [
   '.dtt-iu__diff-stat { margin-left: auto; font-size: calc(11px * var(--iu-text-scale, 1));',
   '  font-variant-numeric: tabular-nums; opacity: .6; white-space: nowrap; padding-left: 6px; }',
   '.dtt-iu__diff-lang { font-size: calc(10.5px * var(--iu-text-scale, 1)); opacity: .5;',
-  '  border: 1px solid currentColor; border-radius: 8px; padding: 0 7px; line-height: 16px; white-space: nowrap; }',
+  '  border: 0; border-radius: 0; padding: 0; line-height: 16px; white-space: nowrap; letter-spacing: .06em; }',
 
-  '/* 对比容器：等宽字体，行铺满；unified 与 split 共用同一套边框 / 圆角 / 字号。 */',
-  '.dtt-iu__diff, .dtt-iu__diff--split { border: 1px solid ' + BORDER + '; border-radius: 8px;',
+  '/* 对比容器：等宽字体，行铺满。',
+  ' *',
+  ' * 融合第二版（2026-10-19）：去掉外描边与底色 —— 正文里一段代码块本来就不带框，',
+  ' * 这里再套一圈 border 等于「嵌进来的 diff 组件」。改用顶部一条极细线起头、',
+  ' * 行内增删色块自己表达结构（行底色是**内容语义**，不是装饰，保留）。 */',
+  '.dtt-iu__diff, .dtt-iu__diff--split { border: 0; border-top: .5px solid ' + BORDER + '; border-radius: 0;',
   '  overflow: hidden; font-family: ' + MONO + '; font-size: calc(12px * var(--iu-text-scale, 1));',
-  '  line-height: 1.55; background: var(--dsw-alias-bg-layer-1, rgba(127,127,127,.03)); }',
+  '  line-height: 1.55; background: transparent; }',
   '.dtt-iu__diff--split { display: flex; align-items: stretch; }',
   '.dtt-iu__dcol { flex: 1 1 0; min-width: 0; }',
-  '.dtt-iu__dcol + .dtt-iu__dcol { border-left: 1px solid ' + BORDER + '; }',
+  '.dtt-iu__dcol + .dtt-iu__dcol { border-left: .5px solid ' + BORDER + '; }',
 
   '/* 一行：行号槽（fixed）+ 标记（fixed）+ 文本（占余下、可换行）。 */',
   '.dtt-iu__dline { display: flex; align-items: flex-start; padding: 0 8px;',
@@ -431,7 +437,7 @@ const CSS = [
   '/* 窄屏：split 自动降级 —— 两栏改上下堆叠，各占满宽（单栏可读，等价于回到统一流）。 */',
   '@media (max-width: 640px) {',
   '  .dtt-iu__diff--split { flex-direction: column; }',
-  '  .dtt-iu__dcol + .dtt-iu__dcol { border-left: 0; border-top: 1px solid ' + BORDER + '; }',
+  '  .dtt-iu__dcol + .dtt-iu__dcol { border-left: 0; border-top: .5px solid ' + BORDER + '; }',
   '}',
 
   '/* 无障碍：关掉全部过渡与位移；变更着色是背景色（非动画），关掉后照样完整可读。 */',

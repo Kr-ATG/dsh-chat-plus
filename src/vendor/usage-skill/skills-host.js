@@ -148,14 +148,37 @@ function rootLabel(root) {
   if (root === dshRoot()) return "dsh";
   return "other";
 }
+/**
+ * 技能根下的目录名，符号链接/junction 也算。
+ *
+ * 安装器（ego lite 的 `~/.agents/skills/ego-browser` 就是一例）常把技能以
+ * junction 挂进技能根；Node 的 readdir 对 junction 给 isDirectory()=false +
+ * isSymbolicLink()=true，只按 isDirectory() 过滤会把整片技能当不存在。
+ */
+async function listRootDirNames(root) {
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const names = [];
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      names.push(entry.name);
+      continue;
+    }
+    if (!entry.isSymbolicLink()) continue;
+    try {
+      if ((await stat(join(root, entry.name))).isDirectory()) names.push(entry.name);
+    } catch {
+    }
+  }
+  return names;
+}
 async function listRootSkills(root) {
   const views = [];
-  let entries = [];
-  try {
-    entries = (await readdir(root, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-  } catch {
-    return views;
-  }
+  const entries = await listRootDirNames(root);
   for (const dir of entries) {
     const meta = await readSkillMeta(root, dir);
     if (meta !== void 0) views.push(meta);
@@ -291,13 +314,7 @@ async function locateSkillDir(name2) {
     }
   }
   for (const root of roots) {
-    let entries = [];
-    try {
-      entries = (await readdir(root, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-    } catch {
-      continue;
-    }
-    for (const dir of entries) {
+    for (const dir of await listRootDirNames(root)) {
       const meta = await readSkillMeta(root, dir);
       if (meta !== void 0 && meta.name === name2) return join(root, dir);
     }
@@ -618,13 +635,7 @@ async function deleteSkill(skillName) {
   const removed = [];
   const aliases = /* @__PURE__ */ new Set([name2]);
   for (const root of roots) {
-    let entries = [];
-    try {
-      entries = (await readdir(root, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-    } catch {
-      continue;
-    }
-    for (const dir of entries) {
+    for (const dir of await listRootDirNames(root)) {
       const meta = await readSkillMeta(root, dir);
       if (dir !== name2 && (meta === void 0 || meta.name !== name2)) continue;
       // 内置技能拒绝删除（dsh-chat-plus patch）：它由插件随包分发，删掉

@@ -3,9 +3,13 @@
  *
  * 视觉骨架沿用工作台既有语言（与记忆 / 邮箱面板同一套 token 与圆角节奏），
  * 动效按「渐进式微调」原则加：卡片入场级联上浮、hover 提亮浮起、骨架屏微光
- * 扫动、Lightbox 缩放入场、类别徽标下滑浮现、时间轴竖轨自上而下生长 +
- * 日期节点弹出 + 分组逐段浮入、时间筛选弹层缩放淡入。全部动画尊重
- * prefers-reduced-motion（只关动画，不动布局）。
+ * 扫动、类别徽标下滑浮现、时间轴竖轨自上而下生长 + 日期节点弹出 + 分组逐段
+ * 浮入、时间筛选弹层缩放淡入。全部动画尊重 prefers-reduced-motion（只关动画，
+ * 不动布局）。
+ *
+ * 2026-10-19：插件自己的 Lightbox（tg-lb__* / tg-paged__*）整块删除 —— 预览
+ * 一律交官方右侧栏（用户点名「全部用官方的侧边栏查看」）。那一族样式没有别的
+ * 使用者，留着只会让后来的人以为还有第二个弹窗。
  *
  * ⚠ 注入式 CSS 的正文与注释里都不能出现反引号（模板字面量会提前闭合，
  * 整张表静默变 false —— build.mjs 的 assertInjectedCssStrings 会拦，别去撞它）。
@@ -325,78 +329,213 @@ const SHEET = `
 .tg-tile__name{font-size:11px;font-weight:500;line-height:15px;color:var(--dsw-alias-label-primary,#eee);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tg-tile__sub{font-size:10px;line-height:13px;color:var(--dsw-alias-label-tertiary,#7c828c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-/* ── Lightbox ──────────────────────────────────────────────────── */
-.tg-lb{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;background:rgba(8,9,13,.82);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);animation:tg-lb-in 200ms ease}
-.tg-lb[data-closing="true"]{animation:tg-lb-out 160ms ease forwards}
-@keyframes tg-lb-in{from{opacity:0}to{opacity:1}}
-@keyframes tg-lb-out{from{opacity:1}to{opacity:0}}
-.tg-lb__stage{position:relative;max-width:min(92vw,1480px);max-height:92vh;display:flex;flex-direction:column;align-items:center;gap:10px;animation:tg-stage-in 240ms cubic-bezier(.2,.8,.2,1)}
-.tg-lb[data-closing="true"] .tg-lb__stage{animation:tg-stage-out 150ms ease forwards}
-@keyframes tg-stage-in{from{opacity:0;transform:scale(.94) translateY(12px)}to{opacity:1;transform:scale(1) translateY(0)}}
-@keyframes tg-stage-out{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.96) translateY(6px)}}
-.tg-lb__close{position:absolute;top:-14px;right:-14px;z-index:3;display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.16);background:rgba(24,26,33,.9);color:#e5e7eb;cursor:pointer;transition:transform 200ms cubic-bezier(.2,.8,.2,1),background 160ms ease;box-shadow:0 4px 14px rgba(0,0,0,.4)}
-.tg-lb__close:hover{background:rgba(50,54,66,.95);transform:rotate(90deg) scale(1.06)}
-/* 全屏切换钮：贴在关闭钮左下侧成一列；进入全屏后图标换成收拢形并常驻高亮。
-   hover 轻微上浮 + 底色提亮，与关闭钮同一套手感。 */
-.tg-lb__fullbtn{position:absolute;top:24px;right:-14px;z-index:3;display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.16);background:rgba(24,26,33,.9);color:#e5e7eb;cursor:pointer;transition:transform 160ms cubic-bezier(.2,.8,.2,1),background 160ms ease,color 160ms ease;box-shadow:0 4px 14px rgba(0,0,0,.4)}
-.tg-lb__fullbtn:hover{background:rgba(50,54,66,.95);transform:translateY(-2px)}
-.tg-lb__fullbtn:active{transform:translateY(0) scale(.94)}
-.tg-lb__fullbtn[data-full="true"]{color:#fff;background:var(--dsw-alias-state-business-primary,#3b82f6);border-color:transparent}
-/* ── 全屏态：预览体铺满视口，元信息沉底成渐变浮层 ─────────────────── */
-.tg-lb[data-full="true"] .tg-lb__stage{max-width:100vw;max-height:100vh;width:100vw;height:100vh;gap:0;animation:tg-full-in 260ms cubic-bezier(.2,.8,.2,1)}
-@keyframes tg-full-in{from{opacity:.4;transform:scale(.985)}to{opacity:1;transform:scale(1)}}
-.tg-lb[data-full="true"] .tg-lb__img{max-width:100vw;max-height:100vh;width:100vw;height:100vh;object-fit:contain;border-radius:0;box-shadow:none}
-.tg-lb[data-full="true"] .tg-lb__video{max-width:100vw;max-height:100vh;width:100vw;height:100vh;border-radius:0}
-.tg-lb[data-full="true"] .tg-lb__frame{width:100vw;height:100vh;border-radius:0;border:none}
-.tg-lb[data-full="true"] .tg-lb__genrow{width:100vw;height:100vh;max-height:100vh}
-.tg-lb[data-full="true"] .tg-lb__genrow .tg-lb__img{width:auto;height:auto;max-width:100vw;max-height:100vh;object-fit:contain}
-.tg-lb[data-full="true"] .tg-lb__meta{position:absolute;left:0;right:0;bottom:0;max-width:100vw;padding:34px 20px 14px;background:linear-gradient(to top,rgba(6,7,10,.86),rgba(6,7,10,0));animation:tg-fade-in 220ms ease}
-.tg-lb[data-full="true"] .tg-lb__nav--prev{left:14px}
-.tg-lb[data-full="true"] .tg-lb__nav--next{right:14px}
-.tg-lb[data-full="true"] .tg-lb__close{top:14px;right:14px}
-.tg-lb[data-full="true"] .tg-lb__fullbtn{top:52px;right:14px}
-.tg-lb__img{max-width:min(92vw,1480px);max-height:76vh;border-radius:12px;box-shadow:0 18px 60px rgba(0,0,0,.55);background:#0b0c10;animation:tg-img-in 300ms cubic-bezier(.2,.8,.2,1)}
-@keyframes tg-img-in{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
-.tg-lb__video{max-width:min(92vw,1280px);max-height:76vh;border-radius:12px;box-shadow:0 18px 60px rgba(0,0,0,.55);background:#000}
-.tg-lb__frame{width:min(92vw,1280px);height:min(76vh,860px);border-radius:12px;border:1px solid rgba(255,255,255,.12);box-shadow:0 18px 60px rgba(0,0,0,.55);background:#fff}
-.tg-lb__meta{display:flex;align-items:center;gap:12px;max-width:min(92vw,1480px);color:#c7ccd4;font-size:12px;animation:tg-fade-in 260ms ease 80ms backwards;min-width:0}
-.tg-lb__name{font-weight:600;color:#f3f4f6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:52ch}
-.tg-lb__dim{opacity:.7;white-space:nowrap}
-.tg-lb__actions{display:flex;align-items:center;gap:6px;margin-left:auto;flex:none}
-.tg-lb__btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:8px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:#e5e7eb;font-size:12px;font-family:inherit;cursor:pointer;transition:background 150ms ease,transform 150ms cubic-bezier(.2,.8,.2,1);white-space:nowrap}
-.tg-lb__btn:hover{background:rgba(255,255,255,.16);transform:translateY(-1px)}
-.tg-lb__btn:active{transform:translateY(0) scale(.97)}
-.tg-lb__nav{position:absolute;top:50%;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;width:40px;height:56px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(20,22,28,.72);color:#e5e7eb;cursor:pointer;transition:background 150ms ease,transform 150ms cubic-bezier(.2,.8,.2,1);z-index:2}
-.tg-lb__nav:hover{background:rgba(46,50,62,.9)}
-.tg-lb__nav--prev{left:-56px}
-.tg-lb__nav--next{right:-56px}
-.tg-lb__nav--prev:hover{transform:translateY(-50%) translateX(-2px)}
-.tg-lb__nav--next:hover{transform:translateY(-50%) translateX(2px)}
-@media (max-width:1100px){.tg-lb__nav--prev{left:6px}.tg-lb__nav--next{right:6px}}
-.tg-lb__hint{color:#8b9099;font-size:11px;animation:tg-fade-in 300ms ease 160ms backwards}
-.tg-lb__genrow{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;max-height:76vh;overflow:auto}
-.tg-lb__genrow .tg-lb__img{max-height:64vh}
-/* ── 页图预览（PPT / Word / Excel）──────────────────────────────── */
-.tg-paged{position:relative;display:flex;flex-direction:column;align-items:center;gap:10px;max-width:min(92vw,1480px);max-height:76vh}
-.tg-paged__img{margin:0 auto;max-width:min(92vw,1480px);max-height:70vh;object-fit:contain;background:#fff}
-.tg-paged[data-full="true"] .tg-paged__img{max-width:100vw;max-height:calc(100vh - 96px)}
-.tg-paged__spin{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;background:rgba(15,17,23,.62);color:#e5e7eb;pointer-events:none;animation:tg-fade-in 140ms ease}
-.tg-paged__spin svg{animation:tg-spin 900ms linear infinite}
-.tg-paged__bar{display:flex;align-items:center;gap:10px;padding:4px 10px;border-radius:12px;background:rgba(15,17,23,.72);border:1px solid rgba(255,255,255,.12);animation:tg-fade-in 200ms ease}
-.tg-paged__step{height:26px;padding:0 12px}
-.tg-paged__step:disabled{opacity:.4;cursor:not-allowed;transform:none}
-.tg-paged__pos{font-size:12px;color:#d7dbe2;font-variant-numeric:tabular-nums;white-space:nowrap}
-.tg-lb__loading--col{flex-direction:column;gap:12px;max-width:44ch;text-align:center;line-height:1.7;color:#9ca3af}
-.tg-lb__loading{color:#c7ccd4;font-size:12.5px;display:flex;align-items:center;gap:8px}
-.tg-lb__loading svg{animation:tg-spin 900ms linear infinite}
+/* ══ 预览弹窗（2026-10-19 重做）═════════════════════════════════════════
+ *
+ * 旧版的问题不是配色，是**没有容器**：关闭钮与全屏钮挂在图片外右上角（负偏移，
+ * 像贴纸）、文件名与元信息散在图片下方一行、图片和遮罩之间没有边界 —— 整块
+ * 看起来就是「一张图浮在暗背景上」。
+ *
+ * 现在是一张完整的浮动面板：头部一条（类型图标 + 文件名 + 元信息 + 图标按钮组）、
+ * 内容区自己持有边界、面板本体有 1px 内描边 + 双层投影。跟浏览器窗口是两张
+ * 明确的层，不是贴纸。
+ *
+ * 尺寸用 clamp 而不是固定 px：1470 宽的屏上给 92vw/86vh，笔记本上用 min() 收敛，
+ * 小屏退化成贴边全屏（<720px 时圆角归零、遮罩不留边）。
+ *
+ * 配色一律取官方 dsw-alias token；面板本身刻意是「深色玻璃」而不跟主题变白 ——
+ * 看图的时候周围越暗越好，这是所有看图器件的共同约定（浅色面板会把图片边缘
+ * 的白底照得发灰）。
+ */
+
+.glb{position:fixed;inset:0;z-index:1300;display:flex;align-items:center;justify-content:center;
+  padding:clamp(12px,3vh,40px);
+  background:color-mix(in srgb, #06070a 78%, transparent);
+  backdrop-filter:blur(14px) saturate(.9);-webkit-backdrop-filter:blur(14px) saturate(.9);
+  animation:glb-veil-in 200ms cubic-bezier(.32,.72,0,1);
+  font-family:inherit;-webkit-font-smoothing:antialiased}
+.glb[data-closing="true"]{animation:glb-veil-out 170ms ease forwards}
+@keyframes glb-veil-in{from{opacity:0;backdrop-filter:blur(0) saturate(1)}to{opacity:1}}
+@keyframes glb-veil-out{from{opacity:1}to{opacity:0}}
+
+/* 面板：深色玻璃 + 双层投影（近距离一圈定义轮廓，远距离一层托出层次）。 */
+.glb-panel{position:relative;display:flex;flex-direction:column;
+  width:min(92vw,1480px);max-height:min(88vh,940px);
+  border-radius:18px;overflow:hidden;
+  background:color-mix(in srgb, #14161c 96%, transparent);
+  border:1px solid rgba(255,255,255,.09);
+  box-shadow:0 0 0 1px rgba(0,0,0,.5),0 32px 80px -12px rgba(0,0,0,.7),0 8px 24px -8px rgba(0,0,0,.5);
+  animation:glb-panel-in 340ms cubic-bezier(.16,1,.3,1)}
+.glb[data-closing="true"] .glb-panel{animation:glb-panel-out 170ms cubic-bezier(.4,0,1,1) forwards}
+@keyframes glb-panel-in{from{opacity:0;transform:scale(.96) translateY(8px)}to{opacity:1;transform:none}}
+@keyframes glb-panel-out{from{opacity:1;transform:none}to{opacity:0;transform:scale(.98) translateY(4px)}}
+
+/* ── 头部：52px，一条发丝线分隔 ─────────────────────────────────────── */
+.glb-head{flex:none;display:flex;align-items:center;gap:9px;height:52px;padding:0 10px 0 16px;
+  border-bottom:1px solid rgba(255,255,255,.07);
+  background:color-mix(in srgb, #191c23 92%, transparent);
+  animation:glb-fade 240ms ease 60ms backwards}
+.glb-head__glyph{flex:none;display:inline-flex;align-items:center;justify-content:center;
+  width:28px;height:28px;border-radius:8px;
+  background:rgba(255,255,255,.06);color:rgba(255,255,255,.72)}
+.glb-head__title{flex:0 1 auto;min-width:0;font-size:13px;font-weight:600;line-height:1.35;
+  color:#eceef2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:.005em}
+.glb-head__dims{flex:none;font-size:11.5px;color:rgba(255,255,255,.42);
+  font-variant-numeric:tabular-nums;white-space:nowrap;padding-left:2px}
+.glb-head__sep{width:1px;height:16px;margin:0 2px;background:rgba(255,255,255,.12)}
+/* 动作区贴右：图标按钮统一 30px 圆角方，hover 才亮起来（静止时只有 55% 明度）。 */
+.glb-head__actions{display:flex;align-items:center;gap:2px;margin-left:auto;flex:none}
+.glb-btn{display:inline-flex;align-items:center;justify-content:center;
+  width:30px;height:30px;padding:0;border:0;border-radius:9px;background:transparent;
+  color:rgba(255,255,255,.55);cursor:pointer;
+  transition:background 140ms ease,color 140ms ease,transform 140ms cubic-bezier(.16,1,.3,1)}
+.glb-btn:hover{background:rgba(255,255,255,.1);color:#fff}
+.glb-btn:active{transform:scale(.92)}
+.glb-btn:focus-visible{outline:2px solid rgba(255,255,255,.5);outline-offset:-2px}
+.glb-btn[data-active="true"]{color:#fff;background:rgba(255,255,255,.14)}
+.glb-btn--close:hover{background:rgba(235,87,87,.9);color:#fff}
+
+/* ── 内容区：自己持有边界；有内边距（图片类留白），无（iframe 撑满）─────
+ *
+ * 必须用 grid 而不是 flex 居中：flex 容器里 max-height 百分比的参考高度在
+ * 「父级高度由 flex 决定」时会解析失败，图片按宽度撑满后高度溢出容器（实测
+ * 面板 882 高、图片被撑到 963 高，底部被裁出一条白边）。grid 的网格区域高度
+ * 是确定的，item 的 max-height:100% 才真正生效。 */
+.glb-body{position:relative;flex:1 1 auto;min-height:0;
+  display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);
+  place-items:center;padding:18px;overflow:hidden;
+  background:
+    radial-gradient(120% 120% at 50% 0%,rgba(255,255,255,.045),transparent 62%),
+    #0d0f13;
+  animation:glb-fade 260ms ease 80ms backwards}
+
+/*
+ * 两类内容区的尺寸策略，必须分开 —— 这是旧版没做、新面板才定下的一条：
+ *
+ *  · **原生内容**（图片 / 视频 / 音频 / 生图）：面板高度由内容决定（一张小图
+ *    不该被撑成整屏高、然后在四周包一圈空气）。所以 body 只给 grid 居中 +
+ *    内容自己 max-width/height:100%，panel 保持 max-height 的弹性约束。
+ *  · **承载式内容**（html / pdf / office 页图）：iframe 自己的固有高度是 150px
+ *    （HTML 规范默认值），内容驱动高度会让它被压成一条 —— 实测 1480×150 的
+ *    一条缝。所以这一类让 panel 拿到**确定高度**，body 的 grid 行用 1fr 填满。
+ */
+.glb-panel[data-fill="true"]{height:min(88vh,940px)}
+.glb-body[data-fill="true"]{padding:0}
+.glb-body[data-fill="true"] > *{width:100%;height:100%;min-height:0}
+
+.glb-media{display:block;max-width:100%;max-height:100%;min-height:0;min-width:0;
+  width:auto;height:auto;object-fit:contain;border-radius:10px;
+  background:transparent;box-shadow:0 12px 40px -10px rgba(0,0,0,.65);
+  animation:glb-media-in 320ms cubic-bezier(.16,1,.3,1) 40ms backwards}
+.glb-media--video{background:#000}
+@keyframes glb-media-in{from{opacity:0;transform:scale(.985)}to{opacity:1;transform:none}}
+
+.glb-frame{width:100%;height:100%;border:0;background:#fff;display:block}
+
+/* 音频：居中一张小卡（方头 + 播放器），没有画面就别铺满整块空区。 */
+.glb-audio{display:flex;flex-direction:column;align-items:center;gap:22px;
+  padding:40px 48px;border-radius:16px;
+  background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);
+  max-width:100%}
+.glb-audio__glyph{display:inline-flex;align-items:center;justify-content:center;
+  width:64px;height:64px;border-radius:50%;
+  background:rgba(255,255,255,.06);color:rgba(255,255,255,.7)}
+.glb-audio__glyph svg{width:30px;height:30px;stroke-width:1.5}
+.glb-audio audio{width:min(460px,62vw);height:34px}
+
+/* 生图多张：并排一列，超出滚动。 */
+.glb-genrow{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:center;
+  max-width:100%;max-height:100%;min-height:0;overflow:auto;padding:2px}
+.glb-genrow .glb-media{max-height:100%;width:auto;flex:0 0 auto}
+
+/* 加载 / 空态提示。 */
+.glb-note{display:flex;flex-direction:column;align-items:center;gap:12px;
+  max-width:46ch;text-align:center;line-height:1.7;
+  font-size:12.5px;color:rgba(255,255,255,.55)}
+.glb-note svg{width:60px;height:60px;stroke-width:1.2;opacity:.5}
+.glb-spin-inline{display:inline-flex;animation:glb-spin 900ms linear infinite}
+.glb-spin{position:absolute;display:inline-flex;align-items:center;justify-content:center;
+  width:38px;height:38px;border-radius:50%;background:rgba(12,14,18,.72);
+  color:rgba(255,255,255,.85);animation:glb-spin 900ms linear infinite;pointer-events:none}
+@keyframes glb-spin{to{transform:rotate(360deg)}}
+
+/* ── 页图预览（PPT / Word / Excel）──────────────────────────────────── */
+.glb-paged{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+  padding:18px 18px 64px;overflow:auto}
+.glb-paged__img{max-width:100%;max-height:100%;object-fit:contain;border-radius:6px;
+  background:#fff;box-shadow:0 12px 40px -10px rgba(0,0,0,.6);
+  opacity:0;transition:opacity 260ms ease}
+.glb-paged__img[data-loaded="true"]{opacity:1}
+.glb-paged__bar{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:4px;padding:4px;border-radius:11px;
+  background:rgba(20,22,28,.92);border:1px solid rgba(255,255,255,.1);
+  box-shadow:0 8px 24px -6px rgba(0,0,0,.6);
+  animation:glb-fade 220ms ease 120ms backwards}
+.glb-paged__step{height:28px;padding:0 12px;border:0;border-radius:8px;background:transparent;
+  color:rgba(255,255,255,.78);font-family:inherit;font-size:12px;cursor:pointer;
+  transition:background 140ms ease,color 140ms ease}
+.glb-paged__step:hover:not(:disabled){background:rgba(255,255,255,.1);color:#fff}
+.glb-paged__step:disabled{opacity:.32;cursor:default}
+.glb-paged__pos{padding:0 8px;font-size:11.5px;color:rgba(255,255,255,.6);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* ── 左右翻页：贴内容区两侧，半透明底，hover 才完全显形 ─────────────── */
+.glb-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:2;
+  display:flex;align-items:center;justify-content:center;
+  width:38px;height:62px;border:1px solid rgba(255,255,255,.1);border-radius:11px;
+  background:rgba(18,20,26,.72);color:rgba(255,255,255,.72);cursor:pointer;
+  opacity:.55;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  transition:opacity 160ms ease,background 160ms ease,transform 160ms cubic-bezier(.16,1,.3,1)}
+.glb-nav:hover{opacity:1;background:rgba(34,38,48,.92);color:#fff}
+.glb-nav--prev{left:12px}
+.glb-nav--next{right:12px}
+.glb-nav--prev:active{transform:translateY(-50%) translateX(-2px) scale(.96)}
+.glb-nav--next:active{transform:translateY(-50%) translateX(2px) scale(.96)}
+
+/* ── 底部计数（多图时才有）──────────────────────────────────────────── */
+.glb-foot{flex:none;display:flex;align-items:center;justify-content:center;height:34px;
+  border-top:1px solid rgba(255,255,255,.06);
+  background:color-mix(in srgb, #191c23 92%, transparent)}
+.glb-foot__count{font-size:11px;color:rgba(255,255,255,.42);font-variant-numeric:tabular-nums;letter-spacing:.02em}
+
+/* ── 全屏态：面板铺满、头部浮在内容上、圆角归零 ─────────────────────── */
+.glb[data-full="true"]{padding:0;background:#08090c}
+.glb[data-full="true"] .glb-panel{width:100vw;height:100vh;max-width:100vw;max-height:100vh;
+  border-radius:0;border:0;background:#08090c;box-shadow:none}
+/* 全屏下两类都填满（全屏语义就是「占满」）。 */
+.glb[data-full="true"] .glb-body[data-fill="true"]{padding:0}
+.glb[data-full="true"] .glb-head{position:absolute;top:0;left:0;right:0;z-index:3;
+  border-bottom:0;background:linear-gradient(to bottom,rgba(8,9,12,.9),transparent);
+  animation:glb-fade 200ms ease}
+.glb[data-full="true"] .glb-body{padding:0;background:#08090c}
+/* 头部是全屏态里的浮动渐变条（52px 压在内容上），图片给它让出这一条，
+   否则顶部会被标题遮住一截。 */
+.glb[data-full="true"] .glb-media{border-radius:0;box-shadow:none;max-height:calc(100vh - 52px)}
+.glb[data-full="true"] .glb-paged{padding:56px 0 0}
+.glb[data-full="true"] .glb-paged__img{max-height:calc(100vh - 56px);border-radius:0}
+.glb[data-full="true"] .glb-foot{display:none}
+.glb[data-full="true"] .glb-nav{width:44px;height:76px}
+.glb[data-full="true"] .glb-nav--prev{left:16px}
+.glb[data-full="true"] .glb-nav--next{right:16px}
+
+@keyframes glb-fade{from{opacity:0}to{opacity:1}}
+
+/* 窄屏：面板贴边，圆角收掉（小屏留白只会压缩内容）。 */
+@media (max-width:720px){
+  .glb{padding:0}
+  .glb-panel{width:100vw;height:100vh;max-width:100vw;max-height:100vh;border-radius:0;border:0}
+  .glb-body{padding:10px}
+  .glb-nav{display:none}
+  .glb-head__dims{display:none}
+}
 
 @media (prefers-reduced-motion:reduce){
-  .tg-card,.tg-skel,.tg-empty,.tg-stale,.tg-lb,.tg-lb__stage,.tg-lb__img,.tg-lb__meta,.tg-lb__hint,.tg-session-bar,.tg-dock{animation:none!important}
-  .tg-card,.tg-card:hover,.tg-icon-btn,.tg-lb__close,.tg-lb__fullbtn,.tg-lb__btn,.tg-lb__nav,.tg-kind,.tg-dock__item,.tg-card__img,.tg-card__icon,.tg-card__kind-dot{transition:none!important}
-  .tg-lb[data-full="true"] .tg-lb__stage{animation:none!important}
+  .tg-card,.tg-skel,.tg-empty,.tg-stale,.tg-session-bar,.tg-dock{animation:none!important}
+  .tg-card,.tg-card:hover,.tg-icon-btn,.tg-kind,.tg-dock__item,.tg-card__img,.tg-card__icon,.tg-card__kind-dot{transition:none!important}
   .tg-skel__thumb::after,.tg-skel__line::after{animation:none!important}
-  .tg-empty__icon,.tg-stale__dot,.tg-icon-btn[data-spinning="true"] svg,.tg-lb__loading svg{animation:none!important}
-  .tg-paged__spin,.tg-paged__spin svg,.tg-paged__bar{animation:none!important}
+  .tg-empty__icon,.tg-stale__dot,.tg-icon-btn[data-spinning="true"] svg{animation:none!important}
+  .glb,.glb-panel,.glb-head,.glb-body,.glb-media,.glb-note,.glb-paged__bar{animation:none!important}
+  .glb-btn,.glb-nav,.glb-paged__step,.glb-paged__img{transition:none!important}
+  .glb-spin,.glb-spin-inline{animation:none!important}
   .tg-day,.tg-day::before,.tg-day__head,.tg-day__dot,.tg-day__rule,.tg-time-pop,.tg-search__time-tag,.tg-time-bar{animation:none!important}
   .tg-time-pop__preset,.tg-time-pop__apply,.tg-view__btn{transition:none!important}
   .tg-time-bar__icon{animation:none!important}

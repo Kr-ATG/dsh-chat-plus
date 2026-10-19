@@ -4,10 +4,10 @@
  * 回答一个问题：**这次对话一共做出来了哪些文件。**
  *
  * 三件事决定了它的形态：
- *  1. **整行即入口**：不挂「预览」按钮。这张卡的每一行都一定对应一个真实文件
- *     （收集层已经把认不出来的路径滤掉了），所以「点这一行」和「点那个按钮」
- *     是同一件事 —— 多一枚按钮只是把同一句话说了两遍，还让一列行里多出一列
- *     按钮。悬停时右侧浮现一枚小箭头，承担「这里能点」的提示。
+ *  1. **整行即入口，且只走官方右栏**（2026-10-19 按用户要求收口）：不挂「预览」
+ *     按钮，也不再弹自己的 Lightbox。点这一行 = 在官方右侧栏打开该文件的文档
+ *     预览 tab —— 一份文件只有一个查看器，翻页/缩放/全屏都是官方那套。悬停时
+ *     右侧浮现一枚小箭头，承担「这里能点」的提示。
  *  2. **缩略图是 SVG**：不去读真实文件当缩略图。28px 见方读不出画面内容，
  *     而为每一行发一次文件请求，代价与收益完全不成比例。按**类型**画一枚
  *     矢量缩略图，一眼分得出图 / 视频 / 3D / 文档，这才是这一列真正要传达的。
@@ -25,13 +25,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { useHeightAnimation, useMotionAllowed } from '../motion-utils.ts'
-import {
-  localFileMediaUrl, probeWorkspaceFile, probeWorkspaceFiles, resolveWorkspacePath, tryOpenInSidebar,
-} from '../open-preview.ts'
+import { probeWorkspaceFile, probeWorkspaceFiles, tryOpenInSidebar } from '../open-preview.ts'
 import type { ProbeResult } from '../open-preview.ts'
 import { workspaceCwdOf } from '../client-ctx.ts'
-import { sessionRawUrl } from '../triad/gallery/api.ts'
-import { canInlinePreview, MediaLightbox, type LightboxItem } from '../triad/gallery/media-lightbox.tsx'
 import type { OutputKind, OutputItem, OutputsView } from './outputs.ts'
 
 /**
@@ -349,13 +345,6 @@ export const KrOutputsCard = memo(function KrOutputsCard({
     // probeTargets 每帧都是新数组，用拼好的 key 做依赖。
   }, [probeKey, sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  /**
-   * 画廊式 Lightbox 的打开态（2026-10-04：产出物行点主体 = 画廊同款预览）。
-   * index 指向 visible 清单；md / 代码等不可内联预览的类别不进这里（主体点击
-   * 直接走 openSidebar 原路）。
-   */
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
-
   const openPath = useCallback(async (path: string) => {
     /*
      * 打开前再确认一次（缓存命中就不重复请求）。
@@ -382,82 +371,6 @@ export const KrOutputsCard = memo(function KrOutputsCard({
     setCheckedPaths((prev) => (prev.has(path) ? prev : new Set(prev).add(path)))
     tryOpenInSidebar(path, { sessionId, cwd: workspaceCwdOf(sessionId) })
   }, [sessionId])
-
-  /**
-   * 行主体点击（2026-10-04）：可内联预览类别开画廊式 Lightbox；不可预览的
-   * 类别（3D 模型 / 压缩包 / 代码）回退原侧栏路 —— 浏览器渲染不了它们，
-   * 右栏至少能给出文件信息。
-   *
-   * 2026-10-06 起 ppt / word / excel 也进 Lightbox：三类此前被排除在外，理由是
-   * 「官方右栏有 Office 预览」；实测那条链路在本机是坏的（LibreOffice 转换写盘
-   * 被沙箱拒），点开只会让卡片的行看起来「点不动」。现在由 host 出页图内联预览。
-   */
-  const openInline = useCallback((item: OutputItem, index: number) => {
-    if (!canInlinePreview(item.kind, item.path)) { void openPath(item.path); return }
-    setLightboxIndex(index)
-  }, [openPath])
-
-  /** Lightbox 内的「预览文档」出口：交回官方右栏。 */
-  const openSidebarFromLightbox = useCallback((item: LightboxItem) => {
-    setLightboxIndex(null)
-    void openPath(item.path)
-  }, [openPath])
-
-  /*
-   * 交给 Lightbox 的条目：路径先**折成会话工作区下的绝对路径**。
-   *
-   * 为什么必须折（2026-10-05 修「点图片加载不出来」）：present / write 的参数
-   * 常是相对路径（`深圳一日游_20261006/slide_01.png`），而 host 的 /raw 准入名单
-   * 里存的是**绝对路径**（提取时按会话 cwd 解析过）。host 侧已按会话 cwd 兜住
-   * 相对路径，这里再折一次是第二道保险：地址形态与索引形态完全一致，不再依赖
-   * 服务端的路径基准推断；相对路径在 cwd 未知时原样传给 host（由它按会话 cwd 解）。
-   *
-   * 侧栏那条路（openPath → 官方 workspaceFiles）不受影响：它本来就把相对路径
-   * 相对会话工作区解析，折成绝对只是同一结果的另一种写法。
-   */
-  const cwd = workspaceCwdOf(sessionId)
-  const lightboxItems = useMemo<readonly LightboxItem[]>(
-    () => visible.map((item) => ({
-      path: resolveWorkspacePath(cwd, item.path),
-      name: item.name,
-      kind: item.kind,
-      source: 'file' as const,
-      time: 0,
-      sessionId: sessionId ?? '',
-    })),
-    [visible, sessionId, cwd],
-  )
-
-  /*
-   * Lightbox 的取图地址：按类别分三条链路，各有各的理由。
-   *
-   * 1) **html 成品（page）必须走插件自己的 /raw**（2026-10-06 修「点开 html 没有
-   *    任何 UI」）。根因：官方 /api/file 是**原样吐字节**的静态服务，不做任何
-   *    注入；而产出物 html 普遍是「同目录还有 css/js/图」的多文件成品（落地页、
-   *    报告、演示页）。经 /api/file 打开时相对资源按 `/api/` 这个目录解析，
-   *    `./style.css` 直接 404 —— 页面结构在、样式全失，看起来就是「一片空白 /
-   *    纯文字」。插件的 /raw 会注入 `<base href="/api/triad/gallery/raw-asset/
-   *    <token>/">`，把相对资源引到同目录资源路由，成品才真的活过来。
-   *
-   * 2) **pdf / ppt / word / excel 走插件的 /office/***（2026-10-06 新增）：
-   *    pdf 由 host 转好落盘后直接内嵌；Office 三类由 host 出页图。都不再依赖
-   *    官方文档预览那条链路（本机实测它是坏的）。
-   *
-   * 3) 其余（图片 / 视频 / 音频）**优先官方 /api/file**（与右栏文档预览同一条
-   *    链路，单文件字节服务最稳，且不经过插件的索引白名单）。
-   *
-   * 为什么图片这条当初要退回官方（2026-10-05 的修复）：/raw 是插件自己的路由，
-   * 它的准入名单由 host 半身在内存里折出来 —— 名单与浏览器里的清单是两套独立
-   * 状态，任一侧没跟上，用户看到的就是「产出物卡里明明有这张图，点开却是裂图」。
-   * 单文件资源没有 base 注入的需求，走官方那条更省心。折不出绝对路径
-   * （会话 cwd 未知）时才退回 /raw（host 侧能按会话 cwd 解析）。
-   */
-  const mediaUrlOf = useCallback((item: LightboxItem): string => {
-    // html 成品：必须走 /raw（注入 base），否则成品页的相对资源全 404。
-    if (item.kind === 'page') return sessionRawUrl(item.path, item.sessionId)
-    const official = localFileMediaUrl(item.path)
-    return official ?? sessionRawUrl(item.path, item.sessionId)
-  }, [])
 
   /*
    * 计数读**过滤后**的清单（items），不是 outputs 原始值 —— 剔除的失效条目不该
@@ -513,8 +426,7 @@ export const KrOutputsCard = memo(function KrOutputsCard({
                   item={item}
                   index={index}
                   pending={isPending(item.path)}
-                  onOpen={() => { openInline(item, index) }}
-                  onSidebar={() => { void openPath(item.path) }}
+                  onOpen={() => { void openPath(item.path) }}
                 />
               ))}
             </div>
@@ -535,17 +447,6 @@ export const KrOutputsCard = memo(function KrOutputsCard({
         </div>
       )}
 
-      {/* 画廊同款 Lightbox（共享组件，含全屏）：行主体点开的预览层。 */}
-      {lightboxIndex !== null && lightboxIndex >= 0 && lightboxIndex < lightboxItems.length && (
-        <MediaLightbox
-          items={lightboxItems}
-          index={lightboxIndex}
-          fileUrlOf={mediaUrlOf}
-          onNavigate={setLightboxIndex}
-          onClose={() => { setLightboxIndex(null) }}
-          onOpenSidebar={openSidebarFromLightbox}
-        />
-      )}
     </div>
   )
 })
@@ -553,25 +454,26 @@ export const KrOutputsCard = memo(function KrOutputsCard({
 /**
  * 一行产出物。
  *
- * **整行就是一个按钮**（不是 div + 行内小按钮）：这张卡每一行都对应一个真实
- * 文件，「点这一行」和「点那个按钮」是同一件事。做成整行可点还顺手解决了
- * 键盘与触屏：Tab 一次就到，不需要先聚焦到一个 10px 高的小按钮上。
+ * **整行就是一个按钮**：这张卡每一行都对应一个真实文件，点它 = 在官方右侧栏
+ * 打开该文件的文档预览 tab（2026-10-19 收口：不再有第二套弹窗）。做成整行可点
+ * 还顺手解决了键盘与触屏：Tab 一次就到，不需要先聚焦到一枚 10px 高的小按钮上。
  *
- * 悬停时右侧浮现一枚箭头（纯视觉、aria-hidden）：承担「这里能点」的提示，
- * 但不占按钮位、不进无障碍树 —— 读屏用户听到的是整行的 aria-label。
+ * 2026-10-19 起**行尾那枚「在侧栏打开」钮删掉**：行主体与它做的是同一件事，
+ * 多一枚钮只是把同一句话说了两遍，还让一列行里多出一列图标。行末改留一枚
+ * **纯视觉**的箭头（aria-hidden），只在 hover / focus-within 时浮现 —— 它承担
+ * 「这里能点、点开在右栏」的提示，不占焦点站、不进无障碍树（读屏用户听到的
+ * 是整行按钮的 aria-label）。
  *
  * `pending` 是**核对尚未出结论**：这一行刚上屏、还没问过磁盘。此时只要一点点
  * 低对比度（`data-pending`）而不是置灰 —— 绝大多数文件是活的，一瞬间的待定态
  * 不该看起来像出了事。结论是「不存在」的行根本不会走到这里（已被剔除）。
  */
-function OutputRow({ item, index, pending = false, onOpen, onSidebar }: {
+function OutputRow({ item, index, pending = false, onOpen }: {
   readonly item: OutputItem
   readonly index: number
   readonly pending?: boolean
-  /** 行主体点击：可内联预览类别开画廊式 Lightbox，其余由调用方回退侧栏。 */
+  /** 整行点击：在官方右侧栏打开该文件（唯一的预览出口）。 */
   readonly onOpen: () => void
-  /** 行尾「侧栏预览」钮：维持原来的官方右栏打开方式（用户 2026-10-04 点名保留）。 */
-  readonly onSidebar: () => void
 }): ReactElement {
   return (
     <div
@@ -585,7 +487,7 @@ function OutputRow({ item, index, pending = false, onOpen, onSidebar }: {
       <button
         type="button"
         className="kr-out-row__main"
-        aria-label={`预览 ${item.name}`}
+        aria-label={`在侧栏打开 ${item.name}`}
         onClick={onOpen}
       >
         <span className="kr-out-row__thumb" data-kind={item.kind} aria-hidden>
@@ -593,25 +495,12 @@ function OutputRow({ item, index, pending = false, onOpen, onSidebar }: {
         </span>
         <span className="kr-out-row__name">{item.name}</span>
       </button>
-      {/*
-       * 行尾真按钮（2026-10-04）：「在侧栏打开」—— 维持原来的官方右栏预览链路。
-       * 行主体的画廊式 Lightbox 是新增的默认预览，这枚钮是用户点名的「按原来的
-       * 方式打开」的显式出口。hover / focus 才浮现（与旧箭头同一套节奏），
-       * stopPropagation 防止连带触发行主体。
-       */}
-      <button
-        type="button"
-        className="kr-out-row__open"
-        aria-label={`在侧栏打开 ${item.name}`}
-        title="在侧栏打开"
-        onClick={(event) => { event.stopPropagation(); onSidebar() }}
-      >
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M6.4 3.2H3.6A1.4 1.4 0 0 0 2.2 4.6v7.8a1.4 1.4 0 0 0 1.4 1.4h7.8a1.4 1.4 0 0 0 1.4-1.4V9.6" />
-          <path d="M9.6 2.2h4.2v4.2" />
-          <path d="M13.8 2.2 7.6 8.4" />
+      {/* 纯视觉箭头：hover / focus 浮现，指向"右栏"这个落点。不占焦点站。 */}
+      <span className="kr-out-row__go" aria-hidden="true">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6.2 3.6 10.6 8l-4.4 4.4" />
         </svg>
-      </button>
+      </span>
     </div>
   )
 }

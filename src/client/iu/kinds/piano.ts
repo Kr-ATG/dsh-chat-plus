@@ -105,7 +105,7 @@ const CSS = [
      百分比就相对于 padding box 算，白键会整体错位并露缝（实测踩中：
      白键缩成几根细线、黑键挤成一堆）。flex 让浏览器自己等分，最稳。 */
   '.dtt-iu__piano { position: relative; height: calc(136px * var(--iu-piano-scale, 1)); margin: 8px 0 4px;',
-  '  border-radius: 10px; user-select: none; touch-action: none;',
+  '  border-radius: var(--iu-r-md, 8px); user-select: none; touch-action: none;',
   '  background: linear-gradient(180deg, rgba(127,127,127,.14), rgba(127,127,127,.05));',
   '  padding: 6px 6px 6px; box-sizing: border-box; }',
   /* 白键层：铺满，flex 等分。**不能加 gap** —— 黑键的百分比坐标是按「白键宽 =
@@ -168,5 +168,5 @@ export const pianoKind: IuKind<PianoState, IuPianoSpec> = {
   fillText,
   snapshot,
   css: CSS,
-  doc: '  · piano 钢琴：{"kind":"piano","title":"标题","octave":4,"octaves":1,"wave":"sine","desc":"一句话","showNotes":true}（octave 0–7 起始八度、octaves 1–3、wave=sine|triangle|square|sawtooth、showNotes 是否在 C 键标音名；点键或用电脑键盘 A W S E D F T G Y H U J K 演奏，右下「填入输入框」把弹过的音写成音名+简谱）。',
+  doc: '  · piano 钢琴：{"kind":"piano","title":"标题","octave":4,"octaves":1,"wave":"sine","desc":"一句话","showNotes":true}（octave 0–7 起始八度、octaves 1–3、wave=sine|triangle|square|sawtooth、showNotes 是否在 C 键标音名；点键或用电脑键盘 A W S E D F T G Y H U J K 演奏）。',
 }

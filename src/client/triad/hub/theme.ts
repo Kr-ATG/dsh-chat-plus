@@ -837,7 +837,7 @@ body[data-ds-dark-theme] .wb-root {
 
 /* ── 画廊 Coverflow 焦点轮播（效果图第 5 页顶部） ──
    数据是真条目（visible 前 5 条），位移/旋转/景深全 CSS transform；
-   点击侧卡 = 打开该条 Lightbox（GalleryPanel 里接 onOpen）。 */
+   点击侧卡 = 在官方右栏打开该条（GalleryPanel 的 openItem，与网格同一入口）。 */
 .wb2-cover { position: relative; height: 240px; margin: 0 22px 14px; perspective: 1200px; overflow: hidden;
   border-radius: var(--wb2-r-lg); border: 1px solid var(--wb2-line); background: color-mix(in srgb, var(--wb2-t1) 3%, transparent); }
 .wb2-cover-track { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;

@@ -3063,10 +3063,10 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 }
 
 /*
- * 行主体（2026-10-04 拆双交互）：缩略图 + 文件名一枚真 button，点开画廊式
- * Lightbox；行尾另一枚真 button 维持原来的侧栏打开。行本身降级为布局容器
- * （div）—— 一行两个不同动作，键盘 Tab 两站，语义比「整行一个按钮 + 视觉
- * 箭头」更准。UA 按钮样式全抹（灰底/内边距/居中/系统字体在这里全是错的）。
+ * 行主体（2026-10-19 收口为单出口）：缩略图 + 文件名的唯一一枚真 button，
+ * 点了就在官方右侧栏打开该文件。行本身是布局容器（div），行尾只剩一枚
+ * aria-hidden 的纯视觉箭头 —— 它不再是按钮，也不再占焦点站。
+ * UA 按钮样式全抹（灰底/内边距/居中/系统字体在这里全是错的）。
  */
 .kr-out-row__main {
   flex: 1 1 auto;
@@ -3137,7 +3137,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
  * 四张卡里其余的小图标 SVG：**一律显式覆盖呈现属性**。
  *
  * 这些 svg 的 width/height 都写在 JSX 里（子智能体卡的跳转箭头 12、两张卡的
- * 「展开其余 N」11、产出物卡的预览按钮 12）。它们所在的容器已经跟着字号轴
+ * 「展开其余 N」11、产出物卡的右栏箭头 12）。它们所在的容器已经跟着字号轴
  * 放大了，图形不跟就会在大字档下显得缩了一号、四周留空 —— 同样是零报错的
  * 静默失败。
  *
@@ -3149,7 +3149,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
  * 违反本轮「默认档逐像素还原」的口径。
  */
 .kr-subs-row__go svg,
-.kr-out-row__open svg {
+.kr-out-row__go svg {
   width: calc(12px + var(--dsh-content-font-delta, 0px) * 0.9);
   height: calc(12px + var(--dsh-content-font-delta, 0px) * 0.9);
 }
@@ -3217,52 +3217,37 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 }
 
 /*
- * 行尾「在侧栏打开」真按钮（2026-10-04 从 aria-hidden 视觉箭头升级而来）。
+ * 行尾箭头（2026-10-19 从「在侧栏打开」真按钮降级为**纯视觉提示**）。
  *
- * 静止时**完全隐藏**（不是半透明）：六行各挂一枚常亮图标就是一列噪声 ——
- * 提示该在指针落到哪一行时只出现在那一行。键盘 Tab 到它、或焦点落在行内任一
- * 控件（:focus-within）时浮现；浮现带 2px 位移回位 + 180ms 淡入（旧箭头同款
- * 节奏）。hover 加一层浅底、按下图标缩 12% —— 它现在是真按钮，得有真反馈。
+ * 为什么降级：行主体点击与那枚按钮做的是同一件事（都是在官方右栏打开该文件），
+ * 一列行里挂两枚图标表达同一个动作，只是把一句话说了两遍 —— 用户点名的
+ * 「产出物 / 画廊全部用官方侧栏查看」落地后，行内不再需要第二个出口。
+ *
+ * 所以它现在 status 是 aria-hidden 的装饰：**不可聚焦、不可点**，只在 hover 或
+ * 行内有焦点（说明用户已经在操作这一行）时浮现。pointer-events:none 保证它
+ * 永远不会截走本属于整行按钮的那次点击。
+ *
+ * 形态沿用旧按钮那套节奏：向右 2px 位移回位 + 淡入，只是不再有 hover 底色
+ * （它已经不是按钮，给按钮态会骗人）。
  */
-.kr-out-row__open {
+.kr-out-row__go {
   flex: none;
   display: grid;
   place-items: center;
-  /* 悬停浮现的预览按钮：随字号轴放大，否则它在大字行里小得点不准。 */
-  width: calc(22px + var(--dsh-content-font-delta, 0px) * 1.5);
-  height: calc(22px + var(--dsh-content-font-delta, 0px) * 1.5);
-  /* 与文件名的间距同比例缩放（基准 6px）。 */
+  width: calc(18px + var(--dsh-content-font-delta, 0px) * 1.2);
+  height: calc(18px + var(--dsh-content-font-delta, 0px) * 1.2);
   margin-left: calc(6px + var(--dsh-content-font-delta, 0px) * 0.4);
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  /* 这枚是真按钮，但"可点"靠浮现 + 位移表达，不靠颜色（右栏去彩口径）。 */
-  color: var(--dsw-alias-label-secondary, #61666b);
-  cursor: pointer;
+  color: var(--dsw-alias-label-tertiary, #8a8f99);
   opacity: 0;
-  transform: translate(-2px, 2px);
-  transition: opacity var(--kr-dur-fade) linear, transform var(--kr-dur-fade) var(--kr-ease-soft), background-color var(--kr-dur-tap) linear;
+  transform: translateX(-2px);
+  pointer-events: none;
+  transition: opacity var(--kr-dur-fade) linear, transform var(--kr-dur-fade) var(--kr-ease-soft);
 }
 
-.kr-out-row:hover .kr-out-row__open,
-.kr-out-row:focus-within .kr-out-row__open {
+.kr-out-row:hover .kr-out-row__go,
+.kr-out-row:focus-within .kr-out-row__go {
   opacity: 1;
   transform: none;
-}
-
-.kr-out-row__open:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.12));
-  color: var(--dsw-alias-label-primary, #1f2329);
-}
-
-.kr-out-row__open:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 55%, transparent);
-  outline-offset: -2px;
-}
-
-.kr-out-row__open:active svg {
-  transform: scale(.88);
 }
 
 /*
@@ -3331,10 +3316,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
     animation: none;
   }
   .kr-out-row:hover .kr-out-row__thumb { transform: none; }
-  .kr-out-row__open,
+  .kr-out-row__go,
   .kr-out-more svg { transition: none; }
-  .kr-out-row__open { transform: none; }
-  .kr-out-row__open:active svg { transform: none; }
+  .kr-out-row__go { transform: none; }
   .kr-out-more:hover svg { transform: none; }
 }
 

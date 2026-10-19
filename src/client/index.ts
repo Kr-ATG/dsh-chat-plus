@@ -52,6 +52,7 @@ import { applyTriadClient } from './triad/index.ts'
 import { applyProviderClient } from './provider/index.ts'
 import { applyToolsGateClient } from './tools-gate/index.tsx'
 import { applySidebarDocument } from './sidebar-doc/index.tsx'
+import { applySidebarMedia } from './sidebar-media/index.tsx'
 import { buildActivityGrid, activityColor, ACTIVITY_COLUMNS } from './triad/usage/dashboard/ActivityGrid.js'
 import { setClientCtx } from './client-ctx.ts'
 
@@ -343,6 +344,17 @@ export function apply(ctx: ClientContext): void {
   guarded(ctx, 'sidebar document renderer', () => {
     applySidebarDocument(ctx as unknown as Record<string, any>)
   })
+
+  // ── 官方侧边栏的音视频渲染器（2026-10-19）──────────────────────────────
+  // 背景：产出物卡与画廊全部收口到官方右栏预览后，右栏成了唯一出口。而官方对
+  // mp4 / webm / mov / mp3 / wav 这些后缀**没有任何渲染器**（它们被列进
+  // UNVIEWABLE_BINARY_EXTENSIONS，打开的正文是"不支持预览"空态）—— 不收下它们，
+  // 这个收口就等于把音频与视频从"能看"退化回"打不开"。
+  // 注册方式与上面的文档渲染器同一套（documentPreviews + extension 档 + 同 id
+  // 的 keyed 正文槽位），正文是原生 <video> / <audio>。
+  guarded(ctx, 'sidebar media renderer', () => {
+    applySidebarMedia(ctx as unknown as Record<string, any>)
+  })
 }
 
 /** 纯逻辑再导出：供 smoke 断言「Token 活动」贡献热力模型 + 人话行动流翻译。 */
@@ -381,6 +393,8 @@ export { sliderFillText, checklistFillText, tabsFillText, pianoFillText } from '
  */
 export { linkifyFilePaths, promoteStandaloneImagePath, encodePathForMarkdown } from './path-linkify.ts'
 export { assembleHtmlDocument, BRIDGE_TO_HOST, BRIDGE_TO_FRAME, MAX_FRAME_HEIGHT, MIN_FRAME_HEIGHT } from './html-embed/bridge.ts'
+export { KIT_CSS, needsKit } from './html-embed/kit.ts'
+export { buildRuntime, needsRuntime, RUNTIME_PARTS } from './html-embed/runtime.ts'
 /**
  * 总结卡外观开关：纯逻辑（读写 + body 属性 + 订阅），供 smoke 直接钉住。
  *

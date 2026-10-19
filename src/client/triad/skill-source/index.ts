@@ -1,10 +1,25 @@
 /**
  * skill-source — 技能 slash 源(替代内核 ui-skill 的平铺技能列表)。
  *
- * 与技能模块联动:输入 `/` 后先展示技能集合(bundle),选中集合后进入,
- * 再展示该集合下的技能。两级导航利用 slash 管线的 `continue: true` 协议:
- * 选中集合时落地 `/bundleId:` 文本并保持菜单打开,管线在光标处重新跟踪,
- * 第二级的 query 形如 `bundleId:` → candidates 返回该集合下的技能。
+ * **不再强制「先进包才能选技能」**——包与技能两条路并存:
+ *
+ *  · 输入 `/` 不打字 → 只列技能集合(bundle)与散装技能行,首屏保持清爽;
+ *  · 打了任意字符(`/kb`、`/flow`、`/注释`…) → 把 **全部启用技能**拉进来
+ *    一起匹配,命中的技能排在最前,回车即落地 `/<skill> `
+ *    (与内核 ui-skill 的纯文本引用路径一致);集合行同时参与名字匹配,
+ *    仍可选中钻取。
+ *  · **中文/口语也能搜**:技能名几乎全英文,所以另有一张别名表
+ *    (./aliases.ts)把「注释」「流程图」「电子表格」这类词映射到技能名,
+ *    别名命中优先级最高——否则中文 query 在英文名上永远零命中。
+ *
+ * 钻取仍走 slash 管线的 `continue: true` 协议:选中集合时落地
+ * `/bundleId:` 文本并保持菜单打开,管线在光标处重新跟踪,第二级的 query
+ * 形如 `bundleId:` → candidates 返回该集合下的技能。
+ *
+ * 直接匹配意味着短 query 会命中一批技能(`/iu` 就能子序列命中
+ * `dsh-plugin-ui-slots` 之类)。`/iu` 指令源因此把 order 提到技能源之前
+ * (见 src/client/iu/slash.ts),保证该场景下菜单高亮仍落在指令提示项上,
+ * 回车不会被技能抢走。
  *
  * 数据源为 dsh-webui host 半身已挂载的 /api/skill-manager(与技能管理面板
  * 同一份数据:集合 + 散装技能),零 DSH 源码改动。
@@ -19,9 +34,13 @@ import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/c
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {
   InputTriggerSource, InputTriggerServiceContract, ClientSessionContext, CandidateRequest,
+  InputTriggerCandidate,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 // Type-only: 激活 ui-tool 的 SlotMap 合并(tool.call.toolview 的 key 注册契约)。
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
+import { rankByName } from '@deepseek-ai/dsh-client-ui-primitives'
+import { SKILL_ALIASES, matchesAlias } from './aliases.ts'
+import { applySkillReference } from './reference.tsx'
 import { SkillRow } from './SkillRow.tsx'
 import { en, NS, zh, type SkillKey } from './locales.ts'
 import { injectSkillRowStyles } from './styles.ts'
@@ -68,6 +87,13 @@ const SKILL_MARK = 'skill:'
 const LOOSE_ID = '_loose'
 /** 快照 TTL:技能面板改动后,slash 菜单最多滞后此间隔(秒)。 */
 const SNAPSHOT_TTL_MS = 30 * 1000
+/**
+ * 直接匹配时最多铺几行技能。
+ *
+ * 一个字符的 query(`/d`、`/u`)能子序列命中几十个技能名,不设上限会把
+ * 集合行与指令挤到菜单可视区外;8 行足够首屏点选,再多就靠继续打字收窄。
+ */
+const SKILL_ROW_CAP = 8
 
 /** 一个会话的目录抓取:共享 promise + settle 快照 + 拉取时刻 + 自身 abort。 */
 interface CatalogFetch {
@@ -233,6 +259,98 @@ function skillCandidate(skill: SkillView): { name: string; description?: string;
   return { name: skill.name, description: skill.description, value: `${SKILL_MARK}${skill.name}` }
 }
 
+/**
+ * 全部启用技能(集合内 + 散装),第一层直接匹配的语料。
+ *
+ * @param snapshot - 已合并开关/预设覆盖的技能快照。
+ * @returns 启用中的技能,顺序沿用快照(集合顺序 → 集合内顺序)。
+ */
+function enabledSkills(snapshot: ResolvedSnapshot): SkillView[] {
+  const all: SkillView[] = []
+  for (const bundle of snapshot.bundles) {
+    for (const skill of bundle.skills) {
+      if (skillEnabled(snapshot, skill.name)) all.push(skill)
+    }
+  }
+  for (const skill of snapshot.loose) {
+    if (skillEnabled(snapshot, skill.name)) all.push(skill)
+  }
+  return all
+}
+
+/**
+ * 首层「直接匹配」技能:按 query 在**全部启用技能**里做多路匹配。
+ *
+ * 三档优先级(高 → 低),档内保持各自原有次序:
+ *  1. **别名命中**({@link matchesAlias})——中文/口语入口,`/注释` 直达
+ *     `no-comments`。这一档必须最先:中文 query 在英文技能名上永远零命中,
+ *     等于把用户挡在门外。
+ *  2. 名字直接**包含** query(`/ui` → `phone-ui-demos`)。
+ *  3. 内核 `rankByName` 的子序列命中(模糊兜底)。
+ *
+ * **描述兜底**:前两档一个都没命中时,再拿 query 去**中文描述**里找。
+ * 别名表要人工维护,新装的技能不可能立刻有别名;而 SKILL.md 的描述本来
+ * 就是中文的(`no-comments` 写着「清剿无用代码注释」),用户打「注释」
+ * 自然能捞到。只在前面全空时才启用,避免描述里的泛词(「插件」「技能」)
+ * 把无关结果顶上来。
+ *
+ * 空 query 返回空数组:裸 `/` 首屏仍只列集合,否则一屏技能会把包与指令全挤走。
+ *
+ * @param snapshot - 已合并开关/预设覆盖的技能快照。
+ * @param query - 触发字符之后的原文(未 trim;大小写不敏感)。
+ * @returns 命中的技能候选,已截到 {@link SKILL_ROW_CAP} 条。
+ */
+function matchedSkillCandidates(snapshot: ResolvedSnapshot, query: string): ReturnType<typeof skillCandidate>[] {
+  const needle = query.trim().toLowerCase()
+  if (needle === '') return []
+  const all = enabledSkills(snapshot)
+  const byAlias: SkillView[] = []
+  const rest: SkillView[] = []
+  for (const skill of all) {
+    if (matchesAlias(skill.name, needle)) byAlias.push(skill)
+    else rest.push(skill)
+  }
+  const picked = [...byAlias, ...substringFirst(rankByName(rest, needle), needle)]
+  /*
+   * 描述兜底排最后、且只在「前面一个都没命中」时生效。
+   *
+   * 为什么不和别名档并列:描述里的词太泛(「插件」「文档」「工具」几乎每个
+   * 技能都写),并列会把真正靠名字命中的技能挤到截断之外;而前面全空时它
+   * 又是唯一还能救场的入口——新装的技能没有别名,只能靠这段中文描述被搜到。
+   */
+  if (picked.length === 0) {
+    return all
+      .filter(skill => (skill.description ?? '').toLowerCase().includes(needle))
+      .slice(0, SKILL_ROW_CAP)
+      .map(skillCandidate)
+  }
+  return picked.slice(0, SKILL_ROW_CAP).map(skillCandidate)
+}
+
+/**
+ * `rankByName` 的子序列匹配**不理解词/词组边界**:`/ui` 会命中
+ * `dsh-plugin-ui-slots`,而用户想找的往往是真正叫 `ui-*` 的那批。
+ *
+ * 所以先跑内核排序,再把「名字里**直接包含** query」的一撮提到前面——
+ * 两组各自保持 rankByName 的相对次序,不重排、不丢项:
+ *  · 包含组(子串命中) = 用户最可能要的那几个,顶到最上;
+ *  · 其余(纯子序列命中) = 兜底,仍可点选。
+ *
+ * 前缀命中本身一定包含 query,所以「前缀优先」的既有语义被这一层包含,
+ * 不需要额外判断。大小写与 rankByName 一致(都转小写比较)。
+ */
+function substringFirst(skills: readonly SkillView[], query: string): readonly SkillView[] {
+  const needle = query.trim().toLowerCase()
+  if (needle === '') return skills
+  const contains: SkillView[] = []
+  const fuzzy: SkillView[] = []
+  for (const skill of skills) {
+    if (skill.name.toLowerCase().includes(needle)) contains.push(skill)
+    else fuzzy.push(skill)
+  }
+  return [...contains, ...fuzzy]
+}
+
 /** 集合候选(第一级);仅当集合内仍有启用技能时才出现。 */
 function bundleCandidate(snapshot: ResolvedSnapshot, bundle: BundleView): { name: string; description: string; value: string } | null {
   const enabledCount = skillsOf(snapshot, bundle.id).length
@@ -259,6 +377,19 @@ export function apply(ctx: ClientContext): void {
     { name: 'tool.call.toolview', key: 'skill', locale: NS },
     SkillRow,
   ))
+
+  /*
+   * 技能引用着色(用户 2026-10-19 反馈「/指令发送之后没有颜色了」)。
+   *
+   * 内核 ui-skill 被整块禁用后,它负责的两块也一起没了:UserText 匹配规则
+   * + `conversation.user.text.node` 的 skill chip。这里补回来(见 reference.tsx)。
+   *
+   * **必须在 inputTriggers 的早退之前**:着色与 slash 菜单是两条独立链路,
+   * 菜单源注册失败(比如内核 ui-skill 又启用了)不该连带把着色也丢掉。
+   */
+  try { applySkillReference(ctx) } catch (error) {
+    console.warn('[skill-source] 技能引用着色挂载失败:', error)
+  }
 
   const inputTriggers = ctx.get('inputTriggers') as InputTriggerServiceContract | undefined
   if (inputTriggers === undefined) {
@@ -294,11 +425,22 @@ export function apply(ctx: ClientContext): void {
           .filter(skill => skill.name.startsWith(level.rest))
           .map(skillCandidate)
       }
+      /*
+       * 第一级 · 直接匹配技能(用户报的「必须先输入技能包才能选到技能」就是
+       * 这里补上的):打了任何字符就按内核同一套 `rankByName` 在全部启用技能里
+       * 匹配,命中的技能排在集合行**前面**,选中即落地 `/name `。
+       *
+       * 空 query(`/` 刚打出来)刻意不铺技能:一屏技能会把集合与指令挤走,
+       * 首屏保持「先挑包,或接着打字直达技能」。
+       */
+      const matchedSkills: InputTriggerCandidate[] = matchedSkillCandidates(snapshot, req.query)
+        .map((candidate) => ({ ...candidate, section: t('menu.skill') }))
       // 第一级:集合列表(可按 query 过滤集合名;空集合自动隐藏)。
-      const bundles = snapshot.bundles
+      const bundles: InputTriggerCandidate[] = snapshot.bundles
         .filter(bundle => bundle.name.startsWith(req.query) || bundle.id.startsWith(req.query))
         .map(bundle => bundleCandidate(snapshot, bundle))
         .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
+        .map(candidate => ({ ...candidate, section: t('menu.bundle') }))
       /*
        * 散装技能这一行**必须和下面的集合走同一个 query 过滤器**。
        *
@@ -323,9 +465,14 @@ export function apply(ctx: ClientContext): void {
           name: looseName,
           description: t('loose.count', { count: looseEnabled.length }),
           value: `${BUNDLE_MARK}${LOOSE_ID}`,
+          section: t('menu.bundle'),
         })
       }
-      return bundles
+      /*
+       * 技能行在前、集合行在后:菜单的分段标题按「与上一行不同」才出现,
+       * 顺序反了会先出「技能包」再出「技能」,读起来像两层同名分组。
+       */
+      return [...matchedSkills, ...bundles]
     },
     warm(session: ClientSessionContext) {
       fetchSnapshot(session.sessionId).catch(() => {})

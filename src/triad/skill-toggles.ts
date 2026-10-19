@@ -39,7 +39,7 @@
  *   POST /presets/:preset/reset           → 清空该预设的全部覆盖(回落全局)
  */
 
-import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { URL } from 'node:url'
@@ -242,6 +242,36 @@ async function setPresetSkills(
   return changed
 }
 
+/**
+ * 技能根下的目录名，符号链接/junction 也算。
+ *
+ * 安装器（ego lite 的 `~/.agents/skills/ego-browser` 就是一例）常把技能以
+ * junction 挂进技能根；Node 的 readdir 对 junction 给 isDirectory()=false +
+ * isSymbolicLink()=true，只按 isDirectory() 过滤会把整片技能当不存在。
+ */
+async function listRootDirNames(root: string): Promise<string[]> {
+  let entries
+  try {
+    entries = await readdir(root, { withFileTypes: true })
+  } catch {
+    return []
+  }
+  const names: string[] = []
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      names.push(entry.name)
+      continue
+    }
+    if (!entry.isSymbolicLink()) continue
+    try {
+      if ((await stat(join(root, entry.name))).isDirectory()) names.push(entry.name)
+    } catch {
+      // 断链：跳过
+    }
+  }
+  return names
+}
+
 /** Locate a skill directory under a root; undefined when absent. */
 async function skillDirUnder(root: string, skillName: string): Promise<string | undefined> {
   try {
@@ -266,14 +296,7 @@ async function locateSkillDir(skillName: string): Promise<string | undefined> {
 /** 按 SKILL.md 的 frontmatter name 扫两个根，找技能的真实目录。 */
 async function skillDirByFrontmatterName(skillName: string): Promise<string | undefined> {
   for (const root of [managedRoot(), dshRoot()]) {
-    let entries: string[] = []
-    try {
-      entries = (await readdir(root, { withFileTypes: true }))
-        .filter(entry => entry.isDirectory())
-        .map(entry => entry.name)
-    } catch {
-      continue
-    }
+    const entries = await listRootDirNames(root)
     for (const dir of entries) {
       const name = await canonicalNameOf(root, dir)
       if (name !== undefined && name === skillName) return join(root, dir)
@@ -300,14 +323,7 @@ async function canonicalNameOf(root: string, dir: string): Promise<string | unde
 async function skillNameIndex(): Promise<Map<string, string>> {
   const index = new Map<string, string>()
   for (const root of [managedRoot(), dshRoot()]) {
-    let entries: string[] = []
-    try {
-      entries = (await readdir(root, { withFileTypes: true }))
-        .filter(entry => entry.isDirectory())
-        .map(entry => entry.name)
-    } catch {
-      continue
-    }
+    const entries = await listRootDirNames(root)
     for (const dir of entries) {
       const name = await canonicalNameOf(root, dir)
       if (name === undefined) continue
@@ -473,14 +489,7 @@ async function status(): Promise<{ skills: Record<string, boolean>; bundles: Rec
   const skills: Record<string, boolean> = {}
   const seen = new Set<string>()
   for (const root of [managedRoot(), dshRoot()]) {
-    let entries: string[] = []
-    try {
-      entries = (await readdir(root, { withFileTypes: true }))
-        .filter(entry => entry.isDirectory())
-        .map(entry => entry.name)
-    } catch {
-      continue
-    }
+    const entries = await listRootDirNames(root)
     for (const dir of entries) {
       if (seen.has(dir)) continue
       seen.add(dir)

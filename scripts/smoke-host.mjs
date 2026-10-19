@@ -203,27 +203,33 @@ for (const expected of ['download', 'generate_image', 'generate_video']) {
 if (!effectRan) fail('deferred webServer callback never ran')
 else pass('deferred webServer callback executed')
 
-// 6 条：本插件 6 条（generated-images / open-path / tools-gate 三条 exact +
-// screenshot / download / office 三条 prefix）+ 融合的 dsh-provider-hub 5 条
-// （/api/dsh-proxy、/api/model-capabilities、/api/provider-hub-keys 三条 prefix +
-// /api/dsh-prompt-optimize 与 /stop 两条 exact）。
+// 7 条：本插件 7 条（generated-images / open-path / tools-gate /
+// generated-images/materialize 四条 exact + screenshot / download / office 三条
+// prefix）+ 融合的 dsh-provider-hub 5 条（/api/dsh-proxy、/api/model-capabilities、
+// /api/provider-hub-keys 三条 prefix + /api/dsh-prompt-optimize 与 /stop 两条 exact）。
 // open-path 是「用文件资源管理器打开」改道用的（windowsHide 会吞掉 Explorer）。
 // office 是 2026-10-06 新增：ppt/word/pdf 的页图与 PDF 渲染（画廊缩略图、
 // 产出物弹窗内联预览、官方侧边栏接管三处共用）。
+// materialize 是 2026-10-19 新增：把「只存在于 spill 文本里的生图」落盘成真实
+// 图片文件，好让官方右侧 Sidebar 像打开普通文件一样打开（它的文档预览只认真
+// 实文件，data URL 不是文件）。注册成 exact 而不是把读图路由改成 prefix ——
+// 改成 prefix 会动到 /generated-images 这条既有契约的路由形状。
 // 原 fonts 路由（界面字体 woff2 资产）已随「界面字体」整块移除。
-if (registered.length !== 6) {
-  fail(`expected exactly 6 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
+if (registered.length !== 7) {
+  fail(`expected exactly 7 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
 } else {
   const exacts = registered.filter(spec => spec?.kind === 'exact')
   const prefix = registered.filter(spec => spec?.kind === 'prefix')
   if (!exacts.some(spec => spec?.path === '/api/chat-flow/generated-images')) {
     fail(`unexpected exact route specs: ${JSON.stringify(exacts)}`)
+  } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/generated-images/materialize')) {
+    fail('missing generated-images materialize route (exact /api/chat-flow/generated-images/materialize)')
   } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/open-path')) {
     fail('missing open-path route (exact /api/chat-flow/open-path)')
   } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/tools-gate')) {
     fail('missing tools-gate route (exact /api/chat-flow/tools-gate)')
   } else {
-    pass('registered GET /api/chat-flow/generated-images + /open-path + /tools-gate (kind=exact)')
+    pass('registered GET /api/chat-flow/generated-images (+ /materialize) + /open-path + /tools-gate (kind=exact)')
   }
   const downloadRoute = prefix.find(spec => spec?.path === '/api/chat-flow/download')
   if (downloadRoute === undefined) {
@@ -1006,5 +1012,294 @@ if (!/applySupplierSection\(ctx\)/.test(providerClientSrc)) {
   else pass(`spill root 扫描基准取并集（${bases.length} 个，TEMP 被改写后仍能发现历史 root）`)
 }
 
+/* ── 生图 spill 落盘（materialize，2026-10-19）──────────────────────────
+ *
+ * 这条路由把「只存在于 spill 文本里的生图」解码/下载成真实图片文件，供官方
+ * 右侧 Sidebar 当普通文件打开（它的文档预览只认真实文件，data URL 不是文件）。
+ * 判据写歪**一个都不会抛错**：准入松了是任意路径写盘、扩展名判错是落出一堆
+ * 打不开的文件、幂等丢了是每次点击都重新解码 9MB base64。所以纯函数与真实
+ * HTTP 链路都要对拍 —— 后者用 tmpdir 下符合官方命名的假 spill root 造真 spill
+ * 文本（spillRoots 只扫 `^dsh-spill-[A-Za-z0-9]{6}$` 形状的真实目录，名字不合
+ * 形状的假目录会被准入拒掉，测出来的 403 是假阳性）。
+ */
+{
+  const fs = await import('node:fs')
+  const os = await import('node:os')
+  const nodePath = await import('node:path')
+  const http = await import('node:http')
+
+  /*
+   * 落盘目录会写到 <DSH_HOME>/storages 下：测试期间把 DSH_HOME 临时指到一个
+   * 隔离目录，测完恢复。不这么做的话每次冒烟都会往用户真实的 ~/.dsh 里留一堆
+   * 测试图片（而且会越积越多）。
+   */
+  const previousHome = process.env.DSH_HOME
+  const tmpHome = nodePath.join(os.tmpdir(), 'dsh-chat-plus-smoke-home-' + String(process.pid))
+  fs.mkdirSync(tmpHome, { recursive: true })
+  process.env.DSH_HOME = tmpHome
+
+  // 假 spill root 必须满足官方命名形状（见上方注释），否则准入那侧扫不到它。
+  const spillRoot = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'dsh-spill-'))
+  const sessionDir = nodePath.join(spillRoot, 'session-0123456789ab')
+  fs.mkdirSync(sessionDir, { recursive: true })
+
+  // 1x1 透明 PNG：既是合法图片（magic number 判据会过），又足够小。
+  const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  const pngBytes = Buffer.from(PNG_B64, 'base64')
+  const spillPath = nodePath.join(sessionDir, 'abcd1234-generate_image.txt')
+  fs.writeFileSync(spillPath, JSON.stringify({ ok: true, model: 'smoke-image-model', data: { data: [{ b64_json: PNG_B64 }] } }), 'utf8')
+  // 合法 spill 形状但内容不是生图结果（422 那一条）。
+  const notImageSpill = nodePath.join(sessionDir, 'efgh5678-generate_image.txt')
+  fs.writeFileSync(notImageSpill, JSON.stringify({ ok: true, data: { nothing: true } }), 'utf8')
+  // 准入会过、但文件真的不存在（404 那一条）。
+  const missingSpill = nodePath.join(sessionDir, 'ijkl9012-generate_image.txt')
+
+  try {
+    // ── 1) 纯函数：目录键稳定 / 互异 / 16 位小写 hex ──────────────────
+    const dirA = mod.materializeCacheDir(spillPath)
+    const dirB = mod.materializeCacheDir(spillPath)
+    const dirC = mod.materializeCacheDir(missingSpill)
+    const key = nodePath.basename(dirA)
+    if (dirA !== dirB) {
+      fail('materializeCacheDir 对同一路径不稳定（重复点击会重复解码写盘，幂等失效）')
+    } else if (dirA === dirC) {
+      fail('materializeCacheDir 对不同路径给出同一目录（两组生图会互相覆盖）')
+    } else if (!/^[0-9a-f]{16}$/.test(key)) {
+      fail('materializeCacheDir 目录键必须是 16 位小写 hex，实得 ' + JSON.stringify(key))
+    } else if (dirA.indexOf(mod.materializeRoot()) !== 0) {
+      fail('materializeCacheDir 未落在 <DSH_HOME>/storages 下：' + dirA)
+    } else {
+      pass('materializeCacheDir 稳定 / 互异 / 16 位 hex（' + key + '）')
+    }
+
+    // ── 2) data URL → 扩展名（未知 MIME 一律 png，与契约一致）─────────
+    const extCases = [
+      ['data:image/png;base64,AAAA', 'png'],
+      ['data:image/jpeg;base64,AAAA', 'jpg'],
+      ['data:image/webp;base64,AAAA', 'webp'],
+      ['data:image/gif;base64,AAAA', 'gif'],
+      ['data:image/bmp;base64,AAAA', 'png'],
+      ['https://example.com/a.png', 'png'],
+    ]
+    const wrongExt = extCases.filter(([url, want]) => mod.extensionFor(url) !== want)
+    if (wrongExt.length > 0) {
+      fail('data URL 扩展名判定错误：' + wrongExt.map(([url]) => url).join(' / '))
+    } else {
+      pass('data URL 扩展名判定正确（png/jpeg→jpg/webp/gif/未知→png/非 data URL→png，6 组）')
+    }
+
+    // ── 3) magic number 判据：坏字节不能落成裂图 ──────────────────────
+    if (!mod.looksLikeImage(pngBytes)) {
+      fail('looksLikeImage 认不出合法 PNG（会把好图当坏图全丢掉）')
+    } else if (mod.looksLikeImage(Buffer.from('this is definitely not an image'))) {
+      fail('looksLikeImage 把非图片字节当成图片（落盘后侧栏打开就是裂图）')
+    } else {
+      pass('looksLikeImage 只放行真图片字节（PNG 过 / 垃圾字节拒）')
+    }
+
+    // ── 4) 真链路：假 ctx 注册的 handler → node:http 收响应 ───────────
+    const route = registered.find(spec => spec?.path === '/api/chat-flow/generated-images/materialize')
+    if (route === undefined || typeof route.handler !== 'function') {
+      fail('未注册 POST/GET /api/chat-flow/generated-images/materialize 路由')
+    } else {
+      const server = http.createServer((req, res) => route.handler(req, res))
+      await new Promise((done) => server.listen(0, '127.0.0.1', done))
+      const port = server.address().port
+      const call = (method, urlPath, options = {}) => new Promise((done) => {
+        const headers = Object.assign({ host: '127.0.0.1:' + String(port) }, options.headers ?? {})
+        const req = http.request({ host: '127.0.0.1', port, path: urlPath, method, headers }, (res) => {
+          const chunks = []
+          res.on('data', (chunk) => chunks.push(chunk))
+          res.on('end', () => {
+            let payload = null
+            try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { payload = null }
+            done({ status: res.statusCode, payload })
+          })
+        })
+        req.on('error', () => done({ status: 0, payload: null }))
+        if (options.body !== undefined) req.write(options.body)
+        req.end()
+      })
+      const fileQuery = '?file=' + encodeURIComponent(spillPath)
+      try {
+        // 4a) GET：合法 spill 路径 → 200 + 文件真的落盘且字节正确。
+        const first = await call('GET', '/api/chat-flow/generated-images/materialize' + fileQuery)
+        const firstFile = first.payload?.files?.[0]
+        if (first.status !== 200 || first.payload?.ok !== true) {
+          fail('materialize GET 合法 spill 应 200 {ok:true}，实得 ' + first.status + ' ' + JSON.stringify(first.payload))
+        } else if (!Array.isArray(first.payload.files) || first.payload.files.length !== 1) {
+          fail('materialize 应回 1 个文件，实得 ' + JSON.stringify(first.payload.files))
+        } else if (firstFile.name !== 'img-1.png') {
+          fail('materialize 文件名应为 img-1.png，实得 ' + JSON.stringify(firstFile.name))
+        } else if (!fs.existsSync(firstFile.path)) {
+          fail('materialize 回的文件路径不存在：' + JSON.stringify(firstFile.path))
+        } else if (!fs.readFileSync(firstFile.path).equals(pngBytes)) {
+          fail('materialize 落盘字节与 data URL 解码结果不一致：' + JSON.stringify(firstFile.path))
+        } else if (firstFile.path.indexOf(tmpHome) !== 0) {
+          fail('materialize 落盘位置未跟随 DSH_HOME：' + firstFile.path)
+        } else {
+          pass('materialize GET 落盘真实文件且字节正确（' + firstFile.name + '）')
+        }
+
+        /*
+         * 4b) 幂等：把已有文件的 mtime 改成一个显眼的旧时间，再 POST 一次 ——
+         * 若走了复用分支（不重写），mtime 保持旧值；若重复解码写盘，mtime 会变。
+         * 用 mtime 而不是内容比对：内容本来就必须相同，只有 mtime 能反映「有没有写」。
+         */
+        if (firstFile !== undefined && fs.existsSync(firstFile.path)) {
+          const oldTime = new Date('2000-01-01T00:00:00Z')
+          fs.utimesSync(firstFile.path, oldTime, oldTime)
+          const second = await call('POST', '/api/chat-flow/generated-images/materialize', {
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ file: spillPath }),
+          })
+          const secondFile = second.payload?.files?.[0]
+          const mtime = fs.statSync(firstFile.path).mtimeMs
+          if (second.status !== 200 || second.payload?.ok !== true) {
+            fail('materialize POST 应 200 {ok:true}，实得 ' + second.status + ' ' + JSON.stringify(second.payload))
+          } else if (secondFile?.path !== firstFile.path) {
+            fail('materialize 重复调用应回到同一路径，实得 ' + JSON.stringify(secondFile?.path))
+          } else if (Math.abs(mtime - oldTime.getTime()) > 1000) {
+            fail('materialize 重复调用重写了已存在的文件（幂等失效：每次点击都重新解码 9MB base64）')
+          } else {
+            pass('materialize 幂等：重复调用复用已有文件，不重复解码写盘')
+          }
+        }
+
+        // 4c) 准入：任意路径 403（这条路由会写盘，松了就是任意路径写文件）。
+        const denied = await call('GET', '/api/chat-flow/generated-images/materialize?file=' + encodeURIComponent('C:\\Windows\\win.ini'))
+        if (denied.status !== 403 || denied.payload?.error !== 'forbidden') {
+          fail('materialize 非法路径应 403 {error:forbidden}，实得 ' + denied.status + ' ' + JSON.stringify(denied.payload))
+        } else {
+          pass('materialize 非法路径 403（没有开成任意路径写盘）')
+        }
+
+        // 4d) 跨站写必须挡：POST 与 GET 是同一个 handler，两条都要过闸门。
+        const crossPost = await call('POST', '/api/chat-flow/generated-images/materialize', {
+          headers: { 'content-type': 'application/json', origin: 'http://evil.example' },
+          body: JSON.stringify({ file: spillPath }),
+        })
+        const crossGet = await call('GET', '/api/chat-flow/generated-images/materialize' + fileQuery, {
+          headers: { origin: 'http://evil.example' },
+        })
+        // 跨站 403 的响应体也必须严格是契约形状 { ok, error }：多带字段会让客户端
+        // 按契约做的穷举断言把这当成意外形态。
+        const crossShapeOk = crossPost.payload !== null
+          && JSON.stringify(Object.keys(crossPost.payload).sort()) === '["error","ok"]'
+          && crossPost.payload.error === 'forbidden'
+        if (crossPost.status !== 403) {
+          fail('materialize POST 跨站应 403，实得 ' + crossPost.status)
+        } else if (crossGet.status !== 403) {
+          fail('materialize GET 跨站应 403（GET 也会写盘，不能只挡 POST），实得 ' + crossGet.status)
+        } else if (!crossShapeOk) {
+          fail('materialize 跨站 403 响应体应严格为 { ok, error }，实得 ' + JSON.stringify(crossPost.payload))
+        } else {
+          pass('materialize GET/POST 跨站写全挡（403，响应体严格 { ok, error }）')
+        }
+
+        // 4e) 准入过但文件不在 → 404（与 403 分开：客户端据此把条目从画廊剔掉）。
+        const missing = await call('GET', '/api/chat-flow/generated-images/materialize?file=' + encodeURIComponent(missingSpill))
+        if (missing.status !== 404 || missing.payload?.error !== 'spill file not found') {
+          fail('materialize 文件不存在应 404 {error:spill file not found}，实得 ' + missing.status + ' ' + JSON.stringify(missing.payload))
+        } else {
+          pass('materialize spill 文件不存在 404（与准入失败分开）')
+        }
+
+        /*
+         * 4e2) 解析得出生图、但一张都没落成 → 500 materialize failed（不是 422）。
+         *
+         * 这两个状态码的语义必须分开：422 = 「这条 spill 根本不是生图结果」，客户端
+         * 据此把条目从画廊永久剔掉；500 = 「落盘临时失败」，重试能好。混用会让用户
+         * 在网络抖一下之后就永久丢掉一张生图。这里用一组全指向已关闭端口的 http url
+         * 造「全部下载失败」的场景。
+         */
+        const deadPort = await new Promise((done) => {
+          const probe = http.createServer()
+          probe.listen(0, '127.0.0.1', () => {
+            const free = probe.address().port
+            probe.close(() => done(free))
+          })
+        })
+        const allFailSpill = nodePath.join(sessionDir, 'qrst7890-generate_image.txt')
+        fs.writeFileSync(allFailSpill, JSON.stringify({
+          ok: true,
+          imageUrls: ['http://127.0.0.1:' + String(deadPort) + '/a.png', 'http://127.0.0.1:' + String(deadPort) + '/b.png'],
+        }), 'utf8')
+        const allFail = await call('GET', '/api/chat-flow/generated-images/materialize?file=' + encodeURIComponent(allFailSpill))
+        if (allFail.status !== 500 || allFail.payload?.error !== 'materialize failed') {
+          fail('materialize 全部落盘失败应 500 {error:materialize failed}（不能报 422，客户端会永久剔掉条目），实得 ' + allFail.status + ' ' + JSON.stringify(allFail.payload))
+        } else {
+          pass('materialize 全部落盘失败 500（与「不是生图结果」的 422 分开，客户端可安全重试）')
+        }
+
+        // 4f) 解析不出图片 → 422（不能落出空目录还回 ok）。
+        const notImage = await call('GET', '/api/chat-flow/generated-images/materialize?file=' + encodeURIComponent(notImageSpill))
+        if (notImage.status !== 422 || notImage.payload?.error !== 'spill content is not a generated-image result') {
+          fail('materialize 非生图内容应 422，实得 ' + notImage.status + ' ' + JSON.stringify(notImage.payload))
+        } else {
+          pass('materialize 非生图内容 422（形状对但语义不对的 spill 不会落出空目录）')
+        }
+
+        /*
+         * 4g) http(s) 分支：生图结果既可能是 data URL（b64_json），也可能是远端 url。
+         * 后者由 host 自己 fetch 回来落盘 —— 这条分支静默坏掉的表现是「画廊里某些
+         * 图点落盘后少一张」，而接口照常回 200，没有断言根本发现不了。
+         *
+         * 用本地 http server 造图，顺带把「一张下载失败不整批失败」也一起钉住：
+         * 同一组图里第一张指向已关闭端口（必然失败），第二张指向本地真 PNG。
+         */
+        const imageServer = http.createServer((req, res) => {
+          if (req.url !== '/x.png') { res.writeHead(404); res.end(); return }
+          res.writeHead(200, { 'content-type': 'image/png', 'content-length': String(pngBytes.byteLength) })
+          res.end(pngBytes)
+        })
+        await new Promise((done) => imageServer.listen(0, '127.0.0.1', done))
+        const imagePort = imageServer.address().port
+        const closedPort = await new Promise((done) => {
+          const probe = http.createServer()
+          probe.listen(0, '127.0.0.1', () => {
+            const free = probe.address().port
+            probe.close(() => done(free))
+          })
+        })
+        const remoteSpill = nodePath.join(sessionDir, 'mnop3456-generate_image.txt')
+        fs.writeFileSync(remoteSpill, JSON.stringify({
+          ok: true,
+          imageUrls: [
+            'http://127.0.0.1:' + String(closedPort) + '/gone.png',
+            'http://127.0.0.1:' + String(imagePort) + '/x.png',
+          ],
+        }), 'utf8')
+        try {
+          const remote = await call('GET', '/api/chat-flow/generated-images/materialize?file=' + encodeURIComponent(remoteSpill))
+          const remoteFiles = Array.isArray(remote.payload?.files) ? remote.payload.files : []
+          const saved = remoteFiles.find((entry) => entry?.name === 'img-2.png')
+          if (remote.status !== 200 || remote.payload?.ok !== true) {
+            fail('materialize http(s) 分支应 200 {ok:true}，实得 ' + remote.status + ' ' + JSON.stringify(remote.payload))
+          } else if (saved === undefined || !fs.existsSync(saved.path)) {
+            fail('materialize 未把 http(s) 图片下载落盘：' + JSON.stringify(remote.payload))
+          } else if (!fs.readFileSync(saved.path).equals(pngBytes)) {
+            fail('materialize 下载落盘的字节与远端图片不一致：' + saved.path)
+          } else if (remoteFiles.some((entry) => entry?.name === 'img-1.png')) {
+            fail('materialize 把下载失败的图也报成成功了：' + JSON.stringify(remoteFiles))
+          } else {
+            pass('materialize http(s) 分支：远端图落盘字节正确，单张失败跳过不整批失败')
+          }
+        } finally {
+          imageServer.closeAllConnections?.()
+          await new Promise((done) => imageServer.close(done))
+        }
+      } finally {
+        server.closeAllConnections?.()
+        await new Promise((done) => server.close(done))
+      }
+    }
+  } finally {
+    try { fs.rmSync(spillRoot, { recursive: true, force: true }) } catch { /* 清不掉不影响断言 */ }
+    try { fs.rmSync(tmpHome, { recursive: true, force: true }) } catch { /* 同上 */ }
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+  }
+}
 console.log(`\n${process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED'} — ${HOST}`)
 process.exit(process.exitCode ?? 0)

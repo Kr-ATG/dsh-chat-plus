@@ -139,9 +139,12 @@ function Head({ title, actions }: {
 function pendingStage(bytes: number): JSX.Element {
   return (
     <div className="dtt-iu__stage--pending" aria-busy="true" aria-live="polite">
+      {/* 等待态文案：**不暴露「卡片/生成/组件」这些机制词**。
+          用户此刻看到的应该是「助手正在把这段内容铺开」，而不是「一块 UI 正在被构建」——
+          后者是一台机器在干活的口吻，落在一段正在生长的正文里会把人从阅读里拽出来。 */}
       <div className="dtt-iu__pending">
         <span className="dtt-iu__pending-dot" />
-        <span className="dtt-iu__pending-text">正在生成交互卡片…</span>
+        <span className="dtt-iu__pending-text">正在整理…</span>
       </div>
       <div className="dtt-iu__pending-track"><span className="dtt-iu__pending-bar" /></div>
       <span className="dtt-iu__pending-text">{bytes} 字</span>

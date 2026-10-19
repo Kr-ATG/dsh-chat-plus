@@ -63,9 +63,86 @@ export function fileAddressFor(sessionId: string, cwd: string | undefined, path:
   return sessionFileAddress(sessionId, normalized)
 }
 
-/** 右栏服务的最小面（只用到打开资源这一个方法）。 */
+/** 右栏服务的最小面（打开资源 + 观察「屏幕上是谁」）。 */
 interface SidebarRightLike {
   openResource?: (address: string, options?: unknown) => void
+  /**
+   * 屏幕上那个会话（官方契约：只有「会话填满主列」时才有值）。
+   *
+   * 之所以要它：`openResource` 内部写的是**那个会话的布局 store**，没有屏幕会话
+   * 就直接抛 `no session surface is mounted`。全局面板（工作台 / 设置）占着主列
+   * 时它必然是空的 —— 画廊正是在那种状态下点开文件的。
+   *
+   * 「值是目标会话」还不够：那个会话的布局 store 是 slot 运行时**下一拍**才 mint
+   * 出来的（实测 mounted 已切换、store 还没到，同一 tick 调 openResource 仍抛）。
+   * 所以打开动作要能重试，判据是官方那句错误原文。
+   */
+  mounted?: { getSnapshot?: () => unknown }
+}
+
+/** 官方「这个会话还没有可写的右栏 store」的错误原文前缀。 */
+const SURFACE_NOT_READY = 'no session surface is mounted'
+
+/** 就绪重试的节奏：60ms 一次，最多等 4s（实测切换会话后约 90ms 就绪）。 */
+const SURFACE_RETRY_MS = 60
+const SURFACE_RETRY_MAX_MS = 4000
+
+/**
+ * 调一次 openResource。
+ *
+ * @returns 成功返回 null；失败返回官方错误原文（调用方据此判断「只是没就绪」
+ * 还是「真出错了」——前者重试，后者必须停，否则会空转四秒）。
+ */
+function attemptOpen(
+  sidebar: SidebarRightLike,
+  address: string,
+  line: number | undefined,
+): string | null {
+  try {
+    if (line === undefined) sidebar.openResource!(address)
+    else sidebar.openResource!(address, { params: { line: line } })
+    return null
+  } catch (cause) {
+    return cause instanceof Error ? cause.message : String(cause)
+  }
+}
+
+/**
+ * 等右栏 store 就绪后打开（关面板 → 轮询 → 打开）。
+ *
+ * 为什么必须轮询而不是等一帧：`mounted` 的切换与布局 store 的 mint 不在同一步
+ * （见 {@link SidebarRightLike.mounted} 的说明），实测两者相差约 90ms，中间任何
+ * 一次 openResource 都会抛。而官方没有暴露「store 已就绪」的观察面，能观测的
+ * 只有这一次调用的成功与否 —— 所以用「试一次、失败就等下一拍」。
+ *
+ * 每次重试前都重新确认「主列不在全局面板里」：用户在等待窗口里可能又点开了
+ * 工作台（那会把右栏 DOM 重新 hidden 掉），发现就再关一次。
+ *
+ * @param sidebar - 右栏服务。
+ * @param address - 已拼好的文件地址。
+ * @param line - 源码行号。
+ * @param giveUp - 超时仍打不开时回调（调用方据此给一句提示，而不是静默）。
+ */
+function openWhenSurfaceReady(
+  sidebar: SidebarRightLike,
+  address: string,
+  line: number | undefined,
+  giveUp?: () => void,
+): void {
+  const startedAt = Date.now()
+  const tick = (): void => {
+    leaveGlobalPanel()
+    const failure = attemptOpen(sidebar, address, line)
+    if (failure === null) return
+    // 只有「store 还没 mint」值得重试；地址没类型认领这类接线错误重试一万次也一样。
+    if (!failure.startsWith(SURFACE_NOT_READY)) return
+    if (Date.now() - startedAt >= SURFACE_RETRY_MAX_MS) {
+      giveUp?.()
+      return
+    }
+    setTimeout(tick, SURFACE_RETRY_MS)
+  }
+  tick()
 }
 
 /* ── 路径存在性探测 ───────────────────────────────────────────────────── */
@@ -186,11 +263,100 @@ export interface OpenPreviewResult {
   readonly reason?: 'no-service' | 'no-session' | 'empty-path' | 'threw'
 }
 
+/* ── 屏幕会话与「先回到会话」──────────────────────────────────────────── */
+
+/** 官方 layout 服务的最小面（切面板用）。 */
+interface LayoutLike {
+  selectPanel?: (id: string | null) => void
+  panelInfo?: { getSnapshot?: () => { activePanelId?: string | null } | undefined }
+}
+
+/**
+ * 读官方 layout 服务（读不到返回 undefined，调用方各自降级）。
+ *
+ * 为什么连它也要读：右栏 `openResource` 只对**屏幕上那个会话**生效，而工作台 /
+ * 设置这类全局面板一占住主列，屏幕会话就是空的（官方把它定义成「会话填满主列
+ * 时才有值」）。收藏夹式的画廊页恰恰总在这种状态下被点开。
+ */
+function layoutService(): LayoutLike | undefined {
+  try {
+    return getService<LayoutLike>('layout')
+  } catch {
+    return undefined
+  }
+}
+
+/** 当前占着主列的全局面板 id（没有面板 / 读不到返回 null）。 */
+function activePanelId(): string | null {
+  try {
+    const value = layoutService()?.panelInfo?.getSnapshot?.()?.activePanelId
+    return typeof value === 'string' && value !== '' ? value : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 屏幕上当前的会话 id（供调用方判断「现在右栏到底有没有落点」）。
+ *
+ * @returns 会话 id；全局面板占着主列、或服务不可用时返回 null。
+ */
+export function onScreenSession(): string | null {
+  const sidebar = getService<SidebarRightLike>('sidebarRight')
+  try {
+    const value = sidebar?.mounted?.getSnapshot?.()
+    return typeof value === 'string' && value !== '' ? value : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 把主列切回会话 —— 官方右栏唯一的落点。
+ *
+ * 只在「现在是个全局面板」时才切；已经在会话里就什么都不做（切会话是用户的
+ * 导航动作，不该被一次预览点击偷偷改掉）。
+ *
+ * @returns 是否调用过 selectPanel。
+ */
+function leaveGlobalPanel(): boolean {
+  const panel = activePanelId()
+  if (panel === null) return false
+  try {
+    layoutService()?.selectPanel?.(null)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /**
  * 在 DSH 右侧栏打开一个文件的预览。
  *
+ * 四条与官方实现绑定的既定事实决定了它长这样：
+ *  1. `openResource` 作用于**屏幕上那个会话**的布局 store，没有屏幕会话直接抛
+ *     `no session surface is mounted`（不是静默失败）；
+ *  2. 地址里的 `sessionId` 只决定文件按哪个工作区解析，**不会**让右栏切会话；
+ *  3. 全局面板（工作台 / 设置）占着主列时，右栏 DOM 被整个 `hidden` —— 官方
+ *     RightbarRoot 的 `visible = activePanelId === null`，面板页上没有任何办法
+ *     把侧栏叫出来。所以从画廊点开文件**必然要离开面板页**，这不是插件多做
+ *     的动作，是官方布局的定义；
+ *  4. 会话的布局 store 是下一拍才 mint 的，紧跟切会话的那次调用仍会抛同样的
+ *     错误，所以打开动作要能重试（见 {@link openWhenSurfaceReady}）。
+ *
+ * **只关面板，不切会话。** 上一版在这里犯了两个方向的错，都实测留着记录：
+ *  · 先只关面板、地址沿用条目会话 —— tab 落进**当前会话**的右栏，一换会话就
+ *    消失（实测 `openSession(别的) → active() === null`）；
+ *  · 改成「切到条目所属会话再开」—— 更糟：用户在工作台看全局画廊，点一张老图
+ *    就被拽到那个几天前的会话里去，正是「点一下乱跳」的来源。
+ *
+ * 现在的口径：**用户在哪就在哪看**。屏幕会话只用来决定「把 tab 开在谁的右栏」，
+ * 地址里的会话决定「文件按谁的工作区解析」—— 两者本就互相独立，一个从画廊点开
+ * 的历史图片不需要为此把对话切走。切会话是用户的导航动作，不该被一次预览点击
+ * 代理。
+ *
  * @param path - 绝对路径或会话工作区相对路径。
- * @param options.sessionId - 会话 id；缺省时用右栏当前挂载的会话。
+ * @param options.sessionId - 文件所属会话（画廊 / 产出物条目都自带），用于拼地址。
  * @param options.cwd - 会话工作区根目录；缺省时去 sessions 服务现读。
  * @param options.line - 打开后定位到的行号（文本预览支持）。
  * @returns 打开结果；`ok: false` 时调用方应保留自身降级行为。
@@ -208,27 +374,33 @@ export function openWorkspacePreview(path: string, options?: {
     return { ok: false, reason: 'no-service' }
   }
 
-  // 会话 id 取三路：调用方显式传入 → 右栏当前挂载会话 → 都没有则放弃。
-  let sessionId = typeof options?.sessionId === 'string' && options.sessionId !== ''
+  /*
+   * 会话 id 只有一个用途：拼进地址，决定文件按哪个工作区解析。
+   * 屏幕会话与它无关 —— tab 开在屏幕会话的右栏，路径按地址里的会话解析。
+   */
+  let addressSession = typeof options?.sessionId === 'string' && options.sessionId !== ''
     ? options.sessionId
     : ''
-  if (sessionId === '') {
-    try {
-      const mounted = (sidebar as unknown as { mounted?: { getSnapshot?: () => unknown } }).mounted
-      const value = mounted?.getSnapshot?.()
-      if (typeof value === 'string' && value !== '') sessionId = value
-    } catch { /* 取不到就走失败分支 */ }
+  if (addressSession === '') {
+    const mounted = onScreenSession()
+    if (mounted !== null) addressSession = mounted
   }
-  if (sessionId === '') return { ok: false, reason: 'no-session' }
+  if (addressSession === '') return { ok: false, reason: 'no-session' }
 
-  const address = fileAddressFor(sessionId, options?.cwd, target)
-  try {
-    if (options?.line === undefined) sidebar.openResource(address)
-    else sidebar.openResource(address, { params: { line: options.line } })
-    return { ok: true, address }
-  } catch {
-    return { ok: false, address, reason: 'threw' }
-  }
+  const address = fileAddressFor(addressSession, options?.cwd, target)
+
+  /*
+   * 先关面板（右栏 DOM 才会从 hidden 里出来），再同步试一次。
+   * 绝大多数点击到这里就成功了，用户看到的是「面板关上 + 右栏直接显示这个文件」。
+   */
+  leaveGlobalPanel()
+  const failure = attemptOpen(sidebar, address, options?.line)
+  if (failure === null) return { ok: true, address }
+  if (!failure.startsWith(SURFACE_NOT_READY)) return { ok: false, address, reason: 'threw' }
+
+  // 只有一个会话都没有（刚启动还没选会话）时才会走到这里：等它 mint 完再开。
+  openWhenSurfaceReady(sidebar, address, options?.line)
+  return { ok: true, address }
 }
 
 /**

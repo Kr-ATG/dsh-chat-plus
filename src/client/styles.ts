@@ -73,10 +73,20 @@ function buildCss(): string {
    共同规则：跟随文字色的中性半透明纱（浅色=淡黑、深色=淡白，一条规则通吃
    两个主题）。⚠ 不加 backdrop-filter：消息流里每条回复都是一张卡，长会话
    下大面积模糊会拖垮滚动性能。 */
+/* 入场：**卡片本身不再单独演一遍**。
+ *
+ * 为什么改（2026-10-19）：卡片是 FlowCard 的子节点，而卡内还可能嵌 iu / html 生成式卡。
+ * 外层 .dtt__card 演一遍 .48s（20px 上浮 + 缩放 + 模糊），内层卡再演一遍 —— 用户先看到
+ * 「浮出一个框」，框里再浮出一张卡，两级串联就是「套出来」而不是「长出来」。
+ * 现在外层只做**极短的一次落定**（.18s / 2px / 无模糊），把「显影」交给内层内容自己，
+ * 于是整段回答看起来是一次性出现、内容各自轻轻落位。
+ *
+ * ⚠ 起点 opacity 不能用 0：无头截图 / 打印 / 页面不可见时动画停在首帧，整张卡会空白。
+ *   （本仓 iu 卡早有这条纪律，这里是同一坑的第二处。） */
 .dtt__card {
   min-width: 0;
   border-radius: 14px;
-  animation: dtt-card-in .48s cubic-bezier(.22, 1, .36, 1) both;
+  animation: dtt-card-in .18s cubic-bezier(.2, .8, .25, 1) both;
 }
 
 /* 中间步骤：轻量竖线卡 */
@@ -142,8 +152,8 @@ function buildCss(): string {
 }
 
 @keyframes dtt-card-in {
-  from { opacity: 0; transform: translateY(20px) scale(.99); filter: blur(2px); }
-  to { opacity: 1; transform: none; filter: none; }
+  from { opacity: .8; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
 }
 
 /* ── 回合过程行（官方 turn-process 行同款，见 .dtt__process）──────────────

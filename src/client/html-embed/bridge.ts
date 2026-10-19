@@ -17,6 +17,9 @@
  * 不信任任何来自 iframe 的内容——它只被允许改变一件事：自己的显示高度。
  */
 
+import { KIT_CSS, needsKit } from './kit.ts'
+import { buildRuntime } from './runtime.ts'
+
 /** 桥消息命名空间：iframe → 宿主。 */
 export const BRIDGE_TO_HOST = 'dsh-html-card'
 
@@ -257,6 +260,25 @@ const BRIDGE_SOURCE = [
   '        root.style.setProperty("--dsh-frame-font", data.fontFamily);',
   '      }',
   '    } catch (e) {}',
+  '    /*',
+  '     * 正文色（新增）：暗色主题下 iframe 的默认文字色仍是浏览器默认的黑色 ——',
+  '     * 模型页面若没显式设 color，卡片里的字就是「黑字压深底」，几乎看不清。',
+  '     * 这里把宿主的 label-primary 计算值一并下发，写进最低优先级的兜底变量。',
+  '     */',
+  '    try {',
+  '      if (typeof data.foreground === "string" && data.foreground !== "" && data.foreground.length < 120) {',
+  '        root.style.setProperty("--dsh-frame-fg", data.foreground);',
+  '      }',
+  '    } catch (e) {}',
+  /*
+   * 主色：kit 的 --k-accent 来源（见 kit.ts 的 token 段）。
+   * 与其它字段同一套校验口径——这是 postMessage 来的值，不能无条件信。
+   */
+  '    try {',
+  '      if (typeof data.accent === "string" && data.accent !== "" && data.accent.length < 120) {',
+  '        root.style.setProperty("--dsh-frame-accent", data.accent);',
+  '      }',
+  '    } catch (e) {}',
   '    try {',
   '      var fs = Number(data.fontSize);',
   '      if (isFinite(fs) && fs >= 8 && fs <= 32) {',
@@ -325,6 +347,31 @@ const BRIDGE_SOURCE = [
 const BASE_STYLE = [
   'html,body{margin:0;padding:0;}',
   'html{overflow:hidden;}',
+  /*
+   * 正文排版基线（**片段**路径专用，模型给了完整文档时不注入）。
+   *
+   * 为什么需要：模型写片段时通常只给内容 div，不给行高与字重节奏，于是卡片里的
+   * 文字比周围正文紧一档、重一档 —— 读者一眼看出「这块是嵌进来的」。这里只把
+   * **最基本的阅读参数**对齐宿主（行高 / 字重 / 颜色继承），不做任何「美化」：
+   * 模型自己的样式优先级更高（本段插在 head 最前、无 !important）。
+   */
+  'body{line-height:1.7;-webkit-font-smoothing:antialiased;}',
+  'body{color:var(--dsh-frame-fg, inherit);}',
+  'p{margin:0 0 .72em;}',
+  'p:last-child{margin-bottom:0;}',
+  'h1,h2,h3,h4{line-height:1.35;font-weight:600;margin:0 0 .4em;}',
+  'h1{font-size:1.5em;}h2{font-size:1.25em;}h3{font-size:1.08em;}',
+  'ul,ol{margin:0 0 .72em;padding-left:1.4em;}',
+  'li{margin:.16em 0;}',
+  'table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;}',
+  'th,td{text-align:left;padding:.44em .6em;border-bottom:1px solid rgba(127,127,127,.16);}',
+  'th{font-weight:500;color:rgba(127,127,127,.95);font-size:.92em;}',
+  'code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;}',
+  'img,svg,canvas{max-width:100%;}',
+  '/* 图形类正文：SVG 顶替整块内容时，不要留 8px 的默认段前距，让它贴齐图注。 */',
+  'body>svg:first-child{display:block;margin:0 auto;}',
+  'svg text{font-family:inherit;}',
+  'body{color:var(--dsh-frame-fg, inherit);}',
   // 背景跟主题：模型页面（尤其片段）常常不自带 body 背景，iframe 画布默认纯白，
   // 暗色主题下等于在总结卡里贴一块白纸板。
   //
@@ -340,7 +387,10 @@ const BASE_STYLE = [
   // 优先级仍是最低（无 !important、插在 head 最前）：模型自己写了背景照样盖掉它。
   'html{background:#fff;transition:background-color .25s ease;}',
   'html{color-scheme:light;}',
-  'html[data-ds-dark-theme]{background:#151517;color-scheme:dark;}',
+  // ⚠ 暗色行同时兜底文字色：`color-scheme:dark` 只管 UA 控件与画布，**不保证**
+  // 继承文字色就是亮的；宿主若没推 surface（截图页 / 第三方宿主），body 的
+  // `color:inherit` 会一路继承到浏览器默认黑，暗色下就是黑字压深底。
+  'html[data-ds-dark-theme]{background:#151517;color-scheme:dark;color:#f9fafb;}',
   // 宿主下发后的真实底色与之覆盖同一处；内联变量优先级天然高于选择器里的字面值。
   'html{background:var(--dsh-frame-surface, transparent);}',
   // 字族与字号跟随宿主（同样是最低优先级的兜底：模型自己设了 font-family /
@@ -350,10 +400,28 @@ const BASE_STYLE = [
 ].join('')
 
 /**
+ * 最小兜底（完整文档路径用）：只有「不让卡片变成色差板 / 滚不动 / 字号脱节」的几条。
+ *
+ * 与 BASE_STYLE 的差别：**不含正文排版基线**（行高、表格、标题这些）。模型既然
+ * 写了 `<html>`，版式就是它的设计意图，多塞规则等于替它改版式。刻意手写而不是
+ * 从 BASE_STYLE 切字符串——切法依赖注释位置，改一次注释就会静默失效。
+ */
+const BASE_STYLE_MIN = [
+  'html,body{margin:0;padding:0;}',
+  'html{overflow:hidden;}',
+  'html{background:#fff;transition:background-color .25s ease;}',
+  'html{color-scheme:light;}',
+  'html[data-ds-dark-theme]{background:#151517;color-scheme:dark;color:#f9fafb;}',
+  'html{background:var(--dsh-frame-surface, transparent);}',
+  'html,body{font-family:var(--dsh-frame-font, inherit);font-size:var(--dsh-frame-font-size, inherit);}',
+  'body{color:var(--dsh-frame-fg, inherit);}',
+].join('')
+
+/**
  * 截图定格样式：把 CSS 动画与过渡一次性推到终态。
  *
  * **为什么需要**：截图管线只等字体与图片（见 `src/shot/renderer.ts` 的 settleJs），
- * **不等动画**。卡片正文里但凡有入场动画（`opacity:0` + `animation-delay`），抓帧时
+ * **不等动画**。卡片正文里但凡有入场动画（起始帧 `opacity` 为 0 + `animation-delay`），抓帧时
  * 元素还停在起始帧，截出来就是「内容缺了一大半」——实测一张五段入场动画的卡片只
  * 出现第一段，其余四段连同图形整块消失，而且没有任何报错（管线只关心字体与图片）。
  *
@@ -409,20 +477,47 @@ export interface AssembleOptions {
  * iframe 自身导航，用户点一下就永久失去卡片内容且回不去。target=_blank 把导航
  * 交给宿主浏览器的新标签页（需要 sandbox 的 allow-popups）。
  *
+ * 设计系统（kit）按需注入：正文里出现 `k-` 类名 / `--k-` token 才带上这 6KB，
+ * 纯 SVG 或纯静态片段一个字都不多背（判定见 kit.ts 的 needsKit）。注入位置在
+ * **head 最前**，模型自己写的样式天然盖得住它——kit 是「不写 CSS 时的合理默认」，
+ * 不是必须遵守的规范。
+ *
  * @param fid 帧 id：写进 bridge 的高度/ready 上报，供多内嵌宿主（截图页）按 id
  *   定位来源。对话流单帧传空串即可；**必须**替换占位符，否则 bridge 直接语法错。
  * @param options 装配选项（截图定格见 `AssembleOptions`）。
  */
 export function assembleHtmlDocument(html: string, fid = '', options: AssembleOptions = {}): string {
   const base = '<base target="_blank">'
+  /*
+   * kit 必须排在 BASE_STYLE **之后**。
+   *
+   * 这个顺序是功能性的，别调：BASE_STYLE 为了高度上报精确把 body 的
+   * margin/padding 清零，kit 则要给 body 兜一层安全内边距。kit 放前面会被
+   * 那句 padding:0 覆盖——实测表现是卡片内容贴着边缘被裁掉半个字。
+   * 两者都排在模型自己的样式之前，所以模型写 padding 照样能盖掉 kit。
+   */
+  const kit = needsKit(html) ? '<style data-dsh-kit>' + KIT_CSS + '</style>' : ''
   const style = '<style>' + BASE_STYLE + '</style>'
+  /**
+   * 完整文档（模型自己写了 <html>）：只注入最小兜底（margin / overflow / 主题色 /
+   * 字族字号），**不注入排版基线**——它既然给了整篇文档，正文节奏是它的设计意图，
+   * 我们塞 h1/table 的行高规则等于替它改版式。片段路径才需要基线。
+   */
+  const styleMin = '<style>' + BASE_STYLE_MIN + '</style>'
   const script = '<script>' + BRIDGE_SOURCE.replace('__DSH_FRAME_ID__', JSON.stringify(fid)) + '<\/script>'
+  /*
+   * 共享运行时（tooltip / tabs / state）按需注入，排在 bridge **之后**：
+   * bridge 负责高度上报与主题握手，它必须先就绪——运行时里任何一段抛错都
+   * 不该拖累它（虽然每段自己也有 try/catch，双保险）。
+   */
+  const runtime = buildRuntime(html)
   // 定格样式与 bridge 一起放文档最后：bridge 需要在 body 末尾，定格需要压过模型样式。
   const settle = options.settleAnimations === true ? '<style>' + SETTLE_STYLE + '</style>' : ''
-  const head = base + style
-  const tail = settle + script
+  const tail = settle + script + runtime
 
   if (/<html[\s>]/i.test(html)) {
+    // 完整文档：只给最小兜底（不塞正文排版基线，见 styleMin 的说明）。
+    const head = base + styleMin + kit
     // head 里插兜底（靠前，可被模型样式覆盖）；没有 head 就退到 <html> 之后。
     let out = html
     if (/<head[^>]*>/i.test(out)) out = out.replace(/<head[^>]*>/i, (match) => match + head)
@@ -434,6 +529,8 @@ export function assembleHtmlDocument(html: string, fid = '', options: AssembleOp
     if (/<\/html>/i.test(out)) return out.replace(/<\/html>/i, () => tail + '</html>')
     return out + tail
   }
-  return '<!doctype html><html><head><meta charset="utf-8">' + head
+  // 片段：给完整基线（含正文排版节奏），让卡片里的文字与周围正文同一套阅读参数。
+  const headFull = base + style + kit
+  return '<!doctype html><html><head><meta charset="utf-8">' + headFull
     + '</head><body>' + html + tail + '</body></html>'
 }

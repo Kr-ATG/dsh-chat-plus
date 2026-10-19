@@ -131,8 +131,12 @@ export const DiagramCard = memo(function DiagramCard({ spec }: {
   const vy = minY - 16
   const vbH = Math.min(1200, Math.ceil((compact ? maxY + 24 : legendY + 48) - vy))
   return (
-    <figure className={'dtt-diagram' + (mode === 'compact' ? ' dtt-diagram--compact' : mode === 'large' ? ' dtt-diagram--large' : '')}>
-      <div className="dtt-dg-scale" role="group" aria-label="渲染比例">
+    <figure className={'dtt-diagram' + (mode === 'large' ? ' dtt-diagram--large' : '')}>
+      {/* 图注行：标题 + 比例切换。与 iu / html 卡的图注同一分量——
+         控件（比例）不再绝对定位压在图右上角，那会让图看起来像「一块可配置的面板」。 */}
+      <div className="dtt-dg-bar">
+        <span className="dtt-dg-title">{spec.title}</span>
+        <div className="dtt-dg-scale" role="group" aria-label="渲染比例">
         {([['compact', '紧', '紧凑'], ['full', '标', '标准'], ['large', '大', '放大']] as const).map(([value, short, tip]) => (
           <button
             key={value}
@@ -145,8 +149,9 @@ export const DiagramCard = memo(function DiagramCard({ spec }: {
             {short}
           </button>
         ))}
+        </div>
       </div>
-      <svg viewBox={vx + ' ' + vy + ' ' + vbW + ' ' + vbH} style={mode === 'large' ? { width: '100%', maxWidth: vbW, margin: '0 auto', minWidth: 1000 } : { width: '100%', maxWidth: vbW, margin: '0 auto' }} role="img" aria-labelledby={uid + '-t ' + uid + '-d'}>
+      <svg viewBox={vx + ' ' + vy + ' ' + vbW + ' ' + vbH} style={mode === 'large' ? { width: '100%', minWidth: 1000 } : { maxWidth: Math.round(vbW * 1.45) }} role="img" aria-labelledby={uid + '-t ' + uid + '-d'}>
         <title id={uid + '-t'}>{spec.title}</title>
         <desc id={uid + '-d'}>{spec.desc !== '' ? spec.desc : spec.title}</desc>
         <defs>

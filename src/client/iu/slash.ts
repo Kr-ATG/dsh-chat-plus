@@ -93,8 +93,18 @@ export function applyIuSlash(ctx: ClientContext): void {
   const source: InputTriggerSource = {
     trigger: '/',
     name: IU_COMMAND,
-    // 排在技能源（order 2）之后：/iu 是低频指令，不该抢技能列表的位置。
-    order: 8,
+    /*
+     * 排在技能源（order 2）**之前**。
+     *
+     * 旧值 8 的前提是「技能源第一层只列技能包」——那时 `/iu` 在技能源里
+     * 匹配不到任何候选，顺序无所谓。现在技能源会按 query 直接匹配**技能名**，
+     * 而 `iu` 是两个字符的子序列，能命中`dsh-plugin-ui-slots`、
+     * `no-comments` 之类一串名字；技能源若排前面，`/iu` 的菜单高亮就落到
+     * 某个**技能**上，回车会被菜单吃掉、把草稿替换成该技能名（就是历史上那条
+     * 「消息发不出去」的同一个坑）。order 1 让本源的提示项先占住高亮，
+     * 保持「/`iu` 回车＝补全前缀」的既有行为。
+     */
+    order: 1,
     async candidates(_session, req) {
       if (req.signal.aborted) return []
       // 只在「刚打出 /iu」时给提示；用户已经开始描述内容就不再弹菜单挡打字。

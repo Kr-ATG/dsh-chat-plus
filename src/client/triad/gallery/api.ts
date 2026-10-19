@@ -139,10 +139,61 @@ export async function deleteGalleryPaths(paths: readonly string[]): Promise<Gall
 }
 
 /**
- * 会话作用域的 raw 地址（产出物卡用）。
+ * spill 解析结果的共享缓存：spill 路径 → 可显示 URL 列表。
  *
- * 产出物卡打开 Lightbox 时用户可能从没开过画廊（全局索引没建），host 按
- * session 参数现折该会话的产出清单做准入 —— 只认这个会话自己产出过的路径。
+ * 画廊网格的缩略图与（历史上的）弹窗共用同一份缓存，重开秒回。放在这里而不是
+ * 某个组件里，是因为它跨模块生命周期：缩略图先解析过的结果，打开时直接命中。
+ */
+export const generatedUrlCache = new Map<string, readonly string[]>()
+
+/** materialize 响应（host 把 spill 里的图片落成真实文件）。 */
+export interface MaterializeResponse {
+  readonly ok: boolean
+  /** 落盘文件的绝对路径（成功时非空）。 */
+  readonly files?: readonly { readonly path: string; readonly name: string }[]
+  readonly error?: string
+}
+
+/**
+ * 把一条 generated（生图/生视频）条目落成**真实图片文件**，返回其绝对路径。
+ *
+ * 为什么必须落盘（2026-10-19 收口「全部用官方侧栏查看」）：生图结果只存在于
+ * spill 的 `.txt` 里（一大段 base64 JSON），官方右侧栏的文档预览是按**扩展名**
+ * 分派渲染器的 —— 一个 .txt 只能按纯文本打开。所以先把图片字节写成真正的
+ * `.png` / `.mp4`，侧栏才能按图片渲染器打开它。
+ *
+ * host 侧幂等：同一 spill 路径重复请求只复用已落盘文件，不会反复解码写盘。
+ *
+ * @param spillPath - spill 文件的绝对路径（画廊条目里的 `item.path`）。
+ * @returns 落盘文件列表；失败返回空数组（调用方据此给一句提示）。
+ */
+export async function materializeGenerated(spillPath: string): Promise<readonly { readonly path: string; readonly name: string }[]> {
+  try {
+    const res = await fetch('/api/chat-flow/generated-images/materialize', {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      // Host 的写盘路由与其余插件路由同口径挡跨站；同源 fetch 天然带不上
+      // Origin 以外的伪造头，这里不额外加 token。
+      body: JSON.stringify({ file: spillPath }),
+    })
+    if (!res.ok) return []
+    const payload = await res.json() as MaterializeResponse
+    if (payload.ok !== true || !Array.isArray(payload.files)) return []
+    return payload.files.filter((entry): entry is { path: string; name: string } =>
+      typeof entry === 'object' && entry !== null
+      && typeof (entry as { path?: unknown }).path === 'string'
+      && (entry as { path: string }).path !== '')
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 会话作用域的 raw 地址（画廊缩略图 / 生图兜底下载用）。
+ *
+ * 用户可能从没开过画廊（全局索引没建），host 按 session 参数现折该会话的
+ * 产出清单做准入 —— 只认这个会话自己产出过的路径。
  */
 export function sessionRawUrl(path: string, sessionId: string): string {
   return `/api/triad/gallery/raw?path=${encodeURIComponent(path)}&session=${encodeURIComponent(sessionId)}`
@@ -169,10 +220,12 @@ export const OFFICE_RENDERABLE_EXT: ReadonlySet<string> = new Set([
 ])
 
 /**
- * 一个画廊/产出物类别能否由插件内联预览。
+ * 这个类别的文件能否由**插件的 Office 引擎**出页图 / 出 PDF。
  *
- * 比 `INLINE_PREVIEW_KINDS` 多一层扩展名判据的原因：类别是粗粒度的
- * （`sheet` 同时包含 csv / tsv，`doc` 同时包含 md 家族），而引擎只认其中一部分。
+ * 多一层扩展名判据的原因：类别是粗粒度的（`sheet` 同时包含 csv / tsv，`doc`
+ * 同时包含 md / rtf），而引擎只认其中一部分 —— 判错的代价是一张纯色占位图
+ * 换一次注定 415 的往返。侧栏接管 pdf / Office 之后，这条判据同时用于决定
+ * 「要不要给它出缩略图」。
  * @param kind - 展示类别。
  * @param path - 文件路径（取扩展名）。
  */

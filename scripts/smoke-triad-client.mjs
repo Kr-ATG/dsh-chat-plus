@@ -1008,8 +1008,14 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   const hubSrc = strip(srcOf('src/client/triad/hub/WorkbenchPanel.tsx'))
   const flyoutSrc = strip(srcOf('src/client/triad/hub/row-flyout.tsx'))
   const panelSrc = strip(srcOf('src/client/triad/gallery/GalleryPanel.tsx'))
-  const lbSrc = strip(srcOf('src/client/triad/gallery/media-lightbox.tsx'))
   const apiSrc = strip(srcOf('src/client/triad/gallery/api.ts'))
+  const lbSrc = strip(srcOf('src/client/triad/gallery/media-lightbox.tsx'))
+  // 2026-10-19 收口：插件自己的 Lightbox（media-lightbox.tsx）整块删除，画廊与
+  // 产出物卡的预览一律交官方右侧栏。这里改为钉「官方侧栏渲染器」两个文件：
+  // sidebar-doc（pdf / Office 接管）与 sidebar-media（音视频接管）。
+  const docSrc = strip(srcOf('src/client/sidebar-doc/index.tsx'))
+  const mediaSrc = strip(srcOf('src/client/sidebar-media/index.tsx'))
+  const openSrc = strip(srcOf('src/client/open-preview.ts'))
 
   // 2026-10：'mail' 已从 WorkbenchTab 联合类型摘除（入口搬到 Seeker 顶栏邮件
   // 抽屉），这里只钉「联合类型里确实列了这几个分类」，不再把 mail 当成员。
@@ -1030,24 +1036,50 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     pass('工作台第五 Tab「画廊」接入在位（类型 + 渲染 + 按钮）')
   }
 
-  if (!/sandbox="allow-scripts allow-popups allow-forms allow-modals"/.test(lbSrc)) {
-    fail('共享 MediaLightbox 的 html 预览 iframe 必须带 sandbox 且**不给 allow-same-origin**（成品页不得读宿主同源状态）')
-  } else if (/allow-same-origin/.test(lbSrc)) {
-    fail('Lightbox iframe 的 sandbox 绝不能含 allow-same-origin')
-  } else if (!/ensureGalleryStyles\(\)/.test(lbSrc)) {
-    fail('共享 MediaLightbox 必须自注 tg-* 样式表：产出物卡从右栏直接打开时 GalleryPanel 没挂载，样式缺失会让无样式 portal 把内容顶到视口下方（点一下就跳底的根因）')
-  } else if (!/data-full=\{full/.test(lbSrc) || !/tg-lb__fullbtn/.test(lbSrc)) {
-    fail('共享 MediaLightbox 必须有全屏切换钮（data-full 态 + tg-lb__fullbtn，用户 2026-10-04 点名）')
-  } else if (!/event\.key === 'f' \|\| event\.key === 'F'/.test(lbSrc)) {
-    fail('全屏必须有 F 键快捷键，且 Esc 分层（全屏中先退全屏再关闭）')
-  } else if (!/MediaLightbox/.test(panelSrc)) {
-    fail('GalleryPanel 必须复用共享 MediaLightbox（不得自带第二份 Lightbox）')
+  if (!/MediaLightbox/.test(panelSrc) || !/canInlinePreview/.test(panelSrc)) {
+    /*
+     * 2026-10-19 二次定稿：**画廊回到弹窗**。
+     *
+     * 中间走过一版「全部交官方右栏」，结论是那条路对画廊不成立：官方右栏的 DOM
+     * 在全局面板占主列时整个 hidden（RightbarRoot 的 visible = activePanelId
+     * === null），所以从画廊点一张图必然先关掉工作台、跳回会话才看得见 —— 用户
+     * 点名反馈的就是这个「点一下就跳走」。画廊是横向扫一遍的地方（一次看十几张、
+     * 来回翻、快速关掉），弹窗才对；产出物卡仍走右栏。
+     */
+    fail('画廊点开条目必须走自带的 MediaLightbox 弹窗（不得强制跳右栏）')
+  } else if (!/openWorkspacePreview\(item\.path/.test(panelSrc)) {
+    // 弹窗渲染不出来的类别（rtf / csv 这类同类别但引擎不认的扩展名）要有出口，
+    // 弹窗底部也保留「在侧栏打开」——两条都走官方右栏。
+    fail('画廊必须给「弹窗里渲染不出来」的类别与弹窗底部保留官方右栏出口（openWorkspacePreview）')
   } else if (!/galleryRawUrl\(item\.path\)/.test(panelSrc)) {
-    fail('画廊文件预览必须走 /api/triad/gallery/raw（host 索引白名单），不得直接 file:// 或 /api/file')
-  } else if (!/MediaLightbox[\s\S]{0,900}?onOpenSidebar=/.test(panelSrc)) {
-    fail('弹窗必须保留「预览文档」出口（官方原生保真度仍是备选路径）')
-  } else if (!/PAGED_PREVIEW_KINDS|'slide'/.test(lbSrc)) {
-    fail('PPT/Word/Excel 必须由弹窗内联预览（host 出页图翻页）—— 官方右栏那条链路在本机实测不可用')
+    fail('画廊缩略图 / 落盘失败兜底必须走 /api/triad/gallery/raw（host 索引白名单），不得直接 file:// 或 /api/file')
+  } else if (!/export const generatedUrlCache/.test(apiSrc)) {
+    fail('generatedUrlCache 必须留在 api.ts（缩略图与打开路径共用同一份缓存，不能各自维护一份）')
+  } else if (!/priority: 'extension'/.test(docSrc) || !/documentPreviews/.test(docSrc)) {
+    fail('pdf / Office 必须由插件侧栏渲染器以 extension 档接管（官方 pdf.js 对带 /ID 的 PDF 必崩）')
+  } else if (!/officePdfUrl/.test(docSrc)) {
+    fail('侧栏文档渲染器正文必须指向插件的 /office/pdf（浏览器内置 PDF 查看器）')
+  } else if (!/'mp4'/.test(mediaSrc) || !/<video/.test(mediaSrc) || !/<audio/.test(mediaSrc)) {
+    // 官方 UNVIEWABLE_BINARY_EXTENSIONS 把音视频列为「没有渲染器」—— 不收下它们，
+    // 「全部用官方侧栏查看」就等于把音频视频退化回打不开。
+    fail('音视频必须由 sidebar-media 渲染器接管（mp4/mp3 等 → 原生 <video>/<audio>）')
+  } else if (!/priority: 'extension'/.test(mediaSrc) || !/loading: 'renderer'/.test(mediaSrc)) {
+    fail('音视频渲染器必须是 extension 档 + renderer 加载模式（字节由正文自己取，不预读几十 MB）')
+  } else if (!/leaveGlobalPanel\(\)/.test(openSrc)) {
+    // 工作台页占着主列时官方右栏没有落点（openResource 直接抛 no session surface
+    // is mounted）。点画廊条目必须先把主列切回会话 —— 这正是一次点击的全部动作。
+    fail('open-preview 必须先离开全局面板再 openResource（否则从工作台点开文件会抛 no session surface is mounted）')
+  } else if (!/sandbox="allow-scripts allow-popups allow-forms allow-modals"/.test(lbSrc)) {
+    // html 成品在弹窗里走沙箱 iframe：不给 allow-same-origin，成品页读不到宿主同源状态。
+    fail('弹窗的 html 预览 iframe 必须带 sandbox 且**不给 allow-same-origin**')
+  } else if (/allow-same-origin/.test(lbSrc)) {
+    fail('弹窗 iframe 的 sandbox 绝不能含 allow-same-origin')
+  } else if (!/ensureGalleryStyles\(\)/.test(lbSrc)) {
+    // 产出物卡从右栏直接打开本组件时 GalleryPanel 没挂载，缺表会让无样式 portal
+    // 以普通块排在 body 末尾 —— 视觉上就是「一点就跳到底」。
+    fail('弹窗组件必须自注 tg-*/glb-* 样式表（不能依赖调用方已挂载）')
+  } else if (!/data-full=\{full/.test(lbSrc) || !/event\.key === 'f' \|\| event\.key === 'F'/.test(lbSrc)) {
+    fail('弹窗必须有全屏切换（data-full 态 + F 键），且 Esc 分层（全屏中先退全屏再关闭）')
   } else if (!/previewThumbUrl/.test(panelSrc)) {
     fail('画廊 html / ppt / word 缩略图必须走 host 的 /office/thumb（否则只有类型图标，认不出是哪张）')
   } else if (!/IntersectionObserver/.test(panelSrc) || !/generatedUrlCache/.test(panelSrc)) {
@@ -1057,7 +1089,7 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   } else if (!/tg-card-in/.test(srcOf('src/client/triad/gallery/styles.ts'))) {
     fail('画廊卡片必须有入场动效（tg-card-in 级联上浮）')
   } else {
-    pass('画廊面板：沙箱 iframe + raw 白名单 + 弹窗内联 Office 预览 + 首页缩略图 + 右栏出口 + spill 懒解析 + 动效在位')
+    pass('画廊面板：点开=自带弹窗（渲染不出来的类别与弹窗底部保留右栏出口）+ 首页缩略图 + spill 懒解析 + 动效在位；pdf/Office 与音视频由插件侧栏渲染器接管')
   }
 
   if (!/parseTimeQuery/.test(apiSrc) || !/presetRange/.test(apiSrc) || !/groupByDay|dayKeyOf/.test(apiSrc + panelSrc)) {

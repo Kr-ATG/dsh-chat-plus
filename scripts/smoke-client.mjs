@@ -1564,7 +1564,10 @@ if (krEnabled) {
     fail('open-preview 必须走官方 sidebarRight.openResource（右侧栏工作区预览的唯一入口）')
   } else if (!/dsh-resource:\/\/file\//.test(previewSrc) || !/sessionFileAddress/.test(previewSrc)) {
     fail('open-preview 必须构造官方 dsh-resource://file/session/<id>/<path> 地址')
-  } else if (!/params: \{ line: options\.line \}/.test(previewSrc)) {
+  } else if (!/params: \{ line: (?:options\.line|line) \}/.test(previewSrc)) {
+    // 形态随实现调整过：行号原先直传 options.line，2026-10-19 起统一走 attemptOpen
+    // 的局部参数（同一条官方 params.line 契约，只是多了一层可重试的调用点）。
+    // 断言钉的仍是「必须把行号送进官方 params」，不钉某个变量名。
     fail('open-preview 必须支持行号定位（官方文本预览的 params.line）')
   } else if (!/reason: 'no-service'|'no-service'/.test(previewSrc)) {
     fail('open-preview 拿不到右栏服务时必须静默降级（不能抛）')
@@ -1736,21 +1739,21 @@ if (krEnabled) {
   } else if (!/kr-card__title[^)]*?\\u4EA7\\u51FA\\u7269/.test(code)) {
     fail('outputs card header must render the title 产出物')
   } else if (!/<button[\s\S]{0,400}?className="kr-out-row__main"/.test(outputsCode)) {
-    fail('产出物行主体必须是真 button（键盘可达 + 触屏 :active），点开画廊式 Lightbox')
-  } else if (!/<button[\s\S]{0,300}?className="kr-out-row__open"/.test(outputsCode)) {
-    fail('产出物行尾必须有「在侧栏打开」真 button（保留原右栏预览链路，用户 2026-10-04 点名）')
+    fail('产出物行主体必须是真 button（键盘可达 + 触屏 :active），点它在官方右栏打开')
+  } else if (/className="kr-out-row__open"/.test(outputsCode)) {
+    // 2026-10-19 收口：行尾那枚「在侧栏打开」真按钮删掉了 —— 它与行主体做的是
+    // 同一件事（都是官方右栏打开），一列行挂两枚图标只是把一句话说两遍。
+    // 这里断言它**不再存在**，防的是日后有人把双出口加回来。
+    fail('产出物行尾不得再有第二枚「在侧栏打开」按钮（行主体就是唯一出口）')
   } else if (!/aria-label=\{`在侧栏打开 \$\{item\.name\}`\}/.test(outputsCode)) {
-    fail('行尾钮必须带 aria-label（它是真动作，不再是 aria-hidden 视觉箭头）')
-  } else if (!/canInlinePreview\(item\.kind, item\.path\)/.test(outputsCode)) {
-    fail('行主体点击必须分流：可内联预览类别开 Lightbox，代码 / 3D / 压缩包等回退侧栏原路')
-  } else if (!/MediaLightbox/.test(outputsCode) || !/sessionRawUrl\(item\.path/.test(outputsCode)) {
-    fail('产出物卡必须复用画廊共享 MediaLightbox，且文件地址走 session 作用域 raw')
-  } else if (!/item\.kind === 'page'[\s\S]{0,120}?sessionRawUrl/.test(outputsCode)) {
-    // 2026-10-06 修「点开 html 什么都没有」：官方 /api/file 是原样吐字节的静态
-    // 服务，**不注入 <base>**，多文件成品（同目录 css/js/图）的相对资源会按
-    // /api/ 这个目录解析、全部 404 —— 页面结构在、样式全失，看起来就是一片空白。
-    // 插件的 /raw 会注入 <base href=".../raw-asset/<token>/">，必须让 page 走它。
-    fail('html 成品（page）必须走插件 /raw（注入 base），不能走官方 /api/file —— 否则相对资源全 404，点开就是无 UI 的裸页面')
+    fail('行主体按钮的 aria-label 必须说明落点是「在侧栏打开」（读屏用户靠它知道点开的去向）')
+  } else if (!/className="kr-out-row__go"/.test(outputsCode)) {
+    fail('行尾必须保留纯视觉箭头（kr-out-row__go，aria-hidden），承担「这里能点、点开在右栏」的提示')
+  } else if (/canInlinePreview|MediaLightbox/.test(outputsCode)) {
+    // 2026-10-19：插件自带的 Lightbox 整套删除，预览一律交官方侧边栏。
+    fail('产出物卡不得再引用 canInlinePreview / MediaLightbox（预览出口只有官方侧边栏）')
+  } else if (!/tryOpenInSidebar\(path/.test(outputsCode)) {
+    fail('产出物行点击必须在官方右栏打开（tryOpenInSidebar），不得自己造预览 UI')
   } else if (/<img\b/.test(outputsCode)) {
     fail('缩略图必须是按类型画的 SVG，不得用 <img> 拉真实文件（28px 见方读不出画面，且每行一次请求）')
   } else if (!/function Thumb\(\{ kind \}/.test(outputsCode) || !/case 'model3d':/.test(outputsCode)) {
@@ -2207,7 +2210,7 @@ if (krEnabled) {
     ['产出物缩略图 .kr-out-row__thumb', /\.kr-out-row__thumb svg\s*\{[^}]*calc\([^)]*--dsh-content-font-delta/],
     ['子智能体箭头 .kr-subs-row__go', /\.kr-subs-row__go svg/],
     ['「展开其余 N」两处', /\.kr-subs-more svg/],
-    ['产出物预览按钮 .kr-out-row__open', /\.kr-out-row__open svg/],
+    ['产出物右栏箭头 .kr-out-row__go', /\.kr-out-row__go svg/],
   ]
   for (const [label, re] of SVG_MUST_SCALE) {
     if (!re.test(axisSrc)) {
@@ -2224,10 +2227,10 @@ if (krEnabled) {
    * 取错不会报错，只会在默认档就把图形放大或缩小一点 —— 那违反「默认档逐像素
    * 还原」。本轮就把 chevron 的 11 写成了 12，实测默认档量到 12px 才发现。
    */
-  const svgBase12 = /\.kr-subs-row__go svg,\s*\.kr-out-row__open svg\s*\{\s*width:\s*calc\(12px/.test(axisSrc)
+  const svgBase12 = /\.kr-subs-row__go svg,\s*\.kr-out-row__go svg\s*\{\s*width:\s*calc\(12px/.test(axisSrc)
   const svgBase11 = /\.kr-subs-more svg,\s*\.kr-out-more svg\s*\{\s*width:\s*calc\(11px/.test(axisSrc)
   if (!svgBase12) {
-    axisReasons.push('跳转箭头与预览按钮 svg 的基准必须是 12px（与 JSX 呈现属性一致）')
+    axisReasons.push('跳转箭头与产出物右栏箭头 svg 的基准必须是 12px（与 JSX 呈现属性一致）')
   }
   if (!svgBase11) {
     axisReasons.push('「展开其余 N」的 svg 基准必须是 11px（与 JSX 呈现属性一致）')
@@ -2888,11 +2891,78 @@ if (krEnabled) {
     if (mod.splitHtml('```html\n<div>半截').some((part) => part.kind === 'html')) {
       reasons.push('未闭合围栏不得渲染成真卡片（流式期必须保持代码块或占位）')
     }
-    // ⑤ 空内容 / 纯文字 / 超长 → 一律回退原文。
+    // ⑤ 空内容 / 纯文字 → 回退原文；**体积不设闸门**（长卡片照常出卡）。
     if (mod.splitHtml('```html\n\n```').some((part) => part.kind === 'html')) reasons.push('空围栏应回退')
     if (mod.splitHtml('```html\njust text\n```').some((part) => part.kind === 'html')) reasons.push('无标签内容应回退')
+    /*
+     * ⑤a **不再有体积闸门**：卡片高度由宿主按上报值给框（MAX_FRAME_HEIGHT 才是
+     * 真正的硬约束），按字符数截断只会误伤写得长的好卡片——同一句 80K 字符，
+     * 中文是英文的三倍字节，而「整站贴进来」这种坏输入根本拦不住（它只是变长，
+     * 并没有变得不可渲染）。所以这里反过来钉死：大围栏必须照常出卡。
+     */
     const huge = '```html\n<div>' + 'x'.repeat(81000) + '</div>\n```'
-    if (mod.splitHtml(huge).some((part) => part.kind === 'html')) reasons.push('超长围栏应回退成代码块')
+    if (!mod.splitHtml(huge).some((part) => part.kind === 'html')) reasons.push('大围栏不该被体积闸门回退（已去掉上限）')
+
+    /*
+     * ⑤c **设计系统按需注入**（kit.ts）。
+     *
+     * 两条都不报错、都只会静默变差：
+     *  · 该注入没注入 → 模型写了 .k-bar 却拿到一个裸 div，卡片看着像没样式；
+     *  · 不该注入却注入了 → 每张纯 SVG 卡片白背 6KB，且可能撞上模型自己的类名。
+     * 所以两侧都钉：用到 k- 必注入，没用到必不注入。
+     */
+    const withKit = mod.assembleHtmlDocument('<div class="k-bar"><span style="--n:3"></span></div>')
+    const withoutKit = mod.assembleHtmlDocument('<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>')
+    if (!withKit.includes('data-dsh-kit')) reasons.push('正文用了 k- 类名时必须注入设计系统')
+    if (withoutKit.includes('data-dsh-kit')) reasons.push('没用到 k- 类名的卡片不该背 kit（纯浪费体积）')
+    if (!withKit.includes('--k-accent')) reasons.push('kit 必须自带 --k-accent 等 token')
+    if (!mod.needsKit('<div class="k-kv">x</div>')) reasons.push('needsKit 应识别 k-kv')
+    if (mod.needsKit('<div class="k-9">x</div>')) reasons.push('needsKit 不该把 k-9 误判成 kit 类名')
+
+    /*
+     * ⑤d **共享运行时按需注入**（runtime.ts）。
+     *
+     * 三个能力各判各的：判据松了会白送字节，判紧了模型写了属性却拿到死元素。
+     * 两侧都钉。
+     */
+    const tipDoc = mod.assembleHtmlDocument('<button data-tooltip="刷新">R</button>')
+    const tabDoc = mod.assembleHtmlDocument('<div role="tablist"><button role="tab">A</button></div>')
+    const bareDoc = mod.assembleHtmlDocument('<div>纯静态</div>')
+    if (!tipDoc.includes('data-dsh-runtime')) reasons.push('用了 data-tooltip 必须注入运行时')
+    if (!tipDoc.includes('dsh-tip')) reasons.push('tooltip 运行时必须含浮层类名 dsh-tip')
+    if (!tabDoc.includes('data-dsh-runtime')) reasons.push('用了 role=tablist 必须注入运行时')
+    if (bareDoc.includes('data-dsh-runtime')) reasons.push('没用到任何能力时不该注入运行时')
+    const need = mod.needsRuntime('<i data-tooltip="x"></i>')
+    if (need.tooltip !== true || need.tabs !== false || need.state !== false) {
+      reasons.push('needsRuntime 应按能力分别判定（实得 ' + JSON.stringify(need) + '）')
+    }
+    if (mod.needsRuntime('正文里提了一句 tooltip 这个词').tooltip !== false) {
+      reasons.push('needsRuntime 不该把「正文提到 tooltip」误判成要用提示气泡')
+    }
+    /*
+     * ⑤e kit 与 runtime 必须**配合**：运行时把 aria-selected 维护对了，但
+     * 没有对应的选中态样式，用户看到两个一模一样的 tab —— 功能对、体验错，
+     * 这种最难发现（验收时功能断言全绿）。所以样式存在性也钉一条。
+     */
+    if (!mod.KIT_CSS.includes('[aria-selected="true"]')) {
+      reasons.push('kit 必须给 tabs 选中态样式（否则看不出当前在哪个 tab）')
+    }
+    if (!mod.KIT_CSS.includes('data-tooltip') && !mod.RUNTIME_PARTS.tooltip.includes('dsh-tip')) {
+      reasons.push('tooltip 浮层类名 dsh-tip 必须在运行时里')
+    }
+    // 减弱动效：动效必须可为系统设置关闭（无障碍硬要求）。
+    if (!mod.KIT_CSS.includes('prefers-reduced-motion')) {
+      reasons.push('kit 动效必须尊重 prefers-reduced-motion')
+    }
+    if (!mod.RUNTIME_PARTS.tooltip.includes('prefers-reduced-motion')) {
+      reasons.push('tooltip 淡入必须尊重 prefers-reduced-motion')
+    }
+
+    // 运行时不得引外部资源：沙箱是 opaque origin，CDN 一律白屏。
+    for (const [name, src] of Object.entries(mod.RUNTIME_PARTS)) {
+      if (/<script[^>]+src=/.test(src)) reasons.push(name + ' 运行时不得引外部脚本')
+      if (/fetch\(|XMLHttpRequest/.test(src)) reasons.push(name + ' 运行时不得发网络请求')
+    }
     /*
      * ⑤b **只有注释的围栏必须回退**（2026-10-08 事故现场）。
      *
@@ -3212,7 +3282,7 @@ if (krEnabled) {
   if (reasons.length > 0) {
     fail('对话内 HTML 卡片契约：' + reasons.join('；'))
   } else {
-    pass('HTML 卡片：围栏切分精确（大小写/未闭合/超长/空内容各自回退）+ 标题提取')
+    pass('HTML 卡片：围栏切分精确（大小写/未闭合/空内容各自回退，大围栏照常出卡）+ 标题提取')
     pass('HTML 卡片：流式期未闭合围栏 → 预渲染占位卡（pending 翻转同 key，不闪）')
     pass('HTML 卡片：沙箱只给 allow-scripts + 高度上报三重校验 + base target=_blank')
   }
@@ -3444,8 +3514,10 @@ if (krEnabled) {
       reasons.push('/iu 源未注册到 inputTriggers（菜单里不会有这一组）')
     } else if (iuSrc.trigger !== '/') {
       reasons.push(`/iu 源的 trigger 应为 /，实得 ${iuSrc.trigger}`)
-    } else if (iuSrc.order !== 8) {
-      reasons.push(`/iu 源 order 应为 8（排在技能源之后），实得 ${iuSrc.order}`)
+    } else if (iuSrc.order !== 1) {
+      // 技能源现在会按 query 直接匹配技能名，`/iu` 能子序列命中一串技能；
+      // 本源必须排在技能源之前，才能让提示项占住菜单高亮。
+      reasons.push(`/iu 源 order 应为 1（排在技能源之前，否则 /iu 的高亮会被技能抢走），实得 ${iuSrc.order}`)
     }
     /*
      * 源码形状：**不得**再出现自建投递与包装。
@@ -3506,7 +3578,7 @@ if (krEnabled) {
     }
 
     /*
-     * 技能源不得在**无关 query** 下留候选。
+     * 技能源不得在**无关 query** 下留**集合行**（技能直达行是合法的，见下）。
      *
      * 真事：技能 slash 源第一级里「散装技能」那一行原来是无条件 push 的，
      * 于是任何 `/xxx`（比如中文输入法下不敲空格的 `/iu象棋`）都会在菜单里留
@@ -3514,7 +3586,10 @@ if (krEnabled) {
      * 就 pick），草稿被替换成 `/_loose:` —— 消息发不出去，输入框里还多一坨
      * 看不懂的东西。用户报的「发不出去」有一半是这个，跟 /iu 本身无关。
      *
-     * 行为级验证：拿无关 query 调一次 candidates，必须为空数组。
+     * ⚠ 2026-10 之后判据变了：首层新增「按 query 直接匹配技能名」，
+     * `/iu` 这类 query 命中真实技能（如 `dsh-plugin-ui-slots`）是**预期行为**，
+     * 不再是 bug。会被 `continue: true` 改写草稿的只有集合行，所以只钉集合行：
+     * 无关 query 下 candidates 里不得出现 `bundle:`/集合名字的候选。
      */
     const skillSrc = registeredTriggerSources.find(s => s?.name === 'skill')?.source
     if (skillSrc === undefined) {
@@ -3522,17 +3597,17 @@ if (krEnabled) {
     } else if (typeof skillSrc.candidates !== 'function') {
       reasons.push('技能源缺 candidates')
     } else {
-      const snapshot = { bundles: [], loose: [{ name: 'demo-skill', description: 'x' }] }
       const okSkill = await skillSrc.candidates(
         { sessionId: 'smoke-iu' },
-        { query: 'iu', position: 'leading', drilled: false, signal: new AbortController().signal, ...{} },
+        { query: 'iu', position: 'leading', drilled: false, signal: new AbortController().signal },
       ).catch(() => undefined)
-      // 上一步依赖网络（技能快照），拿不到就退化成源码形状断言，不能因为
-      // 断言自身环境不足而误报「契约坏了」。
-      if (Array.isArray(okSkill) && okSkill.length > 0) {
-        reasons.push(`技能源在无关 query「iu」下仍给了 ${okSkill.length} 个候选（回车会被菜单吃掉，消息发不出去）`)
+      // 依赖网络（技能快照）：拿不到就退化成源码形状断言，不误报「契约坏了」。
+      if (Array.isArray(okSkill)) {
+        const bundleRows = okSkill.filter(row => typeof row?.value === 'string' && row.value.startsWith('bundle:'))
+        if (bundleRows.length > 0) {
+          reasons.push(`技能源在无关 query「iu」下仍给了 ${bundleRows.length} 行集合（回车会被改写草稿，消息发不出去）`)
+        }
       }
-      void snapshot
     }
     // 源码形状兜底：散装技能那一行必须带着 query 前缀判断，不能裸 push。
     const skillSrcText = readFileSync(resolve(ROOT, 'src/client/triad/skill-source/index.ts'), 'utf8')
@@ -3541,6 +3616,94 @@ if (krEnabled) {
     }
     if (!/looseName\.startsWith\(req\.query\)/.test(skillSrcText)) {
       reasons.push('技能源的散装技能行必须和集合走同一套 query 前缀过滤')
+    }
+    /*
+     * 技能直达（2026-10 用户报「选技能必须先输技能包」的修复）的形状钉子：
+     *  · 必须真的调用共享 rankByName（自己写一套排序就是第二套真相）；
+     *  · 空 query 不得铺技能行（会把集合与指令挤出首屏）；
+     *  · 技能行必须带 section（菜单靠「与上一行不同」渲染分段标题）。
+     */
+    if (!/rankByName\(/.test(skillSrcText)) {
+      reasons.push('技能源必须用内核共享的 rankByName 排技能直达行')
+    }
+    if (!/if \(needle === ''\) return \[\]/.test(skillSrcText)) {
+      reasons.push('技能直达行在空 query 下必须为空（裸 / 首屏只列集合与指令）')
+    }
+    // 中文别名：技能名几乎全是英文，Q 里打中文必须能命中（否则菜单直接空）。
+    const aliasSrcText = readFileSync(resolve(ROOT, 'src/client/triad/skill-source/aliases.ts'), 'utf8')
+    if (!/SKILL_ALIASES/.test(aliasSrcText) || !/matchesAlias/.test(aliasSrcText)) {
+      reasons.push('技能别名表必须导出 SKILL_ALIASES 与 matchesAlias')
+    }
+    if (!/matchesAlias\(skill\.name, needle\)/.test(skillSrcText)) {
+      reasons.push('技能直达行必须把别名命中作为最高优先档（中文 query 才搜得到）')
+    }
+    /*
+     * 别名表的形态钉子（**不**校验键是否等于已安装技能名）。
+     *
+     * 曾经想钉「每条别名都必须对应一个已安装技能」，但那会让冒烟跟着用户的
+     * 技能增删漂移：卸载 lark 包 → 25 条键全部"对不上" → 冒烟变红，可代码
+     * 一点没坏。别名表本来就是**允许有富余**的数据库（技能没装只是暂时用不上）。
+     * 真正会静默失效的是形状写错（漏逗号、空数组、非 kebab-case 键），钉这些。
+     */
+    const aliasEntries = [...aliasSrcText.matchAll(/^\s*'([^']+)':\s*\[([^\]]*)\]/gm)]
+    if (aliasEntries.length === 0) {
+      reasons.push('技能别名表一条都没解析出来（格式写坏了？）')
+    }
+    for (const [, key, rawValues] of aliasEntries) {
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(key)) {
+        reasons.push(`技能别名表的键必须是技能规范名（kebab-case）：${key}`)
+      }
+      const values = rawValues.split(',').map(v => v.trim()).filter(v => v !== '')
+      if (values.length === 0) {
+        reasons.push(`技能别名表「${key}」是空数组（等于没配）`)
+      }
+      for (const value of values) {
+        if (!/^'[^']+'$/.test(value)) {
+          reasons.push(`技能别名表「${key}」的别名必须用单引号包起来：${value}`)
+        }
+      }
+    }
+    if (!/section: t\('menu\.skill'\)/.test(skillSrcText)) {
+      reasons.push('技能直达行必须带 section 分段标题（menu.skill）')
+    }
+
+    /*
+     * 技能引用着色（用户 2026-10-19 反馈「/ 指令发出去之后没有颜色了」）。
+     *
+     * 根因：内核 ui-skill 整块禁用后，它的 UserText 匹配规则 + skill chip
+     * 座位一起被带走，发出的 /name 退化成纯文本。修复补在 reference.tsx。
+     *
+     * 五条钉子（少一条就悄悄退化成没颜色）：
+     *  1. 着色模块真的被调用（不是只写了个文件）；
+     *  2. 规则 id/order 与内核同值，且真的注册进 userText；
+     *  3. uiConversation 走 ctx.inject 延迟注入 —— 直接 ctx.get 会拿到
+     *     undefined（实测踩过，只留一行 warn，颜色静默消失）；
+     *  4. chip 传给 ReferenceChip 的 invalid 必须有值（必填 props）；
+     *  5. 匹配正则保留前后词边界（http://a/b、/iu做个钢琴 不得误伤）。
+     */
+    const refText = readFileSync(resolve(ROOT, 'src/client/triad/skill-source/reference.tsx'), 'utf8')
+    // 源码里可能把注释也算进去，断言只看「去掉注释后还在不在」。
+    const refCode = refText.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    if (!skillSrcText.includes('applySkillReference(ctx)')) {
+      reasons.push('技能源必须调用 applySkillReference（否则发出的 /name 没有颜色）')
+    }
+    if (!refCode.includes("id: 'skill'") || !refCode.includes('order: 20')) {
+      reasons.push('技能引用规则必须注册 id=skill、order=20（与内核 ui-skill 同值）')
+    }
+    if (!refCode.includes('userText.register')) {
+      reasons.push('技能引用规则必须真的注册进 uiConversation.userText')
+    }
+    if (!refCode.includes('inject(REFERENCE_SERVICES')) {
+      reasons.push('uiConversation 必须走 ctx.inject 延迟注入（ctx.get 会拿到 undefined）')
+    }
+    if (!refCode.includes('invalid={false}')) {
+      reasons.push('技能 chip 必须给 ReferenceChip 传 invalid（必填 props，漏了会丢无效态样式）')
+    }
+    if (!refCode.includes('(?<!\\S)') || !refCode.includes('(?!\\S)')) {
+      reasons.push('技能引用正则必须保留前后词边界（否则 URL 里的斜杠会被误认）')
+    }
+    if (!refCode.includes("'conversation.user.text.node'")) {
+      reasons.push('技能 chip 座位必须注册到 conversation.user.text.node')
     }
   }
 

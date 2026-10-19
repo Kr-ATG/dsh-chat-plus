@@ -13,6 +13,9 @@ export const zh = {
   'row.stopped': 'skill 加载已中止',
   'row.instructions': '说明',
   'menu.userOnly': '仅用户',
+  // slash 菜单第一级的分段标题(候选的 section 字段):直达命中的技能 / 技能包。
+  'menu.skill': '技能',
+  'menu.bundle': '技能包',
   // slash 菜单第一级里「散装技能」那一行(不属于任何集合的技能)。
   'loose.title': '散装技能',
   'loose.count': '{count} 个技能',
@@ -28,6 +31,8 @@ export const en = {
   'row.stopped': 'Skill load stopped',
   'row.instructions': 'Instructions',
   'menu.userOnly': 'user-only',
+  'menu.skill': 'Skills',
+  'menu.bundle': 'Skill bundles',
   'loose.title': 'Loose skills',
   'loose.count': '{count} skills',
 } satisfies Record<SkillKey, string>

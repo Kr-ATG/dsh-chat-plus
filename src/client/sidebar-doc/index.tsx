@@ -37,7 +37,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { officePdfUrl } from '../triad/gallery/api.js'
-import { getService } from '../client-ctx.js'
+import { getService, workspaceCwdOf } from '../client-ctx.js'
+import { resolveWorkspacePath } from '../open-preview.js'
+import { whenDocumentPreviews, type DocumentPreviewsLike } from '../sidebar/document-registry.js'
 import { parseFileAddress } from './address.js'
 
 /** 渲染器 id（同时是 keyed slot 的 key；官方要求全局唯一）。 */
@@ -107,9 +109,17 @@ function SidebarDocumentBody(props: DocumentBodyOwner): JSX.Element {
       setDetail('地址无法解析')
       return () => { aliveRef.current = false }
     }
-    // 探测走 /office/info（只判引擎与扩展名，不触发转换）；真正的内容交给
-    // iframe 的 /office/pdf（Office 文档由 host 转 PDF，pdf 原样转发）。
-    const probeUrl = `/api/chat-flow/office/info?path=${encodeURIComponent(parsed.path)}&session=${encodeURIComponent(parsed.sessionId)}`
+    /*
+     * 探测走 /office/info（只判引擎与扩展名，不触发转换）；真正的内容交给
+     * iframe 的 /office/pdf（Office 文档由 host 转 PDF，pdf 原样转发）。
+     *
+     * ⚠ 路径先折成绝对（2026-10-19）：官方文件地址里工作区内的路径是**相对**的
+     * （`deliverables/x/report.pdf`），而 /office/* 的准入把索引里的绝对路径
+     * 与会话 cwd 折出的绝对路径比对 —— 相对路径那条路会被判 403。侧栏接管
+     * pdf/Office 之后这条链路是唯一出口，折错等于「点开就是一片空白」。
+     */
+    const absolute = resolveWorkspacePath(workspaceCwdOf(parsed.sessionId), parsed.path)
+    const probeUrl = `/api/chat-flow/office/info?path=${encodeURIComponent(absolute)}&session=${encodeURIComponent(parsed.sessionId)}`
     const controller = new AbortController()
     void fetch(probeUrl, { method: 'GET', cache: 'no-store', signal: controller.signal })
       .then(async (res) => {
@@ -120,8 +130,10 @@ function SidebarDocumentBody(props: DocumentBodyOwner): JSX.Element {
           setDetail(`读取失败（HTTP ${res.status}）`)
           return
         }
+        // 显式标类型而不是 `typeof payload`：后者在赋值 null 之后被收窄成 never，
+        // 再读 payload.renderable 就是类型错误（既有写法，顺手修掉）。
         let payload: { renderable?: boolean } | null = null
-        try { payload = await res.json() as typeof payload } catch { payload = null }
+        try { payload = await res.json() as { renderable?: boolean } } catch { payload = null }
         if (payload?.renderable === true) {
           setState('ready')
           // 版本串官方只用来做「源文件变了就提示重载」；这里用 revision + 探测时刻
@@ -144,7 +156,9 @@ function SidebarDocumentBody(props: DocumentBodyOwner): JSX.Element {
   }, [address, revision, owner])
 
   const parsed = parseFileAddress(address)
-  const src = parsed === null ? '' : officePdfUrl(parsed.path, parsed.sessionId)
+  const src = parsed === null
+    ? ''
+    : officePdfUrl(resolveWorkspacePath(workspaceCwdOf(parsed.sessionId), parsed.path), parsed.sessionId)
 
   const wrapStyle: CSSProperties = {
     position: 'absolute',
@@ -240,59 +254,58 @@ export function applySidebarDocument(ctx: Record<string, any>): void {
   }
   injectStyles()
 
-  let registry: { register?: (def: Record<string, unknown>) => () => void } | undefined
+  const mark = (val: string): void => {
+    if (typeof document !== 'undefined') document.documentElement.dataset.dshSdpRegistry = val
+  }
   /*
    * 取服务必须走 `getService`（根 ctx 的 `get()`）：官方包是用
    * `ctx.reflect.provide("documentPreviews", …)` 把 registry 挂成**服务**的，
    * 而 cordis 的 ctx Proxy 对「属性直读」要求 inject 白名单声明 —— 直读
    * `ctx.documentPreviews` 会抛 `cannot get property … without inject`，
    * 表现就是整块静默不挂（2026-10-06 实机踩过：样式注入了、注册水痕没有）。
+   *
+   * **必须等它出现**（2026-10-19 实机定位）：本插件的 client apply 跑在官方
+   * `ui-sidebar-documentpreview` provide 之前，同步取一次拿到的是 undefined ——
+   * 实测 `dataset.dshSdpRegistry === 'no-registry'`，两个渲染器一次都没注册。
+   * 轮询到它就绪为止（上限见 sidebar/document-registry.ts）。
    */
-  try {
-    const candidate = getService<{ register?: (def: Record<string, unknown>) => () => void }>('documentPreviews')
-    registry = candidate !== undefined && typeof candidate.register === 'function' ? candidate : undefined
-  } catch {
-    registry = undefined
-  }
-  const mark = (val: string): void => {
-    if (typeof document !== 'undefined') document.documentElement.dataset.dshSdpRegistry = val
-  }
-  if (registry === undefined) {
-    mark('no-registry')
-    return
-  }
-  mark('registry-ok')
+  whenDocumentPreviews(
+    () => getService<DocumentPreviewsLike>('documentPreviews'),
+    (registry) => {
+      mark('registry-ok')
+      let disposeMeta: (() => void) | null = null
+      try {
+        disposeMeta = registry.register({
+          id: SIDEBAR_DOC_ID,
+          extensions: [...CLAIMED_EXTENSIONS],
+          binaryExtensions: [...BINARY_EXTENSIONS],
+          // extension 档：排在官方 builtin 之前被自动选中（官方契约：external 赢）。
+          priority: 'extension',
+          title: () => '文档预览（插件）',
+          // renderer 模式：正文自己负责加载（HEAD 探测 + iframe），owner 不读字节。
+          loading: 'renderer',
+          wrap: false,
+        })
+        // 诊断标记：注册成功与否在 DOM 上留痕（实机排查「接管没生效」时唯一可靠的
+        // 观测点 —— 控制台日志在 headless 下拿不到，registry 也不对外暴露）。
+        if (typeof document !== 'undefined') document.documentElement.dataset.dshSdp = 'registered'
+      } catch {
+        if (typeof document !== 'undefined') document.documentElement.dataset.dshSdp = 'failed'
+        return
+      }
 
-  let disposeMeta: (() => void) | null = null
-  try {
-    disposeMeta = registry.register({
-      id: SIDEBAR_DOC_ID,
-      extensions: [...CLAIMED_EXTENSIONS],
-      binaryExtensions: [...BINARY_EXTENSIONS],
-      // extension 档：排在官方 builtin 之前被自动选中（官方契约：external 赢）。
-      priority: 'extension',
-      title: () => '文档预览（插件）',
-      // renderer 模式：正文自己负责加载（HEAD 探测 + iframe），owner 不读字节。
-      loading: 'renderer',
-      wrap: false,
-    })
-    // 诊断标记：注册成功与否在 DOM 上留痕（实机排查「接管没生效」时唯一可靠的
-    // 观测点 —— 控制台日志在 headless 下拿不到，registry 也不对外暴露）。
-    if (typeof document !== 'undefined') document.documentElement.dataset.dshSdp = 'registered'
-  } catch {
-    if (typeof document !== 'undefined') document.documentElement.dataset.dshSdp = 'failed'
-    return
-  }
-
-  try {
-    ctx.slots.inject('sidebar.right.tab.document', () => ctx.slots.register({
-      name: 'sidebar.right.tab.document',
-      key: SIDEBAR_DOC_ID,
-    }, (props: Record<string, any>) => (
-      <SidebarDocumentBody {...(props as unknown as DocumentBodyOwner)} />
-    )))
-  } catch {
-    // 槽位注入失败：元数据已注册但没有正文 → 官方会回落到下一个候选实现。
-    disposeMeta?.()
-  }
+      try {
+        ctx.slots.inject('sidebar.right.tab.document', () => ctx.slots.register({
+          name: 'sidebar.right.tab.document',
+          key: SIDEBAR_DOC_ID,
+        }, (props: Record<string, any>) => (
+          <SidebarDocumentBody {...(props as unknown as DocumentBodyOwner)} />
+        )))
+      } catch {
+        // 槽位注入失败：元数据已注册但没有正文 → 官方会回落到下一个候选实现。
+        disposeMeta?.()
+      }
+    },
+    () => { mark('no-registry') },
+  )
 }
