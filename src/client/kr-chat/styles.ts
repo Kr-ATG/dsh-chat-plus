@@ -908,11 +908,12 @@ body[data-kr-resizing="true"] * {
 }
 
 /* 极简细平滑进度条（2.5px，轻量雅致，不割裂界面）。
-   三态配色（data-running / data-done 挂在轨道上）：
-   · 静止推进中 → 灰（旧默认，中性）；
-   · 轮次运行中 → 品牌蓝 + 循环流光 sheen，一眼区分「还在跑」；
-   · 全部完成   → 品牌蓝静止，与完成态的对勾同色系呼应。
-   颜色过渡走 background-color .3s，运行/停止切换不硬闪。 */
+   配色（data-running / data-done 挂在轨道上）：
+   · 静止推进 → 次级灰；
+   · 轮次运行中 → 主文字色 + 循环流光 sheen，靠亮度与流光区分「还在跑」；
+   · 全部完成   → 次级灰静止（收口后亮度回落，与已完成任务行同档）。
+   颜色过渡走 background-color .3s，运行/停止切换不硬闪。
+   2026-10-19：原先运行/完成都是品牌蓝，与整个右栏去彩同步改成中性亮度。 */
 .kr-task-progress-line {
   position: relative;
   height: 2.5px;
@@ -945,9 +946,14 @@ body[data-kr-resizing="true"] * {
               background-color var(--kr-dur-fade) linear;
 }
 
-.kr-task-progress-line[data-running="true"] .kr-task-progress-line__fill,
+/* 运行中：提到主文字色（最亮一档）。全部完成：回落到与已完成行同档的次级灰 ——
+   进度条不该在整卡都收口之后还亮着，那条细条此时只剩「走满了」这一个信息。 */
+.kr-task-progress-line[data-running="true"] .kr-task-progress-line__fill {
+  background: var(--dsw-alias-label-primary, #1f2329);
+}
+
 .kr-task-progress-line[data-done="true"] .kr-task-progress-line__fill {
-  background: var(--dsw-alias-state-business-primary, #4176e6);
+  background: var(--dsw-alias-label-secondary, #61666b);
 }
 
 /*
@@ -1050,7 +1056,9 @@ body[data-kr-resizing="true"] * {
 }
 
 /*
- * 进行中行的呼吸强调：左侧 2px 品牌色竖条 + 底色缓慢脉动。
+ * 进行中行的呼吸强调：左侧 2px 竖条 + 底色缓慢脉动。
+ * 竖条用最亮的文字色而不是品牌蓝（理由见 StatusIcon 的 TONE 注释）：进度靠
+ * 亮度递进表达，蓝色留给「可点的主行动」。
  * 两层都是伪元素覆盖层（z-index:-1 垫在内容之下、行内 isolation 兜底），
  * hover 的 background 仍然正常叠显，互不打架。
  * 竖条用 transform:scaleY 从中心展开，行高变化时不拉伸变形。
@@ -1063,7 +1071,7 @@ body[data-kr-resizing="true"] * {
   bottom: 4px;
   width: 2px;
   border-radius: 2px;
-  background: var(--dsw-alias-state-business-primary, #4176e6);
+  background: var(--dsw-alias-label-primary, #1f2329);
   transform-origin: center top;
   /*
    * 进行中信号 = 竖条自己「长出来 + 呼吸」一条动画，不再分两层。
@@ -1098,13 +1106,13 @@ body[data-kr-resizing="true"] * {
   50% { transform: scaleY(1); opacity: 1; }
 }
 
-/* 进行中的行底：**静态** 5% 品牌色，不参与动画（理由见上一条规则）。 */
+/* 进行中的行底：**静态** 5% 中性色，不参与动画（理由见上一条规则）。 */
 .kr-task-item--in_progress::after {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 5%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 5%, transparent);
   z-index: -1;
   pointer-events: none;
 }
@@ -1115,13 +1123,16 @@ body[data-kr-resizing="true"] * {
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* 完成瞬间的一次性底色淡闪：品牌色底 0→亮→0，播完由组件摘除节点。
-   与对勾 pop 同一时刻发生，读作「这条刚打勾」。 */
+/* 完成瞬间的一次性底色淡闪：0→亮→0，播完由组件摘除节点。
+   与对勾 pop 同一时刻发生，读作「这条刚打勾」。
+   用中性主文字色而不是品牌蓝：整列已经去彩（见 StatusIcon 的 TONE 注释），
+   这里再冒一块蓝会让「完成」比「进行中」更抢眼，而它只是一次 420ms 的过去时。
+   想要一点仪式感的话，把这一行换成 --dsw-alias-state-success-primary 即可。 */
 .kr-task-item__flash {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 14%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 14%, transparent);
   animation: kr-task-flash 420ms var(--kr-ease-out) 1 backwards;
   pointer-events: none;
   z-index: -1;
@@ -1174,8 +1185,10 @@ body[data-kr-resizing="true"] * {
   color: var(--dsw-alias-label-secondary);
 }
 
+/* 进行中行首图标：最亮文字色。容器色会盖掉 StatusIcon 自带的 TONE，两边
+   必须是同一个口径（那边也写 label-primary），否则改一处另一处照旧是蓝。 */
 .kr-task-item--in_progress .kr-task-item__icon {
-  color: var(--dsw-alias-state-business-primary, #4176e6);
+  color: var(--dsw-alias-label-primary, #1f2329);
 }
 
 .kr-task-item__content {
@@ -1204,9 +1217,12 @@ body[data-kr-resizing="true"] * {
   white-space: nowrap;
 }
 
+/* 「进行中」标签：中性色底 + 主文字色。
+   原来是一枚蓝色胶囊，一列里唯一的彩色块；改成中性后它与右侧「进行中」的
+   灰色文字读数同属一档，整行只有竖条与圆环在动，不再有第三处抢眼。 */
 .kr-task-item__tag--running {
-  color: var(--dsw-alias-state-business-primary, #4176e6);
-  background: color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);
+  color: var(--dsw-alias-label-primary, #1f2329);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 11%, transparent);
 }
 
 /* 停滞标签：中性灰描边，与「进行中」同形不同色——状态退化一眼可读。 */
@@ -2182,7 +2198,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 }
 
 .kr-plain-view__btn:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--kr-accent) 55%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 45%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2415,8 +2431,11 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   font-size: var(--kr-fs-11, 11px);
   line-height: calc(15px + var(--dsh-content-font-delta, 0px) * 1.3636);
   font-weight: 500;
-  color: var(--kr-accent);
-  background: color-mix(in srgb, var(--kr-accent) 18%, transparent);
+  /* 计数徽标：中性亮度，不占品牌色（2026-10-19 随右栏整体去彩）。
+     它只是一枚"折叠了几条"的数量标签，不是可操作项，用主文字色即可；
+     18% 混底在深色下会发灰白，收到 12% 只留一个轮廓。 */
+  color: var(--dsw-alias-label-secondary, #61666b);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 12%, transparent);
   font-variant-numeric: tabular-nums;
   animation: kr-count-in var(--kr-dur-row) var(--kr-ease-out) backwards;
 }
@@ -2465,7 +2484,10 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
  */
 .kr-plain-step[data-status="running"] {
   position: relative;
-  background: color-mix(in srgb, var(--kr-accent) 5%, transparent);
+  /* 进行中行底：5% 中性色。原来铺的是品牌蓝，一列流水里那一行整条发蓝，
+     与任务卡那一行同病（见 StatusIcon 的 TONE 注释）—— 改成亮度差，
+     让"这一行还在跑"由竖线 + 图标 + 文字三层同时说。 */
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 5%, transparent);
 }
 
 /*
@@ -2486,7 +2508,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   bottom: 5px;
   width: 2px;
   border-radius: 1px;
-  background: var(--kr-accent);
+  background: var(--dsw-alias-label-primary, #1f2329);
   transform-origin: center top;
   animation: kr-plain-active-in var(--kr-dur-row) var(--kr-ease-out) backwards,
              kr-plain-active 1.7s var(--kr-ease-loop) var(--kr-dur-row) infinite;
@@ -2502,10 +2524,10 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   50% { transform: scaleY(1); opacity: 1; }
 }
 
-/* 行首类别图标转品牌蓝：详细模式下这一列是"哪类动作"，进行中时它顺带说"就是
-   这一类在跑"。简要模式没有图标，信号由竖线与底色承担。 */
+/* 行首类别图标提到最亮一档（原来转品牌蓝）：详细模式下这一列是"哪类动作"，
+   进行中时它顺带说"就是这一类在跑"。简要模式没有图标，信号由竖线与底色承担。 */
 .kr-plain-step[data-status="running"] .kr-plain-step__icon {
-  color: var(--kr-accent);
+  color: var(--dsw-alias-label-primary, #1f2329);
 }
 
 .kr-plain-step[data-status="running"] .kr-plain-step__title {
@@ -2579,10 +2601,13 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   gap: 3px;
   margin-left: 6px;
   padding: 1px 7px 1px 6px;
-  border: 1px solid color-mix(in srgb, var(--kr-accent) 26%, transparent);
+  /* 这枚是真按钮。去彩之后"可点"改由**描边 + 悬停时的位移与提亮**表达：
+     静止 62% 不透明度、一行细描边，指针扫过来才完全显形（下一条规则）。
+     保留它是一个描边胶囊而不是裸文字——它要在一列纯文本流水里被认出来是入口。 */
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 22%, transparent);
   border-radius: 8px;
   background: transparent;
-  color: color-mix(in srgb, var(--kr-accent) 62%, var(--dsw-alias-label-tertiary));
+  color: var(--dsw-alias-label-tertiary, #86909c);
   font-family: inherit;
   /* 「打开文件」入口：跟随字号轴（见「字号轴」段）。 */
   font-size: var(--kr-fs-10-5, 10.5px);
@@ -2608,14 +2633,14 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 .kr-plain-step:hover .kr-plain-step__open,
 .kr-plain-step__open:focus-visible {
   opacity: 1;
-  color: var(--kr-accent);
-  border-color: color-mix(in srgb, var(--kr-accent) 48%, transparent);
-  background: color-mix(in srgb, var(--kr-accent) 10%, transparent);
+  color: var(--dsw-alias-label-primary, #1f2329);
+  border-color: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 45%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 9%, transparent);
 }
 
 .kr-plain-step__open:hover {
-  border-color: var(--kr-accent);
-  background: color-mix(in srgb, var(--kr-accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 68%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 15%, transparent);
 }
 
 .kr-plain-step__open:hover svg {
@@ -2627,7 +2652,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 }
 
 .kr-plain-step__open:focus-visible {
-  outline: 2px solid var(--kr-accent);
+  outline: 2px solid color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 60%, transparent);
   outline-offset: 1px;
 }
 
@@ -2655,8 +2680,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   /* 派生计数徽标（挂在「派生子任务」那一步下方）：跟随字号轴（见「字号轴」段）。 */
   font-size: var(--kr-fs-10-5, 10.5px);
   line-height: calc(15px + var(--dsh-content-font-delta, 0px) * 1.4286);
-  color: var(--kr-accent);
-  background: color-mix(in srgb, var(--kr-accent) 10%, transparent);
+  /* 派生计数徽标：与上面 .kr-plain-step__count 同一口径（中性色）。 */
+  color: var(--dsw-alias-label-secondary, #61666b);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 10%, transparent);
   font-variant-numeric: tabular-nums;
   animation: kr-count-in var(--kr-dur-row) var(--kr-ease-out) backwards;
 }
@@ -3063,7 +3089,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 
 /* 键盘焦点环：主体可点，焦点必须看得见（WCAG 2.4.7）。 */
 .kr-out-row__main:focus-visible {
-  outline: 2px solid var(--kr-accent);
+  outline: 2px solid color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 55%, transparent);
   outline-offset: -2px;
 }
 
@@ -3102,8 +3128,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
  * 这里不用 flex 居中让它自适应，而是显式给尺寸：图形的 viewBox 是 0 0 28 28，
  * 直接等比例放大到容器内（留 1px 描边余量由 grid 居中吸收）。
  */
-.kr-out-row__thumb svg,
-.kr-out-code__thumb svg {
+.kr-out-row__thumb svg {
   width: calc(28px + var(--dsh-content-font-delta, 0px) * 2);
   height: calc(28px + var(--dsh-content-font-delta, 0px) * 2);
 }
@@ -3112,9 +3137,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
  * 四张卡里其余的小图标 SVG：**一律显式覆盖呈现属性**。
  *
  * 这些 svg 的 width/height 都写在 JSX 里（子智能体卡的跳转箭头 12、两张卡的
- * 「展开其余 N」11、产出物卡的预览按钮 12 与折行 chevron 11）。它们所在的
- * 容器已经跟着字号轴放大了，图形不跟就会在大字档下显得缩了一号、四周留空 ——
- * 同样是零报错的静默失败。
+ * 「展开其余 N」11、产出物卡的预览按钮 12）。它们所在的容器已经跟着字号轴
+ * 放大了，图形不跟就会在大字档下显得缩了一号、四周留空 —— 同样是零报错的
+ * 静默失败。
  *
  * 用 CSS 覆盖（CSS 声明优先于呈现属性）：一处规则管全部，不必把比例一路
  * 透传进每个小组件，也不必改 tsx。
@@ -3129,10 +3154,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   height: calc(12px + var(--dsh-content-font-delta, 0px) * 0.9);
 }
 
-/* 下面三枚的呈现属性是 11px（两张卡的「展开其余 N」与代码折行 chevron）。 */
+/* 下面两枚的呈现属性是 11px（两张卡的「展开其余 N」）。 */
 .kr-subs-more svg,
-.kr-out-more svg,
-.kr-out-code__chevron svg {
+.kr-out-more svg {
   width: calc(11px + var(--dsh-content-font-delta, 0px) * 0.8);
   height: calc(11px + var(--dsh-content-font-delta, 0px) * 0.8);
 }
@@ -3144,36 +3168,41 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   border-color: var(--kr-card-hover);
 }
 
-/* 类型底色：只染缩略图的底，不染整行 —— 整行染色会让六行变成六块色斑。 */
+/*
+ * 类型底色：只染缩略图的底，不染整行 —— 整行染色会让六行变成六块色斑。
+ *
+ * 2026-10-19 去彩（按用户要求）。原来这里按类型给了四种色相：蓝（图/视频/页面）、
+ * 橙（3D/演示）、绿（音频/表格）、红（pdf/压缩包）。问题在于**右栏一张卡里同时
+ * 冒出四种色相**，而卡片本身只有 6 行、每行才 28px —— 一列五六块不同颜色的小方
+ * 块，注意力全被颜色拽走，读的已经不是文件名了。
+ *
+ * 现在只分**两组**，靠 Thumb 里那套形状（山峦 / 胶片 / 声波 / 立方体 / 折角纸 /
+ * 格线 / 投屏 / 拉链 / 窗口 / 尖括号）与实心度承担类型识别：
+ *   · 成果型（图 / 视频 / 音频 / 演示 / 页面）—— 看得见的成品，底稍实、图标最亮；
+ *   · 材料型（3D / 文档 / PDF / 表格 / 压缩包 / 代码）—— 容器与源文件，底更淡。
+ *
+ * 为什么这样分而不是逐个给颜色：形状本身已经唯一确定了类型，颜色再加一层是重复
+ * 编码；而这层重复的代价是整张卡的花。留亮度差只为一件事 —— 扫一列时"成品"和
+ * "材料"能分开（页面是交付的东西，源码是过程）。
+ * 色弱用户与灰度截图下这层区分照样成立，因为它是纯亮度差。
+ */
 .kr-out-row[data-kind="image"] .kr-out-row__thumb,
-.kr-out-row[data-kind="video"] .kr-out-row__thumb {
-  background: color-mix(in srgb, var(--kr-accent) 12%, transparent);
-  color: color-mix(in srgb, var(--kr-accent) 76%, var(--dsw-alias-label-secondary));
+.kr-out-row[data-kind="video"] .kr-out-row__thumb,
+.kr-out-row[data-kind="audio"] .kr-out-row__thumb,
+.kr-out-row[data-kind="slide"] .kr-out-row__thumb,
+.kr-out-row[data-kind="page"] .kr-out-row__thumb {
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 11%, transparent);
+  color: var(--dsw-alias-label-primary, #1f2329);
 }
 
 .kr-out-row[data-kind="model3d"] .kr-out-row__thumb,
-.kr-out-row[data-kind="slide"] .kr-out-row__thumb {
-  background: color-mix(in srgb, var(--kr-warning) 15%, transparent);
-  color: color-mix(in srgb, var(--kr-warning) 72%, var(--dsw-alias-label-secondary));
-}
-
-.kr-out-row[data-kind="audio"] .kr-out-row__thumb,
-.kr-out-row[data-kind="sheet"] .kr-out-row__thumb {
-  background: color-mix(in srgb, var(--kr-success) 14%, transparent);
-  color: color-mix(in srgb, var(--kr-success) 68%, var(--dsw-alias-label-secondary));
-}
-
+.kr-out-row[data-kind="doc"] .kr-out-row__thumb,
 .kr-out-row[data-kind="pdf"] .kr-out-row__thumb,
-.kr-out-row[data-kind="archive"] .kr-out-row__thumb {
-  background: color-mix(in srgb, var(--kr-error) 12%, transparent);
-  color: color-mix(in srgb, var(--kr-error) 66%, var(--dsw-alias-label-secondary));
-}
-
-/* 可打开的页面：与 code 共用中性档但走 accent 一脉 —— 扫一列时"哪些是能打开的
-   页面、哪些只是源文件"一眼分得开（页面是成果，源码是材料）。 */
-.kr-out-row[data-kind="page"] .kr-out-row__thumb {
-  background: color-mix(in srgb, var(--kr-accent) 10%, transparent);
-  color: color-mix(in srgb, var(--kr-accent) 70%, var(--dsw-alias-label-secondary));
+.kr-out-row[data-kind="sheet"] .kr-out-row__thumb,
+.kr-out-row[data-kind="archive"] .kr-out-row__thumb,
+.kr-out-row[data-kind="code"] .kr-out-row__thumb {
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 5%, transparent);
+  color: var(--dsw-alias-label-secondary, #61666b);
 }
 
 /* 文件名：主文字色 + 500 字重，是这一行的主体。 */
@@ -3208,7 +3237,8 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: var(--kr-accent);
+  /* 这枚是真按钮，但"可点"靠浮现 + 位移表达，不靠颜色（右栏去彩口径）。 */
+  color: var(--dsw-alias-label-secondary, #61666b);
   cursor: pointer;
   opacity: 0;
   transform: translate(-2px, 2px);
@@ -3223,10 +3253,11 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 
 .kr-out-row__open:hover {
   background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.12));
+  color: var(--dsw-alias-label-primary, #1f2329);
 }
 
 .kr-out-row__open:focus-visible {
-  outline: 2px solid var(--kr-accent);
+  outline: 2px solid color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 55%, transparent);
   outline-offset: -2px;
 }
 
@@ -3250,101 +3281,6 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 
 /* 核对完成（确认存在）后回满：给它一个 180ms 的回归，读起来是「确认过了」，
    而不是「刚才怎么灰了一下」。opacity 的过渡合并在 .kr-out-row 的 transition 里。 */
-
-/*
- * 代码文件折行。
- *
- * 一次编码任务改十几个源文件，逐条占行会把「做出来了什么」整个淹掉 ——
- * 折成一行「另有 N 个代码文件」，要看的人自己展开。
- */
-.kr-out-code {
-  min-width: 0;
-}
-
-.kr-out-code__toggle {
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  min-width: 0;
-  /* 代码文件折行：与产出物行同比例跟随字号轴（见「字号轴」段）。 */
-  min-height: calc(30px + var(--dsh-content-font-delta, 0px) * 2);
-  padding: 3px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  font-family: inherit;
-  font-size: var(--kr-fs-11-5, 11.5px);
-  line-height: calc(16px + var(--dsh-content-font-delta, 0px) * 1.3913);
-  text-align: left;
-  color: var(--dsw-alias-label-tertiary);
-  cursor: pointer;
-  transition: background-color .12s ease, color .12s ease;
-}
-
-.kr-out-code__toggle:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.07));
-  color: var(--dsw-alias-label-secondary);
-}
-
-.kr-out-code__toggle:focus-visible {
-  outline: 2px solid var(--kr-accent);
-  outline-offset: -2px;
-}
-
-/* 折行的缩略图与正式行同尺寸同位置：展开后两段的行首对齐，读起来是一列。 */
-.kr-out-code__thumb {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: calc(28px + var(--dsh-content-font-delta, 0px) * 2);
-  height: calc(28px + var(--dsh-content-font-delta, 0px) * 2);
-  border-radius: 6px;
-  border: 1px dashed var(--kr-card-border);
-  color: var(--dsw-alias-label-tertiary);
-  overflow: hidden;
-}
-
-.kr-out-code__text {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.kr-out-code__action {
-  flex: none;
-  /* 折行内的「预览」动作字：跟随字号轴（见「字号轴」段）。 */
-  font-size: var(--kr-fs-11, 11px);
-  color: var(--kr-accent);
-  opacity: .82;
-}
-
-.kr-out-code__chevron {
-  flex: none;
-  transition: transform var(--kr-dur-fade) var(--kr-ease-soft);
-}
-
-.kr-out-code[data-open="true"] .kr-out-code__chevron {
-  transform: rotate(180deg);
-}
-
-/* 展开后的代码清单：缩进一级（28px 缩略图 + 9px gap），表明它们属于上面那一行。
-   ⚠ 缩进必须跟缩略图一起放大：它等于「缩略图宽 + gap」，缩略图涨了而缩进没涨，
-   展开后两段的行首就不再对齐（那条竖线会压进缩略图里）。 */
-.kr-out-list--code {
-  margin-left: calc(37px + var(--dsh-content-font-delta, 0px) * 2);
-  padding-left: 4px;
-  border-left: 1px solid var(--kr-hairline);
-  animation: kr-out-code-in var(--kr-dur-row) var(--kr-ease-out) backwards;
-}
-
-@keyframes kr-out-code-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: none; }
-}
 
 /*
  * 「展开其余 N 条」。
@@ -3373,11 +3309,11 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 }
 
 .kr-out-more:hover {
-  color: var(--kr-accent);
+  color: var(--dsw-alias-label-secondary, #61666b);
 }
 
 .kr-out-more:focus-visible {
-  outline: 2px solid var(--kr-accent);
+  outline: 2px solid color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 55%, transparent);
   outline-offset: -2px;
   border-radius: 6px;
 }
@@ -3390,23 +3326,12 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   transform: translateY(1px);
 }
 
-/* 空态：常驻一行低对比度说明，卡片不整张消失（与任务概览同一口径）。 */
-.kr-out-empty {
-  padding: 2px 8px 3px;
-  /* 空态说明：跟随字号轴（见「字号轴」段）。 */
-  font-size: var(--kr-fs-11-5, 11.5px);
-  line-height: calc(16px + var(--dsh-content-font-delta, 0px) * 1.3913);
-  color: var(--dsw-alias-label-tertiary);
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .kr-out-row,
-  .kr-out-list--code {
+  .kr-out-row {
     animation: none;
   }
   .kr-out-row:hover .kr-out-row__thumb { transform: none; }
   .kr-out-row__open,
-  .kr-out-code__chevron,
   .kr-out-more svg { transition: none; }
   .kr-out-row__open { transform: none; }
   .kr-out-row__open:active svg { transform: none; }
@@ -4603,9 +4528,75 @@ body[data-ds-dark-theme] .kr-agent-avatar-menu {
   white-space: nowrap;
 }
 
-/* 仍被 KR 任务卡 / 执行结果卡的行内 spinner 复用。 */
-@keyframes kr-spin {
+/*
+ * ══ 状态圆环（StatusIcon running）════════════════════════════════════════
+ *
+ * 由 StatusIcon 直接挂 class，不依赖 .kr-task-item 这类外层容器 —— 组件本身
+ * 不知道自己在哪张卡里，样式就不能要求某个祖先存在。
+ *
+ * CSS transform 作用在 SVG 元素上时默认以「自身包围盒」为参照，不写下面这两
+ * 行弧线会绕自己的左上角甩出去。这里刻意用 view-box + 写死 7px 7px（圆的中心
+ * 坐标）而不是 fill-box：fill-box 取的是几何包围盒，而这条弧的长度每帧都在变
+ * （见下面的呼吸动画），依赖包围盒就等于依赖一个会动的东西。
+ */
+.kr-status-ring__track,
+.kr-status-ring__arc {
+  transform-box: view-box;
+  transform-origin: 7px 7px;
+}
+
+/* 轨道：品牌色自身的淡版（不是固定灰），深浅主题都跟着当前色走。 */
+.kr-status-ring__track {
+  stroke: currentColor;
+  opacity: .22;
+}
+
+/*
+ * 绕行 + 呼吸，两个动画同周期 1.6s 挂在同一个元素上。
+ *
+ * 两者改的是不同属性（transform / stroke-dasharray），不会互相覆盖 —— 所以
+ * 不需要再套一层 <g>，少一层 DOM，也少一处「包围盒会随弧长变化」的依赖。
+ *
+ * 绕行必须 linear（匀速）：变速会把「在转」读成「在顿」。
+ * 旧实现是 1.2s/圈，在 r=6.2 上等于 32.5px/s —— 14px 的圈每秒绕三圈，看上去
+ * 就是一团在抖。1.6s 收到 23.6px/s，读作「稳步推进」而不是「瞎转」。
+ *
+ * 弧长呼吸：26% → 68% → 26%，用 stroke-dasharray 而不是重算 path —— dash 变化
+ * 只重绘这一枚 14px 的描边，圆头端点上长度过渡是平滑的。
+ * 26 起步而不是 0：0 长度配圆头 linecap 会退化成一个点，读作「闪了一下」。
+ *
+ * 转与呼吸**必须同周期**：一个周期里「跑完一整圈 + 收放一次」，读起来是一个
+ * 动作。两个周期凑不成整数比的话，弧会在不同的相对位置反复变长短，看上去像
+ * 两个机制在抢这只 14px 的圈。这里两者都锁死 1.6s。
+ *
+ * （行首那条 2px 竖条仍在 2.2s 呼吸，那是独立的一层「这一行正在推进」，
+ * 与圆环不是同一件东西，不强行对齐 —— 它一快就会显得急。）
+ */
+.kr-status-ring__arc {
+  animation:
+    kr-status-ring-orbit 1.6s linear infinite,
+    kr-status-ring-arc 1.6s ease-in-out infinite;
+}
+
+@keyframes kr-status-ring-orbit {
   to { transform: rotate(360deg); }
+}
+
+@keyframes kr-status-ring-arc {
+  0%   { stroke-dasharray: 26 100; }
+  50%  { stroke-dasharray: 68 100; }
+  100% { stroke-dasharray: 26 100; }
+}
+
+/*
+ * 降低动态效果：不转不呼吸，但**弧还在**。
+ * 静止的 40% 弧仍然说明「这一项正在进行」，只是不动 —— 整个抹掉才是丢信息。
+ */
+@media (prefers-reduced-motion: reduce) {
+  .kr-status-ring__arc {
+    animation: none;
+    stroke-dasharray: 40 100;
+  }
 }
 
 @keyframes kr-agent-avatar-menu-in {

@@ -22,7 +22,7 @@ import { KrPlainTimelineCard } from './KrPlainTimelineCard.tsx'
 import { KrSubagentsCard } from './KrSubagentsCard.tsx'
 import { filterCatalogByTurn, useSubagentCatalog } from './subagent-catalog.ts'
 import { KrOutputsCard } from './KrOutputsCard.tsx'
-import { collectOutputs, collectSessionToolNodes, outputsFingerprint, type OutputsView } from './outputs.ts'
+import { collectOutputs, collectSessionToolNodes, EMPTY_OUTPUTS, outputsFingerprint, type OutputsView } from './outputs.ts'
 import { AGENT_DISPLAY_NAME, KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE, KR_SUBAGENTS_CARD_VISIBLE, KR_TOOL_CALLS_CARD_VISIBLE } from './enabled.ts'
 import { subscribeToolCallsVisible, toolCallsVisible } from '../tool-calls-visible.js'
 import { subscribePlainTimelineVisible, plainTimelineVisible } from '../plain-timeline-visible.js'
@@ -262,7 +262,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     } catch (err) {
       // 节点形状未知时不该让整张卡消失：退到空态。
       console.warn('[kr-agent-panel] collectOutputs error', err)
-      next = { items: [], code: [] }
+      next = EMPTY_OUTPUTS
     }
     const sig = outputsFingerprint(next)
     const cached = outputsCacheRef.current
@@ -494,7 +494,6 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     // 产出物是**会话累计**的：本轮刚开始、什么都还没落盘时，前几轮做出的文件
     // 依然该被看见。不算进来的话，切到新一轮的瞬间整栏会闪一次空态。
     || outputs.items.length > 0
-    || outputs.code.length > 0
 
   // 大盘副标题
   const subtitle = useMemo(() => {
@@ -527,7 +526,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     () => reasoningTexts.reduce((sum, text) => sum + text.length, 0),
     [reasoningTexts],
   )
-  const heightFingerprint = `${memoryTick}|${reasoningChars}|${reasoningTexts.length}|${tools.length}|${tasks.length}|${plainTimeline.steps.length}|${outputs.items.length}|${outputs.code.length}|${subagentCatalog.rows.length}`
+  const heightFingerprint = `${memoryTick}|${reasoningChars}|${reasoningTexts.length}|${tools.length}|${tasks.length}|${plainTimeline.steps.length}|${outputs.items.length}|${subagentCatalog.rows.length}`
   const panelSqueezed = usePanelSqueezed(scrollRef, heightFingerprint)
 
   // 会话切换（新建 / 切换 / 离开）时重置本面板的本地视图状态，
@@ -937,8 +936,14 @@ export const KrAgentPanel = memo(function KrAgentPanel({
         {/* 产出物卡：会话累计的成品清单（操作面板之下，滚动区最后一张）。
             与上面那张的分工是「过程 vs 结果」——操作面板回答"中间做了哪些动作"，
             这张回答"最后落地了哪些文件"。整行可点，点一下即在右栏打开预览。
-            口径是整个会话而非本轮，所以不看 displayTurn（理由见上面 outputs 的注释）。 */}
-        {KR_OUTPUTS_CARD_VISIBLE && (
+            口径是整个会话而非本轮，所以不看 displayTurn（理由见上面 outputs 的注释）。
+
+            2026-10-19 按用户要求：**没产出时整张卡不出现**（原先常驻一行空态）。
+            与任务卡「空态也要占位」的口径相反，理由是这两张卡的默认预期不同：
+            任务清单几乎每轮都会有，空态本身是信息（"这轮还没列计划"）；而产出物
+            大多数对话压根不会有文件，一张常驻的"本次会话还没有产出文件"只是在右栏
+            底部长期占一块地方说"没事发生"，每轮都要看一眼。 */}
+        {KR_OUTPUTS_CARD_VISIBLE && outputs.items.length > 0 && (
           <KrOutputsCard
             outputs={outputs}
             squeezed={panelSqueezed}

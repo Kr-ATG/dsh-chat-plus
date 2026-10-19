@@ -1715,9 +1715,9 @@ if (krEnabled) {
 //     同一句话说了两遍）；悬停箭头是 aria-hidden 的纯视觉提示。
 //  2. 缩略图是**按类型画的 SVG**，不是 <img> 真实文件预览（28px 见方读不出画面，
 //     而为每行发一次文件请求的代价与收益完全不成比例）。
-//  3. 代码文件折成一行计数，可展开（一次编码任务改十几个源文件，逐条占行会把
-//     「做出来了什么」整个淹掉）。
-//  4. 卡片常驻：没有产出时给一行空态，不整张 return null。
+//  3. 代码文件**不出现**（2026-10-19：源文件是材料不是成品，连计数都不留）。
+//  4. **没有产出时整张卡不挂载**（2026-10-19 按用户要求）：空态由 KrAgentPanel
+//     的 outputs.items.length > 0 拦掉，组件内部没有空态分支。
 if (krEnabled) {
   const outputsCardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrOutputsCard.tsx'), 'utf8')
   const outputsSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/outputs.ts'), 'utf8')
@@ -1755,16 +1755,24 @@ if (krEnabled) {
     fail('缩略图必须是按类型画的 SVG，不得用 <img> 拉真实文件（28px 见方读不出画面，且每行一次请求）')
   } else if (!/function Thumb\(\{ kind \}/.test(outputsCode) || !/case 'model3d':/.test(outputsCode)) {
     fail('缩略图必须按 OutputKind 分派（image/video/model3d/doc/sheet/archive/code…）')
-  } else if (!/kr-out-code__toggle/.test(outputsCode) || !/另有 \$\{code\.length\} 个代码文件/.test(outputsCode)) {
-    fail('代码文件必须折成一行「另有 N 个代码文件」，可展开')
-  } else if (!/本次会话还没有产出文件/.test(outputsCode)) {
-    fail('产出物卡空态必须常驻一行（不整张 return null，与任务概览同一口径）')
+  } else if (/kr-out-code/.test(outputsCode) || /outputs\.code|\bcode\.length\b|rawCode/.test(outputsCode)) {
+    // 2026-10-19 按用户要求整类移除：源文件是材料不是成品，连「另有 N 个代码文件」
+    // 这行计数也不要。这里断言它**彻底不存在**，防的是日后有人把折行加回来。
+    fail('代码文件不得出现在产出物卡（含「另有 N 个代码文件」折行）—— 材料不进成品清单')
+  } else if (/Kind === 'code'|kind: 'code'/.test(outputsSrc)) {
+    fail('收集层不得再产出 code 类条目（MATERIAL_KINDS 负责整类丢弃）')
+  } else if (/本次会话还没有产出文件|kr-out-empty/.test(outputsCode)) {
+    // 2026-10-19 按用户要求：没产出时整张卡不出现（原先常驻一行空态）。
+    // 断言它**彻底不存在**，防的是日后把"常驻空壳"加回来。
+    fail('产出物卡不得渲染空态（无产出时整卡不挂载，由 KrAgentPanel 拦）')
+  } else if (!/outputs\.items\.length > 0 && \(\s*<KrOutputsCard/.test(outputsPanelSrc)) {
+    fail('挂载方必须用 outputs.items.length > 0 拦住空态下的产出物卡（没产出就不出现）')
   } else if (!/KrOutputsCard[\s\S]{0,600}?squeezed=\{panelSqueezed\}/.test(outputsPanelSrc)) {
     fail('右栏挤压时必须把 squeezed 传给产出物卡（默认露出条数降一档）')
-  } else if (!/KrPlainTimelineCard[\s\S]{0,1200}?<KrSubagentsCard[\s\S]{0,600}?<KrOutputsCard/.test(outputsPanelSrc)) {
+  } else if (!/KrPlainTimelineCard[\s\S]{0,1200}?<KrSubagentsCard[\s\S]{0,800}?<KrOutputsCard/.test(outputsPanelSrc)) {
     fail('右栏卡片顺序必须是 操作面板 → 子智能体 → 产出物（过程 → 派出去的 → 成品）')
   } else {
-    pass('产出物卡：整行可点 + SVG 类型缩略图 + 代码折行 + 常驻空态，挂在操作面板与子智能体卡之下')
+    pass('产出物卡：整行可点 + SVG 类型缩略图 + 无代码文件 + 无产出时整卡不挂载，位置在操作面板与子智能体卡之下')
   }
 
   // 对话滚动守卫（2026-10-04 修「点一下就跑到下面」）：常驻状态机在
@@ -1799,13 +1807,17 @@ if (krEnabled) {
     fail('outputs.ts 的类别表必须把 gif 归 video、blend 归 model3d（截图里那两类产出物）')
   } else if (!/ts: 'code'/.test(outputsSrc) || !/py: 'code'/.test(outputsSrc)
     || !/KIND_BY_EXT\[extOf\(path\)\] \?\? 'other'/.test(outputsSrc)) {
-    fail('outputs.ts 必须把代码类归 code，认不出的扩展名归 other（不列也不计数）')
+    fail('outputs.ts 仍须把代码类归 code、认不出的扩展名归 other（前者供 MATERIAL_KINDS 丢弃，后者不列）')
+  } else if (!/MATERIAL_KINDS/.test(outputsSrc) || !/MATERIAL_KINDS\.has\(kind\)/.test(outputsSrc)) {
+    // 2026-10-19：code 归了类但**不进卡** —— 判类与"收不收"分成两张表，
+    // 「哪些扩展名算源码」仍然只有 KIND_BY_EXT 一处定义。
+    fail('outputs.ts 必须用 MATERIAL_KINDS 把 code 整类丢弃（源码是材料不是成品）')
   } else if (!/html: 'page'/.test(outputsSrc) || /html: 'code'/.test(outputsSrc)) {
     // 用户报的 BUG：做出来的 .html 演示页被折进「另有 N 个代码文件」，成品就此
     // 消失在一个计数里。.html 对用户是"能打开的页面"（成果），.ts/.css 才是"做
     // 页面的材料"，两者不能同类。
     fail('outputs.ts 必须把 html/htm 归 page（能打开的页面），不得归 code —— '
-      + '归 code 会把做出来的演示页折进「另有 N 个代码文件」计数里')
+      + '归 code 会让做出来的演示页被 MATERIAL_KINDS 整类丢掉，成品就此从卡里消失')
   } else if (!/case 'page':/.test(outputsCode)) {
     fail('缩略图必须为 page 类别分派一枚图形（浏览器窗口），不能落进 default 的通用文档形')
   } else if (!/SPILL_PATH_RE/.test(outputsSrc) || !/dsh-spill-/.test(outputsSrc)) {
@@ -1892,8 +1904,10 @@ if (krEnabled) {
   } else if (!/verdict === 'missing'/.test(outputsCardSrc) || !/unknown/.test(outputsCardSrc)) {
     fail('只有 missing 才剔除：unknown（探测失败）必须保留 —— '
       + '宿主降级时把整卡清空比留一条可能点不开的更糟')
-  } else if (!/allGone/.test(outputsCardSrc) || !/都已不在磁盘上/.test(outputsCardSrc)) {
-    fail('全被核对掉时要有专门空态（「都已不在磁盘上」），不能和「还没产出」说同一句话')
+  } else if (/都已不在磁盘上|本次会话还没有产出文件/.test(outputsCode)) {
+    // 2026-10-19：空态整类取消（没产出就不挂载），所以这里断言**两种空态文案都不存在**。
+    // 原先这条要求"全被核对掉"与"还没产出"说两句不同的话；现在两句都不说了。
+    fail('产出物卡不得再有空态文案（空态由挂载方拦掉，卡片只在有内容时出现）')
   } else if (!/kr-out-row\[data-pending="true"\]/.test(code)) {
     fail('待定态必须有不透明度样式（.kr-out-row[data-pending="true"]）')
   } else if (!/hasWriteIntent/.test(outputsSrc) || !/WRITE_INTENT_RE/.test(outputsSrc)) {
@@ -2190,11 +2204,10 @@ if (krEnabled) {
    */
   const SVG_MUST_SCALE = [
     // [容器选择器（用于报错文案）, 覆盖规则必须匹配的正则]
-    ['产出物缩略图 .kr-out-row__thumb', /\.kr-out-row__thumb svg,\s*\.kr-out-code__thumb svg\s*\{[^}]*calc\([^)]*--dsh-content-font-delta/],
+    ['产出物缩略图 .kr-out-row__thumb', /\.kr-out-row__thumb svg\s*\{[^}]*calc\([^)]*--dsh-content-font-delta/],
     ['子智能体箭头 .kr-subs-row__go', /\.kr-subs-row__go svg/],
     ['「展开其余 N」两处', /\.kr-subs-more svg/],
     ['产出物预览按钮 .kr-out-row__open', /\.kr-out-row__open svg/],
-    ['代码折行 chevron', /\.kr-out-code__chevron svg/],
   ]
   for (const [label, re] of SVG_MUST_SCALE) {
     if (!re.test(axisSrc)) {
@@ -2202,7 +2215,7 @@ if (krEnabled) {
     }
   }
   // 覆盖规则本身必须真的带 delta（只写死尺寸等于没覆盖）。
-  const thumbSvg = /\.kr-out-row__thumb svg,\s*\.kr-out-code__thumb svg\s*\{([^}]*)\}/.exec(axisSrc)
+  const thumbSvg = /\.kr-out-row__thumb svg\s*\{([^}]*)\}/.exec(axisSrc)
   if (thumbSvg !== null && !thumbSvg[1].includes('--dsh-content-font-delta')) {
     axisReasons.push('缩略图 svg 的覆盖规则必须带 --dsh-content-font-delta（写死尺寸等于没覆盖）')
   }
@@ -2212,17 +2225,12 @@ if (krEnabled) {
    * 还原」。本轮就把 chevron 的 11 写成了 12，实测默认档量到 12px 才发现。
    */
   const svgBase12 = /\.kr-subs-row__go svg,\s*\.kr-out-row__open svg\s*\{\s*width:\s*calc\(12px/.test(axisSrc)
-  const svgBase11 = /\.kr-subs-more svg,\s*\.kr-out-more svg,\s*\.kr-out-code__chevron svg\s*\{\s*width:\s*calc\(11px/.test(axisSrc)
+  const svgBase11 = /\.kr-subs-more svg,\s*\.kr-out-more svg\s*\{\s*width:\s*calc\(11px/.test(axisSrc)
   if (!svgBase12) {
     axisReasons.push('跳转箭头与预览按钮 svg 的基准必须是 12px（与 JSX 呈现属性一致）')
   }
   if (!svgBase11) {
-    axisReasons.push('「展开其余 N」与代码折行 chevron 的 svg 基准必须是 11px（与 JSX 呈现属性一致）')
-  }
-  // 代码清单缩进 = 缩略图宽 + gap，必须同步放大，否则展开后两段行首不对齐。
-  const codeIndent = /\.kr-out-list--code\s*\{([^}]*)\}/.exec(axisSrc)
-  if (codeIndent === null || !/margin-left:\s*calc\(37px \+ var\(--dsh-content-font-delta/.test(codeIndent[1])) {
-    axisReasons.push('.kr-out-list--code 的缩进必须与缩略图同步放大（否则展开后行首不对齐）')
+    axisReasons.push('「展开其余 N」的 svg 基准必须是 11px（与 JSX 呈现属性一致）')
   }
 
   if (axisReasons.length > 0) {

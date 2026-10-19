@@ -11,11 +11,15 @@
  *  2. **缩略图是 SVG**：不去读真实文件当缩略图。28px 见方读不出画面内容，
  *     而为每一行发一次文件请求，代价与收益完全不成比例。按**类型**画一枚
  *     矢量缩略图，一眼分得出图 / 视频 / 3D / 文档，这才是这一列真正要传达的。
- *  3. **代码文件折成一行**：一次编码任务改十几个源文件，逐条列会把「做出来了
- *     什么」整个淹掉。折成「另有 N 个代码文件」，要看的人自己展开。
+ *  3. **代码文件不出现**（2026-10-19）：源文件是材料不是成品，连"折成一行计数"
+ *     也不留 —— 一行「另有 N 个代码文件」仍然在提示"这里有一批你看不到的东西"，
+ *     而对读者来说那批东西本来就该去对话流的工具折叠里看。这张卡只列成品。
  *
- * 卡片常驻：没有产出时给一行低对比度空态，而不是整张 return null ——
- * 与「任务概览」同一口径，理由见 KrTaskOverviewCard 顶部注释。
+ * **没有产出时整张卡不渲染**（2026-10-19 按用户要求）。这里刻意与「任务概览」
+ * 相反 —— 任务卡空态常驻的理由是"每轮几乎都会写清单，空态本身有信息量"；而
+ * 大多数对话根本不会产出文件，一张长期写着"本次会话还没有产出文件"的卡只是在
+ * 右栏底部白占一块。所以空态交给**挂载方**（KrAgentPanel 的 outputs.items.length
+ * 判定），组件内部不再保留空态分支 —— 它拿到 items 时必定非空。
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -197,7 +201,6 @@ export const KrOutputsCard = memo(function KrOutputsCard({
    */
   const [open, setOpen] = useState(true)
   const [showAll, setShowAll] = useState(false)
-  const [codeOpen, setCodeOpen] = useState(false)
   const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(open, motion)
 
   /*
@@ -234,22 +237,14 @@ export const KrOutputsCard = memo(function KrOutputsCard({
   const probeCache = probeCacheRef.current.map
 
   const rawItems = outputs.items
-  const rawCode = outputs.code
   /** 过滤后的清单 —— 卡片的唯一真相源（计数、空态、渲染都读它）。 */
   const items = useMemo(
     () => rawItems.filter((item) => !gonePaths.has(item.path)),
     [rawItems, gonePaths],
   )
-  const code = useMemo(
-    () => rawCode.filter((path) => !gonePaths.has(path)),
-    [rawCode, gonePaths],
-  )
   const maxVisible = squeezed ? MAX_VISIBLE_SQUEEZED : MAX_VISIBLE
   const visible = showAll ? items : items.slice(0, maxVisible)
   const hiddenCount = items.length - visible.length
-  const empty = items.length === 0 && code.length === 0
-  /** 全被核对掉（做过、但现在一个都不在了）：空态文案要说得不一样。 */
-  const allGone = empty && (rawItems.length > 0 || rawCode.length > 0)
   /** 「核对中」＝ 还没有结论（既没确认存在，也没被剔除）。 */
   const isPending = useCallback(
     (path: string) => !gonePaths.has(path) && !checkedPaths.has(path),
@@ -259,35 +254,29 @@ export const KrOutputsCard = memo(function KrOutputsCard({
   /*
    * 内容收敛时把两个展开态收回默认。
    *
-   * 会话切换（新建 / 切到别的会话）会把 outputs 换成另一份内容，而 showAll 与
-   * codeOpen 还留着上一份的状态：上一会话点开过「展开其余」，新会话一进来就是
-   * 展开的，而用户从没在这里点过。用「成品数 + 代码数」做探针，两者同时归零
-   * （= 换了一份空内容）或代码清单消失时收回。
+   * 会话切换（新建 / 切到别的会话）会把 outputs 换成另一份内容，而 showAll
+   * 还留着上一份的状态：上一会话点开过「展开其余」，新会话一进来就是展开的，
+   * 而用户从没在这里点过。用「成品数」做探针，归零（= 换了一份空内容）时收回。
    *
    * 探针读**原始** outputs，不是过滤后的 items —— 核对剔除几条会让过滤后长度
    * 下降，若拿它当探针，用户刚点开「展开其余」就会被收回展开态（他没做任何事，
    * 行却自己收起）。剔除是同一份内容的收窄，不是换了一份内容。
    */
-  const probe = `${rawItems.length}:${rawCode.length}`
+  const probe = String(rawItems.length)
   const lastProbeRef = useRef(probe)
   useEffect(() => {
     const last = lastProbeRef.current
     lastProbeRef.current = probe
     if (last === probe) return
     // 只在「内容换了一份」时收回，条数增长（同一会话继续产出）不打扰用户。
-    const [lastItems, lastCode] = last.split(':').map(Number)
-    if (rawItems.length < (lastItems ?? 0) || rawCode.length < (lastCode ?? 0)) {
-      setShowAll(false)
-      setCodeOpen(false)
-    }
-  }, [probe, rawItems.length, rawCode.length])
+    if (rawItems.length < Number(last)) setShowAll(false)
+  }, [probe, rawItems.length])
 
   /*
    * 挂载后核对一遍（并发、逐个降级）。
    *
-   * 探**当前露出的那几条**（含代码清单展开后的），不是整份清单：这张卡默认只显示
-   * 6 行，替看不见的行付一次往返没有意义；用户点「展开其余」时那些行会进入
-   * visible 并触发本 effect 补探。
+   * 探**当前露出的那几条**，不是整份清单：这张卡默认只显示 6 行，替看不见的行
+   * 付一次往返没有意义；用户点「展开其余」时那些行会进入 visible 并触发补探。
    *
    * 会话切换（sessionId 变）要把缓存与结论一起清掉 —— 同一个相对路径在两个会话
    * 下指向不同文件，跨会话复用结论会剔错行。
@@ -306,12 +295,11 @@ export const KrOutputsCard = memo(function KrOutputsCard({
   const probeTargets = useMemo(() => {
     const paths: string[] = []
     for (const item of visible) paths.push(item.path)
-    if (codeOpen) for (const path of code) paths.push(path)
     // 已有结论的不再探测：展开/收起会让 visible 反复变化，去重避免来回打请求。
     // 依赖里带上 gonePaths/checkedPaths —— ref 变化不触发重算，而这两个 state
     // 正是「结论已经拿到」的信号；漏了它们，收起再展开会对同一路径重复往返。
     return paths.filter((path) => !probeCache.has(path))
-  }, [visible, codeOpen, code, gonePaths, checkedPaths, probeCache])
+  }, [visible, gonePaths, checkedPaths, probeCache])
   const probeKey = probeTargets.join('\u0000')
 
   /*
@@ -472,18 +460,14 @@ export const KrOutputsCard = memo(function KrOutputsCard({
   }, [])
 
   /*
-   * 计数读**过滤后**的清单（items / code），不是 outputs 原始值 —— 剔除的失效
-   * 条目不该被算进「N 项」，否则头部的数字和下面的行数对不上，用户数一遍就懵。
+   * 计数读**过滤后**的清单（items），不是 outputs 原始值 —— 剔除的失效条目不该
+   * 被算进「N 项」，否则头部的数字和下面的行数对不上，用户数一遍就懵。
+   * 走到这里时 items 必非空（空态由挂载方拦掉，见文件头）。
    */
-  const header = useMemo(() => {
-    if (empty) return '0 项'
-    if (code.length === 0) return `${items.length} 项`
-    if (items.length === 0) return `${code.length} 个代码文件`
-    return `${items.length} 项`
-  }, [empty, items.length, code.length])
+  const header = `${items.length} 项`
 
   return (
-    <div className="kr-card kr-card--outputs" data-empty={empty || undefined}>
+    <div className="kr-card kr-card--outputs">
       <div
         className="kr-card__header"
         onClick={() => { setOpen((value) => !value) }}
@@ -521,84 +505,32 @@ export const KrOutputsCard = memo(function KrOutputsCard({
           aria-hidden={!open}
           {...(!open ? { inert: '' } : {})}
         >
-          {empty ? (
-            <div className="kr-out-empty">
-              {allGone ? '本次会话产出的文件都已不在磁盘上' : '本次会话还没有产出文件'}
+          {visible.length > 0 && (
+            <div className="kr-out-list">
+              {visible.map((item, index) => (
+                <OutputRow
+                  key={item.path}
+                  item={item}
+                  index={index}
+                  pending={isPending(item.path)}
+                  onOpen={() => { openInline(item, index) }}
+                  onSidebar={() => { void openPath(item.path) }}
+                />
+              ))}
             </div>
-          ) : (
-            <>
-              {visible.length > 0 && (
-                <div className="kr-out-list">
-                  {visible.map((item, index) => (
-                    <OutputRow
-                      key={item.path}
-                      item={item}
-                      index={index}
-                      pending={isPending(item.path)}
-                      onOpen={() => { openInline(item, index) }}
-                      onSidebar={() => { void openPath(item.path) }}
-                    />
-                  ))}
-                </div>
-              )}
+          )}
 
-              {/*
-               * 代码文件折行。
-               *
-               * 展开后逐条列出的仍是**同一套行样式**（缩略图 + 文件名），只是缩进
-               * 一级 —— 复用样式而不是另造一套「代码清单」，是因为它们对用户是
-               * 同一件事（做出来的文件），不该在视觉上分成两种东西。
-               */}
-              {code.length > 0 && (
-                <div className="kr-out-code" data-open={codeOpen || undefined}>
-                  <button
-                    type="button"
-                    className="kr-out-code__toggle"
-                    aria-expanded={codeOpen}
-                    onClick={() => { setCodeOpen((value) => !value) }}
-                  >
-                    <span className="kr-out-code__thumb" aria-hidden>
-                      <Thumb kind="code" />
-                    </span>
-                    <span className="kr-out-code__text">
-                      {codeOpen ? `${code.length} 个代码文件` : `另有 ${code.length} 个代码文件`}
-                    </span>
-                    <span className="kr-out-code__action">{codeOpen ? '收起' : '展开'}</span>
-                    <svg className="kr-out-code__chevron" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="m4.4 6.2 3.6 3.6 3.6-3.6" />
-                    </svg>
-                  </button>
-                  {codeOpen && (
-                    <div className="kr-out-list kr-out-list--code">
-                      {code.map((path, index) => (
-                        <OutputRow
-                          key={path}
-                          item={{ path, name: path.split(/[/\\]/).filter(Boolean).at(-1) ?? path, kind: 'code' }}
-                          index={index}
-                          pending={isPending(path)}
-                          onOpen={() => { void openPath(path) }}
-                          onSidebar={() => { void openPath(path) }}
-                          nested
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {hiddenCount > 0 && (
-                <button
-                  type="button"
-                  className="kr-out-more"
-                  onClick={() => { setShowAll(true) }}
-                >
-                  <span>展开其余 {hiddenCount} 条</span>
-                  <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="m4.4 6.2 3.6 3.6 3.6-3.6" />
-                  </svg>
-                </button>
-              )}
-            </>
+          {hiddenCount > 0 && (
+            <button
+              type="button"
+              className="kr-out-more"
+              onClick={() => { setShowAll(true) }}
+            >
+              <span>展开其余 {hiddenCount} 条</span>
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m4.4 6.2 3.6 3.6 3.6-3.6" />
+              </svg>
+            </button>
           )}
         </div>
       )}
@@ -632,7 +564,7 @@ export const KrOutputsCard = memo(function KrOutputsCard({
  * 低对比度（`data-pending`）而不是置灰 —— 绝大多数文件是活的，一瞬间的待定态
  * 不该看起来像出了事。结论是「不存在」的行根本不会走到这里（已被剔除）。
  */
-function OutputRow({ item, index, pending = false, onOpen, onSidebar, nested = false }: {
+function OutputRow({ item, index, pending = false, onOpen, onSidebar }: {
   readonly item: OutputItem
   readonly index: number
   readonly pending?: boolean
@@ -640,14 +572,12 @@ function OutputRow({ item, index, pending = false, onOpen, onSidebar, nested = f
   readonly onOpen: () => void
   /** 行尾「侧栏预览」钮：维持原来的官方右栏打开方式（用户 2026-10-04 点名保留）。 */
   readonly onSidebar: () => void
-  readonly nested?: boolean
 }): ReactElement {
   return (
     <div
       className="kr-out-row"
       data-kind={item.kind}
       data-pending={pending ? 'true' : undefined}
-      data-nested={nested ? 'true' : undefined}
       title={item.path}
       // 错峰入场：只对靠后的若干条错开，卡片整体不拖出一段长尾。
       style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}

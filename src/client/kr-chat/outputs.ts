@@ -14,8 +14,9 @@
  *  1. **只认本地文件**：生图工具返回的 b64 / 远程 URL 不列。这张卡的全部价值是
  *     「点一下就看见」，点不开的条目只是在凑数；生图结果本来就有对话流里的画廊
  *     在展示（见 generated-images/）。
- *  2. **只列成品**：代码文件（.ts/.py/.css…）折成一行计数，不逐条占行 ——
- *     一次编码任务改十几个源文件，逐条列出来会把「做出来了什么」整个淹掉。
+ *  2. **只列成品**：代码文件（.ts/.py/.css…）整类不进卡 —— 源码是"做页面的
+ *     材料"，不是"做出来的东西"（2026-10-19 起连一行计数也不给，见
+ *     MATERIAL_KINDS）。.html 例外，它是能打开的页面，归 page 照列。
  *  3. **只扫会产出东西的工具**：read / grep / glob / web_fetch 的结果里出现的
  *     路径是「看到的东西」，不是「做出来的东西」，一概不算。
  *
@@ -62,11 +63,20 @@ interface ExtractedItem extends OutputItem {
 export interface OutputsView {
   /** 成品，首见顺序（同一路径只出现一次）。 */
   readonly items: readonly OutputItem[]
-  /** 代码文件路径，首见顺序；默认折成一行计数，用户点开才逐条列。 */
-  readonly code: readonly string[]
 }
 
-const EMPTY_VIEW: OutputsView = { items: [], code: [] }
+/** 空清单。**共享同一个冻结实例**：调用方拿它当兜底值时，引用稳定才能让上游 memo 命中。 */
+export const EMPTY_OUTPUTS: OutputsView = Object.freeze({ items: Object.freeze([]) as readonly OutputItem[] })
+
+/**
+ * 材料类：判得出类别，但**不进成品清单**。
+ *
+ * 2026-10-19 从「折成一行计数」改为「整类丢弃」—— 一行「另有 N 个代码文件」仍然
+ * 在说"这里有一批你看不到的东西"，而对读者来说那批东西本来就该去对话流的工具
+ * 折叠里看。所以判类（KIND_BY_EXT）与收不收（本表）分成两处：
+ * 「哪些扩展名算源码」仍然只有 KIND_BY_EXT 一处定义。
+ */
+const MATERIAL_KINDS: ReadonlySet<OutputKind> = new Set<OutputKind>(['code'])
 
 /* ── 扩展名 → 类别 ─────────────────────────────────────────────────────── */
 
@@ -107,7 +117,7 @@ const KIND_BY_EXT: Readonly<Record<string, OutputKind>> = {
   // 压缩包
   zip: 'archive', '7z': 'archive', rar: 'archive', tar: 'archive',
   gz: 'archive', bz2: 'archive', xz: 'archive',
-  // 代码（折一行计数）
+  // 代码（判得出类别，但进 MATERIAL_KINDS 整类丢弃 —— 源码是材料不是成品）
   ts: 'code', tsx: 'code', js: 'code', jsx: 'code', mjs: 'code', cjs: 'code',
   json: 'code', jsonl: 'code', py: 'code', rb: 'code', go: 'code', rs: 'code',
   java: 'code', kt: 'code', kts: 'code', swift: 'code', c: 'code', cc: 'code',
@@ -854,26 +864,21 @@ function extractFromNode(tool: unknown): readonly ExtractedItem[] {
  *
  * @param toolNodes - 会话里的 tool-call 节点（顺序即首见顺序，调用方按
  *   anchorSeq 升序给；见 collectSessionToolNodes）。
- * @returns 成品与代码文件两份清单。
+ * @returns 成品清单（材料类已在 MATERIAL_KINDS 里整类丢弃，不返回）。
  */
 export function collectOutputs(toolNodes: readonly unknown[]): OutputsView {
-  if (toolNodes.length === 0) return EMPTY_VIEW
+  if (toolNodes.length === 0) return EMPTY_OUTPUTS
   const items: ExtractedItem[] = []
-  const code: string[] = []
   const seenPath = new Set<string>()
-  const seenCode = new Set<string>()
   /** basename（小写）→ items 下标：用于「交付路径顶掉同名中转路径」。 */
   const baseIndex = new Map<string, number>()
 
   for (const tool of toolNodes) {
     for (const entry of extractFromNode(tool)) {
+      // 材料类整类不进卡（2026-10-19）：连去重都不必做，直接跳过。
+      const kind = entry.kind
+      if (MATERIAL_KINDS.has(kind)) continue
       const key = dedupeKey(entry.path)
-      if (entry.kind === 'code') {
-        if (seenCode.has(key)) continue
-        seenCode.add(key)
-        code.push(entry.path)
-        continue
-      }
       if (seenPath.has(key)) continue
 
       const base = entry.name.toLowerCase()
@@ -896,7 +901,7 @@ export function collectOutputs(toolNodes: readonly unknown[]): OutputsView {
       seenPath.add(key)
     }
   }
-  return { items, code }
+  return { items }
 }
 
 /**
@@ -946,5 +951,5 @@ export function collectSessionToolNodes(snapshot: unknown): readonly unknown[] {
 
 /** 内容指纹：给调用方做引用稳定化，避免下游 memo 每帧被击穿。 */
 export function outputsFingerprint(view: OutputsView): string {
-  return `${view.items.map((item) => item.path).join('|')}#${view.code.join('|')}`
+  return view.items.map((item) => item.path).join('|')
 }
