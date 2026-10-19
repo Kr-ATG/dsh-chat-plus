@@ -2958,6 +2958,36 @@ if (krEnabled) {
       reasons.push('tooltip 淡入必须尊重 prefers-reduced-motion')
     }
 
+    /*
+     * ⑤f **尺寸必须跟随字号轴**（用户 2026-10-19 指出）。
+     *
+     * 这条错了不报错、只是「字变大了但条还是细的」——正文是满跟随的，
+     * 卡片里的图形停在 14px 世界，比整体不跟更难看。三件事一起钉：
+     *  · 有 --k-scale 这个无单位系数；
+     *  · 除数是 14px 不是 14（写错会让 calc 求值成 px²，整条声明被静默丢弃，
+     *    元素回退成初始值）；
+     *  · 关键图元（条高 / 轨道 / 圆角 / 内边距）真的乘了这个系数。
+     */
+    const kitFlat = mod.KIT_CSS.replace(/\s/g, '')
+    if (!kitFlat.includes('--k-scale')) reasons.push('kit 必须有 --k-scale 缩放系数')
+    /*
+     * ⚠ 正则别写成 `calc\([^)]*\/14px\)`：源里是
+     * `calc(var(--k-fs)/14px)`，字符类 [^)] 会在 var(--k-fs) 的第一个
+     * 右括号处停下，永远匹配不到。这条自己踩过一次。
+     */
+    if (!/--k-scale:calc\(var\(--k-fs\)\/14px\)/.test(kitFlat)) {
+      reasons.push('--k-scale 的除数必须是 14px（写成 14 会让 calc 求值成 px²，整条声明被丢弃）')
+    }
+    for (const [sel, why] of [
+      // k-bar 的高度包在 var(--k-bar-h, …) 里，模型可以覆盖；只断言 calc 那段在。
+      ['calc(30px*var(--k-scale))', '堆叠条高度'],
+      ['calc(6px*var(--k-scale))', '进度条高度'],
+      ['--k-radius:calc(10px*var(--k-scale))', '圆角'],
+      ['--k-pad:calc(16px*var(--k-scale))', '内边距'],
+    ]) {
+      if (!kitFlat.includes(sel)) reasons.push(why + '必须跟随 --k-scale 缩放')
+    }
+
     // 运行时不得引外部资源：沙箱是 opaque origin，CDN 一律白屏。
     for (const [name, src] of Object.entries(mod.RUNTIME_PARTS)) {
       if (/<script[^>]+src=/.test(src)) reasons.push(name + ' 运行时不得引外部脚本')
