@@ -4,10 +4,14 @@
  * 回答一个问题：**这次对话一共做出来了哪些文件。**
  *
  * 三件事决定了它的形态：
- *  1. **整行即入口，且只走官方右栏**（2026-10-19 按用户要求收口）：不挂「预览」
- *     按钮，也不再弹自己的 Lightbox。点这一行 = 在官方右侧栏打开该文件的文档
- *     预览 tab —— 一份文件只有一个查看器，翻页/缩放/全屏都是官方那套。悬停时
- *     右侧浮现一枚小箭头，承担「这里能点」的提示。
+ *  1. **整行即入口，且默认交给系统默认应用**（2026-10-20 按用户要求改）：不挂
+ *     「预览」按钮，也不再弹自己的 Lightbox。点这一行 = 用**这台电脑上打开该
+ *     文件的程序**把它打开（PPT 进 PowerPoint、视频进播放器、图进看图器）——
+ *     产出物本来就是拿去用的，不是在浏览器里再端详一遍。
+ *     打开走官方 `remote.session.openWorkspacePath`（`shell-open` 语义，与双击
+ *     文件同一套解析），封装见 `../open-default-app.ts`。宿主没有桌面（手机远程
+ *     访问）或这次被拒时，**原样退回**官方右侧栏的文档预览 —— 这是升级前的
+ *     行为，不是新加的分支。悬停时右侧浮现一枚小箭头，承担「这里能点」的提示。
  *  2. **缩略图是 SVG**：不去读真实文件当缩略图。28px 见方读不出画面内容，
  *     而为每一行发一次文件请求，代价与收益完全不成比例。按**类型**画一枚
  *     矢量缩略图，一眼分得出图 / 视频 / 3D / 文档，这才是这一列真正要传达的。
@@ -28,6 +32,7 @@ import { useHeightAnimation, useMotionAllowed } from '../motion-utils.ts'
 import { probeWorkspaceFile, probeWorkspaceFiles, tryOpenInSidebar } from '../open-preview.ts'
 import type { ProbeResult } from '../open-preview.ts'
 import { workspaceCwdOf } from '../client-ctx.ts'
+import { openWithDefaultApp } from '../open-default-app.ts'
 import type { OutputKind, OutputItem, OutputsView } from './outputs.ts'
 
 /**
@@ -349,11 +354,11 @@ export const KrOutputsCard = memo(function KrOutputsCard({
     /*
      * 打开前再确认一次（缓存命中就不重复请求）。
      *
-     * 体检是挂载那一刻的快照，文件可能在之后被删/被移走；而官方右栏对不存在的
-     * 路径不报错，只会开一个空白 tab。所以点下去之前再问一次：确认不在就当场
-     * 把这行从清单里剔掉（它会自然消失），不开空 tab。
+     * 体检是挂载那一刻的快照，文件可能在之后被删/被移走；而两种打开方式对不存在
+     * 的路径都不报错（默认应用会静默失败，官方右栏只会开一个空白 tab）。所以点
+     * 下去之前再问一次：确认不在就当场把这行从清单里剔掉（它会自然消失）。
      *
-     * 只有 `missing` 才剔除 —— `unknown` 照常打开，把决定权交回给右栏。
+     * 只有 `missing` 才剔除 —— `unknown` 照常打开，把决定权交回给打开链路。
      */
     const known = probeCache.get(path)
     const verdict: ProbeResult = known ?? await probeWorkspaceFile(path, { sessionId })
@@ -369,6 +374,21 @@ export const KrOutputsCard = memo(function KrOutputsCard({
     }
     // 问过了（exists 或 unknown）：收掉待定外观。
     setCheckedPaths((prev) => (prev.has(path) ? prev : new Set(prev).add(path)))
+    /*
+     * 先试默认应用（2026-10-20），开不了再退回官方侧栏。
+     *
+     * 为什么这里也要先探一次而不是直接调：`unavailable`（宿主无桌面：手机远程
+     * 访问 / 纯服务端部署）在整页里是**恒定**的，但它每次都是一次异步往返 ——
+     * 官方那个控制器把结论缓存成 SnapshotStore 正是为此，我们的 `openWithDefaultApp`
+     * 也做了同样的缓存，所以这里的开销只有第一次。
+     */
+    const result = await openWithDefaultApp(path)
+    if (result === 'opened') return
+    /*
+     * 其余两种都退回侧栏，**不剔除条目**：`unavailable` 是环境限制，
+     * `failed` 多半是「这台机器没有这个扩展名的默认程序」这类仍可预览的情形 ——
+     * 前面刚 stat 过文件是在的，把一行活文件从清单里抹掉是更糟的结果。
+     */
     tryOpenInSidebar(path, { sessionId, cwd: workspaceCwdOf(sessionId) })
   }, [sessionId])
 
@@ -454,8 +474,8 @@ export const KrOutputsCard = memo(function KrOutputsCard({
 /**
  * 一行产出物。
  *
- * **整行就是一个按钮**：这张卡每一行都对应一个真实文件，点它 = 在官方右侧栏
- * 打开该文件的文档预览 tab（2026-10-19 收口：不再有第二套弹窗）。做成整行可点
+ * **整行就是一个按钮**：这张卡每一行都对应一个真实文件，点它 = 用系统默认应用
+ * 打开（2026-10-20；宿主没有桌面时退回官方右侧栏的文档预览 tab）。做成整行可点
  * 还顺手解决了键盘与触屏：Tab 一次就到，不需要先聚焦到一枚 10px 高的小按钮上。
  *
  * 2026-10-19 起**行尾那枚「在侧栏打开」钮删掉**：行主体与它做的是同一件事，
@@ -472,7 +492,7 @@ function OutputRow({ item, index, pending = false, onOpen }: {
   readonly item: OutputItem
   readonly index: number
   readonly pending?: boolean
-  /** 整行点击：在官方右侧栏打开该文件（唯一的预览出口）。 */
+  /** 整行点击：用默认应用打开（开不了则退回官方右侧栏文档预览）。 */
   readonly onOpen: () => void
 }): ReactElement {
   return (
@@ -487,7 +507,7 @@ function OutputRow({ item, index, pending = false, onOpen }: {
       <button
         type="button"
         className="kr-out-row__main"
-        aria-label={`在侧栏打开 ${item.name}`}
+        aria-label={`用默认应用打开 ${item.name}`}
         onClick={onOpen}
       >
         <span className="kr-out-row__thumb" data-kind={item.kind} aria-hidden>
@@ -495,7 +515,7 @@ function OutputRow({ item, index, pending = false, onOpen }: {
         </span>
         <span className="kr-out-row__name">{item.name}</span>
       </button>
-      {/* 纯视觉箭头：hover / focus 浮现，指向"右栏"这个落点。不占焦点站。 */}
+      {/* 纯视觉箭头：hover / focus 浮现，承担「这里能点」的提示。不占焦点站。 */}
       <span className="kr-out-row__go" aria-hidden="true">
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
           <path d="M6.2 3.6 10.6 8l-4.4 4.4" />

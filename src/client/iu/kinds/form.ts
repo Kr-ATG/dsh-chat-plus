@@ -4,10 +4,13 @@
  * 纯逻辑半边：零 React、零 DOM（host 半身的截图管线要 import 它）。
  * React 体一律写在同名 form.body.tsx 里。
  *
- * 「提交」语义 = 把填好的表单拼成一段文本，通过外壳 FillRow 回写进用户
- * 输入框，由用户检查后自行发送——**本卡片不做任何网络请求**。
- * submitLabel 是那个提交按钮的文案；按钮本体由外壳 FillRow 统一渲染，
- * Body 不自己画（见 bodies.ts 契约）。
+ * 「提交」语义 = 把填好的表单拼成 fillText 文本，经 Body 自绘的提交按钮
+ * （文案 = submitLabel）回写进用户输入框，由用户检查后自行发送——
+ * **本卡片不做任何网络请求**。
+ *
+ * 提交按钮为什么由 Body 自绘而不是外壳统一画：外壳的底栏动作区（FillRow）
+ * 已于 2026-09 整块移除，而 form 是唯一一个「填完没有出口就是废卡」的 kind。
+ * 与其为它复活整层底栏，不如让这个 kind 自己长一个——外壳不必知道谁需要提交。
  *
  * ⚠ snapshot 的 DOM 结构必须与 form.body.tsx **逐字对齐**（class、层级、
  *   顺序），两者共用同一份 CSS，否则截图会长歪（见 contract.ts 头注释）。
@@ -145,7 +148,7 @@ export function safeTouched(state: FormState): readonly string[] {
  * checkbox 总是输出「是/否」（未勾选也是一个明确回答）；其余类型为空则跳过。
  * 全部字段都空时给 `${title}：（未填写）`，避免按钮点了像没反应。
  */
-function fillText(spec: IuFormSpec, state: FormState): string {
+export function fillText(spec: IuFormSpec, state: FormState): string {
   const values = safeValues(state)
   const lines: string[] = []
   for (const f of spec.fields) {
@@ -205,14 +208,23 @@ function fieldHtml(f: IuFormField): string {
 
 /**
  * 静态快照（截图用）。DOM 结构与 form.body.tsx **逐字对齐**：
- * desc（可选）紧跟 Head，其后 .dtt-iu__form 容器包住全部 .dtt-iu__field。
+ * desc（可选）紧跟 Head，其后 .dtt-iu__form 容器包住全部 .dtt-iu__field，
+ * 最后是提交行。
+ *
+ * 提交行必须出现在快照里：对话流里它几乎总在（assistant-step 座位带
+ * inputActions；拿不到时外壳还会回退剪贴板），截图缺了它，同一张卡在
+ * 「对话流 / 截图」两个地方就长得不一样。
+ *
  * 所有模型文本走 esc / escAttr（截图页跑在 --disable-web-security 的无头
  * Chrome 里，文本逃出标签上下文就等于任意脚本）。
  */
 function snapshot(spec: IuFormSpec): string {
   const desc = spec.desc !== '' ? `<p class="dtt-iu__desc">${esc(spec.desc)}</p>` : ''
   const fields = spec.fields.map(fieldHtml).join('')
-  return `${desc}<div class="dtt-iu__form">${fields}</div>`
+  const submit = '<div class="dtt-iu__form-submit">'
+    + `<button type="button" class="dtt-iu__form-submit-btn">${esc(spec.submitLabel)}</button>`
+    + '</div>'
+  return `${desc}<div class="dtt-iu__form">${fields}</div>${submit}`
 }
 
 const CSS = [
@@ -297,10 +309,30 @@ const CSS = [
   '  .dtt-iu__box, .dtt-iu__box svg { transition: none; }',
   '  .dtt-iu__checkbox:hover, .dtt-iu__checkbox:active { transform: none; }',
   '}',
-  /* 窄屏：控件本就 width:100% 满宽；checkbox 行也铺满，扩大点击区 */
+  /* 提交行：右对齐、与字段同一套字号轴。只有 form 有这个按钮（见 form.body.tsx）。 */
+  '.dtt-iu__form-submit { display: flex; justify-content: flex-end; margin-top: 12px; }',
+  '.dtt-iu__form-submit-btn {',
+  '  font: inherit; cursor: pointer;',
+  '  font-size: calc(12.5px * var(--iu-text-scale, 1)); font-weight: 600;',
+  '  padding: 6px 16px; border-radius: 8px;',
+  '  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 42%, transparent);',
+  '  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 10%, transparent);',
+  '  color: var(--dsw-alias-state-business-primary, #4176e6);',
+  '  transition: background-color .16s ease, transform .1s ease, border-color .16s ease; }',
+  '.dtt-iu__form-submit-btn:hover {',
+  '  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 17%, transparent);',
+  '  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176e6) 62%, transparent); }',
+  '.dtt-iu__form-submit-btn:active { transform: scale(.98); }',
+  '.dtt-iu__form-submit-btn:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary, #4176e6); outline-offset: 2px; }',
+  '/* 窄屏：控件本就 width:100% 满宽；checkbox 行也铺满，扩大点击区 */',
   '@media (max-width: 480px) {',
   '  .dtt-iu__form { grid-template-columns: 1fr; gap: 9px; }',
   '  .dtt-iu__checkbox { width: 100%; margin-left: 0; }',
+  '  .dtt-iu__form-submit-btn { width: 100%; }',
+  '}',
+  '@media (prefers-reduced-motion: reduce) {',
+  '  .dtt-iu__form-submit-btn { transition: none; }',
+  '  .dtt-iu__form-submit-btn:active { transform: none; }',
   '}',
 ].join('\n')
 
@@ -312,5 +344,5 @@ export const formKind: IuKind<FormState, IuFormSpec> = {
   fillText,
   snapshot,
   css: CSS,
-  doc: '  · form 表单：{"kind":"form","title":"报名信息","desc":"请填写以下信息","submitLabel":"提交","fields":[{"id":"name","label":"姓名","type":"text","placeholder":"请输入姓名","required":true},{"id":"age","label":"年龄","type":"number","placeholder":"如 25"},{"id":"city","label":"城市","type":"select","options":["北京","上海","广州"]},{"id":"agree","label":"同意条款","type":"checkbox","required":true},{"id":"note","label":"备注","type":"textarea","placeholder":"选填"}]}（约束：type 五选一 text/number/select/checkbox/textarea、fields≤10、select 必须带 options≤12、field id 唯一≤16；卡内自带「submitLabel」提交按钮，点了把填好的内容拼成文本交给用户，不发网络请求）。',
+  doc: '  · form 表单：{"kind":"form","title":"报名信息","desc":"请填写以下信息","submitLabel":"提交","fields":[{"id":"name","label":"姓名","type":"text","placeholder":"请输入姓名","required":true},{"id":"age","label":"年龄","type":"number","placeholder":"如 25"},{"id":"city","label":"城市","type":"select","options":["北京","上海","广州"]},{"id":"agree","label":"同意条款","type":"checkbox","required":true},{"id":"note","label":"备注","type":"textarea","placeholder":"选填"}]}（约束：type 五选一 text/number/select/checkbox/textarea、fields≤10、select 必须带 options≤12、field id 唯一≤16；卡内自带「submitLabel」提交按钮，必填项填齐后点击会把整张表拼成文本填入用户输入框（由用户自行发送），不发网络请求；必填未填时点击会标红提示而不会提交）。',
 }

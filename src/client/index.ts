@@ -51,6 +51,7 @@ import { KR_CHAT_ENABLED } from './kr-chat/enabled.ts'
 import { applyTriadClient } from './triad/index.ts'
 import { applyProviderClient } from './provider/index.ts'
 import { applyToolsGateClient } from './tools-gate/index.tsx'
+import { applyBrowserFlagClient } from './browser-flag/index.ts'
 import { applySidebarDocument } from './sidebar-doc/index.tsx'
 import { applySidebarMedia } from './sidebar-media/index.tsx'
 import { buildActivityGrid, activityColor, ACTIVITY_COLUMNS } from './triad/usage/dashboard/ActivityGrid.js'
@@ -329,6 +330,17 @@ export function apply(ctx: ClientContext): void {
     applyToolsGateClient(ctx)
   })
 
+  // ── 浏览器操作标志（2026-10-20）────────────────────────────────────────
+  // 有浏览器工具正在某个会话里跑时，在**该会话行的行首**亮一枚会呼吸的小图标。
+  // 数据来自 host 半身的 /api/chat-flow/browser-activity（与 tools-gate 同族的
+  // 只读观测路由）；路由 404 / 不可达时整块静默降级为「没有图标」，不影响对话。
+  //
+  // 行标记走 DOM 属性注入（官方行是 React 渲染的，插节点会被 diff 抹掉，
+  // 见 tools-gate/menu-icons.ts 的先例）。标题栏胶囊那版已按用户要求整块删除。
+  guarded(ctx, 'browser flag', () => {
+    applyBrowserFlagClient(ctx)
+  })
+
   // ── 官方侧边栏的 PDF / Office 文档渲染器（2026-10-06）──────────────────
   // 官方 documentpreview 内嵌的 pdf.js 对带 /ID 的 PDF 会抛
   // 「n.toHex is not a function」（worker 内联源码，无法补丁），ppt/word 转出的
@@ -383,6 +395,27 @@ export { gateIconForRow, decorateGateMenuRows, GATE_ICON_ATTR, GATE_ICON_COMMAND
  */
 export { splitHtml, looksLikeHtmlFence } from './html-embed/parse.ts'
 export { splitIu, looksLikeIuFence } from './iu/parse.ts'
+/**
+ * diagram / proto-tabs 的围栏切分（纯逻辑）。
+ *
+ * 与 html / iu 并列导出：这四条通道共用同一份 `src/shared/fence-scan.ts` 的
+ * 未闭合围栏扫描，任何一条的流式行为都必须能被 smoke 直接断言——否则「某种
+ * 围栏在流式期又变回代码块逐字外冒」这种退化不会报错，只能靠肉眼撞见。
+ */
+export { splitDiagram } from './diagram/parse.ts'
+export { splitProtoTabs } from './proto/parse.ts'
+export { findOpenFence, openFenceTail } from '../shared/fence-scan.ts'
+/**
+ * iu 注册表（纯逻辑半边）。
+ *
+ * 导出给冒烟做**运行期转义探针**：把带危险字符的样本塞进每个 kind 的模型文本
+ * 字段，跑一遍 snapshot()，断言输出里没有真的标签漏出来。截图页跑在
+ * --disable-web-security 的无头 Chrome 里，一处漏转义就等于任意脚本。
+ *
+ * 这件事必须在运行期做：静态看源码「有没有记得写 esc()」只能靠人眼，
+ * 加一个 kind 就会重新赌一次。
+ */
+export { IU_KIND_MAP, IU_KIND_NAMES, IU_KINDS } from './iu/kinds/registry.ts'
 export { iuSlashTest } from './iu/slash.ts'
 export { sliderFillText, checklistFillText, tabsFillText, pianoFillText } from './iu/IuCard.tsx'
 /**
@@ -445,3 +478,41 @@ export {
 } from './stats-ttft/ttft-flat.ts'
 export { syncTtftFlat, TtftFlatBridge } from './stats-ttft/TtftFlatBridge.tsx'
 export { injectTtftFlatStyles, TTFT_FLAT_STYLE_ID } from './stats-ttft/styles.ts'
+
+/**
+ * 浏览器操作标志的纯逻辑半边：供冒烟直接钉住「响应解析 / 是否显示 / 文案拼装」
+ * 与「行标记打属性」。
+ *
+ * 这三条判据错了都不会报错：回包解析歪了图标永远不出现、判据松了图标常驻不灭、
+ * 文案拼错用户看到一枚无意义的图标——没有异常、没有日志，只能靠断言钉住。
+ */
+export {
+  BROWSER_ACTIVITY_ROUTE,
+  BROWSER_FLAG_PREVIEW_KEY,
+  FAST_POLL_MS,
+  SLOW_POLL_MS,
+  IDLE_ROUNDS_BEFORE_SLOW,
+  isBrowserToolName,
+  parseBrowserActivity,
+  sessionFlagVisible,
+  browserFlagToolLabel,
+  browserFlagTitle,
+  fetchBrowserActivity,
+  getBrowserFlagSnapshot,
+  subscribeBrowserFlag,
+  getBrowserFlagEntry,
+  ingestPreviewSessions,
+  mountBrowserFlagPreview,
+  startBrowserActivityPolling,
+  stopBrowserActivityPolling,
+} from './browser-flag/store.ts'
+export {
+  BROWSER_FLAG_ROW_ATTR,
+  flagAttrValue,
+  sessionIdOfRowKey,
+  syncBrowserFlagRows,
+  mountBrowserFlagRows,
+  unmountBrowserFlagRows,
+} from './browser-flag/row-mark.ts'
+export { BROWSER_FLAG_STYLES, BROWSER_FLAG_STYLE_ID, injectBrowserFlagStyles } from './browser-flag/styles.ts'
+export { applyBrowserFlagClient } from './browser-flag/index.ts'

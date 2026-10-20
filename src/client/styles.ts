@@ -523,20 +523,28 @@ function buildCss(): string {
   word-break: break-word;
 }
 
+/*
+ * 渐隐幅度与思考卡同一口径：6px 过渡带 + 70% 起点（理由见 kr-chat/styles.ts 的
+ * .kr-reasoning-view[data-edges] 那段）。
+ *
+ * 这里原来是 28px：行高只有 20px，过渡带比整行还宽，贴边那一行从字形到行距全落在
+ * 半透明区里，读起来是「字被虚化了」而不是「内容淡出」。两处窗口统一，同一屏里
+ * 才不会出现两种渐隐手感。
+ */
 .dtt__reasoning-live-rail-view[data-edges="both"],
 .dtt__reasoning-live-rail[data-following][data-overflow] .dtt__reasoning-live-rail-view {
-  -webkit-mask-image: linear-gradient(transparent 0, black 28px, black calc(100% - 28px), transparent 100%);
-  mask-image: linear-gradient(transparent 0, black 28px, black calc(100% - 28px), transparent 100%);
+  -webkit-mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
+  mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
 }
 
 .dtt__reasoning-live-rail-view[data-edges="top"] {
-  -webkit-mask-image: linear-gradient(transparent 0, black 28px, black 100%);
-  mask-image: linear-gradient(transparent 0, black 28px, black 100%);
+  -webkit-mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black 100%);
+  mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black 100%);
 }
 
 .dtt__reasoning-live-rail-view[data-edges="bottom"] {
-  -webkit-mask-image: linear-gradient(black 0, black calc(100% - 28px), transparent 100%);
-  mask-image: linear-gradient(black 0, black calc(100% - 28px), transparent 100%);
+  -webkit-mask-image: linear-gradient(black 0, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
+  mask-image: linear-gradient(black 0, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
 }
 
 .dtt__reasoning-live-rail-view:focus-visible {

@@ -88,12 +88,15 @@
     "smoke:host": "node scripts/smoke-host.mjs",
     "smoke:triad-client": "node scripts/smoke-triad-client.mjs",
     "smoke:triad-host": "node scripts/smoke-triad-host.mjs",
-    "test": "node scripts/test-skill-manager.mjs && node scripts/test-skill-toggles.mjs && node scripts/test-subagent-catalog.mjs",
+    "test": "node scripts/test-skill-manager.mjs && node scripts/test-skill-preview.mjs && node scripts/test-skill-toggles.mjs && node scripts/test-subagent-catalog.mjs",
     "test:mail": "node scripts/test-mail-two-phase.mjs",
     "test:mail-channel": "node scripts/test-mail-channel.mjs",
+    "test:skill-preview": "node scripts/test-skill-preview.mjs",
     "test:subagents": "node scripts/test-subagent-catalog.mjs",
     "test:session-isolation": "node scripts/test-session-isolation.mjs",
     "test:browser-on-demand": "node scripts/test-browser-on-demand.mjs",
+    "test:browser-activity": "node scripts/test-browser-activity.mjs",
+    "test:browser-flag": "node scripts/test-browser-flag.mjs",
     "test:html-card-width": "node scripts/test-html-card-width.mjs"
   },
   "engines": {

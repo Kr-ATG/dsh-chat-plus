@@ -22,7 +22,13 @@ import {
   IconTrashOutlineRegular as IconTrashOutline16,
   Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { escapeAttr } from '../../../../shared/sanitize-html.ts'
+import {
+  dirNameOf,
+  formatBytes,
+  mediaKindOf,
+  renderSkillMarkdown,
+  skillRawUrl,
+} from './skill-preview.ts'
 import { modalStaggerClass } from '../../triad-modal-animation'
 import { ConfirmDialog } from '../../memory/ConfirmDialog'
 import { PshBody, PopoverShell } from '../../popover-shell'
@@ -133,6 +139,11 @@ const SKILL_ZH: Record<string, string> = {
   installNameRewrite: 'SKILL.md 里写的是「{meta}」，安装时会统一改成「{name}」（目录名与技能名保持一致）。',
   deleteSkillDirNote: '（技能目录「{dir}」与技能名不同，会一并删除）',
   skillOffTag: '已停用',
+  // 二进制文件查看器（图片 / 音视频 / PDF）
+  previewNotText: '这个文件不是纯文本，无法按文本预览。',
+  previewOpenTab: '在新标签打开',
+  previewImageAlt: '技能文件预览：{name}',
+  previewLoadFailed: '预览没加载出来。原始字节接口是在 DSH 启动时注册的，重启一次 DSH Web 服务后再打开即可。',
 }
 
 function skillT(key: string, params?: Record<string, string | number>): string {
@@ -366,6 +377,9 @@ const css = {
   viewerToolBtnA1: 'skm-viewer-tool-btn-a1',
   viewerToolBtnA3: 'skm-viewer-tool-btn-a3',
   viewerToolBtnFrame: 'skm-viewer-tool-btn-frame',
+  viewerMedia: 'skm-viewer-media',
+  viewerMediaNote: 'skm-viewer-media-note',
+  viewerMediaOpen: 'skm-viewer-media-open',
   looseEmpty: 'skm-loose-empty',
   visuallyHidden: 'skm-visually-hidden',
   // 技能/技能包开关
@@ -598,6 +612,25 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 .skm-viewer-content li{margin:.32em 0;max-width:92ch}
 .skm-viewer-content blockquote{margin:.9em 0;padding:.25em 1em;border-left:3px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));color:var(--dsw-alias-label-secondary,#bbb);max-width:82ch}
 .skm-viewer-content hr{border:none;border-top:1px solid var(--dsw-alias-border-l1,rgba(255,255,255,.08));margin:1.5em 0}
+/* ── 二进制文件预览（图片 / 音视频 / PDF）──
+   内容区原来是纯文本流，塞 <img> 会被 markdown 样式挤成行内元素；
+   这里单独一块棋盘底 + 居中弹性布局，大图自带缩放提示。 */
+.skm-viewer-media{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;min-height:100%;padding:8px 0}
+.skm-viewer-media img{max-width:100%;max-height:calc(88vh - 210px);height:auto;border-radius:10px;box-shadow:0 6px 28px rgba(0,0,0,.16);background:
+  repeating-conic-gradient(var(--dsw-alias-bg-module-platform,rgba(0,0,0,.04)) 0% 25%,transparent 0% 50%) 50%/18px 18px;
+  animation:skm-media-in 220ms cubic-bezier(.2,.7,.3,1)}
+@keyframes skm-media-in{from{opacity:0;transform:scale(.985)}to{opacity:1;transform:none}}
+.skm-viewer-media video,.skm-viewer-media audio{max-width:100%;border-radius:10px;outline:none}
+.skm-viewer-media video{max-height:calc(88vh - 210px);background:#000}
+.skm-viewer-media iframe{width:100%;height:calc(88vh - 210px);min-height:420px;border:1px solid var(--dsw-alias-border-l1,rgba(255,255,255,.08));border-radius:12px;background:#fff}
+/* markdown 正文里的插图（SKILL.md 用 ![](assets/x.png) 引用的相对图片） */
+.skm-viewer-content img{max-width:100%;height:auto;border-radius:8px;margin:.7em 0;vertical-align:middle}
+.skm-viewer-media-note{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#888)}
+.skm-viewer-media-open{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;box-sizing:border-box;border-radius:8px;
+  border:1px solid var(--dsw-alias-border-l1,rgba(255,255,255,.1));background:transparent;color:var(--dsw-alias-label-secondary,#bbb);
+  font-size:12px;cursor:pointer;text-decoration:none;transition:background 140ms ease,color 140ms ease,transform 140ms ease}
+.skm-viewer-media-open:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06));color:var(--dsw-alias-label-primary,#eee)}
+.skm-viewer-media-open:active{transform:scale(.96)}
 .skm-loose-empty{margin:2px;padding:4px 0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#888)}
 .skm-visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
@@ -672,6 +705,8 @@ body[data-ds-dark-theme] .skm-bundle-missing{color:#f0c48a}
   .skm-skill-card::before,.skm-skill-badge,.skm-skill-title,.skm-tag-status{transition:none}
   .skm-bundle-cat-tag,.skm-cat-selected-tag{animation:none}
   .skm-bundle-cat-tag,.skm-cat-preset,.skm-cat-remove,.skm-cat-input,.skm-filter-tab{transition:none}
+  .skm-viewer-media img{animation:none}
+  .skm-viewer-media-open{transition:none}
 }
 `
 
@@ -730,102 +765,6 @@ function fileToBase64(file: File): Promise<string> {
   })
 }
 
-/** ---------------------------------------------------------------- markdown 预览 */
-
-// 技能内容预览：极简 markdown 渲染（frontmatter 隐藏，标题/列表/代码块/粗体/行内代码/链接）。
-function escapeHtml(s: string): string {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-/**
- * 行内 markdown → HTML。
- *
- * ⚠ 链接分支必须用 escapeAttr，不能用 escapeHtml（2026-10-17 修 XSS）：
- * 原来写的是 `href="$2"`，而 `$2` 只要求 https?: 开头、**完全没有转义双引号**。
- * 一条 `[x](https://a.test/" onmouseover="alert(1))` 就能闭合 href 属性、
- * 凭空长出事件处理器；这段 HTML 随后经 dangerouslySetInnerHTML 注入。
- * 技能文件内容可由第三方技能包控制（zip / 文件夹上传安装），属于不受信输入，
- * 用户点开预览即触发。
- *
- * 顺带把 URL 也按白名单再筛一次：正则本身只放 https?:，但这里再确认一遍协议，
- * 防止未来有人放宽正则时把 javascript: 带进来。
- *
- * @param s - 单行文本。
- * @returns 可直接拼进 HTML 的字符串（所有插值位置均已转义）。
- */
-function inlineMd(s: string): string {
-  return escapeHtml(s)
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, (_all, label: string, rawUrl: string) => {
-      // 正则捕获里已带 & 转义（escapeHtml 先跑），这里还原后再交给 URL 校验。
-      const url = rawUrl.replace(/&amp;/g, '&')
-      if (!/^https?:\/\//i.test(url)) return escapeHtml(label)
-      return `<a href="${escapeAttr(url)}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>`
-    })
-}
-
-function renderSkillMarkdown(text: string): string {
-  const body = String(text).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '')
-  const lines = body.split('\n')
-  let html = ''
-  let inCode = false
-  let codeBuf: string[] = []
-  let inList = false
-  let inQuote = false
-  const closeList = (): void => {
-    if (inList) { html += '</ul>'; inList = false }
-  }
-  const closeQuote = (): void => {
-    if (inQuote) { html += '</blockquote>'; inQuote = false }
-  }
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (trimmed.startsWith('```')) {
-      if (inCode) {
-        html += '<pre>' + escapeHtml(codeBuf.join('\n')) + '</pre>'
-        codeBuf = []
-        inCode = false
-      } else {
-        closeList(); closeQuote()
-        inCode = true
-      }
-      continue
-    }
-    if (inCode) { codeBuf.push(line); continue }
-    if (trimmed === '---' || trimmed === '***') {
-      closeList(); closeQuote()
-      html += '<hr>'
-      continue
-    }
-    if (trimmed.startsWith('>')) {
-      if (!inQuote) { closeList(); html += '<blockquote>'; inQuote = true }
-      html += '<p>' + inlineMd(trimmed.replace(/^>\s?/, '')) + '</p>'
-      continue
-    }
-    const heading = /^(#{1,4})\s+(.*)$/.exec(trimmed)
-    if (heading !== null) {
-      closeList(); closeQuote()
-      // 直接用真实层级（# → h1 …… ###### → h6）：查看器字号一档一档拉得开，
-      // 旧写法把 # 压成 h3，一级标题只有 15px，整篇文档看起来像没放大。
-      const level = Math.min(heading[1].length, 6)
-      html += `<h${String(level)}>` + inlineMd(heading[2]) + `</h${String(level)}>`
-      continue
-    }
-    const item = /^[-*]\s+(.*)$/.exec(trimmed)
-    if (item !== null) {
-      if (!inList) { closeQuote(); html += '<ul>'; inList = true }
-      html += '<li>' + inlineMd(item[1]) + '</li>'
-      continue
-    }
-    closeList(); closeQuote()
-    if (trimmed === '') { html += '<p></p>'; continue }
-    html += '<p>' + inlineMd(trimmed) + '</p>'
-  }
-  closeList(); closeQuote()
-  if (inCode) html += '<pre>' + escapeHtml(codeBuf.join('\n')) + '</pre>'
-  return html
-}
 
 /** ---------------------------------------------------------------- 查看器偏好 */
 
@@ -885,6 +824,87 @@ function skillFileRows(files: string[]): ViewRow[] {
     rows.push({ kind: 'file', path, depth: parts.length - 1, main: path === 'SKILL.md' })
   }
   return rows
+}
+
+
+/**
+ * 二进制技能文件预览。
+ *
+ * 按族分派到浏览器原生元素：图片 <img>、视频 <video controls>、音频 <audio controls>、
+ * PDF <iframe>（浏览器自带查看器）。其余二进制（zip / 字体 / wasm）不给渲染器，
+ * 只报「不是纯文本」并给一个在新标签打开的原生链接 —— 硬塞进文本流就是乱码。
+ *
+ * 全部走 host 的 raw 子路由：字节原样返回，浏览器负责解码与缓存，不经 base64。
+ *
+ * @param viewer - 当前查看器状态（含 skill / file / mime / size）。
+ */
+function SkillBinaryPreview({ viewer }: { viewer: ViewerState }): JSX.Element {
+  const kind = mediaKindOf(viewer.file)
+  const url = skillRawUrl(viewer.skill.name, viewer.file)
+  const sizeText = formatBytes(viewer.size)
+  /**
+   * `resourceError`：raw 请求真的失败了（最常见的原因是 host 半身还没重启，
+   * 路由仍是旧的）。有它就把裂图换成人话，别让用户对着一个破图标猜。
+   */
+  const [resourceError, setResourceError] = useState(false)
+  useEffect(() => { setResourceError(false) }, [url])
+  const onError = (): void => { setResourceError(true) }
+
+  const note = (
+    <div className={css.viewerMediaNote}>
+      <span>{[sizeText, viewer.mime ?? ''].filter((part) => part !== '').join(' · ')}</span>
+      <a className={css.viewerMediaOpen} href={url} download target="_blank" rel="noreferrer">
+        {skillT('previewOpenTab')}
+      </a>
+    </div>
+  )
+
+  if (resourceError) {
+    return (
+      <div className={css.viewerMedia}>
+        <p>{skillT('previewLoadFailed')}</p>
+        {note}
+      </div>
+    )
+  }
+  if (kind === 'image') {
+    return (
+      <div className={css.viewerMedia}>
+        <img src={url} alt={skillT('previewImageAlt', { name: viewer.file })} loading="lazy" decoding="async" onError={onError} />
+        {note}
+      </div>
+    )
+  }
+  if (kind === 'video') {
+    return (
+      <div className={css.viewerMedia}>
+        <video src={url} controls preload="metadata" onError={onError} />
+        {note}
+      </div>
+    )
+  }
+  if (kind === 'audio') {
+    return (
+      <div className={css.viewerMedia}>
+        <audio src={url} controls preload="metadata" onError={onError} />
+        {note}
+      </div>
+    )
+  }
+  if (kind === 'pdf') {
+    return (
+      <div className={css.viewerMedia}>
+        <iframe src={url} title={viewer.file} />
+        {note}
+      </div>
+    )
+  }
+  return (
+    <div className={css.viewerMedia}>
+      <p>{skillT('previewNotText')}</p>
+      {note}
+    </div>
+  )
 }
 
 /** 复制图标（Feather copy，线性描边，与导航手绘图标同风）。 */
@@ -1169,7 +1189,24 @@ type ConfirmState =
 type InstallState =
   | { archive: true; name: string; data: string; folderName: string }
   | { archive?: false; files: CollectedFile[]; folderName: string }
-type ViewerState = { skill: SkillInfo; file: string; loading: boolean; error?: string; content?: string }
+/**
+ * 查看器状态。
+ *
+ * `binary` 是 2026-10-20 补的：原来所有文件都按 markdown 渲染，二进制文件被
+ * host 当 UTF-8 解码后（再叠加 markdown 渲染）就是满屏乱码。现在 host 会带出
+ * `binary` / `mime` / `size`，客户端按类型分派到 <img> / <video> / <audio> /
+ * <iframe>（PDF），只有真文本才走 markdown。
+ */
+type ViewerState = {
+  skill: SkillInfo
+  file: string
+  loading: boolean
+  error?: string
+  content?: string
+  binary?: boolean
+  mime?: string
+  size?: number
+}
 
 const SKILL_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
 
@@ -1379,9 +1416,16 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
   const loadViewerContent = async (skillName: string, filePath: string): Promise<void> => {
     try {
       const res = await fetch(`/api/skill-manager/skills/${encodeURIComponent(skillName)}/files/${encodeURIComponent(filePath)}`)
-      const body = await res.json() as { error?: unknown; content?: unknown }
+      const body = await res.json() as { error?: unknown; content?: unknown; binary?: unknown; mime?: unknown; size?: unknown }
       if (body.error !== undefined) throw new Error(String(body.error))
-      setViewer((v) => v === null ? v : { ...v, loading: false, content: (body.content ?? '') as string })
+      setViewer((v) => v === null ? v : {
+        ...v,
+        loading: false,
+        content: (body.content ?? '') as string,
+        binary: body.binary === true,
+        mime: typeof body.mime === 'string' ? body.mime : undefined,
+        size: typeof body.size === 'number' ? body.size : undefined,
+      })
     } catch (error) {
       setViewer((v) => v === null ? v : { ...v, loading: false, error: error instanceof Error ? error.message : String(error) })
     }
@@ -2254,7 +2298,11 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
                 ? t('previewLoading')
                 : viewer.error !== undefined
                   ? viewer.error
-                  : <div dangerouslySetInnerHTML={{ __html: renderSkillMarkdown(viewer.content ?? '') }} />}
+                  : viewer.binary === true || mediaKindOf(viewer.file) !== 'none'
+                    // 二进制：绝不再走 markdown。原来一路 readFile(…,'utf8') + markdown
+                    // 渲染，PNG 就变成满屏 `IHDR` 乱码（用户 2026-10-20 反馈）。
+                    ? <SkillBinaryPreview viewer={viewer} />
+                    : <div dangerouslySetInnerHTML={{ __html: renderSkillMarkdown(viewer.content ?? '', { skillName: viewer.skill.name, dir: dirNameOf(viewer.file) }) }} />}
             </div>
           </div>
         </Modal>

@@ -660,57 +660,72 @@ body[data-ds-dark-theme] .wb-root {
    导航列跨满三行通高；首页视图没有筛选行时该行 auto 塌成 0，不留空白带。
    项目/分类下拉保留在二级筛选行（真数据入口不丢）。 */
 
-/* ── 记忆：左栏导航列表（2026-10 修正）──
-   曾经把它压成 58px 图标轨、文字 display:none、计数徽标绝对定位压到图标右上角——
-   结果是一列「图标+数字」糊在一起的方块，认不出是哪个视图（用户原话：
-   「记忆这个边栏我能看出来什么？」）。省下的宽度换来整栏失去可读性，不值。
-   现在恢复成常规侧栏列表：图标 + 文字 + 右对齐计数。
-   面板仍是三行 grid，只把第 1 列从 58px 放宽到 172px。 */
-.wb-root .dsh-memory-panel { display: grid !important;
-  grid-template-columns: 172px minmax(0, 1fr);
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 8px 14px; padding: 0 22px 22px !important; }
-.wb-root .dsh-memory-top-bar { display: contents; }
-.wb-root .dsh-memory-view-row { display: contents; }
-.wb-root .dsh-memory-view-tabs { grid-column: 1; grid-row: 1 / span 3; flex-direction: column !important; gap: 2px !important;
-  width: 172px; padding: 8px !important; border-radius: var(--wb2-r-md) !important;
-  background: color-mix(in srgb, var(--wb2-t1) 3%, transparent) !important;
-  border: 1px solid var(--wb2-line) !important; align-self: stretch; }
-/* 单个视图行：图标 + 文字一行，计数靠右（不再绝对定位、不再压图标） */
-.wb-root .dsh-memory-view-tab { position: relative; width: 100%; aspect-ratio: auto !important;
-  padding: 7px 9px !important; justify-content: flex-start !important;
-  gap: 8px !important; border-radius: var(--wb2-r-xs) !important;
-  transition: all 300ms var(--wb2-ease) !important; }
-.wb-root .dsh-memory-view-tab > span:not(.dsh-memory-nav-icon) {
-  display: inline-block !important; min-width: 0; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
-.wb-root .dsh-memory-view-tab .dsh-memory-nav-count,
-.wb-root .dsh-memory-view-tab .dsh-memory-nav-count-inline {
-  display: inline-flex !important; position: static !important; margin-left: auto !important;
-  flex: none; font-size: 11px; }
-.wb-root .dsh-memory-view-tab[data-active="true"] { background: var(--wb2-a1) !important; color: var(--wb2-accent) !important; }
-.wb-root .dsh-memory-view-tab[data-active="true"]::before { content: ""; position: absolute; left: -6px; top: 50%;
-  transform: translateY(-50%); width: 3px; height: 17px; border-radius: 0 3px 3px 0;
-  background: var(--wb2-accent); box-shadow: 0 0 10px var(--wb2-a3); }
-/* 统计与操作区（grid 第 1 行第 2 列），二级筛选行第 2 行第 2 列，
-   内容区（列表+详情 / 首页 / 变更等全宽视图）第 3 行第 2 列通高 */
-.wb-root .dsh-memory-view-actions { grid-column: 2; grid-row: 1; min-width: 0; display: flex; align-items: center; justify-content: flex-end; }
-.wb-root .dsh-memory-subfilter-row { grid-column: 2; grid-row: 2; min-width: 0; }
-.wb-root .dsh-memory-cols, .wb-root .dsh-memory-view-full, .wb-root .dsh-memory-home {
-  grid-column: 2; grid-row: 3; min-height: 0; }
-.wb-root .dsh-memory-home { max-width: none !important; width: 100% !important; margin: 0 !important; }
-/* 窄屏降级：172px 侧栏 + 正文双栏在小屏挤不下，导航改横排一行（保持可读，
-   不退化成图标轨——那条路已经证明认不出来是什么）。 */
+/* ── 记忆面板（2026-10 第二轮重做后）──
+   历史：这里曾用 display:grid!important 把面板强行摊成三行网格，
+   靠 display:contents 把 .dsh-memory-top-bar / .dsh-memory-view-row 拆开，
+   再把 6 个 view-tab 塞进第 1 列当侧栏 —— 那是给「顶部 tab 行」的旧 DOM 打的补丁。
+
+   现在面板自己就有真侧栏（.dsh-memory-sidebar-nav）+ 内容列（.dsh-memory-content-col），
+   两栏 flex 布局写在插件自己的样式表里。换肤层**不能再动布局**，只做配色微调：
+   一旦这里还写 grid!important，就会把插件的 flex-row 覆盖掉，
+   表现为「面板挤成两条、内容掉到下面」——这正是重做后实测到的破版。
+
+   所以本块只剩两件事：
+     ① 把换肤层的配色变量接进记忆面板（保持工作台里视觉统一）；
+     ② 窄屏下让侧栏收成横排（宽度不够时竖栏会把正文压死）。 */
+.wb-root .dsh-memory-sidebar-nav {
+  background: color-mix(in srgb, var(--wb2-t1) 4%, transparent) !important;
+  border-right-color: var(--wb2-line) !important;
+}
+.wb-root .dsh-memory-sidebar-brand-text { color: var(--wb2-t1) !important; }
+.wb-root .dsh-memory-sidebar-item { transition: background 300ms var(--wb2-ease), color 300ms var(--wb2-ease) !important; }
+.wb-root .dsh-memory-sidebar-item:hover { background: color-mix(in srgb, var(--wb2-t1) 6%, transparent) !important; }
+.wb-root .dsh-memory-sidebar-item-active,
+.wb-root .dsh-memory-sidebar-item-active:hover {
+  background: var(--wb2-a1) !important;
+  color: var(--wb2-accent) !important;
+}
+.wb-root .dsh-memory-sidebar-item-active .dsh-memory-sidebar-item-count { color: var(--wb2-accent) !important; }
+/* 顶栏：保持一条横排，只换底色与描边。 */
+.wb-root .dsh-memory-top-bar {
+  background: transparent !important;
+  border-bottom-color: var(--wb2-line) !important;
+}
+.wb-root .dsh-memory-search-wrap {
+  background: color-mix(in srgb, var(--wb2-t1) 4%, transparent) !important;
+  border-color: var(--wb2-line) !important;
+}
+.wb-root .dsh-memory-search-wrap:focus-within {
+  border-color: var(--wb2-accent) !important;
+  box-shadow: 0 0 0 3px var(--wb2-a3) !important;
+}
+.wb-root .dsh-memory-primary-add { transition: all 300ms var(--wb2-ease) !important; }
+/* 卡片与详情：跟随换肤层圆角与描边，不覆盖任何布局属性。 */
+.wb-root .dsh-memory-entry-card { border-color: var(--wb2-line) !important; }
+.wb-root .dsh-memory-detail-col {
+  background: color-mix(in srgb, var(--wb2-t1) 2%, transparent) !important;
+  border-left-color: var(--wb2-line) !important;
+}
+
+/* 窄屏降级：212px 竖栏 + 正文在 900px 以下会挤死正文。
+   导航改横排一行（保持可读，不退化成图标轨——那条路已经证明认不出来）。 */
 @media (max-width: 900px) {
-  .wb-root .dsh-memory-panel { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto !important; }
-  .wb-root .dsh-memory-view-tabs { grid-column: 1 !important; grid-row: 1 !important; width: 100% !important;
-    flex-direction: row !important; flex-wrap: wrap; align-self: auto; }
-  .wb-root .dsh-memory-view-tab { width: auto; }
-  .wb-root .dsh-memory-view-tab[data-active="true"]::before { display: none; }
-  .wb-root .dsh-memory-view-actions { grid-column: 1; grid-row: 2; }
-  .wb-root .dsh-memory-subfilter-row { grid-column: 1; grid-row: 3; }
-  .wb-root .dsh-memory-cols, .wb-root .dsh-memory-view-full, .wb-root .dsh-memory-home {
-    grid-column: 1; grid-row: auto; }
+  .wb-root .dsh-memory-panel { flex-direction: column !important; }
+  .wb-root .dsh-memory-sidebar-nav {
+    width: 100% !important; max-height: 128px;
+    flex-direction: row !important; flex-wrap: wrap; gap: 4px !important;
+    border-right: none !important; border-bottom: 1px solid var(--wb2-line) !important;
+    padding: 8px !important;
+  }
+  .wb-root .dsh-memory-sidebar-brand { display: none !important; }
+  .wb-root .dsh-memory-sidebar-section {
+    flex-direction: row !important; flex-wrap: wrap; gap: 4px !important;
+    margin-top: 0 !important;
+  }
+  .wb-root .dsh-memory-sidebar-section-title { display: none !important; }
+  .wb-root .dsh-memory-sidebar-item { width: auto !important; }
+  /* 详情栏的窄屏形态由插件样式表决定（浮层覆盖），这里不再覆盖 width，
+     否则 !important 会把浮层规则打死，详情又变回挤压列表的占满块。 */
 }
 /* ── 记忆首页大盘换肤（MemoryHome）──
    用户点名「不需要背景色」：hero 卡那两团模糊装饰圆删掉；分类/类型/行图标
@@ -745,27 +760,12 @@ body[data-ds-dark-theme] .wb-root {
 .wb-root .dsh-memory-home .hm-legend-row:nth-of-type(4) .hm-legend-dot { background: var(--wb2-a3) !important; }
 .wb-root .dsh-memory-home .hm-legend-row:nth-of-type(5) .hm-legend-dot { background: var(--wb2-a2) !important; }
 
-/* 时间河流：竖线挂在列表容器上（条目都在 .dsh-memory-card-list 里），
-   日期头行（.dsh-memory-group-section）左缘落圆点 */
-.wb-root .dsh-memory-card-list { position: relative; padding-left: 20px !important; }
-.wb-root .dsh-memory-card-list::before { content: ""; position: absolute; left: 5px; top: 6px; bottom: 6px;
-  width: 1px; background: linear-gradient(180deg, transparent, var(--wb2-line2) 8%, var(--wb2-line2) 92%, transparent); }
-.wb-root .dsh-memory-group-section { position: relative; padding-left: 18px !important; }
-.wb-root .dsh-memory-group-section::before { content: ""; position: absolute; left: -15px; top: 12px;
-  width: 9px; height: 9px; border-radius: 50%; background: var(--wb2-bg); border: 2px solid var(--wb2-t4);
-  transition: all 340ms var(--wb2-ease); }
-.wb-root .dsh-memory-group-section:hover::before { border-color: var(--wb2-accent); box-shadow: 0 0 0 4px var(--wb2-a1); }
-/* 条目卡 → 紧凑行：选中描边 + hover 右移 */
-.wb-root .dsh-memory-entry-card { padding: 9px 11px !important; border-radius: var(--wb2-r-sm) !important;
-  transition: all 300ms var(--wb2-ease) !important; }
-.wb-root .dsh-memory-entry-card:hover { transform: translateX(2px) !important; }
-.wb-root .dsh-memory-entry-card-sel { border-color: var(--wb2-a3) !important; background: var(--wb2-a1) !important; }
-/* 右栏详情 → 抽屉卡质感 */
-.wb-root .dsh-memory-detail-col { border-radius: var(--wb2-r-lg) !important;
-  border: 1px solid var(--wb2-line) !important; overflow: hidden;
-  background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1) 46%) !important;
-  box-shadow: var(--wb2-inset), var(--wb2-drop) !important; }
-.wb-root .dsh-memory-detail-head { background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1)) !important; }
+/* 时间河流 / 条目卡 padding：2026-10 第二轮重做后整块移除。
+   这套规则的前提是「左栏导航 + 中间卡片列表」的旧布局，
+   而新面板的卡片自带左轨（类型点 + 命中热力条），
+   再叠 padding:9px 11px!important 会把左轨压到正文上——
+   实测症状：正文首字被裁掉（「三个固定时点」只剩「个固定时点」）。
+   现在卡片的间距与圆角全部由插件自己的样式表决定，换肤层只接配色。 */
 /* 顶栏搜索胶囊化 */
 .wb-root .dsh-memory-top-input { border-radius: 999px !important; }
 

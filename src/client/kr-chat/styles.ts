@@ -1362,19 +1362,37 @@ body[data-kr-resizing="true"] * {
   min-width: 0;
 }
 
+/*
+ * 边缘渐隐的幅度：**必须窄于一行**（行高见 --kr-reasoning-line，字号 14 时 20px）。
+ *
+ * 原来这里写 18px：遮罩从「全透明」到「全不透明」的过渡带几乎等于一整行，于是贴边
+ * 那行字的 90% 都落在半透明区里 —— 读起来不是「边缘淡出」，而是「这行字被虚化了」。
+ * 用户 2026-10-20 直接指着截图说「到上下的边缘字被虚化了」，说的就是这一行。
+ *
+ * 两个改动：
+ * 1. 过渡带收到 6px（不到半行），半透明区只覆盖行间的空白与一点字脚；
+ * 2. 起点不再是 transparent，而是 70% 的黑 —— 贴边那行仍然认得出是字，只是淡一档。
+ *    纯 0 起点等于把这一行抹掉一半，观感上就是「残缺」而不是「淡出」。
+ *
+ * 55% 试过：贴边行仍读得出「淡」，但用户要的就是「别虚化」；70% 是实测里
+ * 「看得出是边缘」与「字是清楚的」两条同时成立的那一档。
+ *
+ * 语义没变：它仍然只回答「这一侧还有没有内容」，由 useSteppedFollow 的 data-edges
+ * 给出；真正要读那一行时向上滚一格，它立刻恢复全不透明。
+ */
 .kr-reasoning-view[data-edges="both"] {
-  -webkit-mask-image: linear-gradient(transparent 0, black 18px, black calc(100% - 18px), transparent 100%);
-  mask-image: linear-gradient(transparent 0, black 18px, black calc(100% - 18px), transparent 100%);
+  -webkit-mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
+  mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
 }
 
 .kr-reasoning-view[data-edges="top"] {
-  -webkit-mask-image: linear-gradient(transparent 0, black 18px, black 100%);
-  mask-image: linear-gradient(transparent 0, black 18px, black 100%);
+  -webkit-mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black 100%);
+  mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black 100%);
 }
 
 .kr-reasoning-view[data-edges="bottom"] {
-  -webkit-mask-image: linear-gradient(black 0, black calc(100% - 18px), transparent 100%);
-  mask-image: linear-gradient(black 0, black calc(100% - 18px), transparent 100%);
+  -webkit-mask-image: linear-gradient(black 0, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
+  mask-image: linear-gradient(black 0, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
 }
 
 .kr-reasoning-view:focus-visible {
@@ -1631,17 +1649,21 @@ body[data-kr-resizing="true"] * {
 }
 
 /*
- * hover：**只加深竖线 + 极淡底色**，卡片不上浮也不加投影。
+ * hover：**只加深竖线，不铺任何底色**（2026-10-20 按用户要求）。
  *
- * 没有投影时再写 translateY 只会让它显得在抖；竖线由 10% 提到 22%（浅色下
- * 是更实的一道灰、深色下是更亮的一道白），配合 4% 的底色，给出「这一块能点
- * （点标题折叠/展开）」的反馈。底色用文字色的中性纱，两个主题自动反相。
+ * 原来这里叠了一层 4% 的文字色中性纱，本意是「这一块能点」，但整卡铺底在对话流里
+ * 读起来是一块会浮出来的灰板 —— 思考卡本来就是「一段被竖线圈起来的文字」，鼠标
+ * 移上去凭空长出一块底，反而把它从正文里割了出去。用户点名要的就是别出现这块灰。
+ *
+ * 反馈改由竖线独自承担：10% → 30%（浅色下是更实的一道灰、深色下是更亮的一道白），
+ * 0.18s 的颜色过渡仍在，鼠标划过时是「这条线亮了一档」，不是「多了一个盒子」。
+ * 可点性不受影响：整行仍是 role=button + cursor:pointer，点标题照旧折叠展开。
  */
 .kr-card--reasoning[data-inline]:hover {
   box-shadow: none;
   transform: none;
-  border-left-color: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 22%, transparent);
-  background: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 4%, transparent);
+  border-left-color: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 30%, transparent);
+  background: transparent;
 }
 
 /*
@@ -1748,20 +1770,24 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
  * 上下缘按滚动位置渐隐（与操作面板同款，data-edges 由 useSteppedFollow 给出）。
  * 5 行窗口必然硬切内容，没有遮罩时顶部会留半行被切掉的字——操作面板当年踩过
  * 同一个坑（用户截图里就是硬切效果），这里直接复用它的解法。
+ *
+ * 幅度与思考卡统一（6px 过渡带 + 70% 起点，见 .kr-reasoning-view 那段的理由）：
+ * 过渡带一旦超过半行，贴边那行就是「被虚化」而不是「淡出」。三处窗口共用一套，
+ * 免得同一屏里两种渐隐手感。
  */
 .kr-tools-list[data-edges="both"] {
-  -webkit-mask-image: linear-gradient(transparent 0, black 16px, black calc(100% - 16px), transparent 100%);
-  mask-image: linear-gradient(transparent 0, black 16px, black calc(100% - 16px), transparent 100%);
+  -webkit-mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
+  mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
 }
 
 .kr-tools-list[data-edges="top"] {
-  -webkit-mask-image: linear-gradient(transparent 0, black 16px, black 100%);
-  mask-image: linear-gradient(transparent 0, black 16px, black 100%);
+  -webkit-mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black 100%);
+  mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black 100%);
 }
 
 .kr-tools-list[data-edges="bottom"] {
-  -webkit-mask-image: linear-gradient(black 0, black calc(100% - 16px), transparent 100%);
-  mask-image: linear-gradient(black 0, black calc(100% - 16px), transparent 100%);
+  -webkit-mask-image: linear-gradient(black 0, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
+  mask-image: linear-gradient(black 0, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
 }
 
 @media (forced-colors: active) {
@@ -2246,18 +2272,18 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
  * 独漏了。渐隐让「上面还有内容」变成一种柔和的暗示，而不是一道生硬的切口。
  */
 .kr-plain-list[data-edges="both"] {
-  -webkit-mask-image: linear-gradient(transparent 0, black 16px, black calc(100% - 16px), transparent 100%);
-  mask-image: linear-gradient(transparent 0, black 16px, black calc(100% - 16px), transparent 100%);
+  -webkit-mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
+  mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
 }
 
 .kr-plain-list[data-edges="top"] {
-  -webkit-mask-image: linear-gradient(transparent 0, black 16px, black 100%);
-  mask-image: linear-gradient(transparent 0, black 16px, black 100%);
+  -webkit-mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black 100%);
+  mask-image: linear-gradient(rgba(0, 0, 0, .7) 0, black 6px, black 100%);
 }
 
 .kr-plain-list[data-edges="bottom"] {
-  -webkit-mask-image: linear-gradient(black 0, black calc(100% - 16px), transparent 100%);
-  mask-image: linear-gradient(black 0, black calc(100% - 16px), transparent 100%);
+  -webkit-mask-image: linear-gradient(black 0, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
+  mask-image: linear-gradient(black 0, black calc(100% - 6px), rgba(0, 0, 0, .7) 100%);
 }
 
 @media (forced-colors: active) {
@@ -4731,12 +4757,13 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
   50% { opacity: 1; }
 }
 
-/* hover：只加深竖线 + 极淡底色，卡片不上浮也不加投影（同思考卡）。 */
+/* hover：只加深竖线、不铺底色（同思考卡，理由见那边那段注释）。
+   两张卡在对话流里紧挨着出现，一个铺灰一个不铺会读成两种东西。 */
 .kr-card--ask[data-inline]:hover {
   box-shadow: none;
   transform: none;
-  border-left-color: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 22%, transparent);
-  background: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 4%, transparent);
+  border-left-color: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 30%, transparent);
+  background: transparent;
 }
 
 /* 折叠态只收上下内距，左右与展开态完全一致（同思考卡：左右一变标题会横向跳）。 */

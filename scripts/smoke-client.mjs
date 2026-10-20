@@ -418,6 +418,10 @@ const expectedStyles = [
   // 首 token 平均平铺读数（src/client/stats-ttft/styles.ts）：只定分隔与入场，
   // 字号颜色全部继承官方 pill。apply 阶段随桥一起注入。
   'dsh-stats-ttft-styles',
+  // 浏览器标志（src/client/browser-flag/styles.ts）：会话行尾的浏览器图标
+  // （::after + mask 呼吸）与会话标题栏「浏览器操作中」胶囊。2026-10-20 新增，
+  // 与 host 半身的 /api/chat-flow/browser-activity 配对。
+  'dsh-browser-flag-style',
   ...(krEnabled ? ['dsh-kr-chat-styles'] : []),
 ]
 for (const expected of expectedStyles) {
@@ -890,6 +894,9 @@ if (!code.includes('data-dsh-anim-paused') || !code.includes('animation-play-sta
 // 按用户要求删除，槽位从 13 → 12。它的 9 个开关迁到 Seeker 右栏「大盘设置」抽屉，
 // 入口是顶栏 Seeker 标签右侧的齿轮（裸 DOM 注入，**不占槽位**）。
 const cell = (key) => registeredSlots.find((s) => s?.slot === 'conversation.chat.node' && s?.key === key)
+// 2026-10-20：浏览器标志**不占任何座位** —— 标题栏胶囊整块删除（用户反馈不好看），
+// 只剩会话行上的一枚伪元素图标（DOM 属性注入，见 browser-flag/row-mark.ts）。
+// 槽位仍是 12；若哪天有人把胶囊座位加回来，这里的计数会立刻红。
 if (registeredSlots.length !== 12) {
   fail(`expected 12 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
 } else {
@@ -1745,8 +1752,12 @@ if (krEnabled) {
     // 同一件事（都是官方右栏打开），一列行挂两枚图标只是把一句话说两遍。
     // 这里断言它**不再存在**，防的是日后有人把双出口加回来。
     fail('产出物行尾不得再有第二枚「在侧栏打开」按钮（行主体就是唯一出口）')
-  } else if (!/aria-label=\{`在侧栏打开 \$\{item\.name\}`\}/.test(outputsCode)) {
-    fail('行主体按钮的 aria-label 必须说明落点是「在侧栏打开」（读屏用户靠它知道点开的去向）')
+  } else if (!/aria-label=\{`用默认应用打开 \$\{item\.name\}`\}/.test(outputsCode)) {
+    // 2026-10-20：落点从「侧栏」改成「系统默认应用」，aria-label 必须跟着改 ——
+    // 读屏用户靠它知道点下去会发生什么，文案落后于实现就是错误信息。
+    fail('行主体按钮的 aria-label 必须说明落点是「用默认应用打开」（读屏用户靠它知道点开的去向）')
+  } else if (!/openWithDefaultApp\(path\)/.test(outputsCode)) {
+    fail('产出物行点击必须先交给系统默认应用（openWithDefaultApp），只有开不了才退回侧栏')
   } else if (!/className="kr-out-row__go"/.test(outputsCode)) {
     fail('行尾必须保留纯视觉箭头（kr-out-row__go，aria-hidden），承担「这里能点、点开在右栏」的提示')
   } else if (/canInlinePreview|MediaLightbox/.test(outputsCode)) {
@@ -1778,6 +1789,47 @@ if (krEnabled) {
     pass('产出物卡：整行可点 + SVG 类型缩略图 + 无代码文件 + 无产出时整卡不挂载，位置在操作面板与子智能体卡之下')
   }
 
+  // 「用默认应用打开」通道（2026-10-20）：画廊与产出物卡的主入口。
+  //
+  // 三个决定必须被断言钉住，缺一即回归：
+  //  ① **走官方 Remote，不自建 host 路由**：`remote.session.openWorkspacePath`
+  //     （省略 action / application 才是「默认程序」）。自建一条同义路由等于把
+  //     「打开本机文件」这个能力再开一个口子；
+  //  ② **双路查找服务**：Gateway 把每个命名空间注册成独立 Service
+  //     （`remote.session`），根 `remote` 也可能挂同名属性 —— 只认一条时宿主
+  //     一升级就整个失效（open-preview.ts 里踩过同一个坑）；
+  //  ③ **两处主入口都换了**，且都保留了降级：开不了就退回原来的内置预览，
+  //     而不是「点了没反应」。
+  {
+    const openerSrc = readFileSync(resolve(ROOT, 'src/client/open-default-app.ts'), 'utf8')
+    const openerCode = openerSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+    const gallerySrc = readFileSync(resolve(ROOT, 'src/client/triad/gallery/GalleryPanel.tsx'), 'utf8')
+    const lightboxSrc = readFileSync(resolve(ROOT, 'src/client/triad/gallery/media-lightbox.tsx'), 'utf8')
+
+    if (!/openWorkspacePath/.test(openerCode)) {
+      fail('默认应用打开必须走官方 remote.session.openWorkspacePath（shell-open 语义，窗口不会被 windowsHide 吞掉）')
+    } else if (/action:\s*'open'/.test(openerCode) || /action:\s*"open"/.test(openerCode)) {
+      // 官方契约里 action 只有 'reveal'；写成 'open' 会被 host 判成非法动作。
+      fail("openWorkspacePath 不得传 action: 'open'（官方只认 'reveal'，默认应用是「不传 action」）")
+    } else if (!/'remote\.session'/.test(openerCode) || !/remote\.session|name of \['remote/.test(openerCode)) {
+      fail('remote.session 必须双路查找（独立 Service 名 + 根 remote 上的同名命名空间）')
+    } else if (!/unavailable/.test(openerCode) || !/failed/.test(openerCode) || !/opened/.test(openerCode)) {
+      fail('打开结果必须分三态（opened / unavailable / failed）：无桌面与打开失败对调用方的处置完全不同')
+    } else if (!/desktopOpeningAvailable/.test(openerCode) || !/canOpenWorkspacePath/.test(openerCode)) {
+      fail('调用前必须问一次 canOpenWorkspacePath 并缓存结论（手机远程访问时每次点击都空跑一次往返）')
+    } else if (!/openWithDefaultApp\(item\.path\)/.test(gallerySrc)) {
+      fail('画廊卡片点击必须先交给系统默认应用（openWithDefaultApp），不得直接弹内置弹窗')
+    } else if (!/setLightboxIndex\(visible\.indexOf\(item\)\)/.test(gallerySrc)) {
+      fail('画廊必须保留内置弹窗作为降级出口（宿主没有桌面时原样退回，不能点了没反应）')
+    } else if (!/materializeGenerated/.test(gallerySrc)) {
+      fail('生图条目必须先落盘再打开：spill 的 .txt 交给默认应用只会弹记事本')
+    } else if (!/onOpenDefaultApp/.test(lightboxSrc)) {
+      fail('画廊弹窗必须留一枚「用默认应用打开」按钮（看到了想拿去用的那一刻就在弹窗里）')
+    } else {
+      pass('默认应用打开：走官方 remote.session + 三态收敛 + 画廊/弹窗/产出物三处入口 + 保留内置预览降级')
+    }
+  }
+
   // 对话滚动守卫（2026-10-04 修「点一下就跑到下面」）：常驻状态机在
   // KrAgentPanel 挂载，只对抗「无用户意图 + 短窗口落底」这一种官方跟随指纹。
   {
@@ -1795,6 +1847,39 @@ if (krEnabled) {
       fail('KrAgentPanel 必须挂载滚动守卫（KR 视图常驻）')
     } else {
       pass('对话滚动守卫：常驻状态机 + 意图窗口 + 限次回滚 + 官方容器钩子')
+    }
+  }
+
+  // 滚动守卫 · iframe 滚轮缺口（2026-10-20 修「出现 html / iu 卡片后鼠标滚不动」）。
+  //
+  // 事故形态：html 卡片是 opaque origin 的 iframe，里面的 wheel 事件**不会冒泡到
+  // 宿主文档**（实测宿主侧 wheel 计数恒为 0，对话流照样在滚）。守卫原来只认宿主
+  // 侧 wheel 事件判断「这次滚动是用户干的」，收不到就把用户自己滚到底误判成官方
+  // 跟随拽人、直接回滚 —— 表现为鼠标停在卡片上滚不动 / 一滚就被弹回去。
+  //
+  // 断言两组，缺一即回归：
+  //  ① iframe 侧必须上报滚动意图（bridge 里的 scroll-intent）；
+  //  ② 守卫必须有一条不依赖事件的判据（连续滚动串 / 斜率），否则事件通道一断
+  //     就退回到「无意图 = 官方拽人」的误判。
+  {
+    const bridgeSrc = readFileSync(resolve(ROOT, 'src/client/html-embed/bridge.ts'), 'utf8')
+    const htmlCardSrc = readFileSync(resolve(ROOT, 'src/client/html-embed/HtmlCard.tsx'), 'utf8')
+    const guardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/scroll-guard.ts'), 'utf8')
+    const guardCode = guardSrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+    if (!/scroll-intent/.test(bridgeSrc)) {
+      fail('html 卡片 iframe 必须上报滚动意图（scroll-intent）：iframe 内 wheel 不会冒泡到宿主，不上报就无法区分「用户滚」与「官方拽人」')
+    } else if (!/noteConversationScrollIntent/.test(htmlCardSrc)) {
+      fail('HtmlCard 必须接收 scroll-intent 并登记到守卫（否则 bridge 上报了也没人用）')
+    } else if (!/export function noteConversationScrollIntent/.test(guardCode)) {
+      fail('scroll-guard 必须导出 noteConversationScrollIntent（跨模块意图登记入口）')
+    } else if (!/externalIntentUntil/.test(guardCode)) {
+      fail('守卫必须把外部上报的意图并入意图窗口判断')
+    } else if (!/looksUserDriven/.test(guardCode) || !/SLOPE_MAX/.test(guardCode) || !/STREAK_WINDOW_MS/.test(guardCode)) {
+      fail('守卫必须有「不依赖事件」的判据（连续滚动串 / 斜率闸门），否则滚轮事件被 iframe 吞掉时会误判用户滚动为官方拽人')
+    } else if (!/attached !== current/.test(guardCode) && !/current !== attached/.test(guardCode)) {
+      fail('守卫必须在滚动容器被替换后重挂（会话切换会让原节点脱离文档，守卫静默失效）')
+    } else {
+      pass('滚动守卫 · iframe 缺口：意图上报 + 外部登记 + 连续滚动串判据 + 容器替换重挂')
     }
   }
 
@@ -3046,7 +3131,31 @@ if (krEnabled) {
     if (mod.looksLikeHtmlFence('这是一张 HTML 卡片，见下方')) reasons.push('looksLikeHtmlFence 不能只看 html 字样')
     if (!mod.looksLikeHtmlFence('```html\n<div></div>\n```')) reasons.push('looksLikeHtmlFence 漏掉了真围栏')
 
-    // ⑦ 流式期未闭合围栏 → pending 占位卡（本轮需求的核心）。
+    // ⑦ CSP：把「不引外网资源」从提示词约定变成浏览器强制。
+    //
+    // sandbox 只挡同源、不挡网络 —— 模型页面里的 fetch/XHR/WebSocket 本来能自由
+    // 外联，把正文里出现的工作区路径、内网地址拼进请求发出去。这条不写不会报错，
+    // 只会在某天变成一条没人看得懂的出网记录。
+    {
+      const doc = mod.assembleHtmlDocument('<div>hi</div>')
+      if (!/Content-Security-Policy/.test(doc)) reasons.push('iframe 文档必须带 CSP（否则卡片可自由外联）')
+      if (!/default-src 'none'/.test(doc)) reasons.push("CSP 必须 default-src 'none'（兜底全禁，白名单放行）")
+      if (!/connect-src 'none'/.test(doc)) reasons.push("CSP 必须 connect-src 'none'（断掉 fetch/XHR/WebSocket 外发）")
+      if (!/script-src 'unsafe-inline'/.test(doc)) reasons.push("CSP 必须放行 script-src 'unsafe-inline'（卡片里的 JS 要能跑）")
+      if (!/img-src data: blob:/.test(doc)) reasons.push('CSP 必须放行 data:/blob: 图片（内联 SVG 与 canvas 依赖它）')
+      // CSP 必须在模型内容之前出现，否则前面那段已经有执行机会。
+      const cspAt = doc.indexOf('Content-Security-Policy')
+      const bodyAt = doc.indexOf('<body>')
+      if (cspAt < 0 || (bodyAt >= 0 && cspAt > bodyAt)) reasons.push('CSP 必须出现在 <body> 之前（先于任何模型内容）')
+      // 完整文档路径同样要带（模型自己写了 <html> 时走另一条分支）。
+      const full = mod.assembleHtmlDocument('<html><head><title>t</title></head><body><p>x</p></body></html>')
+      if (!/Content-Security-Policy/.test(full)) reasons.push('完整文档路径也必须带 CSP（分支漏一条等于没有）')
+      // 模型自己声明了 CSP 时以它为准，不覆盖。
+      const own = mod.assembleHtmlDocument('<html><head><meta http-equiv="Content-Security-Policy" content="default-src *"></head><body>x</body></html>')
+      if ((own.match(/Content-Security-Policy/g) ?? []).length !== 1) reasons.push('模型自带 CSP 时不得再注入第二份')
+    }
+
+    // ⑧ 流式期未闭合围栏 → pending 占位卡（本轮需求的核心）。
     //
     // 背景：模型写 HTML 卡片是逐字流出来的，几百行代码逐字往外冒既没法读又把
     // 对话流撑长。所以一出现 ```html 就该换成一张「预渲染中」的占位卡。
@@ -3854,6 +3963,31 @@ if (krEnabled) {
     reasons.push('piano.ts 快照的白键不得带 left 内联定位（白键靠 flex 等分，只有黑键才绝对定位）')
   }
 
+  // ⑩ form 卡的提交链路：填完必须真的有出口。
+  //
+  // 这条断言的来由是一次真实的**文档说谎**：form 的注入文档（kinds/form.ts 的
+  // doc 字段，直接进模型上下文）写着「卡内自带 submitLabel 提交按钮」，而外壳
+  // 的 FillRow 在重构中被整块删掉、Body 里 onFill 出现 0 次 —— 模型照着文档
+  // 造表单，用户填完发现没有提交按钮。功能空洞不会报错，只能靠断言钉住。
+  {
+    const formBodySrc = readFileSync(resolve(ROOT, 'src/client/iu/kinds/form.body.tsx'), 'utf8')
+    if (!/onFill/.test(formBodySrc)) reasons.push('form Body 必须消费 onFill（否则提交按钮无处可去）')
+    if (!/fillText/.test(formBodySrc)) reasons.push('form 提交必须复用 form.ts 的 fillText（不要在 Body 里重算文案）')
+    if (!/submitLabel/.test(formBodySrc)) reasons.push('提交按钮文案必须取 spec.submitLabel（文档对模型承诺的就是这个字段）')
+    const formSrc = readFileSync(resolve(ROOT, 'src/client/iu/kinds/form.ts'), 'utf8')
+    if (!/export function fillText/.test(formSrc)) reasons.push('form.ts 的 fillText 必须导出（Body 要直接调它）')
+    // 注入文档不得再承诺已不存在的能力，也不得漏掉新增的必填校验行为。
+    const docLine = /doc:\s*'([^']|\\')*'/.exec(formSrc)
+    if (docLine === null) reasons.push('form 的注入文档（doc）不见了')
+    else {
+      const docText = docLine[0]
+      if (!/submitLabel/.test(docText)) reasons.push('form 注入文档必须提到 submitLabel')
+      if (!/填入用户输入框|拼成文本/.test(docText)) reasons.push('form 注入文档必须说清提交产出的是什么')
+    }
+    // 截图快照必须含提交行，否则同一张卡在对话流与截图里长得不一样。
+    if (!/dtt-iu__form-submit/.test(formSrc)) reasons.push('form 的 snapshot 必须包含提交行（否则截图缺按钮）')
+  }
+
   if (reasons.length > 0) {
     fail('对话内 iu 卡片契约：' + reasons.join('；'))
   } else {
@@ -3863,6 +3997,156 @@ if (krEnabled) {
     pass('iu 卡片：图表可见性不依赖动画（无头截图 / 全局节流下不会变空卡）')
     pass('iu 卡片：钢琴 Web Audio 懒创建 + 指数包络 + 独立振荡器 + 悬停闸门')
     pass('iu 卡片：/iu 前缀式指令（不拦不改写、原文含前缀照发、源已注册 + 行为级验证）')
+    pass('iu 卡片：form 提交链路闭合（onFill + fillText + submitLabel + 截图快照对齐）')
+  }
+}
+
+// ── iu 快照转义探针（运行期，不是看源码） ────────────────────────────────
+//
+// 各 kind 的 snapshot() 都是手写字符串拼 HTML，而截图页跑在
+// --disable-web-security 的无头 Chrome 里 —— 一处漏 esc() 就等于任意脚本。
+//
+// 静态检查「源码里有没有写 esc」只能靠人眼，加一个 kind 就重新赌一次。
+// 这里改成运行期探针：把带引号/尖括号的样本塞进**每个** kind 的模型文本字段，
+// 跑一遍 snapshot()，断言输出里没有真的标签漏出来。漏了就是红。
+{
+  const reasons = []
+  if (typeof mod.IU_KIND_MAP !== 'object' || mod.IU_KIND_MAP === null) {
+    reasons.push('缺少 IU_KIND_MAP 导出（快照转义不可断言）')
+  } else {
+    // 危险样本：能闭合属性 / 开标签的字符都在里面。
+    const EVIL = 'x"><img src=x onerror=alert(1)><script>alert(2)</script>'
+    for (const [kind, k] of mod.IU_KIND_MAP) {
+      const samples = {
+        slider: { kind: 'slider', title: EVIL, desc: EVIL, unit: EVIL, outputs: [{ label: EVIL, per: 1, unit: EVIL }] },
+        checklist: { kind: 'checklist', title: EVIL, items: [{ label: EVIL, desc: EVIL }] },
+        tabs: { kind: 'tabs', title: EVIL, tabs: [{ label: EVIL, heading: EVIL, body: EVIL }] },
+        piano: { kind: 'piano', title: EVIL, desc: EVIL },
+        table: { kind: 'table', title: EVIL, columns: [{ key: 'a', label: EVIL }], rows: [[EVIL]] },
+        kanban: { kind: 'kanban', title: EVIL, columns: [{ id: 'c1', label: EVIL, cards: [{ id: 'k1', text: EVIL, desc: EVIL, tag: EVIL }] }] },
+        form: { kind: 'form', title: EVIL, desc: EVIL, submitLabel: EVIL, fields: [{ id: 'f1', label: EVIL, type: 'text', placeholder: EVIL }] },
+        diff: { kind: 'diff', title: EVIL, before: EVIL, after: EVIL, lang: EVIL },
+        timeline: { kind: 'timeline', title: EVIL, items: [{ label: EVIL, date: EVIL, body: EVIL }] },
+        tree: { kind: 'tree', title: EVIL, root: { label: EVIL, children: [{ label: EVIL }] } },
+        gauge: { kind: 'gauge', title: EVIL, desc: EVIL, gauges: [{ label: EVIL, value: 50, unit: EVIL }] },
+        quiz: { kind: 'quiz', title: EVIL, desc: EVIL, questions: [{ q: EVIL, options: [EVIL, 'b'], answer: 0, explain: EVIL }] },
+      }
+      const sample = samples[kind]
+      if (sample === undefined) { reasons.push(kind + '：新增 kind 必须在转义探针里补样本（否则它的快照没人守）'); continue }
+      const spec = k.parse(sample)
+      if (spec === undefined) { reasons.push(kind + '：示例 spec 解析失败，转义探针覆盖不到'); continue }
+      const html = k.snapshot(spec)
+      // 判据只看**未转义的 '<'+字母**（= 真标签）。不能查 "onerror=" 这类片段：
+      // esc 只转义 & < >，转义后的 &lt;img ... onerror=...&gt; 里仍含 "onerror="，
+      // 那是纯文本、安全，查它只会全员误报（实测过）。
+      // 我们自己的标签都是已知白名单，模型文本一旦逃逸就会出现陌生的标签名。
+      const tags = [...html.matchAll(/<\/?([a-zA-Z][a-zA-Z0-9-]*)/g)].map(m => m[1].toLowerCase())
+      const ALLOWED = new Set(['div','span','b','i','small','p','ul','li','svg','path','br','em','strong','code','pre','table','tr','td','th','thead','tbody','a','h1','h2','h3','h4','h5','h6','blockquote','hr','button','input','textarea','select','option','label','figure','g','line','circle','rect','text','tspan','defs','marker','polygon','polyline','use','title','desc','ellipse'])
+      const stray = tags.filter(t => !ALLOWED.has(t))
+      if (stray.length > 0) {
+        reasons.push(kind + '：snapshot() 漏转义（出现未转义标签：' + [...new Set(stray)].join(',') + '）')
+      }
+      // 模型文本里的 < 必须已变成 &lt;。
+      if (html.includes('<img') || html.includes('<script')) {
+        reasons.push(kind + '：snapshot() 输出了模型文本里的原始标签')
+      }
+      // 反向确认样本确实被塞进去了（否则探针是空转）。
+      if (!/&lt;|&quot;|&#/.test(html)) {
+        reasons.push(kind + '：快照里找不到任何转义实体（样本可能没进到输出，探针空转）')
+      }
+    }
+  }
+  if (reasons.length > 0) fail('iu 快照转义：' + reasons.join('；'))
+  else pass('iu 快照转义：12 个 kind 的模型文本全部以实体形式进 HTML（运行期探针）')
+}
+
+// ── 提示词与实现的一致性 ──────────────────────────────────────────────
+//
+// 提示词里对模型的每一条「沙箱事实」都必须有代码在背后兜着。写的时候是约定，
+// 不钉住就迟早变成两句互不相干的话：模型按一句话写，代码按另一句话执行。
+{
+  const reasons = []
+  const injectSrc = readFileSync(resolve(ROOT, 'src/triad/memory/engine/inject.ts'), 'utf8')
+  const bridgeSrc = readFileSync(resolve(ROOT, 'src/client/html-embed/bridge.ts'), 'utf8')
+  const pairs = [
+    ['CSP', /CSP|Content-Security-Policy/, /Content-Security-Policy/],
+    ['外链被拦', /外链一律被拦|外链全部|加载失败/, /default-src 'none'/],
+  ]
+  for (const [name, promptRe, codeRe] of pairs) {
+    const inPrompt = promptRe.test(injectSrc)
+    const inCode = codeRe.test(bridgeSrc)
+    if (inPrompt !== inCode) {
+      reasons.push(name + '：提示词与实现必须同时存在（提示词写了=' + inPrompt + '，代码做了=' + inCode + '）')
+    }
+  }
+  if (reasons.length > 0) fail('提示词/实现一致性：' + reasons.join('；'))
+  else pass('提示词与实现一致：外链拦截在文档与 CSP 两处同时成立')
+}
+
+// ── diagram / proto-tabs 的流式 pending 态 ──────────────────────────────
+//
+// 这两条通道长期**没有**流式态：围栏写到一半时半截 JSON 会以代码块逐字外冒，
+// 而它们的正文恰恰是模型最容易写长的一类。补上之后再钉一次——退化成「又是
+// 代码块」同样不会报错，只能靠断言。
+{
+  const reasons = []
+  const TICK = '```'
+  for (const [name, split, lang, body] of [
+    ['diagram', mod.splitDiagram, 'diagram', '{"type":"flowchart","nodes":[{"id":"a"'],
+    ['proto-tabs', mod.splitProtoTabs, 'proto-tabs', '{"title":"方案","tabs":[{"label":"A"'],
+  ]) {
+    if (typeof split !== 'function') {
+      reasons.push('缺少 split' + name + ' 导出（流式行为不可断言）')
+      continue
+    }
+    // ① 流式期未闭合围栏 → pending 占位卡。
+    const live = split('前文\n' + TICK + lang + '\n' + body, true)
+    const ph = live.find((p) => p.pending === true)
+    if (ph === undefined) reasons.push(name + '：流式期未闭合围栏必须产出 pending 占位卡')
+    else if (!(ph.bytes > 0)) reasons.push(name + '：占位卡必须带已写出的字节数')
+    // ② 定稿期未闭合 → 回退代码块（被截断的历史消息不该永远停在等待态）。
+    if (split(TICK + lang + '\n' + body, false).some((p) => p.pending === true)) {
+      reasons.push(name + '：非流式期的未闭合围栏必须回退成代码块')
+    }
+    // ③ 只有本语言才走占位，别的语言的半截围栏不得被吞。
+    if (split(TICK + 'js\nconst a = 1', true).some((p) => p.pending === true)) {
+      reasons.push(name + '：只有本语言的围栏才走占位卡')
+    }
+    // ④ 已闭合的非本语言围栏不得出卡（补 pending 不能把正常路径改坏）。
+    if (split(TICK + 'js\n1\n' + TICK).some((p) => p.kind !== 'md')) {
+      reasons.push(name + '：非本语言的闭合围栏不得出卡')
+    }
+    // ⑤ 围栏前的正文必须原样保留（否则流式期上文会被吞掉）。
+    const withHead = split('这里是正文\n' + TICK + lang + '\n' + body, true)
+    if (!withHead.some((p) => p.kind === 'md' && p.text.includes('这里是正文'))) {
+      reasons.push(name + '：未闭合围栏之前的正文必须原样保留')
+    }
+  }
+  // ⑥ 四条通道必须共用同一份未闭合围栏扫描器。
+  //
+  // 此前 findOpenFence 在 html-embed/parse.ts 与 iu/parse.ts 各有一份逐字相同的
+  // 副本；再加 diagram / proto 就是四份。任何一处判据变化都会让四条通道对同一段
+  // markdown 给出不同切分，而这种漂移不会报错。
+  for (const rel of [
+    'src/client/html-embed/parse.ts',
+    'src/client/iu/parse.ts',
+    'src/client/diagram/parse.ts',
+    'src/client/proto/parse.ts',
+  ]) {
+    const src = readFileSync(resolve(ROOT, rel), 'utf8')
+    if (!src.includes('shared/fence-scan.ts')) {
+      reasons.push(rel + ' 必须复用 src/shared/fence-scan.ts 的扫描器（不要再写本地副本）')
+    }
+    if (/function findOpenFence/.test(src)) {
+      reasons.push(rel + ' 不得再保留本地 findOpenFence 副本')
+    }
+  }
+
+  if (reasons.length > 0) {
+    fail('diagram / proto-tabs 流式契约：' + reasons.join('；'))
+  } else {
+    pass('diagram / proto-tabs：流式期未闭合围栏 → 占位卡，定稿回退代码块')
+    pass('四条卡片通道共用同一份围栏扫描器（src/shared/fence-scan.ts）')
   }
 }
 

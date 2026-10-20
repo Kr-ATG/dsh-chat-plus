@@ -92,7 +92,33 @@ function NodeView({ node, compact }: { readonly node: DiagramNode; readonly comp
   )
 }
 
-export const DiagramCard = memo(function DiagramCard({ spec }: {
+/**
+ * 流式占位（与 iu / html 同构）。
+ *
+ * 刻意写成返回 JSX 的普通函数而非组件：闭合那一刻必须复用同一个 <figure>，
+ * 卡片才会「原地变成真身」而不是卸载重建。
+ */
+function pendingStage(bytes: number): JSX.Element {
+  return (
+    <div className="dtt-dg-stage--pending" aria-busy="true" aria-live="polite">
+      <span className="dtt-dg-pending-dot" />
+      <span className="dtt-dg-pending-text">正在绘制…</span>
+      <span className="dtt-dg-pending-bytes">{bytes} 字</span>
+    </div>
+  )
+}
+
+export const DiagramCard = memo(function DiagramCard({ spec, pending = false, bytes = 0 }: {
+  readonly spec?: DiagramSpec | undefined
+  /** 流式期围栏未闭合 → 只渲染占位，不解析半截 JSON。 */
+  readonly pending?: boolean
+  readonly bytes?: number
+}): JSX.Element | null {
+  if (pending || spec === undefined) return <figure className="dtt-diagram">{pendingStage(bytes)}</figure>
+  return <DiagramLive spec={spec} />
+})
+
+const DiagramLive = memo(function DiagramLive({ spec }: {
   readonly spec: DiagramSpec
 }): JSX.Element {
   const uid = useId().replace(/:/g, '')

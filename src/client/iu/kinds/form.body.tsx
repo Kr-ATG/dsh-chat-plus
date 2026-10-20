@@ -2,8 +2,11 @@
  * iu kind **form** 的 React 体（client 专用）。
  *
  * ## Body 契约（务必遵守，见 bodies.ts 头注释）
- *  · 只渲染「Head 之后、FillRow 之前」的正文，不要自己画 Head / FillRow；
- *    提交按钮就是外壳的 FillRow（submitLabel 是它的文案），Body 不重复画。
+ *  · 只渲染「Head 之后」的正文，不要自己画 Head；
+ *  · **提交按钮由本 Body 自绘**（文案 = spec.submitLabel）。这是唯一一个
+ *    自带动作入口的 kind：外壳的 FillRow 已于 2026-09 移除，而表单填完
+ *    没有出口就是一张废卡。回写文案统一走 form.ts 的 fillText，不在
+ *    这里重算（否则 Body 与截图/冒烟会各说各话）。
  *  · DOM 结构必须与同名 form.ts 里的 `snapshot()` **逐字对齐**（class、层级、
  *    顺序），否则截图会长歪；
  *  · 本地状态一律走 props 的 `state` / `setState`，**不要**自己 useState——
@@ -13,9 +16,12 @@
  * 失焦/交互过（touched）之后才显示——不一上来就报红。
  */
 
-import { memo, useCallback } from 'react'
+import { memo, useCallback, useMemo } from 'react'
 import type { IuBodyProps } from './bodies.ts'
-import { isFieldEmpty, safeTouched, safeValues, type FormState, type IuFormField, type IuFormSpec } from './form.ts'
+import {
+  fillText, isFieldEmpty, safeTouched, safeValues,
+  type FormState, type IuFormField, type IuFormSpec,
+} from './form.ts'
 
 /** 勾选框里的对勾 SVG（与 form.ts 的 CHECK_SVG 同一份路径，两边必须一致）。 */
 function CheckMark(): JSX.Element {
@@ -46,10 +52,43 @@ function errText(field: IuFormField): string {
 }
 
 export const FormBody = memo(function FormBody(
-  { spec, state, setState }: IuBodyProps<FormState, IuFormSpec>,
+  { spec, state, setState, onFill }: IuBodyProps<FormState, IuFormSpec>,
 ): JSX.Element {
   const values = safeValues(state)
   const touched = safeTouched(state)
+
+  /**
+   * 必填字段是否还有空的。
+   *
+   * 提交按钮在有必填项未填时**不禁用**，改为点击后把没填过的字段标成
+   * touched（触发一次校验红字）：禁用按钮只会让人不知道还差什么，而
+   * 「点一下、红出来」是自解释的。
+   */
+  const missing = useMemo(
+    () => spec.fields.filter((f) => f.required && isFieldEmpty(f, values[f.id])),
+    [spec.fields, values],
+  )
+
+  /**
+   * 提交：把整张表按 fillText 拼成文本，交给外壳的回写通道。
+   *
+   * 有必填项没填时只标 touched 并返回——**不改变已填内容**，用户补完再点
+   * 一次即可（顺手把红字消掉）。全部合规才真的回写。
+   */
+  const submit = useCallback((): void => {
+    if (missing.length > 0) {
+      setState((prev) => {
+        const t = safeTouched(prev)
+        const next = [...t]
+        for (const f of missing) if (!next.includes(f.id)) next.push(f.id)
+        return next.length === t.length ? {} : { touched: next }
+      })
+      return
+    }
+    // 没有回写通道（独立预览 / 截图管线）时什么也不做，不假装成功。
+    if (onFill === undefined) return
+    onFill(fillText(spec, state))
+  }, [missing, onFill, setState, spec, state])
 
   /** 更新单个字段值（函数式补丁，避免并发/闭包读到旧 state；prev 也过一遍防御）。 */
   const patchValue = useCallback((id: string, v: string | boolean): void => {
@@ -160,6 +199,22 @@ export const FormBody = memo(function FormBody(
           )
         })}
       </div>
+      {/*
+        提交行：只在有回写通道时出现。
+        没有 onFill 的场合（独立预览、截图管线）画一个点了没反应的按钮，
+        正是我们要消灭的「假按钮」——那种东西比没有按钮更伤。
+      */}
+      {onFill !== undefined && (
+        <div className="dtt-iu__form-submit">
+          <button
+            type="button"
+            className="dtt-iu__form-submit-btn"
+            onClick={submit}
+          >
+            {spec.submitLabel}
+          </button>
+        </div>
+      )}
     </>
   )
 })

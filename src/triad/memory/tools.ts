@@ -80,6 +80,10 @@ export function registerMemoryTools(
         const disabledMark = entry.disabled === true ? '〔已禁用·不参与注入〕' : ''
         // 软废弃条目（includeDeprecated 时才出现）：标注废弃状态。
         const deprecatedMark = entry.deprecated === true ? '〔已废弃·retire/revise 标记〕' : ''
+        // pending 条目不会经由检索出现（searchEntries 恒定排除），但保留这个标记
+        // 是为了兜底：万一将来有别的路径把 pending 带进结果集，模型也不会误以为
+        // 它已生效。宁可白写一行，不要靠「调用方一定会过滤」这种隐式契约。
+        const pendingMark = entry.pending === true ? '〔待确认·未生效〕' : ''
         const rel = query.trim() !== '' ? `·相关${Math.round(score * 100)}%` : ''
         // 单条正文截断：一条超长记忆（用户手记一整份规范）会把整个结果的预算
         // 吃掉，后面几条直接进不了输出。按条截断后每条都保留「开头 + 省略号」，
@@ -89,7 +93,7 @@ export function registerMemoryTools(
           : entry.content
         // id 必须输出：memory_pin / memory_tag / memory_forget 都以 entryId 为入参，
         // 而它们的唯一来源就是本工具的结果。
-        return `${entry.id} ${head}[${entry.importance}] ${scope}${layer}: ${body}${disabledMark}${deprecatedMark}${verified}${rel}${tags}`
+        return `${entry.id} ${head}[${entry.importance}] ${scope}${layer}: ${body}${disabledMark}${deprecatedMark}${pendingMark}${verified}${rel}${tags}`
       })
       return capSearchOutput(lines)
     },
@@ -374,6 +378,86 @@ export function registerMemoryTools(
     },
   })))
 
+  // ── memory_pending ──────────────────────────────────────────────────
+  //
+  // 待确认制的工具面。为什么不复用 memory_verify：verify 只改可信度标记、
+  // 不改可见性；pending 是可见性闸门，确认后要同时做「清 pending + 置 verified」，
+  // 塞进 verify 会让那个工具的语义变成二义的（同一次调用既可能只是标可信、
+  // 也可能顺手放行一条从未生效的记忆）。
+  disposers.push(ctx.tools.register(textTool({
+    name: 'memory_pending',
+    description: '列出待确认的自动记忆（pending）。这些是模型自动抽取、但用户还没确认的内容，不参与注入与检索。确认用 memory_confirm，拒绝用 memory_reject。',
+    parameters: {
+      limit: { type: 'number', description: '最多返回条数（默认 10）。' },
+    },
+    async execute(args) {
+      const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 10
+      const pending = await store.listPending()
+      if (pending.length === 0) return '当前没有待确认的记忆。'
+      const shown = pending.slice(0, limit).map(entry => {
+        const age = entry.pendingAt !== undefined ? entry.pendingAt.slice(0, 10) : entry.updatedAt.slice(0, 10)
+        return `- ${entry.id}  [${entry.scope}] ${age}  ${summarize(entry.content)}`
+      })
+      const more = pending.length > shown.length ? `\n（另有 ${pending.length - shown.length} 条未显示）` : ''
+      return `待确认记忆 ${pending.length} 条（不等于已生效，确认前不参与注入）：\n${shown.join('\n')}${more}`
+    },
+  })))
+
+  // ── memory_confirm ──────────────────────────────────────────────────
+  disposers.push(ctx.tools.register(textTool({
+    name: 'memory_confirm',
+    description: '确认一条待确认记忆，让它正式生效（此后参与注入与检索）。只应在用户明确认可该内容时调用，不要自己替用户确认。',
+    parameters: {
+      entryId: { type: 'string', required: true, description: '待确认条目的 id（用 memory_pending 获取）。' },
+    },
+    async execute(args) {
+      const id = String(args.entryId ?? '')
+      if (id === '') throw new Error('entryId 不能为空')
+      const entry = await store.confirmPending(id)
+      if (entry === undefined) throw new Error(`记忆不存在：${id}`)
+      await store.appendChange({
+        action: 'update',
+        entryId: entry.id,
+        scope: entry.scope,
+        projectHash: entry.projectHash,
+        summary: `确认生效：${summarize(entry.content)}`,
+        after: entry.content,
+      })
+      await compileAll(store, config)
+      return `已确认并生效：${summarize(entry.content)}`
+    },
+  })))
+
+  // ── memory_reject ───────────────────────────────────────────────────
+  disposers.push(ctx.tools.register(textTool({
+    name: 'memory_reject',
+    description: '拒绝（删除）一条待确认记忆。只能删待确认条目——已生效的记忆不可用本工具删除（请用 memory_forget）。',
+    parameters: {
+      entryId: { type: 'string', required: true, description: '待确认条目的 id（用 memory_pending 获取）。' },
+    },
+    async execute(args) {
+      const id = String(args.entryId ?? '')
+      if (id === '') throw new Error('entryId 不能为空')
+      const entry = await store.rejectPending(id)
+      // 拒绝已生效条目是危险误操作（用户以为在清「待确认」，实际删了真记忆）。
+      // 这里不静默返回 undefined，而是明确报错并指路到 memory_forget。
+      if (entry === undefined) {
+        const existing = await store.getEntry(id)
+        if (existing === undefined) throw new Error(`记忆不存在：${id}`)
+        throw new Error('该记忆不是待确认状态（已生效），拒绝操作被忽略。要删除已生效记忆请用 memory_forget。')
+      }
+      await store.appendChange({
+        action: 'delete',
+        entryId: entry.id,
+        scope: entry.scope,
+        projectHash: entry.projectHash,
+        summary: `拒绝待确认：${summarize(entry.content)}`,
+        before: entry.content,
+      })
+      await compileAll(store, config)
+      return `已拒绝并删除：${summarize(entry.content)}`
+    },
+  })))
   return () => {
     for (const dispose of disposers) dispose()
   }
@@ -462,6 +546,9 @@ const TOOL_PRESENTATION: Record<string, { kind: 'read' | 'other'; title: (args: 
   memory_forget: { kind: 'other', title: args => `删除：${String(args.entryId ?? '')}` },
   memory_revise: { kind: 'other', title: args => `修订：${String(args.entryId ?? '')}` },
   memory_retire: { kind: 'other', title: args => `废弃：${String(args.entryId ?? '')}` },
+  memory_pending: { kind: 'other', title: () => '待确认的记忆' },
+  memory_confirm: { kind: 'other', title: args => `确认：${String(args.entryId ?? '')}` },
+  memory_reject: { kind: 'other', title: args => `拒绝：${String(args.entryId ?? '')}` },
   memory_consolidate: { kind: 'other', title: () => '整理记忆' },
 }
 

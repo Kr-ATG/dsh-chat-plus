@@ -22,6 +22,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { HtmlSpec } from './parse.ts'
 import { assembleHtmlDocument, BRIDGE_TO_FRAME, BRIDGE_TO_HOST, MAX_FRAME_HEIGHT, MIN_FRAME_HEIGHT } from './bridge.ts'
+import { noteConversationScrollIntent } from '../kr-chat/scroll-guard.ts'
 
 /** 主题属性（与官方 ui-theme boot 脚本一致）。 */
 const THEME_ATTR = 'data-ds-dark-theme'
@@ -370,6 +371,19 @@ function SandboxFrame({ doc, dark, fullscreen, reloadKey, zoom, stateKey, onHeig
         const clean = data.text.trim().slice(0, 2000)
         if (clean === '') return
         try { onFillRef.current?.(clean) } catch { /* 写回失败不影响卡片 */ }
+        return
+      }
+      /*
+       * ③c 滚动意图：卡片里发生了 wheel / pointerdown / 滚动键。
+       *
+       * iframe 是独立文档，这些事件**不会冒泡到宿主文档**，而对话流的滚动守卫
+       * 靠它们区分「用户自己滚」和「官方跟随拽人」。不收这一条，鼠标停在 html
+       * 卡片上滚动就会被守卫当成拽人回滚（实测：一格滚轮恰好落底时必现）。
+       *
+       * 只当作一个时间戳用，不读任何其它字段 —— 这条通道不扩大沙箱边界。
+       */
+      if (data.kind === 'scroll-intent') {
+        try { noteConversationScrollIntent() } catch { /* 登记失败不该影响卡片 */ }
         return
       }
       if (data.kind !== 'height') return

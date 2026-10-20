@@ -32,6 +32,16 @@ export interface MemoryEntryView {
   kind: MemoryKind
   /** 上次注入命中时间（null=从未命中）。 */
   lastHitAt: string | null
+  /**
+   * 待确认（true = 自动抽取但用户尚未确认）。
+   *
+   * 语义是**可见性闸门**，与 verified（可信度标记）正交：
+   * pending 条目仍在库里、面板可见，但不参与检索/注入/编译。
+   * 缺省/undefined = 已生效（老数据与手动记忆都是这个语义）。
+   */
+  pending?: boolean
+  /** 进入待确认状态的时间 ISO（仅 pending=true 时有值，供面板排序）。 */
+  pendingAt?: string
 }
 
 /** 记忆类型（host MemoryKind 镜像）。 */
@@ -502,6 +512,18 @@ export interface MemoryApi {
   retire: (entryId: string, reason?: string) => Promise<{ ok: boolean; entry: MemoryEntryView }>
   /** 复活已废弃记忆。 */
   restore: (entryId: string) => Promise<{ ok: boolean; entry: MemoryEntryView }>
+  /**
+   * 确认一条待确认（pending）记忆：清挂起标记 + 置 verified，此后参与注入与检索。
+   *
+   * 与 verify() 的区别：verify 只改可信度标记、不改可见性；confirm 是可见性闸门，
+   * 它在同一个动作里做两件事（放行 + 标记可信）。分成两个调用会让「已确认但未验证」
+   * 这种没人看得懂的状态漏到界面上。
+   */
+  confirmPending: (entryId: string) => Promise<{ ok: boolean; entry: MemoryEntryView }>
+  /** 拒绝并删除一条待确认记忆（只能作用于 pending；已生效条目会被 host 拒绝）。 */
+  rejectPending: (entryId: string) => Promise<{ ok: boolean }>
+  /** 待确认列表（面板「待确认」页签的数据源）。 */
+  listPending: () => Promise<{ entries: MemoryEntryView[]; total: number }>
 }
 
 /** 构造面板 API 面。 */
@@ -587,5 +609,8 @@ export function createMemoryApi(): MemoryApi {
     revise: (entryId, input) => sendJson<{ ok: boolean; deprecatedId: string; newId: string; entry: MemoryEntryView }>('/revise', { entryId, ...input }).then(withEntry) as Promise<{ ok: boolean; deprecatedId: string; newId: string; entry: MemoryEntryView }>,
     retire: (entryId, reason) => sendJson<{ ok: boolean; entry: MemoryEntryView }>('/retire', { entryId, reason }).then(withEntry),
     restore: (entryId) => sendJson<{ ok: boolean; entry: MemoryEntryView }>('/restore', { entryId }).then(withEntry),
+    confirmPending: (entryId) => sendJson<{ ok: boolean; entry: MemoryEntryView }>('/confirm', { entryId }).then(withEntry),
+    rejectPending: (entryId) => sendJson<{ ok: boolean }>('/reject', { entryId }),
+    listPending: () => getJson<{ entries: MemoryEntryView[]; total: number }>('/pending'),
   }
 }

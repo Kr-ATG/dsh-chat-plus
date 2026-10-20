@@ -68,9 +68,10 @@ export interface IuKind<S extends IuState = IuState, Spec extends IuSpecBase = I
   /**
    * 把当前状态拼成一句可读的话（必须含真实数值）。
    *
-   * 卡片底栏的「填入输入框」按钮已移除，本字段目前只剩**对外契约**意义：
-   * 回写文案生成器仍是 kind 必须实现的能力（smoke 直接断言它的输出），
-   * 今后若在 Body 里自绘回写入口，仍走这一份文案，不要在 Body 里重算。
+   * 外壳底栏的「填入输入框」按钮已移除，但 kind 仍必须实现它：
+   *  · form 的 Body 提交按钮直接调它（唯一消费点，2026-10 补回）；
+   *  · smoke 直接断言它的输出（回写文案不能被悄悄改坏）。
+   * 今后若在其它 Body 里自绘回写入口，一律走这一份文案，不要在 Body 里重算。
    */
   readonly fillText: (spec: Spec, state: S) => string
   /**

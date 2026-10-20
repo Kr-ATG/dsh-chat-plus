@@ -5,10 +5,10 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
-import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
+import { copyFileSync, existsSync, readdirSync, readFileSync, renameSync, unlinkSync } from 'node:fs'
+import { copyFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type {
   ChangeRecord,
   MemoryConfig,
@@ -50,6 +50,133 @@ export function nowIso(): string {
   return new Date().toISOString()
 }
 
+// ── 持久化韧性：快照链 + 读回校验 + 三级恢复 ──────────────────────────
+//
+// 背景：原来只有「tmp + rename」的原子写。原子写保证的是「要么旧内容、要么
+// 新内容，不会有半截」，它**不保证新内容写对了**——实测出过
+// `EPERM: rename state.json.tmp -> state.json`（Windows 上目标文件被别的
+// 进程短暂占用），以及历史上 entries.json 整份变成 NUL 的事故。前者当场抛错
+// 还好，后者是**静默**的：文件还在、大小也没归零，只是内容不再是 JSON，
+// 下次启动 readJsonSync 吞掉异常返回 fallback → 整库记忆凭空消失，且没有任何
+// 一处报错。这份数据没有远程副本，丢了就是丢了。
+//
+// 三道防线，对应三种不同的坏法：
+//   ① 写前快照：覆盖之前把**旧的好文件**复制一份 `.bak-<ISO>`，留 3 代。
+//      治「新内容坏 / 写入过程中断电」。
+//   ② 写后读回校验：写完重新读一遍，确认内容完好。治「rename 成功但落盘内容
+//      不对」（磁盘满、杀软改写、NUL 填充）。不通过就抛错，绝不静默成功。
+//   ③ 加载恢复链：主文件坏 → 依次试快照（新到旧）→ 全坏则把坏文件改名成
+//      `.corrupt-<ISO>` 留证（**不清空、不覆盖**），以空库启动并大声报错。
+//
+// 两条刻意的取舍：
+//   · **只对 entries.json / state.json 这类 JSON 开快照**，md 产物与 changes
+//     JSONL 不开——前者可从 entries 重建，后者是只追加的流水，快照纯属浪费。
+//     atomicWriteText 因此保留 snapshot=false 的快速路径。
+//   · 快照只在「现有文件完好」时做。现有文件已经坏了还复制一份，只会把更早
+//     的好快照挤出保留窗口——这正是「快照链被坏数据占满」的经典死法。
+
+/** 快照保留代数。3 代覆盖「连续三次写坏」的极端情况，再多只是在堆历史垃圾。 */
+const SNAPSHOT_KEEP = 3
+
+/** 判断一份载荷是否完好：能 JSON.parse，且不是 NUL 主导。 */
+function isHealthyPayload(raw: string): boolean {
+  if (raw.length === 0) return false
+  // NUL 主导 = 典型文件系统事故（断电/杀软）。先判这个，是为了让错误信息说人话
+  // ——「内容被 NUL 填充」比「Unexpected token」有用得多。
+  const nulCount = (raw.match(/\0/g) ?? []).length
+  if (nulCount / raw.length > 0.1) return false
+  try {
+    JSON.parse(raw)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 列出某文件的快照（新 → 旧）。 */
+function listSnapshots(file: string): string[] {
+  const dir = dirname(file)
+  const prefix = basename(file) + '.bak-'
+  try {
+    return readdirSync(dir)
+      .filter(name => name.startsWith(prefix))
+      .sort()
+      .reverse()
+      .map(name => join(dir, name))
+  } catch {
+    return []
+  }
+}
+
+/** 剪枝快照：只留最新 keep 代。失败不影响主流程。 */
+function pruneSnapshots(file: string, keep = SNAPSHOT_KEEP): void {
+  for (const stale of listSnapshots(file).slice(keep)) {
+    try { unlinkSync(stale) } catch { /* 被占用/已删，忽略 */ }
+  }
+}
+
+/**
+ * 写前快照：把当前磁盘上的**好文件**复制一份。
+ *
+ * 文件不存在（首次写）、或现有内容已经坏了（复制坏数据会挤掉更早的好快照）
+ * 都直接跳过。快照失败也不阻断写入——最坏是回到「只有原子写」的旧水位。
+ */
+function snapshotBeforeWrite(file: string): void {
+  let raw: string
+  try {
+    raw = readFileSync(file, 'utf8')
+  } catch {
+    return
+  }
+  if (!isHealthyPayload(raw)) return
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  try {
+    copyFileSync(file, file + '.bak-' + stamp)
+    pruneSnapshots(file)
+  } catch {
+    // 快照失败不阻断写入。
+  }
+}
+
+/**
+ * 写后读回校验：确认刚落盘的内容确实完好。
+ *
+ * 只对 JSON 调用（isJson=true）。校验失败时把文件恢复成快照里的上一代——
+ * 留着坏文件比退回上一个好版本更糟。恢复也失败就算了，至少错误抛出去了。
+ */
+async function verifyAfterWrite(file: string, expectedBytes: number): Promise<void> {
+  let actual: string
+  try {
+    actual = await readFile(file, 'utf8')
+  } catch (error) {
+    throw new Error('atomicWrite: 写入后读回失败（' + file + '）：' + (error instanceof Error ? error.message : String(error)))
+  }
+  // 字节数先比一遍：NUL 填充/截断这类问题在 parse 之前就能看出来，
+  // 且能区分「内容被改」与「内容压根没写完」。
+  if (Buffer.byteLength(actual, 'utf8') !== expectedBytes) {
+    await restoreFromSnapshot(file)
+    throw new Error(
+      'atomicWrite: 写后字节数不符（' + file + '，期望 ' + expectedBytes + '，实际 ' + Buffer.byteLength(actual, 'utf8') + '），已尝试回滚到上一份快照',
+    )
+  }
+  if (!isHealthyPayload(actual)) {
+    await restoreFromSnapshot(file)
+    throw new Error('atomicWrite: 写后内容损坏（' + file + '），已尝试回滚到上一份快照')
+  }
+}
+
+/** 把文件恢复成最新一份完好快照（读回校验失败时用）。失败静默——错误由调用方抛。 */
+async function restoreFromSnapshot(file: string): Promise<void> {
+  for (const snapshot of listSnapshots(file)) {
+    try {
+      if (!isHealthyPayload(readFileSync(snapshot, 'utf8'))) continue
+      await copyFile(snapshot, file)
+      return
+    } catch {
+      continue
+    }
+  }
+}
 /**
  * 原子写文本：tmp + rename（同一目录内）。
  *
@@ -65,7 +192,7 @@ export function nowIso(): string {
  * 的是 A 的内容，B 落盘的是 B 的内容，最后一个 rename 的胜出即最新写入。
  */
 export async function atomicWriteText(file: string, content: string): Promise<void> {
-  await mkdir(join(file, '..'), { recursive: true })
+  await mkdir(dirname(file), { recursive: true })
   const temp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`
   try {
     await writeFile(temp, content, 'utf8')
@@ -77,9 +204,18 @@ export async function atomicWriteText(file: string, content: string): Promise<vo
   }
 }
 
-/** 原子写 JSON。 */
+/**
+ * 原子写 JSON：在原子写之上再叠「写前快照 + 写后读回校验」。
+ *
+ * 只给 JSON 用：md 产物与 changes JSONL 不开快照（前者可从 entries 重建，
+ * 后者是只追加的流水，快照纯属浪费）；读回校验也只对 JSON 有意义——
+ * 它的判据是「能不能 parse」，对 md 无从判断。
+ */
 export async function atomicWriteJson(file: string, value: unknown): Promise<void> {
-  await atomicWriteText(file, `${JSON.stringify(value, null, 2)}\n`)
+  const content = `${JSON.stringify(value, null, 2)}\n`
+  snapshotBeforeWrite(file)
+  await atomicWriteText(file, content)
+  await verifyAfterWrite(file, Buffer.byteLength(content, 'utf8'))
 }
 
 /** 读取 JSON，缺失/损坏返回 fallback。 */
@@ -193,12 +329,13 @@ export class MemoryStore {
   /** 节流回刷计时器。 */
   private flushTimer: ReturnType<typeof setTimeout> | null = null
 
+  /** 构造时加载失败的说明（空串 = 正常）。供 index.ts 打日志用。 */
+  readonly loadWarning: string
+
   constructor(root = memoryHome()) {
     this.root = root
-    const data = readJsonSync<{ version: 1 | 2; entries: unknown }>(
-      this.entriesFile(),
-      { version: 2, entries: [] },
-    )
+    const { data, warning } = loadEntriesWithRecovery(this.entriesFile())
+    this.loadWarning = warning
     this.entries = migrateEntries(data.entries)
   }
 
@@ -325,6 +462,8 @@ export class MemoryStore {
     kind?: MemoryKind
     confidence?: number
     provenance?: { sessionId?: string; turn?: number; snippet?: string }
+    /** 待确认（true = 挂起，不参与检索/注入/编译）。缺省 = 直接生效。 */
+    pending?: boolean
   }): Promise<{ created: boolean; entry: MemoryEntry }> {
     return this.mutateEntries(entries => {
       const id = entryIdOf(next.content, next.scope, next.projectHash)
@@ -348,6 +487,14 @@ export class MemoryStore {
           // 更新分支同样刷新溯源：本会话既动了它，本会话就该看得见（KR 记忆卡
           // 按 provenance.sessionId 判定「本会话新增/更新」）。
           provenance: next.provenance ?? revived.provenance,
+          // pending 只在调用方**明确**传值时改：undefined 表示「不关心」而非
+          // 「改成已生效」，否则一次普通的 upsert（比如面板改标签）会顺手把
+          // 待确认条目放行——那是把确认权白白送掉。
+          ...(next.pending === undefined
+            ? {}
+            : next.pending
+              ? { pending: true as const, pendingAt: revived.pendingAt ?? now }
+              : { pending: undefined, pendingAt: undefined }),
         }
         entries.splice(entries.indexOf(existing), 1, entry)
         return { created: false, entry }
@@ -371,6 +518,7 @@ export class MemoryStore {
         kind: next.kind ?? inferKind(next.tags),
         provenance: next.provenance,
         embedding: undefined,
+        ...(next.pending === true ? { pending: true as const, pendingAt: now } : {}),
       }
       entries.push(entry)
       return { created: true, entry }
@@ -548,6 +696,61 @@ export class MemoryStore {
     })
   }
 
+
+  /**
+   * 确认一条待确认（pending）记忆：清掉 pending 标记，同时置 verified=true。
+   *
+   * 为什么确认要连带 verified：用户点「确认」表达的就是「这条内容我认可」，
+   * 与 memory_verify 的语义完全一致。分两步置位只会让面板出现「已确认但未验证」
+   * 这种没人看得懂的状态。
+   *
+   * 对非 pending 条目调用是幂等的（直接返回原条目），重复确认不会报错——
+   * 面板双击、两个标签页同时点，都是常态。
+   */
+  async confirmPending(id: string): Promise<MemoryEntry | undefined> {
+    return this.mutateEntries(entries => {
+      const index = entries.findIndex(entry => entry.id === id)
+      if (index === -1) return undefined
+      const current = entries[index]
+      if (current.pending !== true) return current
+      const entry: MemoryEntry = {
+        ...current,
+        pending: undefined,
+        pendingAt: undefined,
+        verified: true,
+        updatedAt: nowIso(),
+        version: current.version + 1,
+      }
+      entries[index] = entry
+      return entry
+    })
+  }
+
+  /**
+   * 拒绝一条待确认记忆：直接硬删。
+   *
+   * 为什么不走软废弃：pending 条目从未生效过（没进过任何上下文），不承载历史，
+   * 留一条 deprecated 记录只会在回收站里堆垃圾。用户点「不要」的意图就是「这条
+   * 从来没存在过」。
+   *
+   * 只删 pending 的：对已生效条目误调会返回 undefined 而不动数据——拒绝是危险
+   * 操作，必须只能作用于「本来就还没生效」的东西（对齐 engram_reject 的同一约束）。
+   */
+  async rejectPending(id: string): Promise<MemoryEntry | undefined> {
+    return this.mutateEntries(entries => {
+      const index = entries.findIndex(entry => entry.id === id)
+      if (index === -1) return undefined
+      const current = entries[index]
+      if (current.pending !== true) return undefined
+      entries.splice(index, 1)
+      return current
+    })
+  }
+
+  /** 全部待确认条目（面板「待确认」页签与过期清理用）。 */
+  async listPending(): Promise<MemoryEntry[]> {
+    return this.entries.filter(entry => entry.pending === true)
+  }
   /** 注入命中刷新（原子）：给命中的条目加分并刷新 lastHitAt，返回刷新条数。 */
   async applyHits(hitIds: Set<string>, bonus: number): Promise<number> {
     return this.mutateEntries(entries => {
@@ -1151,6 +1354,75 @@ export function summarize(content: string, max = 80): string {
 
 // ── schema v1 → v2 迁移与记忆类型推断 ────────────────────────────────
 
+/** 加载结果：数据 + 需要人看见的告警（空 = 一切正常）。 */
+interface LoadOutcome {
+  data: { version: 1 | 2; entries: unknown }
+  warning: string
+}
+
+const EMPTY_STORE: { version: 1 | 2; entries: unknown } = { version: 2, entries: [] }
+
+/**
+ * 加载 entries.json，带三级恢复链。
+ *
+ *   ① 主文件完好 → 直接用；
+ *   ② 主文件坏 → 依次试 .bak 快照（新到旧），用第一份完好的；
+ *   ③ 全坏 → 主文件改名成 .corrupt-<ISO> 留证（**不删、不覆盖**），返回空库。
+ *
+ * 为什么不静默 fallback：原来 readJsonSync 吞掉异常返回空数组，于是「文件坏了」
+ * 与「库本来就是空的」在调用方完全无法区分——两者的处置天差地别（前者要告警+
+ * 人工介入，后者完全正常）。这里把结论塞进 warning 里带出去，由 index.ts 打日志。
+ *
+ * 为什么留证而不是删掉坏文件：坏文件里可能还有部分可解析的行，人工能捞。
+ * 直接删掉才是真的丢。
+ */
+function loadEntriesWithRecovery(file: string): LoadOutcome {
+  let raw: string
+  try {
+    raw = readFileSync(file, 'utf8')
+  } catch {
+    // 读取失败分两种：文件不存在（首次运行，完全正常）与权限/IO 问题（要告警）。
+    return { data: EMPTY_STORE, warning: existsSync(file) ? 'entries.json 存在但读取失败，按空库启动' : '' }
+  }
+  if (isHealthyPayload(raw)) {
+    try {
+      return { data: JSON.parse(raw) as { version: 1 | 2; entries: unknown }, warning: '' }
+    } catch {
+      // isHealthyPayload 已经 parse 过一遍，这里不该失败；真失败了按坏文件处理。
+    }
+  }
+  // 主文件坏：找最新一份完好快照。
+  for (const snapshot of listSnapshots(file)) {
+    try {
+      const backupRaw = readFileSync(snapshot, 'utf8')
+      if (!isHealthyPayload(backupRaw)) continue
+      const data = JSON.parse(backupRaw) as { version: 1 | 2; entries: unknown }
+      // 恢复后立刻把主文件写回好的内容，否则下一次写又会以坏文件为基线做快照。
+      try {
+        renameSync(file, file + '.corrupt-' + new Date().toISOString().replace(/[:.]/g, '-'))
+      } catch { /* 改名失败就让它被覆盖，至少数据是对的 */ }
+      try {
+        copyFileSync(snapshot, file)
+      } catch { /* 复制失败不阻断：内存里已经是对的，下次 flush 会重写 */ }
+      const n = Array.isArray((data as { entries?: unknown }).entries) ? (data as { entries: unknown[] }).entries.length : 0
+      return {
+        data,
+        warning: 'entries.json 损坏，已从快照 ' + basename(snapshot) + ' 恢复（' + n + ' 条）；坏文件已改名保留',
+      }
+    } catch {
+      continue
+    }
+  }
+  // 全坏：留证，空库启动。
+  const corrupt = file + '.corrupt-' + new Date().toISOString().replace(/[:.]/g, '-')
+  try {
+    renameSync(file, corrupt)
+  } catch { /* 改名失败也别拦着启动 */ }
+  return {
+    data: EMPTY_STORE,
+    warning: 'entries.json 与全部快照均损坏，已改名保留为 ' + basename(corrupt) + '，本次以空库启动',
+  }
+}
 /** 同步读 JSON（构造时用，容错返回 fallback）。 */
 function readJsonSync<T>(file: string, fallback: T): T {
   try {
@@ -1210,6 +1482,14 @@ function migrateEntries(entries: unknown): MemoryEntry[] {
       lastConsolidatedAt: typeof entry.lastConsolidatedAt === 'string' ? entry.lastConsolidatedAt : undefined,
       // disabled 是可选字段：仅 true 时保留（undefined=启用，落盘不冗余）。
       ...(entry.disabled === true ? { disabled: true } : {}),
+      // schema v5：待确认字段（仅 pending=true 时保留，undefined=已生效）。
+      // 与 disabled 同一口径：缺省的「已生效」不写进 JSON，避免全库条目多两个字段。
+      ...(entry.pending === true
+        ? {
+            pending: true as const,
+            pendingAt: typeof entry.pendingAt === 'string' ? entry.pendingAt : nowIso(),
+          }
+        : {}),
       // schema v3：软废弃字段（仅真实废弃时保留）。
       ...(entry.deprecated === true
         ? {

@@ -51,6 +51,7 @@ import {
   generatedUrlCache,
   inTimeRange,
   KIND_LABEL,
+  materializeGenerated,
   officeRenderable,
   parseTimeQuery,
   presetRange,
@@ -67,6 +68,7 @@ import { ensureGalleryStyles } from './styles.js'
 import { canInlinePreview, MediaLightbox } from './media-lightbox.js'
 import { openWorkspacePreview } from '../../open-preview.js'
 import { getClientCtx } from '../../client-ctx.js'
+import { openWithDefaultApp } from '../../open-default-app.js'
 
 /** 类别 chips 的展示顺序（全部之后，按产出频率排）。 */
 const KIND_ORDER: readonly GalleryKind[] = ['image', 'page', 'video', 'pdf', 'slide', 'sheet', 'doc', 'audio']
@@ -559,6 +561,8 @@ interface CardProps {
   readonly sessionTitle: string | null
   readonly now: number
   readonly onOpen: (item: GalleryItem) => void
+  /** 就地预览（卡片右下角那枚眼睛）：只在这里看，不交给外部程序。 */
+  readonly onPreview: (item: GalleryItem) => void
   /** 缩略图确认读不到时上报路径（面板把该条目从清单里剔掉）。 */
   readonly onUnresolvable?: (path: string) => void
   /** 手机相册式方格：只留正方形缩略图，名字/类别沉到 hover 浮层。 */
@@ -586,7 +590,7 @@ const GalleryCardThumb = ({ item, now, onUnresolvable }: {
     : <FileThumb item={item} now={now} thumbClass="tg-card__thumb" onUnresolvable={onUnresolvable} />
 )
 
-const GalleryCard = ({ item, index, sessionTitle, now, onOpen, onUnresolvable, compact = false, outMs }: CardProps): JSX.Element => {
+const GalleryCard = ({ item, index, sessionTitle, now, onOpen, onPreview, onUnresolvable, compact = false, outMs }: CardProps): JSX.Element => {
   // generated 条目的原始名是 spill 容器的 .txt 文件名，上屏前换成内容类型名。
   const shownName = displayNameOf(item)
   const leaving = outMs !== undefined
@@ -610,6 +614,29 @@ const GalleryCard = ({ item, index, sessionTitle, now, onOpen, onUnresolvable, c
       ? <GeneratedThumb path={item.path} alt={shownName} thumbClass={compact ? 'tg-tile__thumb' : 'tg-card__thumb'} onUnresolvable={onUnresolvable} />
       : <FileThumb item={item} now={now} thumbClass={compact ? 'tg-tile__thumb' : 'tg-card__thumb'} onUnresolvable={onUnresolvable} />}
     <span className="tg-card__kind-dot">{KIND_LABEL[item.kind]}</span>
+    {/*
+      就地预览的快捷点（2026-10-20）。
+      主点击换成了「用系统默认应用打开」，但画廊作为**浏览工具**的那一面不能丢：
+      扫一眼十几张图的时候，每张都开外部程序是灾难。这枚小按钮 hover / 聚焦时
+      浮现在卡片右下角，只负责「在这里看看」，不进无障碍树（读屏用户走 Enter =
+      默认应用，那是这一格的主语义，多一个 Tab 站只会更绕）。
+      span 而不是 button：卡片本体就是 <button>，button 不能嵌套 button。
+    */}
+    <span
+      className="tg-card__peek"
+      title="就地预览"
+      aria-hidden="true"
+      onClick={(event) => {
+        if (leaving) return
+        event.stopPropagation()
+        onPreview(item)
+      }}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+        <circle cx="12" cy="12" r="2.6" />
+      </svg>
+    </span>
     {compact ? (
       <span className="tg-tile__meta">
         <span className="tg-tile__name" title={shownName}>{shownName}</span>
@@ -974,23 +1001,69 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
   }, [customFrom, customTo])
 
   /**
-   * 打开一个条目：**就地弹窗**（2026-10-19 二次改版，用户点名要弹窗回来）。
+   * 打开一个条目：**先交给系统默认应用**（2026-10-20 按用户要求改）。
    *
-   * 这条路径已经来回走过三次，把结论钉在这里：
+   * 这条路径的沿革，一次写清免得再绕回去：
    *  1. 2026-10-06 前：按扩展名分裂（Office 走右栏、其余进弹窗）；
-   *  2. 2026-10-19 上旬：全部改走官方右栏 —— 确实统一了，但**代价是离开画廊**。
-   *     官方右栏的 DOM 在全局面板占主列时整个是 hidden 的（RightbarRoot 的
-   *     `visible = activePanelId === null`），所以在画廊里点一张图必然把工作台
-   *     页关掉、跳回会话才能看见 —— 用户的原话是「为啥点了就跳转到会话」。
-   *  3. 现在：**画廊回到弹窗**。它是横向扫一遍的地方（一次看十几张、来回翻、
-   *     快速关掉），弹窗才对；产出物卡仍然走右栏（那是「这次做出来了什么」，
-   *     点开该在旁边长期停着）。
+   *  2. 2026-10-19 上旬：全部改走官方右栏 —— 代价是**离开画廊**：官方右栏在
+   *     全局面板占主列时整个 hidden，点一张图必然把工作台页关掉、跳回会话；
+   *  3. 2026-10-19 下旬：画廊回到**就地弹窗**；
+   *  4. **现在（2026-10-20）**：点卡片 = **用系统默认应用打开这个文件**。
+   *     画廊是「我产出的东西在哪儿」的入口，用户真正想干的是「拿它去用」
+   *     （PPT 拿去改、视频拿去播、图拿去发），而不是在浏览器里再看一遍。
+   *     打开走官方 `remote.session.openWorkspacePath`（`shell-open` 语义，
+   *     与双击文件同一套默认程序解析），细节见 `../../open-default-app.ts`。
    *
-   * 只有一种情况不进弹窗：**弹窗里渲染不出来的类别**（canInlinePreview 为 false，
-   * 例如 rtf / csv 这类同类别但引擎不认的扩展名）。它们退回官方右栏 —— 那里
-   * 至少能给出文件信息与下载入口，比在弹窗里摆一张「不支持预览」的占位图好。
+   * **内置预览没有消失，只是降级成了兜底**：
+   *   · `unavailable` —— 这台宿主没有桌面（手机远程 / 纯服务端部署）。此时
+   *     **原样**走回原来的弹窗 / 右栏分流，行为与升级前一致；
+   *   · `failed` —— 有桌面但这次调用被拒。同样退回内置预览，**不剔除条目**：
+   *     文件是否存在由 host 的 /media 核对与缩略图读取负责，与这一跳无关
+   *     （`failed` 的真实语义见 open-default-app.ts 的实测说明）。
+   *
+   * 生图（`source === 'generated'`）特殊：它的 `path` 是 spill 容器（一个
+   * `.txt`），默认应用打开它只会弹记事本。所以先经 `materializeGenerated` 把
+   * 图片解码成真实 `.png` / `.mp4`，再打开那个文件；落盘失败就退回弹窗 ——
+   * 弹窗里本来就能直接看图，不必为此报错。
    */
   const openItem = useCallback((item: GalleryItem) => {
+    /** 退回既有链路：可内联的进弹窗，不可内联的走官方右栏（与升级前一致）。 */
+    const fallback = (): void => {
+      if (!canInlinePreview(item.kind, item.path)) {
+        openWorkspacePreview(item.path, {
+          sessionId: item.sessionId,
+          cwd: sessionById.get(item.sessionId)?.cwd ?? undefined,
+        })
+        return
+      }
+      setLightboxIndex(visible.indexOf(item))
+    }
+
+    if (item.source === 'generated') {
+      void materializeGenerated(item.path).then((files) => {
+        const materialized = files[0]?.path
+        if (materialized === undefined) { fallback(); return }
+        void openWithDefaultApp(materialized).then((result) => { if (result !== 'opened') fallback() })
+      })
+      return
+    }
+
+    void openWithDefaultApp(item.path).then((result) => {
+      if (result === 'opened') return
+      fallback()
+    })
+  }, [visible, sessionById])
+
+  /**
+   * 就地预览：**只在这里看**，不交给外部程序。
+   *
+   * 入口是卡片右下角那枚眼睛（hover / 聚焦浮现）。扫一眼十几张图的时候，
+   * 「每张都开一个外部窗口」是灾难 —— 画廊另一半价值就是快速比较。
+   *
+   * 可内联的进弹窗；不可内联的（rtf / csv 这类同类别但引擎不认的扩展名）
+   * 仍走官方右栏 —— 那里至少有文件信息与下载入口，比一屏「不支持预览」好。
+   */
+  const previewItem = useCallback((item: GalleryItem) => {
     if (!canInlinePreview(item.kind, item.path)) {
       openWorkspacePreview(item.path, {
         sessionId: item.sessionId,
@@ -1454,7 +1527,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
       {/* 主体 */}
       {/* ── Coverflow 焦点轮播（2026-10 深空改版，效果图第 5 页顶部）──
            取当前可见列表前 5 条做 3D 焦点舞台：中间那张放大正对，两侧旋转退后。
-           数据是真条目，点击任意一张 = 在官方右栏打开该条（与网格同一入口）。
+           数据是真条目，点击任意一张 = 用默认应用打开（与网格同一入口）。
            条目不足 3 条不渲染（轮播没有意义），时间轴视图也不渲染。 */}
       {view === 'grid' && items !== null && error === null && visible.length >= 3 && (
         <div className="wb2-cover" aria-label="焦点产出轮播">
@@ -1475,6 +1548,22 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
                   title={displayNameOf(item)}
                 >
                   <GalleryCardThumb item={item} now={now} onUnresolvable={hideUnresolvable} />
+                  {/* 与网格卡片同一枚「就地预览」快捷点：轮播里的主点击也是默认应用打开。 */}
+                  <span
+                    className="tg-card__peek wb2-cv__peek"
+                    title="就地预览"
+                    aria-hidden="true"
+                    onClick={(event) => {
+                      if (delBusyKind !== null) return
+                      event.stopPropagation()
+                      previewItem(item)
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+                      <circle cx="12" cy="12" r="2.6" />
+                    </svg>
+                  </span>
                   <span className="wb2-cv-meta">
                     <span className="wb2-cv-n">{displayNameOf(item)}</span>
                     <span className="wb2-cv-s">{KIND_LABEL[item.kind]} · {formatRelativeTime(item.time, now)}</span>
@@ -1549,6 +1638,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
                     sessionTitle={sessionById.get(item.sessionId)?.title ?? null}
                     now={now}
                     onOpen={openItem}
+                    onPreview={previewItem}
                     onUnresolvable={hideUnresolvable}
                     compact
                     outMs={delLeave.get(item.path)}
@@ -1569,6 +1659,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
                 sessionTitle={sessionById.get(item.sessionId)?.title ?? null}
                 now={now}
                 onOpen={openItem}
+                onPreview={previewItem}
                 onUnresolvable={hideUnresolvable}
                 outMs={delLeave.get(item.path)}
               />
@@ -1610,6 +1701,20 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
               cwd: session?.cwd ?? undefined,
             })
             if (opened.ok) setLightboxIndex(null)
+          }}
+          onOpenDefaultApp={(item) => {
+            /*
+             * 弹窗里的「用默认应用打开」：成功就关掉弹窗（用户已经切到别的程序
+             * 去了，留着一个浮层挡在中间没有意义）；失败什么都不做 —— 弹窗本身
+             * 已经把这份内容显示在眼前了，再弹一句提示只是噪音。
+             */
+            const target = item.source === 'generated'
+              ? materializeGenerated(item.path).then((files) => files[0]?.path ?? null)
+              : Promise.resolve(item.path)
+            void target.then((path) => {
+              if (path === null) return
+              void openWithDefaultApp(path).then((result) => { if (result === 'opened') setLightboxIndex(null) })
+            })
           }}
         />
       )}

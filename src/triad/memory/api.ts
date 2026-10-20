@@ -59,6 +59,10 @@ interface EntryView {
   lastHitAt: string | null
   /** 溯源：产生/最近更新该条目的会话（KR 记忆卡「本会话新增」判定用；旧 host 可能缺省）。 */
   provenance?: { sessionId?: string; turn?: number; snippet?: string }
+  /** 待确认（true = 自动抽取但用户尚未确认，不参与检索/注入）。缺省 = 已生效。 */
+  pending?: boolean
+  /** 进入待确认状态的时间 ISO。 */
+  pendingAt?: string
 }
 
 /** MemoryKind 取值校验（/update 的 kind 字段）。 */
@@ -88,6 +92,11 @@ function toView(entry: MemoryEntry): EntryView {
     kind: entry.kind,
     lastHitAt: entry.lastHitAt,
     provenance: entry.provenance,
+    // 待确认（v5）：缺省的「已生效」不写进回包，前端按 undefined 处理，
+    // 与落盘口径一致（未挂起的条目不占字段）。
+    ...(entry.pending === true
+      ? { pending: true as const, pendingAt: entry.pendingAt }
+      : {}),
   }
 }
 
@@ -807,6 +816,52 @@ async function handle(
       })
       await compileAll(store, config)
       json(res, 200, { ok: true, entry: toView(entry) })
+      return
+    }
+    if (method === 'POST' && rest === '/confirm') {
+      // 确认一条待确认记忆：清 pending + 置 verified，此后参与注入与检索。
+      const body = await readBody(req) as Record<string, unknown>
+      const entryId = requireString(body.entryId, 'entryId')
+      const entry = await store.confirmPending(entryId)
+      if (entry === undefined) throw new Error(`记忆不存在：${entryId}`)
+      await store.appendChange({
+        action: 'update',
+        entryId: entry.id,
+        scope: entry.scope,
+        projectHash: entry.projectHash,
+        summary: `确认生效：${summarize(entry.content)}`,
+        after: entry.content,
+      })
+      await compileAll(store, config)
+      json(res, 200, { ok: true, entry: toView(entry) })
+      return
+    }
+    if (method === 'POST' && rest === '/reject') {
+      // 拒绝待确认记忆：直接硬删（它从未生效，留回收站记录只是垃圾）。
+      const body = await readBody(req) as Record<string, unknown>
+      const entryId = requireString(body.entryId, 'entryId')
+      const entry = await store.rejectPending(entryId)
+      if (entry === undefined) {
+        const existing = await store.getEntry(entryId)
+        if (existing === undefined) throw new Error(`记忆不存在：${entryId}`)
+        throw new Error('该记忆不是待确认状态，拒绝操作被忽略（要删除已生效记忆请用 /delete）')
+      }
+      await store.appendChange({
+        action: 'delete',
+        entryId: entry.id,
+        scope: entry.scope,
+        projectHash: entry.projectHash,
+        summary: `拒绝待确认：${summarize(entry.content)}`,
+        before: entry.content,
+      })
+      await compileAll(store, config)
+      json(res, 200, { ok: true })
+      return
+    }
+    if (method === 'GET' && rest === '/pending') {
+      // 待确认列表：面板「待确认」页签的数据源。
+      const pending = await store.listPending()
+      json(res, 200, { ok: true, entries: pending.map(toView), total: pending.length })
       return
     }
     if (method === 'POST' && rest === '/restore') {

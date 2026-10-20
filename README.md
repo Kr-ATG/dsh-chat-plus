@@ -101,7 +101,7 @@ bundles 层，不用手改配置文件。
 | **任务** | 本轮 `todo_write` / 官方 todos 的实时投影，有真实任务才出现 |
 | **操作面板** | 把工具调用翻成中文人话（「读取配置文件」而不是 `read_file(path=…)`）。**简要档**只留改东西、失败与进行中，文件操作整类隐去 |
 | **子智能体** | 这次对话派出去的独立会话，一行一个、整行可点跳到那个子会话 |
-| **产出物** | 本次对话做出来的文件，整行可点即在**官方右栏**打开预览（插件不弹自己的窗口） |
+| **产出物** | 本次对话做出来的文件，整行可点即用**系统默认应用**打开（PPT 进 PowerPoint、视频进播放器）；宿主没有桌面时退回官方右栏预览 |
 | **记忆** | 钉在底部；按需展开，只列**本会话新增**的条目（按写入来源判定，不按时间） |
 
 **思考过程卡贴在对话流里**（不在右栏）：左侧一条 2px 竖线，无底色无投影，跑时展开跟随、
@@ -287,11 +287,17 @@ document.getElementById('b').onclick = () => { document.getElementById('v').text
 所有对话生成的**图片 / 网页 / 演示 / 文档 / 表格 / 音视频**一页看全：跨会话增量索引、
 类别筛选、搜索、跳回来源会话。
 
-点任意一张卡片 = 在**官方右侧栏**打开它 —— 2026-10-19 起画廊不再有自己的预览弹窗，
-PDF / Office / html / 图片 / 音视频全部走官方文档预览 tab（翻页、缩放、全屏都是官方那套）。
-生图与生视频的结果原本只存在于 spill 的文本里，点开时会先由 host 落成真正的
-png / mp4 再交右栏。工作台占着主列时点卡片会先切回该条目所属会话 —— 官方右栏只对
-屏幕上那个会话生效。
+点任意一张卡片 = 用**系统默认应用**打开这个文件（2026-10-20）—— 图进看图器、视频进
+播放器、PPT 进 PowerPoint，与你双击资源管理器里的图标完全一致。走官方 `open-in-app`
+那条 `shell-open` 链路（`remote.session.openWorkspacePath`），不自建路由。
+
+**本机没有桌面时（手机远程访问 / 纯服务端部署）自动退回内置预览**：可内联的进就地
+弹窗（图片缩放、视频播放、html 沙箱 iframe、PDF / Office 页图翻页），不可内联的走
+官方右栏，行为与升级前一致。那个弹窗右上角也留着一枚「用默认应用打开」，本地看到
+想拿去用的那一刻就能直接送出去。
+
+生图与生视频的结果原本只存在于 spill 的文本里，打开前会先由 host 落成真正的
+png / mp4 —— 直接把 `.txt` 交给系统只会弹记事本。
 
 每个类别标签上写着**该类的真实条目数**（图片几百张就显示几百，不做 99+ 之类的截断）。
 
@@ -523,6 +529,45 @@ New-Item -ItemType Junction -Path "$env:USERPROFILE\.dsh\profiles\web\node_modul
 | `idleMs` | `300000` | 空闲多久关掉（毫秒），`0` = 不自动关 |
 | `enabled` | `true` | 总开关，关掉则退回「自己保证 9222 上有 Chrome」 |
 
+### 浏览器操作标志
+
+哪个会话正在跑浏览器操作，左侧会话列表一眼就能看出来：**该会话行开头一枚会呼吸的
+小浏览器图标**（蓝色，跟随主题）。
+
+位置是行首那 16px 的状态位 —— 原本会话状态点（转圈）的地盘。同一语义（这个会话
+在动），扫列表时第一眼就看到，不用把视线拖到右边时间戳后面。有标志时原状态点淡出，
+同一格不叠两枚。
+
+数据来自 host 半身对 `tools/execute` 的观测（`GET /api/chat-flow/browser-activity`）。
+几处刻意的取舍：
+
+- **1500ms 尾迹**：一次网页操作通常是 `navigate` → `snapshot` → `click` → `type` 一串调用，
+  每两次之间模型还在想。没有尾迹，图标会在调用间隙频闪；有尾迹，一串相邻调用被缝成
+  一段连续的「正在操作浏览器」。
+- **两条判据，都只认「真的在操作浏览器」**：
+  1. **MCP 工具**：工具名按 `mcp__<service>__<tool>` 切词元后匹配
+     （playwright / browser / chrome / devtools / stagehand / ego / puppeteer / selenium / cdp），
+     不用裸子串 —— 否则 `list_categories` 里藏着 `ego` 会被误判。够长的词还认复合词
+     （`browseros_neo`、`browserbase`），而 `ego` / `cdp` 这类短词仍只做精确匹配，
+     `egosystem`、`cdpdriver` 不会误判。
+  2. **命令行 CLI**：ego-browser 这类工具不是 MCP 工具，是用 `pwsh` 跑的命令行程序，
+     所以额外看 `arguments.command` 里**可执行位置**上的 CLI 名
+     （ego-browser / ego / playwright / stagehand / puppeteer / selenium）。
+     `grep ego-browser`、`echo "ego-browser"`、`Get-Content ego-browser.md` 只是在谈论它，
+     不会点亮图标；带引号路径、`.exe` 后缀、`&` 调用运算符、管道或分号后的命令段都认。
+- **只观测、不改行为**：观测器全程 try/catch，任何异常的结果都只是「图标不亮」；
+  观测器拿不到会话归属时直接跳过这次记录，绝不会把图标算到别的会话上。
+- **路由不通就静默**：host 半身未装 / 未重启时路由 404，客户端一律当「无活动」，
+  不重试、不报错、不影响对话与列表。
+- **不用等真调用也能看**：浏览器控制台执行 `__dshBrowserFlagPreview([{sessionId, active:1,
+  service:'playwright-mcp', tool:'browser_click', since:Date.now(), lastAt:Date.now(), lingering:false}])`
+  即可在页面上看到标志与动效；`__dshBrowserFlagPreview(null)` 清空。
+- **排障**：`GET /api/chat-flow/browser-activity?debug=1` 额外回最近 20 次浏览器调用的
+  接缝摘要（有没有 callId、sessionId 从哪条路径解析），只含工具名与来源标量，
+  不含任何工具参数原文。
+
+![会话行首的浏览器标志](docs/shots/browser-flag-rows.png)
+
 ### 环境变量
 
 | 变量 | 用途 |
@@ -699,6 +744,7 @@ src/
 │   ├── provider/               供应商中心 + 生图/识图/生视频 + 优化提示词
 │   ├── triad/                  工作台（记忆 / 灵魂 / 用量 / SKILL / 画廊）与邮箱面板
 │   ├── tools-gate/             工具闸门
+│   ├── browser-flag/           浏览器操作标志（会话行首的呼吸图标）
 │   ├── sidebar-doc/            侧边栏文档预览（pdf / Office 接管）
 │   ├── sidebar-media/          侧边栏音视频预览（原生 video / audio）
 │   └── sidebar/                documentPreviews 就绪等待（官方服务晚于插件 apply）
@@ -707,6 +753,7 @@ src/
 ├── triad/                      工作台 host（记忆引擎 / 用量 / 技能）
 ├── browser/                    Chrome 进程管理（启动 / CDP）
 ├── browser-on-demand/          浏览器按需拉起（调用时启动 + 空闲关停）
+├── browser-activity/           浏览器活动观测（会话级活动表 + 只读路由）
 ├── spill/                      spill 准入 + 生图落盘（materialize 路由）
 ├── office/                     Office / PDF 页图与 PDF 渲染
 └── shot/                       截图引擎（无头浏览器）

@@ -134,7 +134,7 @@ const ZH_INJECTION_BUDGET = 2500
  * 措辞里刻意写清三条**沙箱事实**，因为模型对 HTML 的默认直觉全都基于普通浏览器：
  *  · 没有 same-origin —— localStorage / 宿主 DOM / 外部接口调用都拿不到；
  *  · 高度必须自适应（宿主按上报高度给框，写死 100vh 会撑出滚动条）；
- *  · 不引外网资源（CDN 脚本在内网/离线环境直接白屏）。
+ *  · 不引外网资源（CDN 脚本在内网/离线环境直接白屏，且 CSP 会硬拦）。
  * 不写这三条，模型会写出「能跑但什么都不显示」的卡片，而且它自己看不到结果。
  */
 const HTML_INJECTION_RULE = [
@@ -146,7 +146,7 @@ const HTML_INJECTION_RULE = [
   '沙箱事实（不知道这些会写出「能跑但什么都不显示」的卡片）：',
   '  · iframe 只有 allow-scripts，**没有 same-origin**：拿不到宿主页面与 DOM，localStorage / cookie / 宿主接口一律不可用；也不要假设能读外部接口。',
   '  · 高度自适应：宿主按内容真实高度给框。不要写 height:100vh、不要给 body 加固定高度，否则会出现内部滚动条或大片空白。',
-  '  · 不引外部资源：CDN 脚本、外链字体、外链图片在离线或内网环境直接白屏。CSS 与 JS 全部内联，图形用内联 SVG / canvas 画。',
+  '  · **外链一律被拦**：卡片文档带 CSP（default-src none + connect-src none），CDN 脚本 / 外链字体 / 外链图片全部加载失败，fetch / XHR / WebSocket 也发不出去；图片只能 data: 或 blob:。CSS 与 JS 全内联，图形用内联 SVG / canvas，图片用 data: URL。引了不会报错，只会静默失效——所以不要引。',
   '  · 点击链接会开新标签页（文档已设 base target=_blank），不要在卡片内部做整页跳转。',
   '  · 深浅主题：宿主会把明暗状态以 html[data-ds-dark-theme] 属性同步进来，可用它写两套配色；不写就跟随 color-scheme。',
   '  · **背景别铺满整页**：宿主已经按主题给画布兜了一层底色（亮 #fff / 暗 #16181d），而且它优先级最低——',
@@ -180,6 +180,10 @@ const HTML_INJECTION_RULE = [
   '  · **别贴整站**：卡片是对话流里的一块正文，不是交付网站。整站骨架、多路由、几屏内容请落盘后用文字给路径。',
   '  · 围栏语言标记必须正好是 html（```html-preview 这类不算）。',
   '  · 简单问答用纯文本，不要为放卡而放卡。数量与时机见下面的「先定要不要出卡」。',
+  '  · **大卡片发前先自检**：正文超过约 40 行、或用到图片/音频/视频、或你不确定某条规则时，',
+  '    把围栏正文（不含围栏标记）传给 `validate_html_card` 工具。它返回 `[card-check]` 协议块：',
+  '    status=ok 直接发；status=warn 能发但效果差；status=invalid 必须先按 fix 改。',
+  '    十来行的小卡片（一个计算器、一张表、一段内联 SVG）不用走这一步，直接发。',
   '  · **围栏正文必须是完整可直接运行的内容；严禁只写一行注释/占位文字来代替**。',
   '    「<!-- 内容较长，此处省略 -->」「<!-- 见附件 -->」这种会被**当成合法卡片渲染成一片空白**',
   '    （判定只看「有没有标签」，`<!--` 就算标签），用户看到的就是一张空白框，而不是你写的说明。',
@@ -351,8 +355,10 @@ export function createMemoryInjector(
     const hash = workspaceHashOf(agent.session.header)
     // disabled 条目保留在库与检索中，但绝不参与注入；
     // deprecated 条目（软废弃）同样不参与注入。
+    // pending 条目（待确认）也不注入——这正是待确认制的全部意义：自动抽取的东西
+    // 在用户点头之前不许进上下文。它仍然在面板里可见、可确认、可拒绝。
     const visible = entries.filter(entry =>
-      entry.disabled !== true && entry.deprecated !== true &&
+      entry.disabled !== true && entry.deprecated !== true && entry.pending !== true &&
       (entry.scope === 'global' || (entry.scope === 'project' && entry.projectHash === hash)))
     if (visible.length === 0) return null
 

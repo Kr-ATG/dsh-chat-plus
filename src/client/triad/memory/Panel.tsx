@@ -53,6 +53,11 @@ import { MemoryHome } from './Home.js'
 import { makeT, type MemoryLocaleKey, type MemoryT } from './locales.js'
 import { modalStaggerClass } from '../triad-modal-animation.js'
 import { ConfirmDialog } from './ConfirmDialog.js'
+// 图标已抽到 ./icons.js（纯展示组件，零业务依赖）。
+// 这里 re-export 是刻意的：Toggle.tsx / index.ts 历史上从 Panel.js 取 BrainIcon，
+// 保持这个出口不变，抽取就是纯粹的内部重构，不牵连任何调用方。
+export { BrainIcon, PinIcon } from './icons.js'
+import { BrainIcon, PinIcon, BoxIcon, HomeIcon, ClockIcon, HistoryIcon, TrashIcon, EraserIcon, ShieldIcon, CopyIcon, RingOffIcon, LightbulbIcon, GearIcon, SortArrowsIcon, GlobeIcon, FolderIcon, TagIcon, PenIcon, SparkIcon, LayersIcon, VerifiedIcon, CheckMark, PowerIcon } from './icons.js'
 import { PshBody, PopoverShell } from '../popover-shell.js'
 import { markReadIds, markViewed, readIds } from './Notify.js'
 
@@ -234,6 +239,38 @@ function entryTitle(content: string): string {
   return trimmed.slice(0, 40)
 }
 
+/**
+ * 命中热度（0-5）：这条记忆被唤醒的频次，用来画卡片左轨的竖条。
+ *
+ * 数据只有 lastHitAt（最后一次注入命中）与 importance（写入时 10 起步、
+ * 每次命中加分、每日衰减），拿不到精确的命中次数。这里用 importance 的
+ * 「超出基线部分」做代理：基线 10 分是刚写入，14 分意味着被命中过几次。
+ *
+ * 为什么不显示次数：host 侧没有这个计数，凭空造一个数字就是假指标。
+ * 竖条只表达「相对多寡」，悬停时给的是真实的时间（见 hitHeatTitle）。
+ */
+function hitHeat(entry: { importance: number; lastHitAt: string | null; pending?: boolean }): number {
+  // 待确认条目从未参与过任何上下文，热力恒为 0——这不是「没被用到」，
+  // 而是「还没开始」。给 0 比给个中间值诚实。
+  if (entry.pending === true) return 0
+  if (entry.lastHitAt === null) return 0
+  const base = 10
+  const bonus = Math.max(0, entry.importance - base)
+  // importance 每命中 +hitBonus（默认 1-2），封顶 20 → bonus 上限 10。
+  // 除以 2 再夹到 5 档：4 分以上（≈命中 2 次以上）就是满格。
+  return Math.max(1, Math.min(5, Math.round(bonus / 2)))
+}
+
+/** 热力条的悬停说明（给的是真实时间，不是编造的次数）。 */
+function hitHeatTitle(entry: { lastHitAt: string | null; pending?: boolean }): string {
+  if (entry.pending === true) return '待确认 · 尚未参与对话'
+  if (entry.lastHitAt === null) return '从未被注入到对话中'
+  const time = new Date(entry.lastHitAt)
+  const days = Math.floor((Date.now() - time.getTime()) / 86_400_000)
+  const when = days <= 0 ? '今天' : days === 1 ? '昨天' : `${days} 天前`
+  return `最近一次被唤醒：${when}`
+}
+
 /** 提取列表摘要：去掉标题部分后的纯文本前 ~64 字符。 */
 function entrySnippet(content: string): string {
   const trimmed = content.trim()
@@ -322,246 +359,6 @@ const SENSITIVE_PATTERNS = [
 
 function containsSensitive(text: string): boolean {
   return SENSITIVE_PATTERNS.some(pattern => pattern.test(text))
-}
-
-/**
- * 大脑/记忆图标（Lucide `brain`，MIT 开源，24 viewBox + stroke-width 2）。
- * 来源：https://lucide.dev/icons/brain
- */
-export function BrainIcon({ size = 16 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
-      <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
-      <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4" />
-      <path d="M17.599 6.5a3 3 0 0 0 .399-1.375" />
-      <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" />
-      <path d="M3.477 10.896a4 4 0 0 1 .585-.396" />
-      <path d="M19.938 10.5a4 4 0 0 1 .585.396" />
-      <path d="M6 18a4 4 0 0 1-1.967-.516" />
-      <path d="M19.967 17.484A4 4 0 0 1 18 18" />
-    </svg>
-  )
-}
-
-/** 置顶图标（线性 SVG）。 */
-export function PinIcon({ size = 16, filled = false }: { size?: number; filled?: boolean }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M9.8 2.2 13.8 6.2l-2.3.7-2.4 2.4-.7 2.3-1.6-1.6-2.7 2.7-1-1 2.7-2.7-1.6-1.6 2.3-.7 2.4-2.4.7-2.3Z" />
-    </svg>
-  )
-}
-
-/** 分类/记忆容器方块（左栏品牌与「全部」项）。 */
-function BoxIcon({ size = 15 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2.2" y="2.2" width="11.6" height="11.6" rx="3" />
-      <path d="M6.2 8h3.6" />
-    </svg>
-  )
-}
-
-/** 首页（房子）。 */
-function HomeIcon({ size = 15 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M2.5 7 8 2.5 13.5 7" />
-      <path d="M4 6.5V13.5h8V6.5" />
-    </svg>
-  )
-}
-
-/** 变更（时钟）。 */
-function ClockIcon({ size = 15 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="8" cy="8" r="5.8" />
-      <path d="M8 4.8V8l2.2 1.4" />
-    </svg>
-  )
-}
-
-/** 修订（时钟回卷）。 */
-function HistoryIcon({ size = 15 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M2.8 8a5.2 5.2 0 1 1 1.5 3.7" />
-      <path d="M2.6 5.2v2.6h2.6" />
-      <path d="M8 5.4V8l2 1.2" />
-    </svg>
-  )
-}
-
-/** 回收站。 */
-function TrashIcon({ size = 15 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M2.8 4.4h10.4" />
-      <path d="M5.6 4.4V3a1 1 0 0 1 1-1h2.8a1 1 0 0 1 1 1v1.4" />
-      <path d="M4.2 4.4l.6 8.2a1 1 0 0 0 1 .9h4.4a1 1 0 0 0 1-.9l.6-8.2" />
-      <path d="M6.6 7.2v3.6M9.4 7.2v3.6" />
-    </svg>
-  )
-}
-
-/** 板擦（lucide eraser 改 16 viewBox）——一键删今日记忆。 */
-function EraserIcon({ size = 13 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M7 12.5h6" />
-      <path d="M9.8 2.6 13.4 6.2a1.4 1.4 0 0 1 0 2L9.2 12.4H6.4L2.9 8.9a1.4 1.4 0 0 1 0-2l4.9-4.3a1.4 1.4 0 0 1 2 0Z" />
-      <path d="M6.1 4.3 11.7 9.9" />
-    </svg>
-  )
-}
-
-/** 重要度（盾牌）。 */
-function ShieldIcon({ size = 14 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 1.8 13 3.4v4.1c0 3-2 5.5-5 6.7-3-1.2-5-3.7-5-6.7V3.4L8 1.8Z" />
-    </svg>
-  )
-}
-
-/** 复制（两张卡片）。 */
-function CopyIcon({ size = 14 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="5" y="5" width="8.4" height="8.4" rx="1.6" />
-      <path d="M11 3.8A1.6 1.6 0 0 0 9.4 2.2H3.8A1.6 1.6 0 0 0 2.2 3.8v5.6A1.6 1.6 0 0 0 3.8 11" />
-    </svg>
-  )
-}
-
-/** 软废弃（圆环 + 斜杠）。 */
-function RingOffIcon({ size = 14 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="8" cy="8" r="5.4" />
-      <path d="M4.1 4.1l7.8 7.8" />
-    </svg>
-  )
-}
-
-/** 灯泡（顶栏统计「今日变更」）。 */
-function LightbulbIcon({ size = 13 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 1.8a4 4 0 0 1 2.3 7.25c-.65.5-.9 1.05-.9 1.75h-2.8c0-.7-.25-1.25-.9-1.75A4 4 0 0 1 8 1.8Z" />
-      <path d="M6.9 13.4h2.2M7.3 12.3h1.4" />
-    </svg>
-  )
-}
-
-/** 设置（齿轮）。 */
-function GearIcon({ size = 15 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-    </svg>
-  )
-}
-
-/** 排序箭头（↑↓）。 */
-function SortArrowsIcon({ size = 13 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 12.5V3.5M8 3.5 5.4 6.1M8 3.5l2.6 2.6" />
-    </svg>
-  )
-}
-
-/** 全局作用域（地球）。 */
-function GlobeIcon({ size = 11 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="8" cy="8" r="6" />
-      <path d="M2 8h12M8 2c1.8 1.6 2.7 3.7 2.7 6S9.8 12.4 8 14C6.2 12.4 5.3 10.3 5.3 8S6.2 3.6 8 2Z" />
-    </svg>
-  )
-}
-
-/** 项目作用域（文件夹）。 */
-function FolderIcon({ size = 11 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.8l1.4 1.6h4.8A1.5 1.5 0 0 1 14 6.1v5.4a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7Z" />
-    </svg>
-  )
-}
-
-/** 分类标签（吊牌）。 */
-function TagIcon({ size = 11 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M2 2h5l7 7-5 5-7-7V2Z" />
-      <circle cx="5" cy="5" r="1" fill="currentColor" />
-    </svg>
-  )
-}
-
-/** 手动来源（铅笔）。 */
-function PenIcon({ size = 11 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="m11.5 2.5 2 2L6 12l-2.7.7L4 10l7.5-7.5Z" />
-      <path d="m10 4 2 2" />
-    </svg>
-  )
-}
-
-/** 自动来源（闪光）。 */
-function SparkIcon({ size = 11 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 2.2 9.3 6l3.8 1.3-3.8 1.3L8 12.4 6.7 8.6 2.9 7.3 6.7 6 8 2.2Z" />
-      <path d="M12.8 11.4l.5 1.5 1.5.5-1.5.5-.5 1.5-.5-1.5-1.5-.5 1.5-.5.5-1.5Z" />
-    </svg>
-  )
-}
-
-/** 长期沉淀（层叠）。 */
-function LayersIcon({ size = 11 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="m8 2.5 5.5 3L8 8.5l-5.5-3 5.5-3Z" />
-      <path d="m2.5 8.5 5.5 3 5.5-3" />
-      <path d="m2.5 11.5 5.5 3 5.5-3" />
-    </svg>
-  )
-}
-
-/** 已确认（对勾盾）。 */
-function VerifiedIcon({ size = 11 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 1.8 13 3.4v4.1c0 3-2 5.5-5 6.7-3-1.2-5-3.7-5-6.7V3.4L8 1.8Z" />
-      <path d="m5.8 7.8 1.6 1.6 3-3.2" />
-    </svg>
-  )
-}
-
-/** 多选勾（列表勾选框内）。 */
-function CheckMark({ size = 12 }: { size?: number }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 8.5 6.5 12 13 4.5" />
-    </svg>
-  )
-}
-
-/** 电源（启用/禁用）。 */
-function PowerIcon({ size = 14, dim = false }: { size?: number; dim?: boolean }): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" style={{ opacity: dim ? 0.45 : undefined }} aria-hidden="true">
-      <path d="M8 1.5v6" />
-      <path d="M11.3 3.7a4.7 4.7 0 1 1-6.6 0" />
-    </svg>
-  )
 }
 
 /**
@@ -894,6 +691,26 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
     askConfirm(t('restoreConfirm'), () => { void run(() => apiRef.current.restore(entry.id)) })
   }
 
+  /**
+   * 确认待确认记忆：清挂起标记 + 置 verified，此后它参与注入与检索。
+   *
+   * 不弹二次确认：这个动作是可逆的（随时可以 retire / 删除），
+   * 而且「确认」本身就是用户点这一下的意图，再问一遍纯属打扰。
+   */
+  const handleConfirmPending = (entry: MemoryEntryView): void => {
+    void run(() => apiRef.current.confirmPending(entry.id))
+  }
+
+  /**
+   * 拒绝待确认记忆：直接删除。
+   *
+   * 这里**要**弹确认：它是硬删除（pending 条目没进过任何上下文，留回收站记录只是垃圾），
+   * 误点一下内容就没了。确认文案与普通删除区分开，避免用户以为只是「取消挂起」。
+   */
+  const handleRejectPending = (entry: MemoryEntryView): void => {
+    askConfirm(t('rejectConfirm'), () => { void run(() => apiRef.current.rejectPending(entry.id)) }, true)
+  }
+
   /** 复制正文到剪贴板。 */
   const handleCopy = (entry: MemoryEntryView): void => {
     void navigator.clipboard.writeText(entry.content)
@@ -1128,8 +945,21 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
     return arr
   }, [filtered, sortDir, q])
 
-  const pinned = useMemo(() => ordered.filter(entry => entry.pinned), [ordered])
-  const grouped = useMemo(() => groupEntries(ordered.filter(entry => !entry.pinned)), [ordered])
+  /**
+   * 待确认条目：单独成组，排在置顶之前。
+   *
+   * 为什么置顶之前：置顶是「已知的重要」，待确认是「需要你决定的」——后者更急。
+   * 而且待确认条目天然少（只有开启 extractRequireConfirm 后才会产生），
+   * 放最上面不会挤占视线。
+   */
+  const pendingEntries = useMemo(() => ordered.filter(entry => entry.pending === true), [ordered])
+  /** 置顶条目（排除待确认：一条待确认的记忆即使被标 pinned 也不该走置顶逻辑，
+   *  它还没生效，置顶语义无从谈起）。 */
+  const pinned = useMemo(() => ordered.filter(entry => entry.pinned && entry.pending !== true), [ordered])
+  const grouped = useMemo(
+    () => groupEntries(ordered.filter(entry => !entry.pinned && entry.pending !== true)),
+    [ordered],
+  )
   // 变更按当前 全部/全局/项目 筛选（chips 选择即时生效）。
   const visibleChanges = useMemo(() => changes.filter(change => {
     if (scope === 'global') return change.scope === 'global'
@@ -1350,31 +1180,138 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
     </span>
   )
 
-  /** 置顶条目（大卡：图标 + 标题 + 摘要 + 时间行）。 */
+  /**
+   * 记忆卡片（2026-10 重做的核心）。
+   *
+   * 与旧实现的结构差异：
+   *   · 旧：图标 + 单行标题 + 2 行摘要 + 时间行 —— 一张「文件列表项」。
+   *   · 新：左侧竖轨（类型点 + 命中热力条）+ 元信息徽章行 + 3 行正文预览
+   *     + 悬浮浮现的操作组 —— 一张「记忆卡」。
+   *
+   * 热力条是全新信息维度：旧版完全看不出哪些记忆真的在被唤醒、哪些写进去
+   * 就再没人用过。它由 lastHitAt 与 importance 推算（见 hitHeat()），
+   * 只是可视化，不改任何数据。
+   *
+   * 为什么外层用 div + role=button 而不是真 <button>：卡片内还有快捷操作，
+   * 而 HTML 不允许 button 嵌套 button（浏览器会拆开标签，事件也会错乱）。
+   * 键盘可达性由 tabIndex + Enter/Space 处理保住。
+   */
   const renderEntryCard = (entry: MemoryEntryView): JSX.Element => {
     const selected = !selecting && entry.id === selectedId
-    const cls = [css.entryCard, selected ? css.entryCardSel : ''].filter(Boolean).join(' ')
+    const isPending = entry.pending === true
+    const cls = [
+      css.entryCard,
+      selected ? css.entryCardSel : '',
+      isPending ? css.entryCardPend : '',
+    ].filter(Boolean).join(' ')
     return (
-      <button
+      <div
         key={entry.id}
-        type="button"
         className={cls}
+        data-kind={entry.kind}
+        data-pending={isPending ? 'true' : undefined}
+        role="button"
+        tabIndex={0}
         aria-pressed={selected}
         onClick={() => { if (selecting) toggleChecked(entry.id); else selectEntry(entry) }}
+        onKeyDown={event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            if (selecting) toggleChecked(entry.id)
+            else selectEntry(entry)
+          }
+        }}
       >
+        {/* 左轨：类型点 + 命中热力条（记忆被唤醒的频次，纯可视化） */}
+        <span className={css.entryRail} aria-hidden="true">
+          <span className={css.entryKindDot} />
+          <span className={css.entryHeat} title={hitHeatTitle(entry)}>
+            <i style={{ ['--h' as string]: String(hitHeat(entry)) }} />
+          </span>
+        </span>
+
         <span className={css.entryTop}>
           {selecting && renderCheck(entry)}
-          <span className={css.entryIcon}>{entryIcon(entry, 17)}</span>
+          <span className={css.entryIcon}>{entryIcon(entry, 15)}</span>
           {/* title 兜底：长标题被省略号截断后，悬停仍能看到全文 */}
           <span className={css.entryTitleTxt} title={entryTitle(entry.content)}>{entryTitle(entry.content)}</span>
+          {isPending && <span className={css.entryPendBadge}>{t('badgePending')}</span>}
+          <span className={css.entryImpBadge} title={t('importanceLabel')}>★ {entry.importance.toFixed(1)}</span>
           {renderScopeChip(entry)}
         </span>
+
         <span className={css.entrySnippet}>{entrySnippet(entry.content)}</span>
+
         <span className={css.entryFootRow}>
           <span className={css.entryTime}>{relativeTime(entry.updatedAt)}</span>
           <span className={css.entryDot} />
+          {entry.tags.length > 0 && (
+            <span className={css.entryTags}>
+              {entry.tags.slice(0, 3).map(tagName => (
+                <span key={tagName} className={css.entryTag}>#{tagName}</span>
+              ))}
+            </span>
+          )}
         </span>
-      </button>
+
+        {renderCardActions(entry)}
+      </div>
+    )
+  }
+
+  /**
+   * 卡片内的快捷操作组。
+   *
+   * 待确认条目常显两组按钮（确认 / 拒绝）—— 它们是这张卡片存在的理由，
+   * 藏起来等于让用户去翻菜单；生效条目平时隐藏、悬浮才浮现，避免十几张
+   * 卡片挂几十个按钮的视觉噪音。
+   *
+   * stopPropagation 是必须的：否则点「删除」会先触发外层卡片的「选中条目」，
+   * 表现为「删一条，右栏还打开了它」。
+   */
+  const renderCardActions = (entry: MemoryEntryView): JSX.Element | null => {
+    if (selecting) return null
+    const isPending = entry.pending === true
+    const act = (fn: () => void) => (event: ReactMouseEvent) => {
+      event.stopPropagation()
+      event.preventDefault()
+      fn()
+    }
+    const keyAct = (fn: () => void) => (event: React.KeyboardEvent) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.stopPropagation()
+        event.preventDefault()
+        fn()
+      }
+    }
+    return (
+      <span className={css.entryActions}>
+        {isPending ? (
+          <>
+            <span className={css.entryAction + ' ' + css.entryActionPri} role="button" tabIndex={0}
+              onClick={act(() => { handleConfirmPending(entry) })} onKeyDown={keyAct(() => { handleConfirmPending(entry) })}>
+              {t('confirmPending')}
+            </span>
+            <span className={css.entryAction + ' ' + css.entryActionDanger} role="button" tabIndex={0}
+              onClick={act(() => { handleRejectPending(entry) })} onKeyDown={keyAct(() => { handleRejectPending(entry) })}>
+              {t('rejectPending')}
+            </span>
+          </>
+        ) : (
+          <>
+            <span className={css.entryAction} role="button" tabIndex={0}
+              onClick={act(() => { startEdit(entry) })} onKeyDown={keyAct(() => { startEdit(entry) })}>{t('edit')}</span>
+            <span className={css.entryAction} role="button" tabIndex={0}
+              onClick={act(() => { handlePin(entry) })} onKeyDown={keyAct(() => { handlePin(entry) })}>
+              {entry.pinned ? t('unpin') : t('pinAction')}
+            </span>
+            <span className={css.entryAction} role="button" tabIndex={0}
+              onClick={act(() => { handleCopy(entry) })} onKeyDown={keyAct(() => { handleCopy(entry) })}>{t('copy')}</span>
+            <span className={css.entryAction + ' ' + css.entryActionDanger} role="button" tabIndex={0}
+              onClick={act(() => { handleDelete(entry) })} onKeyDown={keyAct(() => { handleDelete(entry) })}>{t('delete')}</span>
+          </>
+        )}
+      </span>
     )
   }
 
@@ -1829,14 +1766,22 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
     : undefined
 
   /* 顶部视图分段 Tab 项。 */
+  /**
+   * 侧栏导航条目（2026-10 第二轮重做：从顶部 tab 行搬进左侧栏）。
+   *
+   * 与旧版的关键差别：
+   *   · 旧：横向排一排，6 个 tab 挤在顶部，计数用小徽章挂在右侧。
+   *   · 新：纵向列表，图标 + 文字 + 右对齐计数，整行可点（点击区从文字
+   *     宽度扩到整行 212px，左侧栏本来就窄，整行点击才够好按）。
+   * 计数为 0 时不显示——「0 条」在两个地方同时出现只是噪音。
+   */
   const viewTab = (key: MemoryTab, icon: JSX.Element, label: string, count: number, badge = true, hint?: string): JSX.Element => (
     <button
       key={key}
       type="button"
       role="tab"
-      title={label + (count > 0 ? ' · ' + count.toLocaleString() : '')}
-      className={css.viewTab}
-      data-active={tab === key}
+      title={hint ?? (label + (count > 0 ? ' · ' + count.toLocaleString() : ''))}
+      className={css.sidebarItem + (tab === key ? ' ' + css.sidebarItemActive : '')}
       aria-selected={tab === key}
       onClick={() => {
         setTab(key)
@@ -1846,8 +1791,8 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
       }}
     >
       <span className={css.navIcon}>{icon}</span>
-      <span>{label}</span>
-      {badge && count > 0 && (<CountBadge key={count} value={count} hint={hint} />)}
+      <span className={css.sidebarItemLabel}>{label}</span>
+      {badge && count > 0 && <span className={css.sidebarItemCount}>{formatCount(count)}</span>}
     </button>
   )
 
@@ -1870,181 +1815,192 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
     <>
       {shellOrWrap(
         <div className={`${css.panel} ${modalStaggerClass}`} aria-busy={state.status === 'loading'}>
-        {/* ── 顶部两级工具筛选栏 ── */}
-        <header className={css.topBar}>
-          {/* 一级行：视图分段 Tab + 统计数值 +「+ 添加」主按钮 */}
-          <div className={css.viewRow}>
-            <div className={css.viewTabs} role="tablist">
-              {viewTab('home', <HomeIcon size={14} />, '首页', 0, false)}
-              {viewTab('all', <BoxIcon size={14} />, t('navAll'), summary?.entryCount ?? 0, true, t('hintActive'))}
-              {viewTab('changes', <ClockIcon size={14} />, t('tabChanges'), changeCount, true, t('hintAllChanges'))}
-              {viewTab('revisions', <HistoryIcon size={14} />, t('tabRevisions'), revisions.length, true, t('hintRevisions'))}
-              {viewTab('trash', <TrashIcon size={14} />, t('navTrash'), summary?.deprecatedCount ?? 0, true, t('hintDeprecated'))}
-              {viewTab('settings', <GearIcon size={14} />, t('tabSettings'), 0, false)}
-            </div>
-
-            <div className={css.viewActions}>
-              <div className={css.topStats}>
-                {summary !== null && (
-                  <>
-                    <span className={css.topStat}>
-                      <span className={css.topStatVal}>{summary.entryCount}</span>
-                      {t('statEntries')}
-                    </span>
-                    <span className={css.topStatSep}>·</span>
-                    <span className={css.topStat} title={t('statProjects')}>
-                      <span className={css.topStatVal}>{projectTotal}</span>
-                      {t('statProjects')}
-                    </span>
-                    {summary.pinnedCount !== undefined && (
-                      <>
-                        <span className={css.topStatSep}>·</span>
-                        <span className={css.topStat} title={t('tabPinned')}>
-                          <span className={css.topStatIcon} aria-hidden="true">★</span>
-                          <span className={css.topStatVal}>{summary.pinnedCount}</span>
-                          {t('statPinnedShort')}
-                        </span>
-                      </>
-                    )}
-                    {(summary.todayChanges ?? 0) > 0 && (
-                      <>
-                        <span className={css.topStatSep}>·</span>
-                        <span className={css.topStat} title={`${t('hintAllChanges')} ${changeCount.toLocaleString()}`}>
-                          <span className={css.topStatIcon}><LightbulbIcon size={13} /></span>
-                          <span className={css.topStatVal}>{summary.todayChanges}</span>
-                          {t('statChangesToday')}
-                        </span>
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
-
-              <button
-                type="button"
-                className={css.primaryAdd}
-                aria-expanded={adding}
-                title={t('add')}
-                onClick={() => {
-                  setTab('all')
-                  setAdding(value => !value)
-                  setEditing(null)
-                  setMoving(null)
-                  if (!adding) {
-                    if (scope.startsWith('project:')) {
-                      setAddScope('project')
-                      setAddProject(scope.slice('project:'.length))
-                    }
-                  }
-                }}
-              >
-                <IconPlusOutlineRegular size={14} />
-                <span>{t('add')}</span>
-              </button>
-            </div>
+        {/* ── 左侧栏（2026-10 第二轮重做：从顶部 tab 行搬下来）── */}
+        <nav className={css.sidebarNav} aria-label={t('panelTitle')}>
+          <div className={css.sidebarBrand}>
+            <span className={css.sidebarBrandIcon}><BrainIcon size={15} /></span>
+            <span className={css.sidebarBrandText}>{t('panelTitle')}</span>
           </div>
 
-          {/* 二级行：仅在「全部记忆」或「回收站」时展示：搜索框 + 项目选择下拉 + 分类选择下拉 + 分类胶囊 Pills */}
-          {(tab === 'all' || tab === 'trash') && (
-            <div className={css.subfilterRow}>
-              {/* 搜索框 */}
-              <label className={css.subfilterSearch} title={t('cmdK')}>
-                <span className={css.topSearchIcon}><IconSearchOutlineRegular size={14} /></span>
-                <input
-                  ref={searchRef}
-                  value={q}
-                  placeholder={t('searchPlaceholderApp')}
-                  aria-label={t('searchPlaceholderApp')}
-                  onChange={(event) => { setQ(event.currentTarget.value) }}
-                  onKeyDown={event => { if (event.key === 'Escape' && q !== '') { event.preventDefault(); setQ('') } }}
-                />
-                <span className={css.topKbd}>⌘K</span>
-              </label>
+          <div className={css.sidebarSection} role="tablist" aria-label={t('panelTitle')}>
+            {viewTab('home', <HomeIcon size={15} />, '首页', 0, false)}
+            {viewTab('all', <BoxIcon size={15} />, t('navAll'), summary?.entryCount ?? 0, true, t('hintActive'))}
+            {viewTab('changes', <ClockIcon size={15} />, t('tabChanges'), changeCount, true, t('hintAllChanges'))}
+            {viewTab('revisions', <HistoryIcon size={15} />, t('tabRevisions'), revisions.length, true, t('hintRevisions'))}
+            {viewTab('trash', <TrashIcon size={15} />, t('navTrash'), summary?.deprecatedCount ?? 0, true, t('hintDeprecated'))}
+          </div>
 
-              {/* 项目下拉（全部 / 全局 / 各项目） */}
-              <div className={css.subfilterGroup}>
-                <span className={css.subfilterLabel}>
-                  <FolderIcon size={12} /> {t('navProjects') || '项目'}:
-                </span>
-                <select
-                  className={css.subfilterSelect}
-                  value={scope}
-                  aria-label={t('scopeFilterLabel')}
-                  onChange={(event) => { setScope(event.currentTarget.value as ScopeFilter) }}
+          {/* 项目：平铺列出（旧版是下拉框 —— 十几个项目时看不见选项就得先点开） */}
+          <div className={css.sidebarSection}>
+            <div className={css.sidebarSectionTitle}>
+              {t('navProjects') || '项目'}
+              <span className={css.sidebarSectionCount}>{projects.length}</span>
+            </div>
+            <button
+              type="button"
+              className={css.sidebarItem + (scope === 'all' ? ' ' + css.sidebarItemActive : '')}
+              onClick={() => { setTab('all'); setScope('all') }}
+            >
+              <span className={css.navIcon}><GlobeIcon size={15} /></span>
+              <span className={css.sidebarItemLabel}>{t('filterAllProjects')}</span>
+              <span className={css.sidebarItemCount}>{formatCount(summary?.entryCount ?? 0)}</span>
+            </button>
+            <button
+              type="button"
+              className={css.sidebarItem + (scope === 'global' ? ' ' + css.sidebarItemActive : '')}
+              onClick={() => { setTab('all'); setScope('global') }}
+            >
+              <span className={css.navIcon}><GlobeIcon size={15} /></span>
+              <span className={css.sidebarItemLabel}>{t('scopeGlobal')}</span>
+              <span className={css.sidebarItemCount}>{formatCount(summary?.globalCount ?? 0)}</span>
+            </button>
+            {projects.map(project => {
+              const active = scope === `project:${project.hash}`
+              const label = project.alias ?? project.path.split(/[\\/]/).filter(Boolean).at(-1) ?? project.hash
+              return (
+                <button
+                  key={project.hash}
+                  type="button"
+                  title={project.path}
+                  className={css.sidebarItem + (active ? ' ' + css.sidebarItemActive : '')}
+                  onClick={() => { setTab('all'); setScope(`project:${project.hash}`) }}
                 >
-                  <option value="all">{t('filterAllProjects')} ({summary?.entryCount ?? 0})</option>
-                  <option value="global">{t('scopeGlobal')} ({summary?.globalCount ?? 0})</option>
-                  {/* 空态：一个项目都没有时明确说「还没有项目记忆」，
-                      而不是留一个只有「全部/全局」两项、看起来像加载失败的下拉 */}
-                  {projects.length === 0 && <option value="" disabled>{t('noProjects')}</option>}
-                  {projects.map(project => (
-                    <option key={project.hash} value={`project:${project.hash}`}>
-                      {project.alias ?? project.path.split(/[\\/]/).filter(Boolean).at(-1) ?? project.hash} ({project.entryCount})
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  <span className={css.navIcon}><FolderIcon size={15} /></span>
+                  <span className={css.sidebarItemLabel}>{label}</span>
+                  <span className={css.sidebarItemCount}>{formatCount(project.entryCount)}</span>
+                </button>
+              )
+            })}
+            {projects.length === 0 && <span className={css.sidebarEmpty}>{t('noProjects')}</span>}
+          </div>
 
-              {/* 分类下拉选择 */}
-              <div className={css.subfilterGroup}>
-                <span className={css.subfilterLabel}>
-                  <TagIcon size={12} /> {t('navCategories') || '分类'}:
-                </span>
-                <select
-                  className={css.subfilterSelect}
-                  value={tag}
-                  aria-label={t('navCategories')}
-                  onChange={(event) => { setTag(event.currentTarget.value) }}
+          {/* 分类：平铺（旧版同样是下拉 + 一排胶囊，重复了两遍） */}
+          {allTags.length > 0 && (
+            <div className={css.sidebarSection}>
+              <div className={css.sidebarSectionTitle}>
+                {t('navCategories') || '分类'}
+                <span className={css.sidebarSectionCount}>{allTags.length}</span>
+              </div>
+              <button
+                type="button"
+                className={css.sidebarItem + (tag === '' ? ' ' + css.sidebarItemActive : '')}
+                onClick={() => { setTag('') }}
+              >
+                <span className={css.navIcon}><TagIcon size={15} /></span>
+                <span className={css.sidebarItemLabel}>{t('filterAllCategories')}</span>
+              </button>
+              {visibleCats.map(cat => (
+                <button
+                  key={cat.tag}
+                  type="button"
+                  className={css.sidebarItem + (tag === cat.tag ? ' ' + css.sidebarItemActive : '')}
+                  onClick={() => { setTag(tag === cat.tag ? '' : cat.tag) }}
                 >
-                  <option value="">{t('filterAllCategories')} ({summary?.entryCount ?? 0})</option>
-                  {allTags.map(item => (
-                    <option key={item.tag} value={item.tag}>
-                      {item.tag} ({item.count})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 热门分类快速胶囊 Pills */}
-              <div className={css.pills}>
+                  <span className={css.navIcon}>
+                    <span className={css.catDot} style={{ ['--dot' as string]: DOT_COLORS[hashOf(cat.tag) % DOT_COLORS.length] }} />
+                  </span>
+                  <span className={css.sidebarItemLabel}>{cat.tag}</span>
+                  <span className={css.sidebarItemCount}>{formatCount(cat.count)}</span>
+                </button>
+              ))}
+              {allTags.length > 6 && (
                 <button
                   type="button"
-                  className={css.pill}
-                  data-active={tag === ''}
-                  onClick={() => setTag('')}
+                  className={css.sidebarItem}
+                  aria-expanded={catExpanded}
+                  onClick={() => { setCatExpanded((value) => !value) }}
                 >
-                  {t('tabAll')}
+                  <span className={css.navIcon}>{catExpanded ? '−' : '+'}</span>
+                  <span className={css.sidebarItemLabel}>{catExpanded ? t('catLess') : t('navMoreCategories')}</span>
                 </button>
-                {visibleCats.slice(0, catExpanded ? 8 : 5).map(cat => (
-                  <button
-                    key={cat.tag}
-                    type="button"
-                    className={css.pill}
-                    data-active={tag === cat.tag}
-                    onClick={() => setTag(tag === cat.tag ? '' : cat.tag)}
-                  >
-                    <span className={css.catDot} style={{ ['--dot' as string]: DOT_COLORS[hashOf(cat.tag) % DOT_COLORS.length] }} />
-                    <span>{cat.tag}</span>
-                    <span style={{ opacity: 0.65, fontSize: 11 }}>{cat.count}</span>
-                  </button>
-                ))}
-                {/* 「更多分类」：默认只露 5 个，点开看全（再点收起）。
-                    只在真有第 6 个以上分类时出现——分类本来就少时给一个
-                    点了没反应的按钮是噪音。 */}
-                {allTags.length > 5 && (
-                  <button
-                    type="button"
-                    className={css.pill}
-                    aria-expanded={catExpanded}
-                    onClick={() => { setCatExpanded((value) => !value) }}
-                  >
-                    {catExpanded ? t('catLess') : t('navMoreCategories')}
-                  </button>
-                )}
-              </div>
+              )}
             </div>
           )}
-        </header>
+
+          {/* 设置固定在底部：它是低频入口，不该跟导航抢位置 */}
+          <div className={css.sidebarSection} style={{ marginTop: 'auto' }}>
+            {viewTab('settings', <GearIcon size={15} />, t('tabSettings'), 0, false)}
+          </div>
+        </nav>
+
+        {/* ── 右侧内容列：顶栏 + 主区 ── */}
+        <div className={css.contentCol}>
+          <header className={css.topBar}>
+            <div className={css.viewRow}>
+              {/* 搜索框（重做：胶囊容器 + 聚焦光晕 + 内容清除键） */}
+              {(tab === 'all' || tab === 'trash') ? (
+                <label className={css.searchWrap}>
+                  <span className={css.topSearchIcon}><IconSearchOutlineRegular size={15} /></span>
+                  <input
+                    ref={searchRef}
+                    className={css.searchInput}
+                    value={q}
+                    placeholder={t('searchPlaceholderApp')}
+                    aria-label={t('searchPlaceholderApp')}
+                    onChange={(event) => { setQ(event.currentTarget.value) }}
+                    onKeyDown={event => { if (event.key === 'Escape' && q !== '') { event.preventDefault(); setQ('') } }}
+                  />
+                  {q !== ''
+                    ? (
+                      <button
+                        type="button"
+                        className={css.searchClearBtn}
+                        aria-label={t('clearFilters')}
+                        onClick={() => { setQ('') }}
+                      >✕</button>
+                    )
+                    : <span className={css.searchKbd}>⌘K</span>}
+                </label>
+              ) : <span style={{ flex: 1 }} />}
+
+              <div className={css.topActions}>
+                <div className={css.topStats}>
+                  {summary !== null && (
+                    <>
+                      <span className={css.topStat}>
+                        <span className={css.topStatVal}>{summary.entryCount}</span>
+                        {t('statEntries')}
+                      </span>
+                      {summary.pinnedCount !== undefined && (
+                        <>
+                          <span className={css.topStatSep}>·</span>
+                          <span className={css.topStat} title={t('tabPinned')}>
+                            <span className={css.topStatIcon} aria-hidden="true">★</span>
+                            <span className={css.topStatVal}>{summary.pinnedCount}</span>
+                            {t('statPinnedShort')}
+                          </span>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  className={css.primaryAdd}
+                  aria-expanded={adding}
+                  title={t('add')}
+                  onClick={() => {
+                    setTab('all')
+                    setAdding(value => !value)
+                    setEditing(null)
+                    setMoving(null)
+                    if (!adding) {
+                      if (scope.startsWith('project:')) {
+                        setAddScope('project')
+                        setAddProject(scope.slice('project:'.length))
+                      }
+                    }
+                  }}
+                >
+                  <IconPlusOutlineRegular size={15} />
+                  <span>{t('add')}</span>
+                </button>
+              </div>
+            </div>
+          </header>
+
+        {/* ── 主区 ── */}
 
         {/* ── 主区：纯双栏（左列表 + 右详情）或全宽视图 ── */}
         <div className={css.mainCol}>
@@ -2204,6 +2160,13 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
                       )
                     ) : (
                       <>
+                        {pendingEntries.length > 0 && (
+                          <div className={css.groupSection} data-tone="warn">
+                            {t('groupPending')}
+                            <span className={css.groupSectionCount}>{pendingEntries.length}</span>
+                          </div>
+                        )}
+                        {pendingEntries.map(renderEntryCard)}
                         {pinned.length > 0 && (
                           <div className={css.groupSection}>
                             {t('tabPinned')}
@@ -2318,6 +2281,7 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
           )}
           </>
           )}
+        </div>
         </div>
       </div>
       )}

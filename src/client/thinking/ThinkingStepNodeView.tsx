@@ -240,9 +240,11 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
                 </Fresh>,
               )
             } else if (iuSub.text !== '') {
-              splitDiagram(iuSub.text).forEach((sub, subIndex) => {
+              // streaming 透传：流式期未闭合的 ```diagram 要变成占位卡，而不是
+              // 把半截 JSON 逐字往外冒（此前这条通道完全没有流式态）。
+              splitDiagram(iuSub.text, streaming).forEach((sub, subIndex) => {
                 if (sub.kind === 'diagram') {
-                  rendered.push(<Fresh live={streaming} freshKey={`${key}-iu${iuIndex}-dg${subIndex}`}><DiagramCard spec={sub.spec} /></Fresh>)
+                  rendered.push(<Fresh live={streaming} freshKey={`${key}-iu${iuIndex}-dg${subIndex}`}><DiagramCard spec={sub.spec} pending={sub.pending} bytes={sub.bytes} /></Fresh>)
                 } else if (sub.text !== '') {
                   rendered.push(
                     <Fresh live={streaming} freshKey={`${key}-iu${iuIndex}-md${subIndex}`}><MarkdownText text={decorate(sub.text)} streaming={streaming} labels={labels} fileMentions={mentionResolver} pathImages={env?.pathImages} /></Fresh>,
@@ -271,7 +273,7 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
             }
           })
         }
-        const parts = splitProtoTabs(block.text)
+        const parts = splitProtoTabs(block.text, streaming)
         // 快路径判据必须是「真的有个围栏」，不能只测正文里出现过 html 三个字母
         // ——「HTML 卡片」这种普通措辞会让每段正文都白跑一遍切分。
         if (parts.length === 1 && parts[0]?.kind === 'md' && parts[0].text.indexOf('diagram') < 0 && !looksLikeHtmlFence(parts[0].text) && !looksLikeIuFence(parts[0].text)) {
@@ -281,7 +283,7 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
         } else {
           parts.forEach((part, partIndex) => {
             if (part.kind === 'card') {
-              rendered.push(<Fresh live={streaming} freshKey={`proto${index}-${partIndex}`}><ProtoTabsCard spec={part.spec} /></Fresh>)
+              rendered.push(<Fresh live={streaming} freshKey={`proto${index}-${partIndex}`}><ProtoTabsCard spec={part.spec} pending={part.pending} bytes={part.bytes} /></Fresh>)
             } else {
               pushHtml(`${index}-${partIndex}`, part.text)
             }

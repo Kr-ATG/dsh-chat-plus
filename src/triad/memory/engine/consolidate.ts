@@ -88,7 +88,9 @@ export async function consolidateScope(
   // 排除 pinned 与 disabled：用户明确标记的条目绝不被自动合并/删除/重写；
   // 禁用条目处于「冻结」状态（不注入、不编译、不参与整理），同样跳过。
   // deprecated 条目（软废弃）已退出活跃生命周期，不参与整理。
-  owned = owned.filter(entry => !entry.pinned && entry.disabled !== true && entry.deprecated !== true)
+  // pending 条目（待确认）同理：它还没被用户认可，自动整理器没有资格替它做
+  // 合并/重写/删除——那等于让机器替用户决定他还没看过的内容。
+  owned = owned.filter(entry => !entry.pinned && entry.disabled !== true && entry.deprecated !== true && entry.pending !== true)
   owned = selectConsolidationSet(owned, config.consolidateMaxEntries)
   // 至少 2 条才有语义整理空间（单条重写/提升由规则层处理）。
   if (owned.length < 2) {

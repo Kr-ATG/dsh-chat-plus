@@ -31,6 +31,8 @@
  *     中文是英文的三倍字节），拦不住真正的「整站贴进来」，只拦得住写得长的好卡片。
  */
 
+import { openFenceTail } from '../../shared/fence-scan.ts'
+
 /** 从 HTML 里抠标题：优先 <title>，其次第一个 h1 文本，都没有就用兜底名。 */
 function titleOf(html: string): string {
   const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)
@@ -84,32 +86,6 @@ const FENCE = new RegExp(
   TICK.repeat(3) + 'html' + '[ \\t]*\\r?\\n([\\s\\S]*?)' + TICK.repeat(3),
   'gi',
 )
-
-/**
- * 找出文本里**最后一个未闭合**的代码围栏。
- *
- * 逐行 toggle：遇到围栏标记行就在「围栏内 / 围栏外」之间翻转，扫完仍在围栏内的
- * 那个就是没闭合的。返回语言标记、标记行起点、正文起点。
- *
- * 逐行扫描而不是正则：这里要处理的正是「正则匹配不了」的输入（半截围栏），
- * 用正则会退化成贪婪匹配，把后面所有正文一起吞掉。
- */
-function findOpenFence(text: string): { lang: string; fenceStart: number; bodyStart: number } | undefined {
-  let open: { lang: string; fenceStart: number; bodyStart: number } | undefined
-  let cursor = 0
-  for (const line of text.split('\n')) {
-    const lineStart = cursor
-    cursor += line.length + 1
-    const fence = /^\s{0,3}(?:`{3,}|~{3,})\s*([A-Za-z0-9_-]*)/.exec(line)
-    if (fence === null) continue
-    if (open === undefined) {
-      open = { lang: (fence[1] ?? '').toLowerCase(), fenceStart: lineStart, bodyStart: cursor }
-    } else {
-      open = undefined
-    }
-  }
-  return open
-}
 
 /**
  * 廉价预判：正文里是否**可能**存在 html 围栏。
@@ -175,12 +151,11 @@ export function splitHtml(text: string, streaming = false): readonly HtmlPart[] 
 
   // 未闭合围栏：流式期换成占位卡，让「模型正在写 HTML」的整个过程都收在一张卡里，
   // 而不是几百行代码逐字往外冒。
-  if (streaming && tail !== '') {
-    const open = findOpenFence(tail)
-    if (open !== undefined && open.lang === 'html') {
-      const head = tail.slice(0, open.fenceStart)
-      if (head !== '') parts.push({ kind: 'md', text: head })
-      const partial = tail.slice(open.bodyStart)
+  if (streaming) {
+    const open = openFenceTail(tail, 'html')
+    if (open !== undefined) {
+      if (open.before !== '') parts.push({ kind: 'md', text: open.before })
+      const partial = open.partial
       parts.push({
         kind: 'html',
         // 标题在写完前抠不出来（<title>/<h1> 可能还没出现），交给组件显示

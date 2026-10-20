@@ -22,6 +22,7 @@
 import type { IuSpecBase } from './kinds/contract.ts'
 import type { IuSpec } from './kinds/types.ts'
 import { parseIuSpec, IU_KIND_NAMES } from './kinds/registry.ts'
+import { openFenceTail } from '../../shared/fence-scan.ts'
 
 // ── 向后兼容的类型 re-export ────────────────────────────────────────────
 // 历史上有模块 `from './iu/parse.ts'` 引这些名字（shot/card.ts、client/index.ts），
@@ -68,29 +69,6 @@ const FENCE = new RegExp(
   TICK.repeat(3) + 'iu' + '[ \\t]*\\r?\\n([\\s\\S]*?)' + TICK.repeat(3),
   'gi',
 )
-
-/**
- * 找出文本里最后一个未闭合的代码围栏（与 html-embed/parse.ts 同算法）。
- *
- * 逐行 toggle：遇到围栏标记行就在围栏内外翻转，扫完仍在围栏内的那个就是
- * 没闭合的。这里只处理半截输入，正则匹配不了它，只能逐行扫描。
- */
-function findOpenFence(text: string): { lang: string; fenceStart: number; bodyStart: number } | undefined {
-  let open: { lang: string; fenceStart: number; bodyStart: number } | undefined
-  let cursor = 0
-  for (const line of text.split('\n')) {
-    const lineStart = cursor
-    cursor += line.length + 1
-    const fence = /^\s{0,3}(?:`{3,}|~{3,})\s*([A-Za-z0-9_-]*)/.exec(line)
-    if (fence === null) continue
-    if (open === undefined) {
-      open = { lang: (fence[1] ?? '').toLowerCase(), fenceStart: lineStart, bodyStart: cursor }
-    } else {
-      open = undefined
-    }
-  }
-  return open
-}
 
 /**
  * 廉价预判：正文里是否可能存在 iu 围栏。
@@ -140,13 +118,11 @@ export function splitIu(text: string, streaming = false): readonly IuPart[] {
 
   // 未闭合围栏：流式期换成占位卡；定稿态回退原文（被截断的历史消息不该
   // 永远停在等待态）。
-  if (streaming && tail !== '') {
-    const open = findOpenFence(tail)
-    if (open !== undefined && open.lang === 'iu') {
-      const head = tail.slice(0, open.fenceStart)
-      if (head !== '') parts.push({ kind: 'md', text: head })
-      const partial = tail.slice(open.bodyStart)
-      parts.push({ kind: 'iu', pending: true, bytes: partial.length, raw: partial.trim() })
+  if (streaming) {
+    const open = openFenceTail(tail, 'iu')
+    if (open !== undefined) {
+      if (open.before !== '') parts.push({ kind: 'md', text: open.before })
+      parts.push({ kind: 'iu', pending: true, bytes: open.partial.length, raw: open.partial.trim() })
       tail = ''
     }
   }

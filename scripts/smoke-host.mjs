@@ -189,7 +189,7 @@ if (!injectNamesSeen.some(names => JSON.stringify(names) === JSON.stringify(['to
 // 的 capabilities-host；后者由 providerHubServices 的延迟注入回调注册）。
 const allTools = [...registeredTools, ...providerTools]
 const toolNames = allTools.map(t => t?.name)
-for (const expected of ['download', 'generate_image', 'generate_video']) {
+for (const expected of ['download', 'validate_html_card', 'generate_image', 'generate_video']) {
   const tool = allTools.find(t => t?.name === expected)
   if (tool === undefined) {
     fail(`missing registered wire tool '${expected}', got ${JSON.stringify(toolNames)}`)
@@ -198,6 +198,63 @@ for (const expected of ['download', 'generate_image', 'generate_video']) {
   if (typeof tool.execute !== 'function') fail(`${expected} tool has no execute()`)
   else if (typeof tool.output?.render !== 'function') fail(`${expected} tool has no output.render()`)
   else pass(`registered wire tool: ${expected} (execute + output.render present)`)
+}
+
+
+// ── validate_html_card：发前自检的判据必须与渲染侧一致 ────────────────────
+//
+// 这个工具的价值全在「说的和做的一致」：如果校验说 ok、渲染侧却把卡片拦了，
+// 模型会反复收到「已通过」然后卡片不出——比不做校验更糟。所以这里对每一类
+// 判据都同时断言两边：工具报什么、渲染侧实际怎么处理。
+{
+  const reasons = []
+  const tool = allTools.find(t => t?.name === 'validate_html_card')
+  if (tool === undefined) {
+    reasons.push('validate_html_card 未注册')
+  } else {
+    const run = async (html) => await tool.execute({ html })
+    const cases = [
+      ['<div>正常</div>', 'ok', []],
+      ['', 'invalid', ['empty']],
+      ['<!-- 内容较长，此处省略 -->', 'invalid', ['placeholder-only']],
+      ['just plain text', 'invalid', ['no-visible-tag']],
+      ['<img src="https://cdn.test/a.png">', 'invalid', ['external-asset']],
+      ['<script>fetch("/api")</script>', 'invalid', ['network-call']],
+      ['<div style="height:100vh">x</div>', 'warn', ['viewport-height']],
+      ['<style>body{background:#f5f7f9}</style><div>x</div>', 'warn', ['page-background']],
+    ]
+    for (const [html, wantStatus, wantCodes] of cases) {
+      const out = await run(html)
+      if (typeof out !== 'string' || !out.startsWith('[card-check]')) {
+        reasons.push(`返回不是 [card-check] 协议块：${String(out).slice(0, 60)}`)
+        continue
+      }
+      const status = /status=(\w+)/.exec(out)?.[1]
+      if (status !== wantStatus) reasons.push(`${JSON.stringify(html.slice(0, 24))} 期望 status=${wantStatus}，实得 ${status}：${out.replace(/\n/g, ' ')}`)
+      for (const code of wantCodes) {
+        if (!out.includes(code)) reasons.push(`${JSON.stringify(html.slice(0, 24))} 应报出 ${code}`)
+      }
+      // 每条问题都必须带可执行的 fix，只报不教等于没说。
+      if (wantCodes.length > 0 && !out.includes('fix:')) reasons.push(`${JSON.stringify(html.slice(0, 24))} 缺 fix 修法`)
+    }
+    // 参数类型不对必须明确报错，不能假装通过。
+    const bad = await tool.execute({})
+    if (!/status=invalid/.test(bad) || !/missing_html/.test(bad)) reasons.push('缺 html 参数时必须 status=invalid + error=missing_html')
+  }
+
+  // 判据一致性：工具的「无可见标签」判据必须与渲染侧 hasVisibleTag 一致，
+  // 否则会出现「校验说过、渲染不出」。两边源码都必须存在同一条剥注释逻辑。
+  const checkSrc = readFileSync(resolve(ROOT, 'src/shared/card-check.ts'), 'utf8')
+  const parseSrc = readFileSync(resolve(ROOT, 'src/client/html-embed/parse.ts'), 'utf8')
+  // 判据：两边源码里都得有「剥 HTML 注释」这一步。用子串判断而不是正则，
+  // 免得在这个脚本里再嵌一层转义。
+  const stripComments = s => s.includes('<!--[') && s.includes('-->')
+  if (!stripComments(checkSrc) || !stripComments(parseSrc)) {
+    reasons.push('校验侧与渲染侧都必须「先剥注释再判标签」（否则只有注释的围栏两边结论相反）')
+  }
+
+  if (reasons.length > 0) fail('validate_html_card：' + reasons.join('；'))
+  else pass('validate_html_card：8 类判据 + fix 修法 + 与渲染侧剥注释判据一致')
 }
 
 if (!effectRan) fail('deferred webServer callback never ran')
@@ -215,8 +272,11 @@ else pass('deferred webServer callback executed')
 // 实文件，data URL 不是文件）。注册成 exact 而不是把读图路由改成 prefix ——
 // 改成 prefix 会动到 /generated-images 这条既有契约的路由形状。
 // 原 fonts 路由（界面字体 woff2 资产）已随「界面字体」整块移除。
-if (registered.length !== 7) {
-  fail(`expected exactly 7 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
+// browser-activity 是 2026-10-20 新增：会话行 / 标题栏「浏览器操作中」标志的
+// 数据源（只读轮询）。它注册在插件自己的延迟注入里，与其它路由同生共死，
+// 所以计数一并 +1 —— 漏注册的表现是「图标永远不亮」，只能靠计数断言钉住。
+if (registered.length !== 8) {
+  fail(`expected exactly 8 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
 } else {
   const exacts = registered.filter(spec => spec?.kind === 'exact')
   const prefix = registered.filter(spec => spec?.kind === 'prefix')
@@ -228,8 +288,10 @@ if (registered.length !== 7) {
     fail('missing open-path route (exact /api/chat-flow/open-path)')
   } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/tools-gate')) {
     fail('missing tools-gate route (exact /api/chat-flow/tools-gate)')
+  } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/browser-activity')) {
+    fail('missing browser-activity route (exact /api/chat-flow/browser-activity)')
   } else {
-    pass('registered GET /api/chat-flow/generated-images (+ /materialize) + /open-path + /tools-gate (kind=exact)')
+    pass('registered GET /api/chat-flow/generated-images (+ /materialize) + /open-path + /tools-gate + /browser-activity (kind=exact)')
   }
   const downloadRoute = prefix.find(spec => spec?.path === '/api/chat-flow/download')
   if (downloadRoute === undefined) {

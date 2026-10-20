@@ -118,9 +118,13 @@ export function searchEntries(
   mode: RetrievalMode,
   options: { includeDeprecated?: boolean } = {},
 ): RetrievalMatch[] {
-  const active = options.includeDeprecated === true
-    ? entries
-    : entries.filter(entry => entry.deprecated !== true)
+  // pending 与 deprecated 是两个正交的可见性闸门：
+  //   includeDeprecated 只放开「软废弃」，**绝不能顺带放开「待确认」**——
+  //   前者是「曾经生效过、现在退役」，后者是「从未生效过」。把未确认的内容
+  //   通过一个「要不要看废弃条目」的开关放出来，等于绕过了确认制本身。
+  const active = entries
+    .filter(entry => entry.pending !== true)
+    .filter(entry => options.includeDeprecated === true || entry.deprecated !== true)
   const matches: RetrievalMatch[] = []
   for (const entry of active) {
     if (mode === 'keyword' && !keywordHit(query, entry)) continue
@@ -140,9 +144,10 @@ export async function searchEntriesSemantic(
   provider: EmbeddingProvider | null,
   options: { includeDeprecated?: boolean } = {},
 ): Promise<RetrievalMatch[]> {
-  const active = options.includeDeprecated === true
-    ? entries
-    : entries.filter(entry => entry.deprecated !== true)
+  // 同 searchEntries：pending 恒定排除，includeDeprecated 只对 deprecated 生效。
+  const active = entries
+    .filter(entry => entry.pending !== true)
+    .filter(entry => options.includeDeprecated === true || entry.deprecated !== true)
   if (active.length === 0) return []
 
   let queryVec: number[] | null = null

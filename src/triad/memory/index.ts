@@ -15,6 +15,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { mountMemoryRoutes } from './api.js'
 import { compileAll, workspaceHashOf } from './engine/compile.js'
+import { prepareMemoryContent } from './engine/content-hygiene.js'
 import { extractCandidatesWithOutcome, isDuplicateContent, transcriptFromEvents } from './engine/extract.js'
 import { createMemoryInjector } from './engine/inject.js'
 import { MemoryStore, entryIdOf, summarize } from './engine/store.js'
@@ -257,9 +258,21 @@ async function extractTurn(
   let added = 0
   let updated = 0
   let deduped = 0
+  let rejected = 0
   // 语义去重：读一次已有条目作快照；候选与已有高度重复则跳过（降 churn）。
   const existingEntries = await store.readEntries()
-  for (const candidate of candidates) {
+  for (const rawCandidate of candidates) {
+    // 内容卫生：先清洗形式噪声，再硬拒确定垃圾（占位词 / 纯称呼元信息 / 空）。
+    // 放在去重之前是刻意的：清洗会改内容，先洗后比才能让「同一句话带不带 markdown
+    // 残符」落进同一个 id（entryIdOf 由 content 推导，洗与不洗会得到两个不同的 id，
+    // 于是同一句话能存两条）。拒绝则连比都不用比。
+    const prepared = prepareMemoryContent(rawCandidate.content)
+    if ('rejected' in prepared) {
+      rejected += 1
+      ctx.logger?.debug?.(`[dsh-memory] candidate rejected (${prepared.rejected}): ${rawCandidate.content.slice(0, 60)}`)
+      continue
+    }
+    const candidate = { ...rawCandidate, content: prepared.content }
     // 工作区判定失败 → 回退 global（design §8）。
     let scope: 'global' | 'project' = candidate.scope
     let hash: string | null = null
@@ -285,6 +298,9 @@ async function extractTurn(
       // 溯源：记下产生该条目的会话与轮次（KR 右栏记忆卡按 sessionId 判定
       // 「本会话新增」，不再用浏览器时间基线猜）。
       provenance: { sessionId: agent.session.id, turn: turnNumber },
+      // 待确认制：开启时自动抽取的条目挂 pending，不检索/不注入/不编译，
+      // 等用户在面板确认。关闭时（默认）直接生效，保持旧行为。
+      pending: config.extractRequireConfirm === true ? true : undefined,
     })
     existingEntries.push(entry)
     // 项目层首次落盘时确保 meta.json 存在（否则面板项目列表看不到该项目）。
@@ -320,6 +336,6 @@ async function extractTurn(
   // 有新增/更新时刷新产物（增量编译）。
   if (added + updated > 0) {
     await compileAll(store, config)
-    ctx.logger?.debug?.(`[dsh-memory] extracted ${added} new, ${updated} updated, ${deduped} deduped`)
+    ctx.logger?.debug?.(`[dsh-memory] extracted ${added} new, ${updated} updated, ${deduped} deduped, ${rejected} rejected`)
   }
 }

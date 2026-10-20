@@ -1010,6 +1010,7 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   const panelSrc = strip(srcOf('src/client/triad/gallery/GalleryPanel.tsx'))
   const apiSrc = strip(srcOf('src/client/triad/gallery/api.ts'))
   const lbSrc = strip(srcOf('src/client/triad/gallery/media-lightbox.tsx'))
+  const zoomSrc = strip(srcOf('src/client/triad/gallery/use-zoom-pan.ts'))
   // 2026-10-19 收口：插件自己的 Lightbox（media-lightbox.tsx）整块删除，画廊与
   // 产出物卡的预览一律交官方右侧栏。这里改为钉「官方侧栏渲染器」两个文件：
   // sidebar-doc（pdf / Office 接管）与 sidebar-media（音视频接管）。
@@ -1055,6 +1056,28 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     fail('画廊缩略图 / 落盘失败兜底必须走 /api/triad/gallery/raw（host 索引白名单），不得直接 file:// 或 /api/file')
   } else if (!/export const generatedUrlCache/.test(apiSrc)) {
     fail('generatedUrlCache 必须留在 api.ts（缩略图与打开路径共用同一份缓存，不能各自维护一份）')
+  } else if (!/useZoomPan/.test(lbSrc) || !/ctrlKey/.test(zoomSrc)) {
+    /*
+     * Ctrl + 滚轮缩放（2026-10-20）。这条判据里最容易错的一处不是缩放公式，
+     * 是**事件必须原生监听 + passive:false**：React 的 onWheel 走合成委托且
+     * 默认 passive，里面 preventDefault 会被忽略，于是 Ctrl+滚轮 连带把整个
+     * DSH 页面缩放掉（视口变大、弹窗不动）。所以下面钉的是这个事实。
+     */
+    fail('弹窗必须有 Ctrl+滚轮缩放（use-zoom-pan 挂到弹窗上）')
+  } else if (!/addEventListener\('wheel'/.test(zoomSrc) || !/passive:\s*false/.test(zoomSrc)) {
+    fail('缩放 hook 的滚轮监听必须是原生 addEventListener + 显式 passive:false（React onWheel 拦不住浏览器页面缩放）')
+  } else if (!/if \(!event\.ctrlKey && !event\.metaKey\) return/.test(zoomSrc)) {
+    // 不按修饰键的滚轮必须放行：页图 / 弹窗里还有别的滚动需求。
+    fail('未按 Ctrl/⌘ 的滚轮必须完全不接管（否则其它滚动场景会失灵）')
+  } else if (!/MIN_SCALE/.test(zoomSrc) || !/MAX_SCALE/.test(zoomSrc)) {
+    fail('缩放必须有上下限（无限放大/缩小会让内容彻底消失在画外）')
+  } else if (!/confine\(/.test(zoomSrc)) {
+    // 放大后拖拽必须夹住边界，否则能把图拖到画外只剩一片黑。
+    fail('拖拽平移必须按内容尺寸夹住边界（confine）')
+  } else if (!/glb-shield/.test(lbSrc) || !/glb-shield/.test(srcOf('src/client/triad/gallery/styles.ts'))) {
+    // iframe 是独立文档，wheel 不冒泡到宿主 —— 盖遮罩才能 preventDefault 掉
+    // 浏览器自己的「Ctrl+滚轮 缩放页面」。
+    fail('承载式内容（iframe）必须能在按 Ctrl 时盖一层遮罩，把滚轮接回宿主')
   } else if (!/priority: 'extension'/.test(docSrc) || !/documentPreviews/.test(docSrc)) {
     fail('pdf / Office 必须由插件侧栏渲染器以 extension 档接管（官方 pdf.js 对带 /ID 的 PDF 必崩）')
   } else if (!/officePdfUrl/.test(docSrc)) {

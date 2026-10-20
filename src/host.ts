@@ -43,6 +43,7 @@ import { applyScreenshot } from './shot/index.ts'
 import { admitSpillPath, spillRoots } from './spill/index.ts'
 import { MATERIALIZE_ROUTE, handleMaterialize, parseGeneratedResult } from './spill/materialize.ts'
 import { applyDownloadRoutes, applyDownloadTool } from './download/index.ts'
+import { validateHtmlCardTool } from './validate-card/index.ts'
 import { applyOpenPathRoutes } from './open-path/index.ts'
 import { applyOfficePreview } from './office/index.ts'
 import { applyTriadHost } from './triad/host.ts'
@@ -50,6 +51,7 @@ import { applyProviderHub, providerHubServices } from './provider/index.ts'
 import { applyMailHost } from './mail/index.ts'
 import { applyToolsGate } from './tools-gate/index.ts'
 import { applyBrowserOnDemand } from './browser-on-demand/index.ts'
+import { applyBrowserActivity } from './browser-activity/index.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
 export { applyMailHost } from './mail/index.ts'
 export type { MailHostConfig, MailHostHandle } from './mail/index.ts'
@@ -71,6 +73,48 @@ export {
   __test as browserOnDemandTest,
 } from './browser-on-demand/index.ts'
 export type { BrowserOnDemandConfig, OwnershipMarker } from './browser-on-demand/index.ts'
+// 浏览器活动观测：纯函数（工具名判据 / MCP 名解析 / 会话归属取值）、状态机与路由
+// handler 一并导出给冒烟。这几块错了都不会抛错 —— 漏判只是「该亮的不亮」，
+// 误判是「普通工具也亮浏览器图标」，尾迹窗错了是「图标频闪或不灭」，只能断言。
+// 接缝诊断（SESSION_SOURCES / sessionSourceOfExecution / DebugBuffer）也一并导出：
+// 真实运行时若取不到 sessionId，症状是「图标永远不亮且毫无报错」，这几项是唯一
+// 能直接指认接缝断在哪条路径上的手段。
+export {
+  applyBrowserActivity,
+  BrowserActivityTracker,
+  BrowserActivityDebugBuffer,
+  isBrowserToolName,
+  isShellToolName,
+  browserCliOfCommand,
+  browserCliInvocationOf,
+  browserActivityLabelOf,
+  parseBrowserToolName,
+  sessionIdOfAgent,
+  sessionIdOfExecution,
+  shellCommandOfExecution,
+  sessionSourceOfExecution,
+  hasCallIdOfExecution,
+  handleBrowserActivityRoute,
+  SESSION_SOURCES,
+  BROWSER_ACTIVITY_ROUTE,
+  BROWSER_ACTIVITY_LINGER_MS,
+  BROWSER_ACTIVITY_DEBUG_LIMIT,
+  BROWSER_ACTIVITY_HINTS,
+  BROWSER_ACTIVITY_PREFIX,
+  BROWSER_CLI_NAMES,
+  SHELL_TOOL_NAMES,
+  __test as browserActivityTest,
+} from './browser-activity/index.ts'
+export type {
+  BrowserActivityConfig,
+  BrowserActivityDebugEntry,
+  BrowserActivitySession,
+  BrowserActivitySnapshot,
+  BrowserActivityLabel,
+  BrowserCliInvocation,
+  SessionResolution,
+  SessionSource,
+} from './browser-activity/index.ts'
 // 纯函数再导出：供 smoke 直接断言「CLI 英文报错翻成人话」的映射表。
 export { humanizeCliError } from './mail/cli.ts'
 // 画廊的可测面（索引准入 / raw 路径解析纯函数）：供 smoke 对拍「相对路径按会话
@@ -185,7 +229,7 @@ function handleGeneratedImages(ctx: Record<string, any>, req: any, res: any): vo
  * 且服务销毁时 webCtx.effect 注册的路由自动回收。与 packages/api/gateway
  * 的写法一致。
  */
-export function apply(ctx: Record<string, any>, config?: { mail?: Record<string, unknown>; toolsGate?: Record<string, unknown>; browserOnDemand?: Record<string, unknown> }): void {
+export function apply(ctx: Record<string, any>, config?: { mail?: Record<string, unknown>; toolsGate?: Record<string, unknown>; browserOnDemand?: Record<string, unknown>; browserActivity?: Record<string, unknown> }): void {
   ctx.inject(['webServer'], (webCtx: any) => {
     // 生图画廊：spill 结果读取（exact 路由）。
     webCtx.effect(() => webCtx.webServer.register({
@@ -237,8 +281,22 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
   })
   // download 工具：注册进 host 工具注册表（模型可见，GUI 实时进度条）。
   // tools 服务缺失时回调不执行，其余能力不受影响（延迟注入的天然降级）。
+  // validate_html_card 同批注册：把提示词里那十几条卡片规则变成发前可机检的
+  // 诊断（外链会被 CSP 拦、100vh 会出滚动条、整页底色会变成色差板子……）。
+  // 两件事共用同一个 tools 依赖，任一失败都不该连累另一个，所以分开 try。
   ctx.inject(['tools'], (toolsCtx: any) => {
     applyDownloadTool(toolsCtx)
+    try {
+      toolsCtx.effect(
+        () => toolsCtx.tools.register(validateHtmlCardTool),
+        'dsh-chat-plus: validate_html_card tool',
+      )
+    } catch (error) {
+      try {
+        toolsCtx.logger?.warn?.(('[dsh-chat-plus] validate_html_card 注册失败：'
+          + (error instanceof Error ? error.message : String(error))))
+      } catch { /* 拿不到 logger 时静默：不为了记日志再抛一次 */ }
+    }
   })
   // ── 融合的原 dsh-triad 工作台（记忆引擎 / 用量+技能 / MCP）────────────
   // 路由前缀与座位一仍其旧（/api/dsh-memory/* 等），用户零迁移；dsh-triad
@@ -314,6 +372,22 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
   } catch (error) {
     ctx.logger?.warn?.(
       `[dsh-chat-plus] browser-on-demand failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+    )
+  }
+
+  // ── 浏览器活动观测（会话行 / 标题栏的浏览器标志）──────────────────────
+  // 包装 tools/execute 记录「哪些会话此刻有浏览器调用在进行」，暴露只读路由
+  // GET /api/chat-flow/browser-activity 给客户端轮询。与按需拉起共用同一个
+  // 接缝，但两者互不依赖：拉起挂了不影响观测，观测挂了也不影响拉起。
+  //
+  // 同样是延迟注入 + 单独兜底：观测器在 waterfall 里运行，任何未捕获异常都会
+  // 毁掉真实的工具调用 —— 模块内部已全程 try/catch，这里再加一层，最坏结果
+  // 只是「图标不亮」。
+  try {
+    applyBrowserActivity(ctx as never, (config?.browserActivity ?? {}) as never)
+  } catch (error) {
+    ctx.logger?.warn?.(
+      `[dsh-chat-plus] browser-activity failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
     )
   }
 }

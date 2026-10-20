@@ -797,7 +797,10 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
     ['HTML_INJECTION_RULE', '规范常量'],
     ['没有 same-origin', '沙箱隔离事实'],
     ['高度自适应', '高度上报事实'],
-    ['不引外部资源', '离线可用事实'],
+    // 2026-10-20：这条从「请别引外链」升级成「引了也不生效」——iframe 文档现在带
+    // CSP（default-src none + connect-src none），外链与 fetch/XHR 全被浏览器拦。
+    // 断言随之更新：提示词必须说的是**会被拦**，不是「离线会白屏」那种软提醒。
+    ['外链一律被拦', 'CSP 硬拦外链与出网这一事实'],
     ['别贴整站', '卡片不是交付网站这一定位'],
     ['data-ds-dark-theme', '主题同步事实'],
     // 「卡片多一层灰底」事故（2026-10-15 实测）：模型给 `body` 铺了整页底色

@@ -12,6 +12,8 @@
  *  edges: [{from, to, label, accent, pts: [[x,y], ...]}]}
  */
 
+import { openFenceTail } from '../../shared/fence-scan.ts'
+
 export type DiagramShape = 'oval' | 'rect' | 'diamond'
 
 export interface DiagramNode {
@@ -44,7 +46,17 @@ export interface DiagramSpec {
 
 export type DiagramPart =
   | { readonly kind: 'md'; readonly text: string }
-  | { readonly kind: 'diagram'; readonly spec: DiagramSpec }
+  /**
+   * 流程图卡片。
+   *
+   * `pending` 区分「流式期还在写」与「已写完」，与 html / iu 同一套语义：
+   *  · pending=true  → 围栏未闭合，只渲染占位，不解析半截 JSON；
+   *  · pending=false → 围栏已闭合，渲染真正的 SVG。
+   *
+   * 两种状态共用同一个 part kind，调用方的 React key 因此在闭合那一刻保持不变，
+   * 卡片是「从占位原地变成真身」而不是卸载重建。
+   */
+  | { readonly kind: 'diagram'; readonly spec?: DiagramSpec; readonly pending: boolean; readonly bytes?: number }
 
 const TICK = String.fromCharCode(96)
 const FENCE = new RegExp(TICK.repeat(3) + 'diagram' + '\\s*\\n([\\s\\S]*?)' + TICK.repeat(3), 'g')
@@ -124,8 +136,14 @@ function asSpec(raw: unknown): DiagramSpec | undefined {
   }
 }
 
-/** 把 text 切成 markdown 片段与 diagram 卡片；无围栏返回整段 md。 */
-export function splitDiagram(text: string): readonly DiagramPart[] {
+/**
+ * 把 text 切成 markdown 片段与 diagram 卡片；无围栏返回整段 md。
+ *
+ * @param streaming 是否处于流式输出中。true 时末尾未闭合的 ```diagram 会产出一个
+ *   pending 占位卡片；false（已定稿）时未闭合围栏原样当代码块显示——被截断的
+ *   历史消息不该永远停在「正在绘制」。
+ */
+export function splitDiagram(text: string, streaming = false): readonly DiagramPart[] {
   if (!text.includes('diagram')) return [{ kind: 'md', text }]
   const parts: DiagramPart[] = []
   let cursor = 0
@@ -144,11 +162,23 @@ export function splitDiagram(text: string): readonly DiagramPart[] {
     if (spec === undefined) {
       parts.push({ kind: 'md', text: match[0] as string })
     } else {
-      parts.push({ kind: 'diagram', spec })
+      parts.push({ kind: 'diagram', spec, pending: false })
     }
     cursor = match.index + (match[0] as string).length
   }
-  const tail = text.slice(cursor)
+  let tail = text.slice(cursor)
+
+  // 未闭合围栏：流式期换成占位卡。此前 diagram 完全没有流式态，半截 JSON 会
+  // 以代码块逐字外冒——而它的正文正是模型最容易写长的一类。
+  if (streaming) {
+    const open = openFenceTail(tail, 'diagram')
+    if (open !== undefined) {
+      if (open.before !== '') parts.push({ kind: 'md', text: open.before })
+      parts.push({ kind: 'diagram', pending: true, bytes: open.partial.length })
+      tail = ''
+    }
+  }
+
   if (tail !== '') parts.push({ kind: 'md', text: tail })
   return parts.length > 0 ? parts : [{ kind: 'md', text }]
 }

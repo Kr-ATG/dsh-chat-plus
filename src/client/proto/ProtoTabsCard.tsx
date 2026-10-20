@@ -27,7 +27,28 @@ function Minis({ tab }: { readonly tab: ProtoTab }): JSX.Element | null {
   )
 }
 
-export const ProtoTabsCard = memo(function ProtoTabsCard({ spec }: {
+/** 流式占位（与 iu / html / diagram 同构）。普通函数而非组件：闭合时复用同一 <div>。 */
+function pendingStage(bytes: number): JSX.Element {
+  return (
+    <div className="dtt-pt-stage--pending" aria-busy="true" aria-live="polite">
+      <span className="dtt-pt-pending-dot" />
+      <span className="dtt-pt-pending-text">正在整理…</span>
+      <span className="dtt-pt-pending-bytes">{bytes} 字</span>
+    </div>
+  )
+}
+
+export const ProtoTabsCard = memo(function ProtoTabsCard({ spec, pending = false, bytes = 0 }: {
+  readonly spec?: ProtoSpec | undefined
+  /** 流式期围栏未闭合 → 只渲染占位，不解析半截 JSON。 */
+  readonly pending?: boolean
+  readonly bytes?: number
+}): JSX.Element | null {
+  if (pending || spec === undefined) return <div className="dtt-proto">{pendingStage(bytes)}</div>
+  return <ProtoTabsLive spec={spec} />
+})
+
+const ProtoTabsLive = memo(function ProtoTabsLive({ spec }: {
   readonly spec: ProtoSpec
 }): JSX.Element | null {
   const [active, setActive] = useState(0)

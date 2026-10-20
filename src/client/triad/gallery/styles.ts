@@ -188,6 +188,16 @@ const SHEET = `
 .tg-card__count{position:absolute;top:8px;left:8px;display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:9px;font-size:10px;font-weight:600;letter-spacing:.02em;color:#fff;background:rgba(15,17,23,.76);border:1px solid rgba(255,255,255,.16);opacity:0;transform:translateY(-3px);transition:opacity 180ms ease,transform 180ms ease;pointer-events:none}
 .tg-card:hover .tg-card__count{opacity:1;transform:translateY(0)}
 .tg-card--tile .tg-card__count{opacity:1;transform:none;top:6px;left:6px;height:16px;font-size:9.5px}
+/* 「就地预览」快捷点（2026-10-20）。
+   卡片的主语义换成了「用默认应用打开」，但浏览时不该被迫为每张图开一个外部窗口 ——
+   这枚眼睛只负责「在这里看看」。hover / focus-within 浮现，平时不占视觉；
+   缩略图角落铺一层模糊底，压在任意颜色的图上都读得清。 */
+.tg-card__peek{position:absolute;right:8px;bottom:8px;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;color:#fff;background:rgba(15,17,23,.72);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(8px);opacity:0;transform:translateY(4px) scale(.94);transition:opacity 180ms ease,transform 220ms cubic-bezier(.2,.8,.2,1),background 160ms ease;cursor:pointer;z-index:2}
+.tg-card:hover .tg-card__peek,.tg-card:focus-within .tg-card__peek{opacity:1;transform:translateY(0) scale(1)}
+.tg-card__peek:hover{background:rgba(15,17,23,.9);border-color:rgba(255,255,255,.32)}
+.tg-card__peek:active{transform:scale(.92)}
+.tg-card--tile .tg-card__peek{right:6px;bottom:auto;top:26px;width:22px;height:22px;border-radius:7px}
+.tg-card__peek svg{pointer-events:none}
 .tg-card__meta{display:flex;flex-direction:column;gap:2px;padding:8px 10px 10px;min-width:0}
 .tg-card__name{font-size:12px;font-weight:500;line-height:16px;color:var(--dsw-alias-label-primary,#111827);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tg-card__sub{font-size:10.5px;line-height:14px;color:var(--dsw-alias-label-tertiary,#888);display:flex;align-items:center;gap:6px;min-width:0}
@@ -491,11 +501,45 @@ const SHEET = `
 .glb-nav--prev:active{transform:translateY(-50%) translateX(-2px) scale(.96)}
 .glb-nav--next:active{transform:translateY(-50%) translateX(2px) scale(.96)}
 
-/* ── 底部计数（多图时才有）──────────────────────────────────────────── */
-.glb-foot{flex:none;display:flex;align-items:center;justify-content:center;height:34px;
+/* ── 底栏：左计数 · 右缩放胶囊 ──────────────────────────────────────── */
+.glb-foot{flex:none;position:relative;display:flex;align-items:center;justify-content:center;height:34px;
+  padding:0 12px;
   border-top:1px solid rgba(255,255,255,.06);
   background:color-mix(in srgb, #191c23 92%, transparent)}
-.glb-foot__count{font-size:11px;color:rgba(255,255,255,.42);font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.glb-foot__count{position:absolute;left:0;right:0;text-align:center;
+  font-size:11px;color:rgba(255,255,255,.42);font-variant-numeric:tabular-nums;letter-spacing:.02em;
+  pointer-events:none}
+.glb-zoom{margin-left:auto;display:flex;align-items:center;gap:6px;z-index:1;min-width:0}
+/* 未缩放：一枚极淡的操作提示（提示 Ctrl+滚轮，同时说明这里能放大）。
+   刻意压到 30% 明度：它不是按钮，只是说明，不该跟计数抢注意力。 */
+.glb-zoom__hint{display:inline-flex;align-items:center;gap:5px;
+  font-size:10.5px;color:rgba(255,255,255,.3);white-space:nowrap;
+  transition:color 160ms ease}
+.glb-body:hover ~ .glb-foot .glb-zoom__hint{color:rgba(255,255,255,.52)}
+/* 已缩放：百分比 + 复位钮（亮起来，因为它现在是有信息量的状态）。 */
+.glb-zoom[data-active="true"]{padding:2px 2px 2px 9px;border-radius:8px;
+  background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.08);
+  animation:glb-zoom-in 220ms cubic-bezier(.16,1,.3,1)}
+@keyframes glb-zoom-in{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
+.glb-zoom__pct{font-size:11px;font-weight:600;color:rgba(255,255,255,.86);
+  font-variant-numeric:tabular-nums;min-width:3.2em;text-align:right}
+.glb-zoom__reset{display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;padding:0;border:0;border-radius:6px;background:transparent;
+  color:rgba(255,255,255,.6);cursor:pointer;
+  transition:background 140ms ease,color 140ms ease,transform 140ms cubic-bezier(.16,1,.3,1)}
+.glb-zoom__reset:hover{background:rgba(255,255,255,.12);color:#fff}
+.glb-zoom__reset:active{transform:rotate(-40deg) scale(.9)}
+.glb-zoom__reset:focus-visible{outline:2px solid rgba(255,255,255,.5);outline-offset:-2px}
+
+/* 缩放中：裁掉溢出（放大后的图不该盖住头部与底栏）。 */
+.glb-body[data-zoomed="true"]{overflow:hidden}
+
+/* Ctrl 遮罩：只在承载式内容（iframe）上出现，见 media-lightbox 里的说明。
+   透明、满铺、吃掉所有指针事件 —— 它的唯一职责是把 wheel 接回宿主，
+   好让 Ctrl+滚轮 不落到浏览器自己的页面缩放上。 */
+.glb-shield{position:absolute;inset:0;z-index:5;background:transparent;cursor:zoom-in}
+/* 可缩放目标的公共约束：transform 由 JS 贴，这里只保证合成层与缩放原点。 */
+.glb-media,.glb-paged__img,.glb-genrow{transform-origin:center center;backface-visibility:hidden}
 
 /* ── 全屏态：面板铺满、头部浮在内容上、圆角归零 ─────────────────────── */
 .glb[data-full="true"]{padding:0;background:#08090c}
@@ -526,15 +570,19 @@ const SHEET = `
   .glb-body{padding:10px}
   .glb-nav{display:none}
   .glb-head__dims{display:none}
+  /* 窄屏只留百分比（提示文案太占位，且手机上没有滚轮）。 */
+  .glb-zoom__hint{display:none}
 }
 
 @media (prefers-reduced-motion:reduce){
   .tg-card,.tg-skel,.tg-empty,.tg-stale,.tg-session-bar,.tg-dock{animation:none!important}
-  .tg-card,.tg-card:hover,.tg-icon-btn,.tg-kind,.tg-dock__item,.tg-card__img,.tg-card__icon,.tg-card__kind-dot{transition:none!important}
+  .tg-card,.tg-card:hover,.tg-icon-btn,.tg-kind,.tg-dock__item,.tg-card__img,.tg-card__icon,.tg-card__kind-dot,.tg-card__peek{transition:none!important}
+  /* 减弱动效下这枚按钮不再靠过渡浮出：直接常显，否则要 hover 才有反应。 */
+  .tg-card__peek{opacity:1!important;transform:none!important}
   .tg-skel__thumb::after,.tg-skel__line::after{animation:none!important}
   .tg-empty__icon,.tg-stale__dot,.tg-icon-btn[data-spinning="true"] svg{animation:none!important}
-  .glb,.glb-panel,.glb-head,.glb-body,.glb-media,.glb-note,.glb-paged__bar{animation:none!important}
-  .glb-btn,.glb-nav,.glb-paged__step,.glb-paged__img{transition:none!important}
+  .glb,.glb-panel,.glb-head,.glb-body,.glb-media,.glb-note,.glb-paged__bar,.glb-zoom{animation:none!important}
+  .glb-btn,.glb-nav,.glb-paged__step,.glb-paged__img,.glb-zoom__hint,.glb-zoom__reset{transition:none!important}
   .glb-spin,.glb-spin-inline{animation:none!important}
   .tg-day,.tg-day::before,.tg-day__head,.tg-day__dot,.tg-day__rule,.tg-time-pop,.tg-search__time-tag,.tg-time-bar{animation:none!important}
   .tg-time-pop__preset,.tg-time-pop__apply,.tg-view__btn{transition:none!important}

@@ -46,6 +46,28 @@ export interface MemoryEntry {
   /** 嵌入向量（Retrieval 层缓存；未算则缺省）。 */
   embedding?: number[]
 
+  // ── schema v5（待确认制）────────────────────────────────────────
+  /**
+   * 待确认标记（true = 自动抽取但用户尚未确认）。
+   *
+   * 为什么需要：自动抽取与用户手写原本平起平坐——两者入库即参与注入。
+   * 实测近 20 天自动抽取 2464 条、用户手动删除 2472 条（其中 1781 次是
+   * 「删除：」/「删除今日：」），净增约等于零：抽取管线本身没问题，问题是
+   * 生成物大量不是用户想要的，而唯一的质量闸门是人事后翻面板去删。
+   *
+   * pending 把这道闸从「事后删」挪到「事前确认」：自动抽取默认挂 pending，
+   * 不参与检索 / 注入 / 编译，用户在面板或对话里确认后才生效。
+   *
+   * 与 verified 的区别：verified 是「用户确认过这条内容」，语义上是可信度标记，
+   * 不改可见性；pending 是可见性闸门。两者正交——pending 条目确认后同时置
+   * verified=true，但 verified 可以独立于 pending 存在（老数据都没有 pending 字段）。
+   *
+   * 缺省/undefined = 已生效（老数据与手动记忆都是这个语义，无需迁移）。
+   */
+  pending?: boolean
+  /** 进入待确认状态的时间 ISO（仅 pending=true 时有值，供面板按时间排序）。 */
+  pendingAt?: string
+
   // ── schema v3（软废弃链 / revise-retire 支持）────────────────────
   /** 软废弃标记（true = 已废弃，默认不检索/不注入/不编译）。 */
   deprecated?: boolean
@@ -301,6 +323,25 @@ export interface MemoryConfig {
   todoClosureDefaultEnabled: boolean
   /** 注入检索 top-k（当前任务相关记忆注入条数；identity/pinned/长期常驻不占此预算）。 */
   injectTopK: number
+  /**
+   * 自动抽取是否走待确认制（pending）。
+   *
+   * true  = 抽取结果挂 pending，不检索/不注入/不编译，用户确认后才生效；
+   * false = 抽取结果直接生效（旧行为）。
+   *
+   * 默认 **false**（保持旧行为）而不是 true——改成 true 意味着升级后所有自动
+   * 记忆都不再进上下文，用户会突然觉得「它忘了我记住的东西」。这是产品决策，
+   * 不该由升级悄悄替用户做。用户在面板打开后才切换。
+   */
+  extractRequireConfirm: boolean
+  /**
+   * pending 条目保留天数：超期未确认的自动抽取条目由每日编译清理。
+   *
+   * 为什么要有上限：pending 不注入，但会占条目配额、拖慢全量扫描、把面板的
+   * 「待确认」页签堆成垃圾场。0 = 不自动清理（全部留待人工处置）。
+   * 默认 14 天：两周都没被确认的自动产物，基本可以判定为噪声。
+   */
+  pendingRetentionDays: number
   /** 全局条目数上限（超限按 importance + recency 淘汰低分条目）。 */
   entryLimit: number
   /**
@@ -401,6 +442,9 @@ export const DEFAULT_CONFIG: MemoryConfig = {
   // 默认开：回合结束后的残留 in_progress 是纯展示层噪音，自动改写为 pending 无副作用。
   todoClosureDefaultEnabled: true,
   injectTopK: 8,
+  // 默认 false：升级不改既有可见性（见 extractRequireConfirm 注释）。
+  extractRequireConfirm: false,
+  pendingRetentionDays: 14,
   entryLimit: 500,
   pruneNeverHitDays: 21,
   // 闲置清理的分数门槛：>= 该分的条目不参与按天清理，交给 shouldEvict 的

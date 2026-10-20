@@ -323,6 +323,37 @@ const BRIDGE_SOURCE = [
   '  function requestTheme() {',
   '    try { parent.postMessage({ source: NS, kind: "ready", id: FID }, "*"); } catch (e) {}',
   '  }',
+  '  /**',
+  '   * 上报「用户在卡片里滚了一下 / 点了一下」。',
+  '   *',
+  '   * 为什么必须上报：iframe 是独立文档，**wheel / pointerdown 事件不会冒泡到宿主**',
+  '   * 文档（实测宿主侧 wheel 计数恒为 0，但对话流照样在滚）。而插件在对话流上装的',
+  '   * 滚动守卫靠 wheel 事件判断「这次滚动是用户干的」，收不到就把用户的滚动误判成',
+  '   * 官方跟随拽人、直接回滚 —— 用户看到的就是「鼠标停在 html 卡片上滚不动」。',
+  '   *',
+  '   * 只报「发生了滚动意图」这一个事实，不携带任何坐标或内容：宿主侧只把它当成',
+  '   * 一个时间戳用（noteConversationScrollIntent）。因此这条通道不扩大沙箱边界。',
+  '   */',
+  '  var lastIntentAt = 0;',
+  '  function reportIntent() {',
+  '    /*',
+  '     * 节流 150ms：触控板 wheel 可以每秒几百次，每次都 postMessage 是浪费。',
+  '     * 宿主只需要知道「最近有过用户滚动」，150ms 足够覆盖一次滚动的整个时长。',
+  '     */',
+  '    var now = Date.now();',
+  '    if (now - lastIntentAt < 150) return;',
+  '    lastIntentAt = now;',
+  '    try { parent.postMessage({ source: NS, kind: "scroll-intent", id: FID }, "*"); } catch (e) {}',
+  '  }',
+  '  try {',
+  '    addEventListener("wheel", function (e) { if (e && e.deltaY !== 0) reportIntent(); }, { passive: true });',
+  '    addEventListener("pointerdown", reportIntent, { passive: true });',
+  '    addEventListener("keydown", function (e) {',
+  '      if (!e) return;',
+  '      var k = e.key;',
+  '      if (k === "ArrowUp" || k === "ArrowDown" || k === "PageUp" || k === "PageDown" || k === "Home" || k === "End" || k === " ") reportIntent();',
+  '    }, true);',
+  '  } catch (e) {}',
   '  if (document.readyState === "loading") {',
   '    addEventListener("DOMContentLoaded", function () { requestTheme(); start(); });',
   '  } else {',
@@ -489,6 +520,43 @@ export interface AssembleOptions {
 export function assembleHtmlDocument(html: string, fid = '', options: AssembleOptions = {}): string {
   const base = '<base target="_blank">'
   /*
+   * CSP：把「不引外网资源」从提示词里的口头约定变成**浏览器强制执行**的规则。
+   *
+   * 为什么必须有：iframe 的 sandbox 只挡同源（不给 allow-same-origin），**完全不挡
+   * 网络** —— 模型页面里的 fetch / XHR / WebSocket / sendBeacon / `<img src>` 都能
+   * 自由外联。对话内容里常常带着工作区路径、项目名、内网地址，一张卡把整段正文
+   * 拼进请求发出去，宿主侧无从察觉（opaque origin 下连 Referer 都被 no-referrer 削掉了，
+   * 事后也查不到）。
+   *
+   * 策略是「白名单式收紧」而不是「加几条限制」：
+   *  · default-src 'none'  —— 兜底全禁，后面每一项都是显式放行；
+   *  · script-src 'unsafe-inline' —— 卡片里的 JS 必须能跑（这是本功能的定义），
+   *    但只认内联，外部脚本一律不载；
+   *  · style-src 'unsafe-inline' —— 内联样式与 <style> 同理；
+   *  · img-src / media-src / font-src data: blob: —— 内联 SVG/canvas/字体走 data:，
+   *    这正是提示词要求的「不引外链图片、全部内联」；
+   *  · connect-src 'none' —— **核心**：fetch/XHR/WebSocket 全断，卡片无法外发任何数据；
+   *  · form-action 'none' / base-uri 'none' / object-src 'none' —— 堵掉表单外发、
+   *    <base> 篡改与插件加载。
+   *
+   * 代价与取舍：卡片「本来能联网」这件事从来不是能力，而是漏洞。提示词里
+   * 「CDN 脚本在离线/内网环境直接白屏」早就把外链定义为错误用法，CSP 只是让这条
+   * 约定真的生效。真需要联网的能力（截图、下载）在宿主侧，不在卡片里。
+   */
+  const csp = '<meta http-equiv="Content-Security-Policy" content="'
+    + "default-src 'none'; "
+    + "script-src 'unsafe-inline'; "
+    + "style-src 'unsafe-inline'; "
+    + "img-src data: blob:; "
+    + "media-src data: blob:; "
+    + "font-src data:; "
+    + "connect-src 'none'; "
+    + "form-action 'none'; "
+    + "base-uri 'none'; "
+    + "object-src 'none'; "
+    + "frame-src 'none'"
+    + '">'
+  /*
    * kit 必须排在 BASE_STYLE **之后**。
    *
    * 这个顺序是功能性的，别调：BASE_STYLE 为了高度上报精确把 body 的
@@ -517,7 +585,11 @@ export function assembleHtmlDocument(html: string, fid = '', options: AssembleOp
 
   if (/<html[\s>]/i.test(html)) {
     // 完整文档：只给最小兜底（不塞正文排版基线，见 styleMin 的说明）。
-    const head = base + styleMin + kit
+    // CSP 必须**先于**模型内容出现在 head 里，排在 base 之前也一样有效。
+    let head = base + styleMin + kit
+    // 模型自己写了 CSP meta 时以它为准（那是它的显式意图，我们不覆盖）；
+    // 没写就注入我们的。
+    if (!/<meta[^>]+http-equiv=["']?content-security-policy/i.test(html)) head = csp + head
     // head 里插兜底（靠前，可被模型样式覆盖）；没有 head 就退到 <html> 之后。
     let out = html
     if (/<head[^>]*>/i.test(out)) out = out.replace(/<head[^>]*>/i, (match) => match + head)
@@ -530,7 +602,8 @@ export function assembleHtmlDocument(html: string, fid = '', options: AssembleOp
     return out + tail
   }
   // 片段：给完整基线（含正文排版节奏），让卡片里的文字与周围正文同一套阅读参数。
-  const headFull = base + style + kit
+  // CSP 排在最前：它必须早于任何模型内容被解析，否则前面那段已经有机会发出请求了。
+  const headFull = csp + base + style + kit
   return '<!doctype html><html><head><meta charset="utf-8">' + headFull
     + '</head><body>' + html + tail + '</body></html>'
 }

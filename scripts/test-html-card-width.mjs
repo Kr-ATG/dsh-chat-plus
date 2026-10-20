@@ -20,7 +20,7 @@
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -58,12 +58,21 @@ if (WebSocket === null) {
   process.exit(0)
 }
 
-// ── 编译 bridge.ts，直接用它的 assembleHtmlDocument ──────────────────────
-const bridgeSrc = readFileSync(resolve(ROOT, 'src/client/html-embed/bridge.ts'), 'utf8')
-const compiled = await esbuild.transform(bridgeSrc, { loader: 'ts', format: 'esm', target: 'node22' })
+// ── 打包 bridge.ts，直接用它的 assembleHtmlDocument ──────────────────────
+// 必须 bundle 而不是 transform：bridge.ts 还引着 ./kit.ts 与 ./runtime.ts，
+// 单文件 transform 出来的产物带着裸相对路径 import（且指向 .ts），Node 直接
+// ERR_MODULE_NOT_FOUND —— 测试会以「找不到模块」而不是断言失败的形式挂掉。
 const tmp = mkdtempSync(resolve(tmpdir(), 'dsh-cardw-'))
 const bridgeFile = resolve(tmp, 'bridge.mjs')
-writeFileSync(bridgeFile, compiled.code)
+await esbuild.build({
+  entryPoints: [resolve(ROOT, 'src/client/html-embed/bridge.ts')],
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'node22',
+  outfile: bridgeFile,
+  logLevel: 'silent',
+})
 const bridge = await import(pathToFileURL(bridgeFile).href)
 
 /** iframe 内探针：把当前宽度变量报给父页（沙箱下父页读不到内部 DOM）。 */

@@ -98,7 +98,18 @@ const CSS = [
   '@media (prefers-reduced-motion: reduce) {',
   '  .dtt-proto, .dtt-proto__panel, .dtt-proto__detail, .dtt-proto__expand-body { animation: none; }',
   '  .dtt-proto__tab, .dtt-proto__pill, .dtt-proto__expand { transition: none; }',
+  '  .dtt-pt-pending-dot { animation: none; opacity: .75; }',
   '}',
+  '/* 流式占位：与 iu / html / diagram 同一分量的一条行内提示。 */',
+  '.dtt-pt-stage--pending { display: flex; align-items: center; gap: 9px; padding: 2px 0; }',
+  '.dtt-pt-pending-dot { width: 6px; height: 6px; border-radius: 50%; flex: none;',
+  '  background: var(--dsw-alias-label-tertiary, #7a8399);',
+  '  animation: dtt-pt-blink 1.15s ease-in-out infinite; }',
+  '@keyframes dtt-pt-blink { 0%, 100% { opacity: .28 } 50% { opacity: 1 } }',
+  '.dtt-pt-pending-text { font-size: calc(12px * var(--dsw-content-font-size, 14px) / 14px);',
+  '  color: var(--dsw-alias-label-tertiary, currentColor); }',
+  '.dtt-pt-pending-bytes { font-size: calc(10.5px * var(--dsw-content-font-size, 14px) / 14px);',
+  '  opacity: .32; font-variant-numeric: tabular-nums; }',
 ].join('\n')
 
 /** 完整样式表（导出给探针 / 截图侧复用）。 */

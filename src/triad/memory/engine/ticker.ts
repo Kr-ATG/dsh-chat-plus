@@ -111,8 +111,14 @@ export function createTicker(
         const live: Array<import('../types.ts').MemoryEntry> = []
         // frozen（回收站）必须可变：满保留期的条目要从中移出并硬删。
         let frozen: Array<import('../types.ts').MemoryEntry> = []
+        // 待确认（pending）单独一桶，与回收站同等待遇：不衰减、不晋升、不按价值
+        // 滚出、不按闲置清理。理由是它从未生效过——用生命周期规则去处理「还没有
+        // 开始生命周期」的东西，只会让用户刚看到待确认列表就发现它已经被自动删了。
+        // 它有自己的出路：超期清理（pendingRetentionDays）与预算淘汰。
+        const pendingBucket: Array<import('../types.ts').MemoryEntry> = []
         for (const entry of entries) {
           if (entry.deprecated === true) frozen.push(entry)
+          else if (entry.pending === true) pendingBucket.push(entry)
           else live.push(entry)
         }
         const decayed = live.map(entry => ({
@@ -180,8 +186,27 @@ export function createTicker(
             frozen = frozen.filter(entry => !dead.has(entry.id))
           }
         }
+        // 待确认超期清理：自动抽取挂 pending 后用户一直没处置 → 硬删。
+        // pending 不注入也不检索，但它占条目配额、拖慢全量扫描、把「待确认」页签
+        // 堆成垃圾场。0 = 不自动清理（全部留待人工），默认 14 天。
+        if (config.pendingRetentionDays > 0) {
+          const expiredIds = new Set<string>()
+          for (const entry of pendingBucket) {
+            // pendingAt 缺省用 updatedAt 兜底：老数据或手工构造的条目可能没有它。
+            const age = daysSince(entry.pendingAt ?? entry.updatedAt)
+            if (age >= config.pendingRetentionDays) expiredIds.add(entry.id)
+          }
+          if (expiredIds.size > 0) {
+            for (const entry of pendingBucket) {
+              if (expiredIds.has(entry.id)) purged.push(entry)
+            }
+            for (let i = pendingBucket.length - 1; i >= 0; i -= 1) {
+              if (expiredIds.has(pendingBucket[i].id)) pendingBucket.splice(i, 1)
+            }
+          }
+        }
         const prunedIds = new Set(pruned.map(entry => entry.id))
-        const survivor = [...promoted, ...kept.filter(entry => !prunedIds.has(entry.id)), ...frozen]
+        const survivor = [...promoted, ...kept.filter(entry => !prunedIds.has(entry.id)), ...pendingBucket, ...frozen]
         // 预算治理：条目数超上限时淘汰低分条目（pinned 豁免，用户显式置顶）。
         //
         // deprecated 条目在这里**参与淘汰**（旧实现把它整体排除，于是回收站
@@ -197,8 +222,15 @@ export function createTicker(
           const overflow = finalSurvivor
             .filter(entry => !entry.pinned)
             .sort((a, b) => {
-              // 回收站优先出局；其余按 importance 升序、updatedAt 升序（旧的先出）。
-              if (a.deprecated !== b.deprecated) return a.deprecated === true ? -1 : 1
+              // 出局优先级：回收站 → 待确认 → 其余。
+              // 待确认排在回收站之后、活跃条目之前：它从未进过任何上下文，留着只占
+              // 配额；但它比回收站多一个可能性（用户还没看过），所以排在回收站后面。
+              const rank = (entry: import('../types.ts').MemoryEntry): number => {
+                if (entry.deprecated === true) return 0
+                if (entry.pending === true) return 1
+                return 2
+              }
+              if (rank(a) !== rank(b)) return rank(a) - rank(b)
               return (a.importance - b.importance) || a.updatedAt.localeCompare(b.updatedAt)
             })
             .slice(0, finalSurvivor.length - config.entryLimit)
@@ -216,9 +248,11 @@ export function createTicker(
           entryId: entry.id,
           scope: entry.scope,
           projectHash: entry.projectHash,
-          summary: entry.supersededBy !== undefined
-            ? `已被后继取代满 ${config.supersededRetentionDays} 天出清：${summarize(entry.content)}`
-            : `回收站满 ${config.deprecatedRetentionDays} 天出清：${summarize(entry.content)}`,
+          summary: entry.pending === true
+            ? `待确认超 ${config.pendingRetentionDays} 天未处置清出：${summarize(entry.content)}`
+            : entry.supersededBy !== undefined
+              ? `已被后继取代满 ${config.supersededRetentionDays} 天出清：${summarize(entry.content)}`
+              : `回收站满 ${config.deprecatedRetentionDays} 天出清：${summarize(entry.content)}`,
         })
       }
       for (const entry of promoted) {

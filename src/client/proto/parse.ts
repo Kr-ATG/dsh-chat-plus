@@ -9,6 +9,8 @@
  * （渲染期异常会卸载整个 React 树）。
  */
 
+import { openFenceTail } from '../../shared/fence-scan.ts'
+
 export interface ProtoMini {
   readonly t: string
   readonly d: string
@@ -29,7 +31,8 @@ export interface ProtoSpec {
 
 export type ProtoPart =
   | { readonly kind: 'md'; readonly text: string }
-  | { readonly kind: 'card'; readonly spec: ProtoSpec }
+  /** 原型对比卡片。pending 语义与 html / iu / diagram 一致：流式期只占位，不解析半截 JSON。 */
+  | { readonly kind: 'card'; readonly spec?: ProtoSpec; readonly pending: boolean; readonly bytes?: number }
 
 const TICK = String.fromCharCode(96)
 const FENCE = new RegExp(TICK.repeat(3) + 'proto-tabs' + '\\s*\\n([\\s\\S]*?)' + TICK.repeat(3), 'g')
@@ -71,8 +74,13 @@ function asSpec(raw: unknown): ProtoSpec | undefined {
   }
 }
 
-/** 把 text 切成 markdown 片段与卡片；无围栏时返回整段 md。 */
-export function splitProtoTabs(text: string): readonly ProtoPart[] {
+/**
+ * 把 text 切成 markdown 片段与卡片；无围栏时返回整段 md。
+ *
+ * @param streaming 是否处于流式输出中。true 时末尾未闭合的 ```proto-tabs 会产出
+ *   pending 占位卡片；false（已定稿）时未闭合围栏原样当代码块显示。
+ */
+export function splitProtoTabs(text: string, streaming = false): readonly ProtoPart[] {
   if (!text.includes('proto-tabs')) return [{ kind: 'md', text }]
   const parts: ProtoPart[] = []
   let cursor = 0
@@ -91,11 +99,23 @@ export function splitProtoTabs(text: string): readonly ProtoPart[] {
     if (spec === undefined) {
       parts.push({ kind: 'md', text: match[0] as string })
     } else {
-      parts.push({ kind: 'card', spec })
+      parts.push({ kind: 'card', spec, pending: false })
     }
     cursor = match.index + (match[0] as string).length
   }
-  const tail = text.slice(cursor)
+  let tail = text.slice(cursor)
+
+  // 未闭合围栏：流式期换成占位卡。此前 proto-tabs 与 diagram 一样没有流式态，
+  // 半截 JSON 会以代码块逐字外冒。
+  if (streaming) {
+    const open = openFenceTail(tail, 'proto-tabs')
+    if (open !== undefined) {
+      if (open.before !== '') parts.push({ kind: 'md', text: open.before })
+      parts.push({ kind: 'card', pending: true, bytes: open.partial.length })
+      tail = ''
+    }
+  }
+
   if (tail !== '') parts.push({ kind: 'md', text: tail })
   return parts.length > 0 ? parts : [{ kind: 'md', text }]
 }

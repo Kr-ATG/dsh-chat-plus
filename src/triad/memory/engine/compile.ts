@@ -281,7 +281,7 @@ export async function compileAll(_store: MemoryStore, _config: MemoryConfig): Pr
  */
 export async function writeExportArtifacts(store: MemoryStore, _config: MemoryConfig): Promise<void> {
   const all = await store.readEntries()
-  const entries = all.filter(entry => entry.disabled !== true && entry.deprecated !== true)
+  const entries = all.filter(entry => entry.disabled !== true && entry.deprecated !== true && entry.pending !== true)
   const byProject = new Map<string, MemoryEntry[]>()
   for (const entry of entries) {
     if (entry.scope !== 'project' || entry.projectHash === null) continue
@@ -343,7 +343,7 @@ export function selectChineseEntries(
   projectHash: string | null,
 ): MemoryEntry[] {
   return entries
-    .filter(entry => entry.disabled !== true && entry.deprecated !== true)
+    .filter(entry => entry.disabled !== true && entry.deprecated !== true && entry.pending !== true)
     .filter(entry => entry.scope === 'global' || (entry.scope === 'project' && entry.projectHash === projectHash))
     .filter(isChineseMemoryEntry)
     .sort((a, b) => injectionRank(b) - injectionRank(a))

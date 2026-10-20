@@ -37,7 +37,13 @@ export interface IuBodyProps<S extends IuState, Spec extends IuSpecBase> {
   readonly spec: Spec
   readonly state: S
   readonly setState: IuSetState<S>
-  /** 回写回调（外部注入；卡片已无底栏按钮，保留给今后 Body 内自绘的入口用）。 */
+  /**
+   * 回写回调（外部注入：写入用户输入框草稿，拿不到时外壳回退剪贴板）。
+   *
+   * 目前**只有 form 消费它**：那张卡的提交按钮由 Body 自绘（填完必须有出口）。
+   * 其它 kind 不画按钮，onFill 传进来也不会被用到——外壳不替任何 kind 决定
+   * 要不要动作入口。
+   */
   readonly onFill?: ((text: string) => boolean) | undefined
 }
 

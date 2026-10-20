@@ -1,4 +1,5 @@
 // src/index.ts
+import { createReadStream } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
@@ -242,6 +243,92 @@ function resolveSkillFile(base, path) {
     throw new Error(`skill file escapes its directory: ${JSON.stringify(path)}`);
   }
   return target;
+}
+/**
+ * 技能文件的 MIME 表（dsh-chat-plus patch）。
+ *
+ * 原来的读文件接口**一律** `readFile(target, "utf8")` —— 图片、字体、压缩包被当文本
+ * 解码后变成一串 U+FFFD，面板再把它按 markdown 渲染，用户看到的就是满屏乱码
+ * （2026-10-20 用户实测：点 `assets/composer-icon.png` 出来一片 `IHDR\0\0...`）。
+ * 现在二进制文件只回元数据，字节由 `/raw/` 子路由原样给出，客户端按 MIME 分派。
+ */
+var MIME_BY_EXT = {
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif",
+  ".bmp": "image/bmp", ".ico": "image/x-icon", ".svg": "image/svg+xml",
+  ".pdf": "application/pdf",
+  ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+  ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".m4a": "audio/mp4",
+  ".woff": "font/woff", ".woff2": "font/woff2", ".ttf": "font/ttf", ".otf": "font/otf",
+  ".zip": "application/zip", ".gz": "application/gzip",
+  ".wasm": "application/wasm",
+  // 文本类也进表：raw 路由对纯文本同样可用（比如把 SKILL.md 甩给浏览器原生
+  // 查看器），且 /files/ 的 mime 字段因此能如实反映类型，而不是一律
+  // octet-stream —— 面板上显示「1.6 KB · application/octet-stream」是错的信号。
+  // 这些扩展名**不**触发下面的二进制分支，文本仍走 UTF-8 解码。
+  ".md": "text/markdown; charset=utf-8", ".markdown": "text/markdown; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8", ".json": "application/json; charset=utf-8",
+  ".yaml": "text/yaml; charset=utf-8", ".yml": "text/yaml; charset=utf-8",
+  ".csv": "text/csv; charset=utf-8",
+  ".html": "text/html; charset=utf-8", ".htm": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8", ".ts": "text/plain; charset=utf-8",
+  ".tsx": "text/plain; charset=utf-8", ".py": "text/plain; charset=utf-8",
+  ".sh": "text/plain; charset=utf-8", ".ps1": "text/plain; charset=utf-8",
+  ".xml": "application/xml; charset=utf-8", ".toml": "text/plain; charset=utf-8"
+};
+/** 纯文本扩展名：文本查看器能正常显示，不进二进制分支。 */
+var TEXT_EXTENSIONS = /* @__PURE__ */ new Set([
+  ".md", ".markdown", ".txt", ".json", ".yaml", ".yml", ".csv", ".html", ".htm",
+  ".css", ".js", ".mjs", ".ts", ".tsx", ".py", ".sh", ".ps1", ".xml", ".toml"
+]);
+/**
+ * 是否二进制（不做 UTF-8 解码；客户端改走 <img>/<video>/<audio>/<iframe>）。
+ *
+ * 判据是「MIME 表里有、但不是纯文本扩展名」。用扩展名判而不是读字节猜类型：
+ * 技能包是第三方内容，读头部猜 MIME 既慢又不可靠，而扩展名足够决定
+ * 「能不能当文本打开」这一件事。
+ */
+function isBinaryFile(path) {
+  const ext = extOf(path);
+  if (ext === "") return false;
+  if (TEXT_EXTENSIONS.has(ext)) return false;
+  return Object.prototype.hasOwnProperty.call(MIME_BY_EXT, ext);
+}
+function extOf(path) {
+  const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  const dot = path.lastIndexOf(".");
+  if (dot <= slash) return "";
+  return path.slice(dot).toLowerCase();
+}
+/** 扩展名 → content-type；表外一律 octet-stream（浏览器按下载处理，不当文本渲染）。 */
+function mimeOf(path) {
+  return MIME_BY_EXT[extOf(path)] ?? "application/octet-stream";
+}
+/** raw 子路由的单文件上限（技能包里的演示录屏也够用）。 */
+var RAW_MAX_BYTES = 64 * 1024 * 1024;
+/**
+ * 技能文件定位（名字校验 + 目录定位 + 越界防护 + 存在性）。
+ * 文本读取与 raw 输出共用，避免两条路各写一套判据后分叉。
+ */
+async function locateSkillFile(skillName, relPath) {
+  const name2 = checkedLookupName(skillName);
+  // 目录名与 frontmatter name 可以不一致（手工拷进来的目录、改名导入），
+  // 只按目录名找会让面板里点开的技能 404 —— 两个名字都要能定位到。
+  const dir = await locateSkillDir(name2);
+  if (dir === void 0) throw new Error(`skill ${JSON.stringify(name2)} not found`);
+  if (relPath === "" || relPath.includes("\0") || relPath.includes("\\")) {
+    throw new Error(`unsupported file path: ${JSON.stringify(relPath)}`);
+  }
+  const target = resolveSkillFile(dir, relPath);
+  let info;
+  try {
+    info = await stat(target);
+  } catch {
+    throw new Error(`file ${JSON.stringify(relPath)} not found in skill ${JSON.stringify(name2)}`);
+  }
+  if (!info.isFile()) throw new Error(`not a file: ${JSON.stringify(relPath)}`);
+  return { name: name2, target, info };
 }
 /**
  * 技能身份（dsh-triad patch）：一个技能有两个名字 —— 目录名 `dir`（文件系统身份，
@@ -603,25 +690,68 @@ ${description}`;
     renamed: metaName !== "" && metaName !== skillName
   };
 }
+/**
+ * 读一个技能文件的文本内容。
+ *
+ * 二进制文件（图片 / 字体 / 压缩包…）**不再**强按 UTF-8 解码：那会把字节流变成
+ * 一串替换字符，客户端再套 markdown 渲染就成了满屏乱码（用户 2026-10-20 实测
+ * 打开 `assets/composer-icon.png` 得到一片 `IHDR` 乱码）。改为只回元数据，
+ * 真正的字节由 {@link sendSkillFileRaw} 原样给出。
+ */
 async function readSkillFile(skillName, relPath) {
-  const name2 = checkedLookupName(skillName);
-  // 目录名与 frontmatter name 可以不一致（手工拷进来的目录、改名导入），
-  // 只按目录名找会让面板里点开的技能 404 —— 两个名字都要能定位到。
-  const dir = await locateSkillDir(name2);
-  if (dir === void 0) throw new Error(`skill ${JSON.stringify(name2)} not found`);
-  if (relPath === "" || relPath.includes("\0") || relPath.includes("\\")) {
-    throw new Error(`unsupported file path: ${JSON.stringify(relPath)}`);
+  const { name: name2, target, info } = await locateSkillFile(skillName, relPath);
+  const mime = mimeOf(relPath);
+  if (isBinaryFile(relPath)) {
+    return {
+      name: name2, path: relPath, binary: true, mime,
+      size: info.size, content: ""
+    };
   }
-  const target = resolveSkillFile(dir, relPath);
-  let info;
-  try {
-    info = await stat(target);
-  } catch {
-    throw new Error(`file ${JSON.stringify(relPath)} not found in skill ${JSON.stringify(name2)}`);
-  }
-  if (!info.isFile()) throw new Error(`not a file: ${JSON.stringify(relPath)}`);
   const content = await readFile(target, "utf8");
-  return { name: name2, path: relPath, content };
+  return { name: name2, path: relPath, binary: false, mime, size: info.size, content };
+}
+/**
+ * 原样输出技能文件的字节（图片 / 音频 / 视频 / PDF / 字体…）。
+ *
+ * 为什么单开一个路由而不是把字节塞进 JSON：base64 会让 1MB 的图变成 1.4MB 的
+ * 字符串，还要在浏览器里再解码一次；`<img src>` 直接指这个地址最省事，浏览器
+ * 自带缓存、分段请求与解码。
+ */
+async function sendSkillFileRaw(res, skillName, relPath, headOnly) {
+  const { target, info } = await locateSkillFile(skillName, relPath);
+  if (info.size > RAW_MAX_BYTES) {
+    json(res, 413, { error: `file too large (>${String(RAW_MAX_BYTES)} bytes)` });
+    return;
+  }
+  const headers = {
+    "content-type": mimeOf(relPath),
+    "content-length": String(info.size),
+    "cache-control": "no-cache",
+    // 技能内容由第三方技能包控制，属于不受信输入：禁止浏览器嗅探内容类型，
+    // 免得一个伪装成 .png 的 HTML 被当成页面执行。
+    "x-content-type-options": "nosniff"
+  };
+  /*
+   * CSP 只加给「会主动加载资源」的那一族（HTML / SVG 可以被当页面打开）。
+   * 图片 / 音视频 / PDF 一律不加 —— 它们本身不执行脚本，而 `sandbox` 指令会
+   * 让 PDF 的浏览器查看器拒绝渲染、让 <video> 无法 seek，纯属自伤。
+   */
+  const ext = extOf(relPath);
+  if (ext === ".html" || ext === ".htm" || ext === ".svg") {
+    headers["content-security-policy"] = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox"
+  }
+  res.writeHead(200, headers);
+  if (headOnly) {
+    res.end();
+    return;
+  }
+  await new Promise((resolvePipe, rejectPipe) => {
+    const stream = createReadStream(target);
+    stream.on("error", rejectPipe);
+    stream.on("end", resolvePipe);
+    res.on("close", resolvePipe);
+    stream.pipe(res);
+  });
 }
 
 /**
@@ -773,6 +903,22 @@ async function handle(ctx, req, res) {
     if (method === "DELETE" && matchSkillDelete !== null) {
       const result = await deleteSkill(decodeURIComponent(matchSkillDelete[1]));
       json(res, 200, { ok: true, ...result });
+      return;
+    }
+    /*
+     * 原始字节路由（dsh-chat-plus patch）：/skills/<name>/raw/<relPath>
+     *
+     * 只给二进制/媒体文件用，客户端拿到 MIME 后直接 <img>/<video>/<audio>/<iframe>
+     * 指过来。文本文件仍然走下面的 JSON 接口 —— 那条路要带 content 做预览。
+     */
+    const matchSkillRaw = /^\/skills\/([^/]+)\/raw\/(.+)$/.exec(rest);
+    if ((method === "GET" || method === "HEAD") && matchSkillRaw !== null) {
+      await sendSkillFileRaw(
+        res,
+        decodeURIComponent(matchSkillRaw[1]),
+        decodeURIComponent(matchSkillRaw[2]),
+        method === "HEAD"
+      );
       return;
     }
     const matchSkillFile = /^\/skills\/([^/]+)\/files\/(.+)$/.exec(rest);

@@ -67,6 +67,41 @@ function call(method, url, body) {
   })
 }
 
+/**
+ * 打一次路由并保留原始字节与响应头（`call` 会 JSON.parse，二进制路走不了）。
+ *
+ * @param method - HTTP 方法。
+ * @param url - 路由地址。
+ * @returns { status, headers, body }，body 是 Buffer。
+ */
+function callRaw(method, url) {
+  return new Promise((resolve, reject) => {
+    const req = new EventEmitter()
+    req.method = method
+    req.url = url
+    req.headers = { host: "localhost" }
+    req.socket = { remoteAddress: "127.0.0.1" }
+    /** raw 路由用 stream.pipe(res)：这里给一个够用的可写目标（收字节 + 收尾）。 */
+    const chunks = []
+    const res = new EventEmitter()
+    res.statusCode = 0
+    res.headers = {}
+    res.writeHead = function writeHead(status, headers) {
+      res.statusCode = status
+      res.headers = headers ?? {}
+      return res
+    }
+    res.write = function write(chunk) { chunks.push(Buffer.from(chunk)); return true }
+    res.end = function end(chunk) {
+      if (chunk !== undefined && chunk !== null) chunks.push(Buffer.from(chunk))
+      resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) })
+      return res
+    }
+    handler(req, res)
+    queueMicrotask(() => req.emit("end"))
+  })
+}
+
 let failed = 0
 function check(cond, msg) {
   if (cond) { console.log(`ok    ${msg}`) } else { failed += 1; console.error(`FAIL  ${msg}`) }
@@ -89,6 +124,55 @@ check(healed.bundles.find((b) => b.id === "ghost").skills[0] === "gone-skill", "
 // ── 2. 读文件：按规范名也要能读到（旧实现按目录名找 → 404）
 const file = await call("GET", "/api/skill-manager/skills/kb-wiki-skill/files/SKILL.md")
 check(file.status === 200 && String(file.body.content ?? "").includes("name: kb-wiki-skill"), "按规范名读取技能文件")
+
+/*
+ * ── 2b. 二进制文件（2026-10-20 用户反馈「技能面板点开 PNG 是乱码」）
+ *
+ * 根因：readSkillFile 一律 readFile(target,"utf8")，PNG 字节被解成替换字符，
+ * 面板再套 markdown 渲染 → 满屏 `IHDR` 乱码。现在的契约是：
+ *   · /files/ 只回元数据（binary:true、mime、size），content 为空；
+ *   · /raw/   原样回字节，content-type 按扩展名给。
+ */
+const PNG_BYTES = Buffer.from(
+  "89504e470d0a1a0a0000000d4948445200000001000000010806000000" +
+  "1f15c4890000000a49444154789c6300010000050001'0d0a2db40000000049454e44ae426082".replace("'", ""),
+  "hex",
+)
+mkdirSync(join(agentsSkills, "kr-wiki", "assets"), { recursive: true })
+writeFileSync(join(agentsSkills, "kr-wiki", "assets", "composer-icon.png"), PNG_BYTES)
+
+const binMeta = await call("GET", "/api/skill-manager/skills/kb-wiki-skill/files/assets%2Fcomposer-icon.png")
+check(binMeta.status === 200 && binMeta.body.binary === true, "二进制文件标记 binary:true（不再当文本解码）")
+check(binMeta.body.content === "", "二进制文件的 content 为空（不回乱码字符串）")
+check(binMeta.body.mime === "image/png", "二进制文件带出正确的 MIME")
+check(binMeta.body.size === PNG_BYTES.length, "二进制文件带出字节数")
+
+const raw = await callRaw("GET", "/api/skill-manager/skills/kb-wiki-skill/raw/assets/composer-icon.png")
+check(raw.status === 200, "raw 路由返回 200")
+check(raw.headers["content-type"] === "image/png", "raw 的 content-type 是 image/png")
+check(raw.body.equals(PNG_BYTES), "raw 原样返回字节（与磁盘上的 PNG 逐字节一致）")
+check(raw.headers["x-content-type-options"] === "nosniff", "raw 带 nosniff（不嗅探内容类型）")
+
+const rawHead = await callRaw("HEAD", "/api/skill-manager/skills/kb-wiki-skill/raw/assets/composer-icon.png")
+check(rawHead.status === 200 && rawHead.body.length === 0 && rawHead.headers["content-length"] === String(PNG_BYTES.length),
+  "HEAD 只回头部（content-length 正确、无正文）")
+
+const rawEscape = await callRaw("GET", "/api/skill-manager/skills/kb-wiki-skill/raw/..%2F..%2Fsecret.txt")
+check(rawEscape.status === 400, "raw 路由同样拒绝越界路径")
+
+// 文本文件的 mime 要如实（不能一律 octet-stream），且不能被当成二进制
+const mdMeta = await call("GET", "/api/skill-manager/skills/kb-wiki-skill/files/SKILL.md")
+check(mdMeta.body.binary === false, "markdown 是文本（不进二进制分支）")
+check(String(mdMeta.body.mime ?? "").startsWith("text/markdown"), "markdown 的 mime 是 text/markdown（不是 octet-stream）")
+
+// 图片类 raw 不该带 sandbox CSP：那会让 <img>/<video>/PDF 查看器拒绝渲染
+check(raw.headers["content-security-policy"] === undefined, "图片 raw 不带 CSP sandbox（否则 PDF 查看器/视频 seek 会废）")
+
+// HTML / SVG 才需要 CSP：它们能被当页面打开，必须锁住脚本
+writeFileSync(join(agentsSkills, "kr-wiki", "assets", "note.html"), "<h1>hi</h1>")
+const htmlRaw = await callRaw("GET", "/api/skill-manager/skills/kb-wiki-skill/raw/assets/note.html")
+check(htmlRaw.status === 200 && String(htmlRaw.headers["content-security-policy"] ?? "").includes("sandbox"),
+  "HTML 的 raw 带 CSP sandbox（第三方内容不执行脚本）")
 
 // ── 3. 导入文件夹：目录名与 SKILL.md 不一致时统一到用户填的名字，并改写 frontmatter
 const imported = await call("POST", "/api/skill-manager/skills", {

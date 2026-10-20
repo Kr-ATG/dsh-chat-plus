@@ -32,15 +32,27 @@
  *
  * Esc 分层（全屏中先退全屏，再按才关）；←/→ 翻页；F 切全屏。焦点不进面板内部
  * 循环 —— 它是随手看一眼的浮层，不是需要 Tab 遍历的对话框。
+ *
+ * ## 缩放（2026-10-20）
+ *
+ * 图是按「适应容器」放的，但小字与图例这样看不清。三种手势分工：
+ *   · **Ctrl / ⌘ + 滚轮** —— 连续缩放，锚点是光标（光标底下那个像素不动）；
+ *   · **双击** —— 快速放大到 2 倍 / 复原；
+ *   · **放大后拖拽** —— 平移，边界夹住不让内容跑出画外。
+ * 不按 Ctrl 的滚轮**完全不接管**（页图与 iframe 还要用它自己滚动）。
+ * 缩放对图片 / 生图 / 页图生效；iframe 与音视频不参与 —— 它们有自己的滚动
+ * 与原生控件，抢过来只会打乱原生行为。
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import {
   displayNameOf, formatRelativeTime, formatSize, officePageUrl, officePdfUrl, officeRenderable,
   resolveGeneratedUrls,
 } from './api.js'
 import { ensureGalleryStyles } from './styles.js'
+import { useZoomPan, ZOOM_TARGET_ATTR } from './use-zoom-pan.js'
 
 /** 弹窗条目（画廊 GalleryItem 与产出物 OutputItem 的公共超集）。 */
 export interface LightboxItem {
@@ -128,7 +140,11 @@ const MAX_PAGE_VIEW = 12
  * chunk，只为看一页 PPT 不值；页图还天然带回「共几页」，翻页 UI 不用再探一次。
  * 页码与页数从响应头（x-dsh-page / x-dsh-page-count）读，一次请求带回元信息。
  */
-function PagedPreview({ item, full }: { readonly item: LightboxItem; readonly full: boolean }): JSX.Element {
+function PagedPreview({ item, full, zoomStyle }: {
+  readonly item: LightboxItem
+  readonly full: boolean
+  readonly zoomStyle?: CSSProperties | undefined
+}): JSX.Element {
   const [page, setPage] = useState(1)
   const [pageCount, setPageCount] = useState(0)
   const [failed, setFailed] = useState(false)
@@ -152,6 +168,8 @@ function PagedPreview({ item, full }: { readonly item: LightboxItem; readonly fu
     <div className="glb-paged" data-full={full ? 'true' : undefined}>
       <img
         className="glb-paged__img"
+        {...{ [ZOOM_TARGET_ATTR]: '' }}
+        style={zoomStyle}
         src={src}
         alt={`${item.name} 第 ${page} 页`}
         draggable={false}
@@ -215,10 +233,18 @@ export interface MediaLightboxProps {
   readonly onOpenSession?: (item: LightboxItem) => void
   /** 「预览文档」按钮：交给官方右栏文档预览（调用方自行关闭弹窗）。 */
   readonly onOpenSidebar?: (item: LightboxItem) => void
+  /**
+   * 「用默认应用打开」按钮（2026-10-20）。
+   *
+   * 画廊卡片的**主入口**已经是默认应用打开了，这个按钮是给「点错了、还想
+   * 换个程序看」留的口子 —— 弹窗里看到的东西，往往正是想拿去本地编辑或播放的
+   * 那一个。不传即不显示（调用方自己都开不了桌面，显示一个必然失败的按钮没意义）。
+   */
+  readonly onOpenDefaultApp?: (item: LightboxItem) => void
 }
 
 export function MediaLightbox({
-  items, index, fileUrlOf, onNavigate, onClose, onOpenSession, onOpenSidebar,
+  items, index, fileUrlOf, onNavigate, onClose, onOpenSession, onOpenSidebar, onOpenDefaultApp,
 }: MediaLightboxProps): JSX.Element | null {
   // 样式自注入：产出物卡从右栏直接打开本组件时 GalleryPanel 没挂载，
   // 缺表会让无样式 portal 以普通块排在 body 末尾（视觉上「一点就跳到底」）。
@@ -228,6 +254,8 @@ export function MediaLightbox({
   const [full, setFull] = useState(false)
   const [genUrls, setGenUrls] = useState<readonly string[] | null>(null)
   const closeTimer = useRef<number | null>(null)
+  /** 内容区（缩放 / 平移的坐标系原点与事件容器）。 */
+  const bodyRef = useRef<HTMLDivElement | null>(null)
 
   // generated 条目：打开时解析 spill（缓存命中则同步返回）。
   // 缓存只认非空结果 —— 空数组写进去会让「这次没解析出来」变成永久结论。
@@ -242,6 +270,23 @@ export function MediaLightbox({
     })
     return () => { alive = false }
   }, [item])
+
+  /*
+   * 可缩放的内容：图片、生图、页图（PPT / Word / Excel）。
+   *
+   * iframe（html / pdf）与音视频不参与：前者有自己的滚动与脚本，截胡滚轮会
+   * 把页面滚不动；后者是原生控件，缩放只会让它变形。它们的「大图」需求由
+   * 全屏按钮承担。
+   */
+  const zoomable = item !== undefined && (
+    item.source === 'generated'
+    || item.kind === 'image'
+    || item.kind === 'slide' || item.kind === 'sheet' || item.kind === 'doc'
+  )
+  const zoom = useZoomPan(bodyRef, zoomable)
+
+  // 换条目时回到原始视图（上一张的缩放不该带到下一张）。
+  useEffect(() => { zoom.reset() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [index])
 
   const requestClose = useCallback(() => {
     if (closing) return
@@ -264,10 +309,13 @@ export function MediaLightbox({
       } else if (event.key === 'ArrowLeft') step(-1)
       else if (event.key === 'ArrowRight') step(1)
       else if (event.key === 'f' || event.key === 'F') setFull(v => !v)
+      else if (event.key === '0') zoom.reset()
+      else if (event.key === '+' || event.key === '=') zoom.zoomBy(1.25)
+      else if (event.key === '-' || event.key === '_') zoom.zoomBy(1 / 1.25)
     }
     window.addEventListener('keydown', onKey, true)
     return () => { window.removeEventListener('keydown', onKey, true) }
-  }, [requestClose, step, full])
+  }, [requestClose, step, full, zoom])
 
   useEffect(() => () => { if (closeTimer.current !== null) window.clearTimeout(closeTimer.current) }, [])
 
@@ -283,13 +331,16 @@ export function MediaLightbox({
     anchor.remove()
   }
 
+  /** 贴到可缩放元素上的 transform（不可缩放的类别不套，避免多余的合成层）。 */
+  const zoomStyle = zoomable ? zoom.style : undefined
+
   /** 主体：按类别分流。 */
   const body = (): JSX.Element => {
     if (item.source === 'generated') {
       if (genUrls === null) return <div className="glb-note"><span className="glb-spin-inline" aria-hidden="true"><svg {...svgProps} width="15" height="15"><path d="M12 3a9 9 0 1 0 9 9" /></svg></span><span>正在解析生图结果…</span></div>
       if (genUrls.length === 0) return <div className="glb-note"><span>生图结果已过期（spill 文件不在了）</span></div>
       return (
-        <div className="glb-genrow">
+        <div className="glb-genrow" {...{ [ZOOM_TARGET_ATTR]: '' }} style={zoomStyle}>
           {genUrls.map(url => <img key={url.slice(0, 64)} className="glb-media" src={url} alt={item.name} draggable={false} />)}
         </div>
       )
@@ -297,7 +348,7 @@ export function MediaLightbox({
     const raw = fileUrlOf(item)
     switch (item.kind) {
       case 'image':
-        return <img className="glb-media" src={raw} alt={item.name} draggable={false} />
+        return <img className="glb-media" {...{ [ZOOM_TARGET_ATTR]: '' }} style={zoomStyle} src={raw} alt={item.name} draggable={false} />
       case 'video':
         return <video className="glb-media glb-media--video" src={raw} controls autoPlay preload="metadata" />
       case 'audio':
@@ -316,7 +367,7 @@ export function MediaLightbox({
       case 'slide':
       case 'sheet':
       case 'doc':
-        return <PagedPreview item={item} full={full} />
+        return <PagedPreview item={item} full={full} zoomStyle={zoomStyle} />
       default:
         return <div className="glb-note"><KindGlyph kind={item.kind} /><span>该格式不支持页内预览</span></div>
     }
@@ -369,6 +420,15 @@ export function MediaLightbox({
                 <svg {...svgProps}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
               </button>
             )}
+            {onOpenDefaultApp !== undefined && (
+              <button type="button" className="glb-btn" title="用默认应用打开" aria-label="用默认应用打开"
+                onClick={() => { onOpenDefaultApp(item) }}>
+                <svg {...svgProps}>
+                  <path d="M14 3h7v7" /><path d="M21 3l-9 9" />
+                  <path d="M18 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5" />
+                </svg>
+              </button>
+            )}
             {item.source === 'file' && (
               <button type="button" className="glb-btn" title="下载" aria-label="下载" onClick={download}>
                 <svg {...svgProps}><path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5" /><path d="M4 19h16" /></svg>
@@ -388,7 +448,18 @@ export function MediaLightbox({
           </span>
         </header>
 
-        <div className="glb-body" data-kind={item.kind} data-fill={fill ? 'true' : undefined}>
+        {/*
+          按住 Ctrl 时给承载式内容盖一层透明遮罩。
+
+          为什么需要它：iframe 是**独立文档**，它里面的 wheel 事件不会冒泡到宿主
+          页面 —— 于是「在网页预览里按 Ctrl + 滚轮」会落到 Chrome 自己的页面缩放
+          快捷键上，整个 DSH 界面被放大/缩小，弹窗纹丝不动。遮罩接管后事件回到
+          宿主，我们就能 preventDefault 掉它（这一类内容本身不参与缩放）。
+          只在 ctrlHeld 时出现：平时它挡着 iframe 的点击与滚动就成 bug 了。
+        */}
+        <div ref={bodyRef} className="glb-body" data-kind={item.kind} data-fill={fill ? 'true' : undefined}
+          data-zoomed={zoom.scale !== 1 ? 'true' : undefined}>
+          {fill && zoom.ctrlHeld && <div className="glb-shield" aria-hidden="true" />}
           {items.length > 1 && (
             <>
               <button type="button" className="glb-nav glb-nav--prev" aria-label="上一个" onClick={() => { step(-1) }}>
@@ -402,9 +473,34 @@ export function MediaLightbox({
           {body()}
         </div>
 
-        {items.length > 1 && (
+        {/*
+          底栏：左计数 · 右缩放胶囊。
+          缩放胶囊只在真的缩放过时出现（平时不占位、不干扰）—— 它是「你现在
+          偏离了原始视图」的告知，同时承担一键复位的出口（双击也行，但没人会
+          去猜一个隐藏手势）。
+        */}
+        {(items.length > 1 || zoomable) && (
           <footer className="glb-foot">
-            <span className="glb-foot__count">{index + 1} / {items.length}</span>
+            <span className="glb-foot__count">{items.length > 1 ? `${index + 1} / ${items.length}` : ''}</span>
+            {zoomable && (
+              <span className="glb-zoom" data-active={zoom.active ? 'true' : undefined}>
+                {zoom.active ? (
+                  <>
+                    <span className="glb-zoom__pct" aria-live="polite">{Math.round(zoom.scale * 100)}%</span>
+                    <button type="button" className="glb-zoom__reset" title="复原（双击 / 0）" aria-label="复原缩放" onClick={zoom.reset}>
+                      <svg {...svgProps} width="13" height="13">
+                        <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" />
+                      </svg>
+                    </button>
+                  </>
+                ) : (
+                  <span className="glb-zoom__hint">
+                    <svg {...svgProps} width="12" height="12"><circle cx="11" cy="11" r="7" /><path d="M20 20l-4.2-4.2" /><path d="M8 11h6M11 8v6" /></svg>
+                    Ctrl + 滚轮缩放
+                  </span>
+                )}
+              </span>
+            )}
           </footer>
         )}
       </div>
