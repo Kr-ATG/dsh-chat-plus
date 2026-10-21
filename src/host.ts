@@ -45,6 +45,7 @@ import { MATERIALIZE_ROUTE, handleMaterialize, parseGeneratedResult } from './sp
 import { applyDownloadRoutes, applyDownloadTool } from './download/index.ts'
 import { validateHtmlCardTool } from './validate-card/index.ts'
 import { applyOpenPathRoutes } from './open-path/index.ts'
+import { applyOpenFileRoutes } from './open-file/index.ts'
 import { applyOfficePreview } from './office/index.ts'
 import { applyTriadHost } from './triad/host.ts'
 import { applyProviderHub, providerHubServices } from './provider/index.ts'
@@ -53,6 +54,10 @@ import { applyToolsGate } from './tools-gate/index.ts'
 import { applyBrowserOnDemand } from './browser-on-demand/index.ts'
 import { applyBrowserActivity } from './browser-activity/index.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
+// 「用默认浏览器 / 默认应用打开文件」（2026-10-21）：纯判定面导出给冒烟。
+// 这三条（路径绝对化基准 / 可执行类型拒绝 / 浏览器命令解析）判错了都不会抛错，
+// 只会表现为「点了没反应」或「打开了不相干的东西」，只能断言。
+export { applyOpenFileRoutes, __test as openFileTest } from './open-file/index.ts'
 export { applyMailHost } from './mail/index.ts'
 export type { MailHostConfig, MailHostHandle } from './mail/index.ts'
 // 工具闸门（computer-use / browser-use 按需注入）：纯函数与分组表导出给 smoke，
@@ -143,9 +148,6 @@ export {
   extensionFor, decodeDataUrl, looksLikeImage, reusable, fetchImageBytes,
   __test as materializeTest,
 } from './spill/materialize.ts'
-// 内置灵魂预设的可测面：预设是代码常量，某套被改坏或某张卡被 normalizeCard 过滤掉
-// 都不会抛错，只会让面板静默少一行。导出给 smoke 钉住 id 集合与卡片数。
-export { BUILTIN_SOUL_PRESETS, builtinPreset } from './triad/soul/presets.ts'
 // 跨站闸门的可测面：判据写歪不会抛错，只会静默放行（或静默误伤正常请求），
 // 所以必须能被冒烟直接对拍。见 shared/csrf.ts 头注释与 smoke-host 的判据断言组。
 export { __test as csrfTest, isCrossSiteRequest, rejectCrossSite, hostNameOf } from './shared/csrf.ts'
@@ -260,6 +262,8 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
     applyDownloadRoutes(webCtx)
     // 「用文件资源管理器打开」修复：官方那条被 windowsHide 吞了窗口。
     applyOpenPathRoutes(webCtx)
+    // 「用默认应用打开文件」修复（2026-10-21）：见 src/open-file/index.ts。
+    applyOpenFileRoutes(webCtx)
     // Office / PDF 页图与 PDF 渲染（/api/chat-flow/office/*）：画廊 ppt/word 缩略图、
     // 产出物弹窗内联预览、官方侧边栏 ppt/word 接管三处共用。挂载时顺带校正
     // process.env.TEMP —— 官方 office-to-pdf 的 LibreOffice 转换要求 scratch 落在

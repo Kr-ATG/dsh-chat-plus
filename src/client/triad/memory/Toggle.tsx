@@ -6,7 +6,7 @@
  * 已单独设置过时显示「已单独设置」角标，可一键「跟随默认」清除覆盖。
  *
  * 历史上这里还有第二枚按钮（提示符图标 → **内置提示词通道**卡：中文优先 / 交互
- * 卡片 / 灵魂注入 / 团队协作 / 邮箱 / 自动收口 + 展示组三条）。2026-10-15 用户
+ * 卡片 / 团队协作 / 邮箱 / 自动收口 + 展示组三条）。2026-10-15 用户
  * 要求「对话框的给删了，并把设置放到 Seeker 旁边」，那张卡**整块删除**，内容迁到
  * Seeker 右栏的「大盘设置」抽屉（kr-chat/KrPanelSettings.tsx），入口是顶栏
  * Seeker 标签右侧那枚齿轮（由 kr-chat-controller 注入）。**因此本文件不再导出
@@ -40,7 +40,7 @@ export type MemoryToggleProps =
 const HIDE_DELAY_MS = 120
 
 /**
- * host 缺字段时的兜底形状：中文通道 / 灵魂 / html / 自动收口默认开（内置能力），
+ * host 缺字段时的兜底形状：中文通道 / html / 自动收口默认开（内置能力），
  * team 默认关（旧 host 没这个能力，显示「开」是假阳性）。
  *
  * 只在请求失败时用（正常路径由 host 回包决定）。html 的兜底取 true 与
@@ -57,7 +57,7 @@ const HIDE_DELAY_MS = 120
  * 拨了没用的开关 —— 拨不动的开关是骗人。
  */
 export const FALLBACK_INJECT_STATE: InjectStateView = {
-  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, htmlEnabled: true, soulEnabled: true, teamEnabled: false, todoClosureEnabled: true,
+  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, htmlEnabled: true, teamEnabled: false, todoClosureEnabled: true,
   mailEnabled: false, mailAvailable: false, mailWorkbenchEnabled: false, mailToolsMounted: false, mailAuthorized: false, mailAddress: null,
   projectHash: null, projectPath: null, projectMemoryEnabled: null,
 }
@@ -80,13 +80,10 @@ export function normalizeInjectState(res: InjectStateView): InjectStateView {
     // html 缺字段按 false 兜底：缺字段意味着旧 host 没这个能力——显示「关」
     // 比显示「开」诚实（显示开着却注不进去是假阳性）。
     htmlEnabled: res.htmlEnabled === true,
-    // 灵魂与中文同口径：内置身份契约，缺字段按开。真正决定注不注得进去的是
-    // soul.md 有没有内容（空灵魂不注入，由 host 注入器负责）。
-    soulEnabled: res.soulEnabled !== false,
     // team 与 html 同口径：缺字段意味着旧 host 根本没这个能力，
     // 显示「关」比显示「开」诚实（开着却注不进去是假阳性）。
     teamEnabled: res.teamEnabled === true,
-    // 自动收口与 zh / soul 同口径（**不是** html / team 那种）：它是默认开的
+    // 自动收口与 zh 同口径（**不是** html / team 那种）：它是默认开的
     // 通道，缺字段按开。写成 === true 的话，client 已更新、host 还没重启的那段
     // 窗口里开关会显示成关，host 一重启又跳成开。
     todoClosureEnabled: res.todoClosureEnabled !== false,
@@ -157,7 +154,6 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           // 同样要透传：这几个 setter 只该动自己的字段，写整个对象会把它抹掉。
           zhEnabled: typeof res.zhEnabled === 'boolean' ? res.zhEnabled : prev.zhEnabled,
           htmlEnabled: typeof res.htmlEnabled === 'boolean' ? res.htmlEnabled : prev.htmlEnabled,
-          soulEnabled: typeof res.soulEnabled === 'boolean' ? res.soulEnabled : prev.soulEnabled,
           teamEnabled: typeof res.teamEnabled === 'boolean' ? res.teamEnabled : prev.teamEnabled,
           todoClosureEnabled: typeof res.todoClosureEnabled === 'boolean' ? res.todoClosureEnabled : prev.todoClosureEnabled,
         }))
@@ -185,7 +181,6 @@ function useInjectState(api: InjectFace<MemoryApi>, sessionId: string) {
           explicit: typeof res.explicit === 'boolean' ? res.explicit : prev.explicit,
           zhEnabled: typeof res.zhEnabled === 'boolean' ? res.zhEnabled : prev.zhEnabled,
           htmlEnabled: typeof res.htmlEnabled === 'boolean' ? res.htmlEnabled : prev.htmlEnabled,
-          soulEnabled: typeof res.soulEnabled === 'boolean' ? res.soulEnabled : prev.soulEnabled,
           teamEnabled: typeof res.teamEnabled === 'boolean' ? res.teamEnabled : prev.teamEnabled,
           todoClosureEnabled: typeof res.todoClosureEnabled === 'boolean' ? res.todoClosureEnabled : prev.todoClosureEnabled,
         }))

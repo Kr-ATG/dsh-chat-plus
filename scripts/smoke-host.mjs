@@ -260,8 +260,8 @@ for (const expected of ['download', 'validate_html_card', 'generate_image', 'gen
 if (!effectRan) fail('deferred webServer callback never ran')
 else pass('deferred webServer callback executed')
 
-// 7 条：本插件 7 条（generated-images / open-path / tools-gate /
-// generated-images/materialize 四条 exact + screenshot / download / office 三条
+// 8 条：本插件 8 条（generated-images / open-path / open-file / tools-gate /
+// generated-images/materialize 五条 exact + screenshot / download / office 三条
 // prefix）+ 融合的 dsh-provider-hub 5 条（/api/dsh-proxy、/api/model-capabilities、
 // /api/provider-hub-keys 三条 prefix + /api/dsh-prompt-optimize 与 /stop 两条 exact）。
 // open-path 是「用文件资源管理器打开」改道用的（windowsHide 会吞掉 Explorer）。
@@ -275,8 +275,8 @@ else pass('deferred webServer callback executed')
 // browser-activity 是 2026-10-20 新增：会话行 / 标题栏「浏览器操作中」标志的
 // 数据源（只读轮询）。它注册在插件自己的延迟注入里，与其它路由同生共死，
 // 所以计数一并 +1 —— 漏注册的表现是「图标永远不亮」，只能靠计数断言钉住。
-if (registered.length !== 8) {
-  fail(`expected exactly 8 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
+if (registered.length !== 9) {
+  fail(`expected exactly 9 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
 } else {
   const exacts = registered.filter(spec => spec?.kind === 'exact')
   const prefix = registered.filter(spec => spec?.kind === 'prefix')
@@ -286,12 +286,14 @@ if (registered.length !== 8) {
     fail('missing generated-images materialize route (exact /api/chat-flow/generated-images/materialize)')
   } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/open-path')) {
     fail('missing open-path route (exact /api/chat-flow/open-path)')
+  } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/open-file')) {
+    fail('missing open-file route (exact /api/chat-flow/open-file)')
   } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/tools-gate')) {
     fail('missing tools-gate route (exact /api/chat-flow/tools-gate)')
   } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/browser-activity')) {
     fail('missing browser-activity route (exact /api/chat-flow/browser-activity)')
   } else {
-    pass('registered GET /api/chat-flow/generated-images (+ /materialize) + /open-path + /tools-gate + /browser-activity (kind=exact)')
+    pass('registered GET /api/chat-flow/generated-images (+ /materialize) + /open-path + /open-file + /tools-gate + /browser-activity (kind=exact)')
   }
   const downloadRoute = prefix.find(spec => spec?.path === '/api/chat-flow/download')
   if (downloadRoute === undefined) {
@@ -734,7 +736,7 @@ if (gateTest === undefined) {
    *
    * 这组断言钉的是**安全修复本身**：2026-10-17 审计发现插件所有 prefix 路由
    * 都站在官方 connection 鉴权之外（longest-prefix-wins），只做 loopback 判定，
-   * 任意网页一个 CORS 简单请求就能盲调 —— 实测能删今日记忆、改灵魂、让本机
+   * 任意网页一个 CORS 简单请求就能盲调 —— 实测能删今日记忆、改角色档案、让本机
    * 弹出资源管理器、经截图引擎读本机文件外传。判据写歪了不会抛错，只会静默
    * 放行（或误伤正常请求），所以必须能被冒烟直接断言。
    */
@@ -1364,4 +1366,190 @@ if (!/applySupplierSection\(ctx\)/.test(providerClientSrc)) {
   }
 }
 console.log(`\n${process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED'} — ${HOST}`)
+
+/* ── 「用默认浏览器 / 默认应用打开文件」（2026-10-21 修「产出物 html 打不开」）──
+ *
+ * 这块的核心回归不是「路由注册了」，而是三条**判据**：
+ *  1. 相对路径按**请求带来的会话工作区**解析 —— 一旦退回 host 进程 cwd
+ *     （dsh-runtime），产出物卡里的 deliverables/x.html 就会指向一个不存在的
+ *     位置，而官方链路对它静默成功，界面上一片安静（这就是用户报的 bug）；
+ *  2. .html 走**默认浏览器**（Windows 上官方 opener 从不这么做，只认文件关联）；
+ *  3. 可执行类型 / 不存在的文件**明确拒绝**（这条路由不是任意程序启动器）。
+ *
+ * 三条都在本机可验证，且不需要真的弹出窗口 —— 进程启动器被换成记录器。
+ */
+{
+  const httpMod = await import('node:http')
+  const fsp = await import('node:fs/promises')
+  const osMod = await import('node:os')
+  const pathMod = await import('node:path')
+
+  const openFileRegistrations = []
+  const openFileWebCtx = {
+    logger: { warn: () => {}, error: () => {}, info: () => {}, debug: () => {} },
+    effect(fn) { const d = fn(); return typeof d === 'function' ? d : () => {} },
+    get: () => undefined,
+    webServer: { register(spec) { openFileRegistrations.push(spec); return () => {} } },
+  }
+
+  let openFileHost = null
+  try {
+    openFileHost = await import(new URL('file://' + HOST.replace(/\\/g, '/')))
+  } catch (error) {
+    fail('open-file: cannot import host bundle: ' + (error?.message ?? error))
+  }
+  const openFileTest = openFileHost?.openFileTest
+  if (openFileTest === undefined) {
+    fail('open-file: host bundle 未导出 openFileTest（判据无法离线断言）')
+  } else {
+    const workspace = await fsp.mkdtemp(pathMod.join(osMod.tmpdir(), 'dsh-open-file-smoke-'))
+    const launched = []
+    openFileTest.setLauncher((command, args) => {
+      launched.push({ command, args: [...args] })
+      return Promise.resolve()
+    })
+    try {
+      // 会话工作区里放两个真文件：一个 html（浏览器文档），一个 txt（普通文本）。
+      // 名字带空格与中文 —— 这正是本机产出物的常态，也是编码最容易出错的地方。
+      const pagePath = pathMod.join(workspace, 'deliverables', '月下 序章.html')
+      const textPath = pathMod.join(workspace, 'notes 记录.txt')
+      await fsp.mkdir(pathMod.dirname(pagePath), { recursive: true })
+      await fsp.writeFile(pagePath, '<html><body>probe</body></html>', 'utf8')
+      await fsp.writeFile(textPath, 'probe', 'utf8')
+
+      openFileHost.applyOpenFileRoutes(openFileWebCtx)
+      const route = openFileRegistrations.find(spec => spec?.path === '/api/chat-flow/open-file')
+      if (route === undefined || route.kind !== 'exact' || typeof route.handler !== 'function') {
+        fail('open-file: 未注册 exact /api/chat-flow/open-file（或 handler 不是函数）')
+      } else {
+        pass('open-file: 注册 exact /api/chat-flow/open-file')
+
+        const server = httpMod.createServer((req, res) => route.handler(req, res))
+        await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+        const port = server.address().port
+        const postOpen = (body, headers = {}) => new Promise((resolve) => {
+          const payload = Buffer.from(JSON.stringify(body), 'utf8')
+          const req = httpMod.request({
+            host: '127.0.0.1',
+            port,
+            method: 'POST',
+            path: '/api/chat-flow/open-file',
+            headers: {
+              host: '127.0.0.1:' + port,
+              'content-type': 'application/json',
+              'content-length': payload.byteLength,
+              ...headers,
+            },
+          }, (res) => {
+            const chunks = []
+            res.on('data', (c) => chunks.push(c))
+            res.on('end', () => {
+              let parsed = null
+              try { parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { /* 保持 null */ }
+              resolve({ status: res.statusCode, body: parsed })
+            })
+          })
+          req.on('error', () => resolve({ status: 0, body: null }))
+          req.end(payload)
+        })
+
+        try {
+          // 1) 相对路径 + 会话工作区 → 绝对化后交给默认浏览器（不是 host cwd）。
+          launched.length = 0
+          const relative = await postOpen({ path: 'deliverables/月下 序章.html', cwd: workspace })
+          const expected = pathMod.join(workspace, 'deliverables', '月下 序章.html')
+          if (relative.status !== 200 || relative.body?.ok !== true) {
+            fail('open-file: 相对路径 + cwd 应 200 ok，实得 ' + relative.status + ' ' + JSON.stringify(relative.body))
+          } else if (relative.body?.path !== expected) {
+            fail('open-file: 相对路径必须按**请求的会话工作区**绝对化（bug 本体就是把基准错当成 host 进程 cwd）—— 实得 ' + relative.body?.path)
+          } else if (relative.body?.via !== 'browser') {
+            fail('open-file: .html 必须走默认浏览器（via=browser），实得 ' + relative.body?.via)
+          } else if (launched.length !== 1) {
+            fail('open-file: .html 打开应恰好拉起 1 个进程，实得 ' + launched.length)
+          } else if (!launched[0].args.some(arg => /\.html?$/i.test(arg) || /%E6%9C%88/i.test(arg))) {
+            fail('open-file: 浏览器命令里必须带上目标文件 URL，实得 ' + JSON.stringify(launched[0]))
+          } else {
+            pass('open-file: 相对路径按会话工作区绝对化 + .html 交给默认浏览器（' + pathMod.basename(launched[0].command) + '）')
+          }
+
+          // 2) 绝对路径 + 非浏览器文档 → 走文件关联（explorer / open / xdg-open）。
+          launched.length = 0
+          const absoluteOpen = await postOpen({ path: textPath, cwd: workspace })
+          if (absoluteOpen.status !== 200 || absoluteOpen.body?.via !== 'association') {
+            fail('open-file: 非浏览器文档应 via=association，实得 ' + absoluteOpen.status + ' ' + JSON.stringify(absoluteOpen.body))
+          } else if (launched.length !== 1) {
+            fail('open-file: 关联打开应恰好拉起 1 个进程，实得 ' + launched.length)
+          } else {
+            pass('open-file: 非浏览器文档走文件关联（' + pathMod.basename(launched[0].command) + '）')
+          }
+
+          // 3) 不存在的文件 → 400，且**一个进程都不许拉**（这是「点了没反应」的另一半）。
+          launched.length = 0
+          const missing = await postOpen({ path: 'deliverables/nope.html', cwd: workspace })
+          if (missing.status !== 400 || missing.body?.ok !== false) {
+            fail('open-file: 不存在的文件应 400 {ok:false}，实得 ' + missing.status + ' ' + JSON.stringify(missing.body))
+          } else if (launched.length !== 0) {
+            fail('open-file: 不存在的文件不得拉起任何进程（官方链路正是「静默成功」，这里必须明确失败）')
+          } else {
+            pass('open-file: 不存在的文件 400 且不拉起进程（不再出现「静默弹文件夹」）')
+          }
+
+          // 4) 可执行类型 → 400（这条路由不是任意程序启动器）。
+          launched.length = 0
+          const exePath = pathMod.join(workspace, 'evil.ps1')
+          await fsp.writeFile(exePath, 'echo hi', 'utf8')
+          const executable = await postOpen({ path: exePath, cwd: workspace })
+          if (executable.status !== 400 || launched.length !== 0) {
+            fail('open-file: 可执行类型必须 400 且不拉起进程，实得 ' + executable.status + ' / launched=' + launched.length)
+          } else {
+            pass('open-file: 可执行类型（.ps1）400 且不拉起进程（没有开成任意程序启动器）')
+          }
+
+          // 5) 相对路径但没带工作区 → 400（宁可不打开也不能猜基准）。
+          const noCwd = await postOpen({ path: 'deliverables/月下 序章.html' })
+          if (noCwd.status !== 400) {
+            fail('open-file: 相对路径缺工作区必须 400（猜基准会打开不相干的东西），实得 ' + noCwd.status)
+          } else {
+            pass('open-file: 相对路径缺工作区 400（基准不明时不猜）')
+          }
+
+          // 6) 跨站 → 403（这条路由会让本机打开文件，必须是自有闸门拦得住）。
+          const crossSite = await postOpen({ path: pagePath, cwd: workspace }, { 'sec-fetch-site': 'cross-site' })
+          if (crossSite.status !== 403) {
+            fail('open-file: 跨站请求必须 403，实得 ' + crossSite.status)
+          } else {
+            pass('open-file: 跨站请求 403（plugin 路由自带 CSRF 闸门）')
+          }
+
+          // 7) 纯判定：explorerTarget 的两个转义（逗号/等号 + 非 ASCII 还原）。
+          const encoded = openFileTest.explorerTarget('D:\\a,b=c\\月下.html')
+          if (!encoded.includes('%2C') || !encoded.includes('%3D')) {
+            fail('open-file: explorerTarget 必须转义逗号与等号（Explorer 会静默打开别的东西），实得 ' + encoded)
+          } else if (!encoded.includes('月下')) {
+            fail('open-file: explorerTarget 必须还原非 ASCII（percent-encoded 会让 Explorer 退回「文档」文件夹），实得 ' + encoded)
+          } else {
+            pass('open-file: explorerTarget 转义 , = 且还原非 ASCII（Explorer 不会打开别的东西）')
+          }
+
+          // 8) 浏览器命令解析：带引号的 exe + 占位符 / 不带引号两种形态。
+          const quoted = openFileTest.parseCommand('"C:\\Program Files\\X\\x.exe" --single-argument %1')
+          const bare = openFileTest.parseCommand('C:\\a\\b.exe %1')
+          if (quoted === null || quoted.exe !== 'C:\\Program Files\\X\\x.exe' || !quoted.args.includes('%1')) {
+            fail('open-file: 带引号的 open 命令解析错误，实得 ' + JSON.stringify(quoted))
+          } else if (bare === null || bare.exe !== 'C:\\a\\b.exe') {
+            fail('open-file: 无引号的 open 命令解析错误，实得 ' + JSON.stringify(bare))
+          } else {
+            pass('open-file: 注册表 open 命令解析（带引号 / 无引号两种形态）')
+          }
+        } finally {
+          await new Promise(resolve => server.close(resolve))
+        }
+      }
+    } finally {
+      openFileTest.setLauncher(undefined)
+      try { await fsp.rm(workspace, { recursive: true, force: true }) } catch { /* 清不掉不影响断言 */ }
+    }
+  }
+}
+
 process.exit(process.exitCode ?? 0)

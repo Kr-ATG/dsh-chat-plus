@@ -5,11 +5,9 @@
  * 效果图（_tmp/workbench-redesign.html）定稿的视觉语言，落到插件里的唯一
  * 入口。做三件事：
  *  1. 在 .wb-root 作用域把官方 --dsw-alias-* token 重映射成效果图那套
- *     「深空」色阶，六个子面板几百处 var() 引用一次性换肤，不逐页改色；
+ *     「深空」色阶，四个子面板几百处 var() 引用一次性换肤，不逐页改色；
  *  2. 提供 .wb2-* 共享组件样式（页头 / 双层卡 / 胶囊 / 按钮 / 段控 / 开关 /
  *     图标钮 / 搜索框），新写的视图层直接用这套类；
- *  3. 把 soul 面板旧三区骨架（上预设 / 左预览 / 右修改）重排成效果图的
- *     Editorial Split（左人格核心 / 右卡片 Bento + 预设轨）。
  *
  * ── 主题同步（用户点名要求）──────────────────────────────────────────
  * 不写死任何绝对色。所有色值都是「官方 token → 深空表达」的映射：
@@ -298,276 +296,7 @@ body[data-ds-dark-theme] .wb-root {
    （./strip.tsx），页内不再有任何切换器。Dock 的样式与组件一并清掉，
    不留在表里当死代码。 */
 
-/* ══════════ 4 · 灵魂页重排：Editorial Split ══════════
-   旧三区（上预设 / 左预览 / 右修改）→ 左人格核心 / 右卡片 Bento + 预设轨
-   + 深改区（整段正文 / 身份铭牌 / 档案，低频入口沉到右列底部）。
-   全部靠类名重排，不动 SoulPanel 的 JSX 与状态机：
-   .dsh-soul-root 直接当 grid 容器，work / stage 两层 display:contents
-   打平，五个块（header / notice / draft / preview / presets / edit）
-   显式落格。 */
-.wb-root .dsh-soul-root {
-  display: grid !important;
-  grid-template-columns: minmax(280px, .8fr) 1.5fr;
-  gap: 16px; align-items: start;
-  /* 行高按内容走，不被压缩（2026-10 实测修）：
-     root 高度受面板约束时，隐式 auto 行会被压到比内容矮（实测第 3 行 372px
-     而预览块内容要 423px），而 align-items:start 让块不跟着压缩 ——
-     块溢出 35px，正好压住下一行的预设区（「+ 新增卡片 / 存为预设」被盖住）。
-     grid-auto-rows:min-content 让每行至少容纳自己的内容，多出来的高度交给
-     外层 .wb-soul-scroll 滚动，块与块之间不再重叠。 */
-  grid-auto-rows: min-content;
-  max-width: none !important; width: 100% !important; padding: 0 22px 26px !important;
-}
-@media (max-width: 1020px) { .wb-root .dsh-soul-root { grid-template-columns: 1fr; } }
-/* ── 左列人格核心卡（.wb2-persona-*）已删除 ─────────────────────────────
-   2026-10 被统摄式画廊取代：画廊现在跨满整页，激活那张宽卡本身就承担了
-   「这是谁 / 什么脾气 / 有多少卡 / 注没注入」的门面职责，左列再立一张
-   人格核心卡就是同一件事的第二份表达（用户原话「我要的是相当于把他们都
-   替换掉，而不是又一个新的这么冗余」）。SoulPanel 已不再渲染
-   SoulPersonaCard，这批规则连同 @keyframes wb2-badge-blip（只被
-   .wb2-persona-dirty 用）一并删掉，不留死代码。 */
-
-/* 旧头部（小鲸鱼 + 「灵魂」标题行）在工作台内继续隐藏。
-   理由随这一轮改版换了：原来是「核心卡已承担门面」，现在是**落格冲突**——
-   画廊显式占第 1 行（角色是这一页的第一件事），头部若显示就会来争同一格。
-   composer 浮层不套 .wb-root，那里照常显示头部。 */
-.wb-root .dsh-soul-header { display: none !important; }
-
-/* ── 灵魂页落格：统摄式画廊占第 1 行整幅，其余块依次下移 ──────────────
-   画廊从「右列里的一块」升成整页的**唯一角色入口**：它横跨两列、排在最前
-   （角色是这一页的第一件事），notice / 草案 / 卡片 / 预设 / 深改依次跟在后面。
-
-   后续块也一律 grid-column: 1 / -1（而不是留在右列）：画廊跨满之后左列再没有
-   任何东西，若把这些块留在第 2 列，左列会空出一整条 —— 那正是用户反复点名的
-   「留这么大空白」。本页因此收敛成**单列流**，每块吃满页宽；两列模板保留，
-   是为了将来真有并列需求时不必重写这一段。 */
-.wb-root .dsh-soul-profile-gallery, .wb-root [data-soul-section="profiles"] { grid-column: 1 / -1; grid-row: 1; min-width: 0; }
-.wb-root .dsh-soul-notice { grid-column: 1 / -1; grid-row: 2; }
-.wb-root .dsh-soul-draft { grid-column: 1 / -1; grid-row: 3; }
-.wb-root .dsh-soul-work, .wb-root .dsh-soul-stage { display: contents; }
-/* 预设区与卡片区**不能互相压**（2026-10 实测修）：
-   预设轨 208px 高 + 卡片区 423px，而网格给第 3 行的空间只有 372px ——
-   实测两块的 y 区间重叠 35px，「+ 新增卡片 / 存为预设」那行被预设区盖住。
-   修法：两块都允许在自己的格里收缩（min-height:0），并各自内部滚动。
-   网格行高由内容决定（auto），不再让某一块溢出到邻居的格子里。 */
-.wb-root .dsh-soul-pane-preview { grid-column: 1 / -1; grid-row: 4; min-height: 0; }
-.wb-root .dsh-soul-presets-top { grid-column: 1 / -1; grid-row: 5; min-height: 0; }
-.wb-root .dsh-soul-pane-edit { grid-column: 1 / -1; grid-row: 6; }
-/* 「我的资料」与「深改」原来是自动落格的（被 persona 那 5 行 span 挤到左列底部）。
-   persona 删除后自动放置会把它们塞回第 1 列、位置随 DOM 顺序漂移；显式落格
-   钉住整页顺序：画廊 → 通知 → 草案 → 卡片 → 预设 → 修改 → 我的资料 → 深改。
-   行号必须写死：ProfileGallery 在 DOM 里排在「我的资料」**之后**，靠自动放置
-   会把它甩到页面最底部，与「角色是这一页第一件事」相悖。 */
-.wb-root .dsh-soul-me { grid-column: 1 / -1; grid-row: 7; }
-.wb-root .dsh-soul-legacy-details { grid-column: 1 / -1; grid-row: 8; }
-/* 窄屏（单列）不必重写落格：模板只有 1 列，1 / -1 仍是第 1 列，行号依次排下来。
-   空行（条件渲染缺席的块）由 grid-auto-rows:min-content 收成 0 高，不留空隙。 */
-/* 角色画廊在工作台里：rail 与卡片用深空表面阶重绘一遍，不吃 soul 面板的 --s-*
-   灰阶（工作台内所有表面都走 --wb2-*）。
-   这里一律带 !important：工作台主题与 soul 样式是两张独立的 <style>，覆盖规则
-   与 soul 原规则特异性常常相同，同特异性下的胜负取决于注入顺序——而两张表各自
-   按「谁先 ensure」注入，顺序不受本文件控制。带 !important 才能保证工作台内
-   一定是深空表达。（注意 hub/styles.ts:150-164 那张 !important 表面统一表只认
-   .dsh-soul-card，画廊的类名不在其中，这里不是跟它争，是跟 soul 表争。） */
-.wb-root .dsh-soul-profile-rail { padding: 8px 2px 12px; }
-.wb-root .dsh-soul-profile-card {
-  border-radius: 17px !important;
-  border-color: var(--wb2-line) !important;
-  background: linear-gradient(170deg, var(--wb2-s2), var(--wb2-s1) 60%) !important;
-  box-shadow: none !important;
-  transition: flex-basis 640ms var(--wb2-ease-soft), flex-grow 640ms var(--wb2-ease-soft),
-    border-color 640ms var(--wb2-ease-soft), box-shadow 640ms var(--wb2-ease-soft),
-    filter 260ms var(--wb2-ease-soft), transform 220ms var(--wb2-ease-soft) !important;
-}
-/* 两条都带 !important：窄态那条多一个 :not(active) 类，特异性更高，赢。
-   宽态卡不上浮。 */
-.wb-root .dsh-soul-profile-card:hover { transform: none !important; }
-.wb-root .dsh-soul-profile-card:not(.dsh-soul-profile-card-active):hover {
-  filter: saturate(.72) brightness(.96) !important; transform: translateY(-4px) !important;
-}
-.wb-root .dsh-soul-profile-card-active {
-  border-color: var(--wb2-line2) !important;
-  box-shadow: 0 26px 60px color-mix(in srgb, var(--wb2-t1) 26%, transparent) !important;
-}
-.wb-root .dsh-soul-profile-avatar {
-  background: linear-gradient(160deg, var(--wb2-s2), var(--wb2-s1)) !important;
-  border-color: var(--wb2-line2) !important; color: var(--wb2-t2) !important;
-}
-.wb-root .dsh-soul-profile-card-active .dsh-soul-profile-avatar {
-  color: var(--wb2-accent) !important;
-  box-shadow: 0 0 0 1px var(--wb2-a2), 0 12px 30px -14px var(--wb2-a3) !important;
-}
-/* 单色纪律：徽标 / 角色行 / 名字竖条 / 进度条一律走强调色阶，不吃 soul 的 --s-primary */
-.wb-root .dsh-soul-profile-badge-on {
-  color: var(--wb2-accent) !important; border-color: var(--wb2-a3) !important; background: var(--wb2-a1) !important;
-}
-.wb-root .dsh-soul-profile-role { color: var(--wb2-accent) !important; }
-.wb-root .dsh-soul-profile-name-big::before { background: var(--wb2-accent); }
-.wb-root .dsh-soul-profile-dot-on { background: var(--wb2-accent); box-shadow: 0 0 8px var(--wb2-a3); }
-.wb-root .dsh-soul-profile-bar-fill { background: linear-gradient(90deg, var(--wb2-accent), var(--wb2-accent-hi)); }
-.wb-root .dsh-soul-profile-badge {
-  background: color-mix(in srgb, var(--wb2-t1) 5%, transparent); border-color: var(--wb2-line); color: var(--wb2-t3);
-}
-.wb-root .dsh-soul-profile-plate-k { color: var(--wb2-t4); }
-.wb-root .dsh-soul-profile-plate-v { color: var(--wb2-t2); }
-.wb-root .dsh-soul-profile-plates, .wb-root .dsh-soul-profile-foot { border-color: var(--wb2-line); }
-.wb-root .dsh-soul-profile-kbd { background: var(--wb2-s1); border-color: var(--wb2-line); color: var(--wb2-t2); }
-.wb-root .dsh-soul-profile-edit {
-  border-radius: var(--wb2-r-md) !important; border-color: var(--wb2-line) !important;
-  background: color-mix(in srgb, var(--wb2-t1) 3%, transparent) !important;
-}
-/* 新建角色：虚线卡与卡片同排，只重绘描边与强调色 */
-.wb-root .dsh-soul-profile-add {
-  border-color: var(--wb2-line2) !important; border-radius: 17px !important; color: var(--wb2-t3) !important;
-  transition: border-color 220ms var(--wb2-ease), color 220ms var(--wb2-ease),
-    background 220ms var(--wb2-ease), transform 220ms var(--wb2-ease) !important;
-}
-.wb-root .dsh-soul-profile-add:hover:not(:disabled) {
-  border-color: var(--wb2-a3) !important; background: var(--wb2-a1) !important; color: var(--wb2-accent) !important;
-  transform: translateY(-4px) !important;
-}
-.wb-root .dsh-soul-profile-add-plus { color: var(--wb2-t3); }
-.wb-root .dsh-soul-profile-add:hover:not(:disabled) .dsh-soul-profile-add-plus { color: var(--wb2-accent); }
-.wb-root .dsh-soul-profile-add-form {
-  border-radius: 17px !important; border-color: var(--wb2-line) !important;
-  background: color-mix(in srgb, var(--wb2-t1) 3%, transparent) !important;
-}
-/* ── 统摄式画廊新增件的深空重绘 ─────────────────────────────────────────
-   与上面那批同理（两张 <style> 的注入顺序不受本文件控制，一律带 !important）：
-   工作台里所有表面都走 --wb2-*，soul 表那套 --s-* 灰阶在这里显得发灰发脏。
-   只重绘「新增的盒子」：卡片区容器 / 来源徽标 / 只读预览 / 动作行。
-   **卡片区里的 .dsh-soul-card-row 不在这里重绘**——它已经有整套 Bento 磁贴
-   规则（.dsh-soul-card-list 那段），这里再写一份就会跟它打架。 */
-.wb-root .dsh-soul-profile-cards,
-.wb-root .dsh-soul-profile-preview,
-.wb-root .dsh-soul-profile-actions-row { border-top-color: var(--wb2-line); }
-.wb-root .dsh-soul-profile-cards-title { color: var(--wb2-t1); }
-.wb-root .dsh-soul-profile-cards-hint,
-.wb-root .dsh-soul-profile-cards-empty { color: var(--wb2-t4); }
-/* 卡片区在宽卡内是**紧凑列表**，不是外层那套 auto-fill 磁贴网格：
-   磁贴是给整页卡片区用的（每张 320px 起、两行正文摘要），塞进宽卡里会把
-   卡片区撑成两三列，跟左边的身份信息抢横向空间。这里改成单列、行高压紧。 */
-.wb-root .dsh-soul-profile-cards .dsh-soul-card-list {
-  display: flex !important; flex-direction: column; gap: 6px; }
-/* 卡片区组件自带的那层 section 壳必须剥掉（宽卡已经是「卡」，卡里再套一张
-   同款描边卡就是双层边框）。这条**必须带 !important**：hub/styles.ts 那张
-   「统一板块卡片质感」表用 !important 给 .dsh-soul-card 铺了表面，剥壳若不
-   带就压不过它，宽卡里会重新长出一层边框。 */
-.wb-root .dsh-soul-profile-cards .dsh-soul-card {
-  background: transparent !important; border: none !important;
-  box-shadow: none !important; padding: 0 !important; gap: 6px; }
-.wb-root .dsh-soul-profile-cards .dsh-soul-card-hint { display: none; }
-.wb-root .dsh-soul-profile-cards .dsh-soul-card-row {
-  flex: none !important; width: 100%; padding: 9px 11px !important;
-  border-radius: var(--wb2-r-sm) !important; }
-/* 只读预览：比可编辑行更轻——无边框、无底色，只有小字号灰字。
-   它是「预览」不是「可操作」，在深空里同样不该出现卡片表面。 */
-.wb-root .dsh-soul-profile-preview-item { color: var(--wb2-t4); }
-.wb-root .dsh-soul-profile-preview-item:hover {
-  background: color-mix(in srgb, var(--wb2-t1) 5%, transparent); color: var(--wb2-t2); }
-.wb-root .dsh-soul-profile-preview-more { color: var(--wb2-t4); }
-/* 来源徽标：主档/档案 = 实线中性，预设 = 虚线（语义不同，见 soul/styles.ts） */
-.wb-root .dsh-soul-profile-source {
-  background: color-mix(in srgb, var(--wb2-t1) 5%, transparent) !important;
-  border-color: var(--wb2-line) !important; color: var(--wb2-t3) !important; }
-.wb-root .dsh-soul-profile-source-preset {
-  background: transparent !important; border-style: dashed !important;
-  border-color: var(--wb2-line2) !important; color: var(--wb2-t2) !important; }
-.wb-root .dsh-soul-presets-top[data-empty="1"] { display: none; }
-.wb-root .dsh-soul-presets-top .dsh-soul-card { background: transparent !important; border: none !important;
-  box-shadow: none !important; padding: 0 !important; }
-/* 预设轨：纵向卡片，按钮换行落到卡片底部。
-   2026-10 实测修（截图 + DOM 量测）：上一版把它做成 186px 宽的横排卡，
-   而卡内是「图标 + 文字 + 两个 68px 按钮」——186px 塞不下，
-   .dsh-soul-preset-main 被挤成 0px 宽，标题「工程搭档」竖排成一列字，
-   整卡高 166px 还横向溢出（scrollWidth 1555 > 容器 822）。
-   现在：行内只放「图标 + 文字」，动作区 flex-basis:100% 独占一行靠右。
-   注意：本表是模板字符串，注释里不能出现反引号（会提前闭合字符串）。 */
-.wb-root .dsh-soul-preset-list { display: flex !important; gap: 9px; overflow-x: auto; padding: 3px 2px 8px; }
-.wb-root .dsh-soul-preset-row { flex: none !important; width: 236px; padding: 11px 12px !important;
-  flex-direction: row !important; flex-wrap: wrap !important; align-items: flex-start !important;
-  align-content: flex-start !important;
-  border-radius: var(--wb2-r-sm) !important; border: 1px solid var(--wb2-line) !important;
-  background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1)) !important;
-  position: relative; overflow: hidden; transition: all 380ms var(--wb2-ease) !important; }
-/* main 用 flex-basis:0 而非 auto（关键）：basis:auto 时它按**文字内容宽度**
-   参与换行判定，于是「工程搭档」(4 字) 一行放得下、「严谨分析师」(5 字) 就被挤到
-   第二行 —— 实测相邻卡片文字错位 33px（689 vs 722）。basis:0 + min-width:0
-   让它纯粹吃剩余空间，永远跟图标同一行，卡片之间不再参差。 */
-.wb-root .dsh-soul-preset-row .dsh-soul-preset-main { flex: 1 1 0% !important; min-width: 0 !important; }
-/* 名称行固定单行不换行（见 PresetsSection 的 presetNameText 包裹节点）：
-   200px 卡里「严谨分析师」会被截成「严谨分...」，加宽到 236px 后完整显示；
-   仍保留省略号兜底，保证超长自定义预设名不会把卡撑破。 */
-.wb-root .dsh-soul-preset-row .dsh-soul-preset-name {
-  min-width: 0; flex-wrap: nowrap !important; overflow: hidden; white-space: nowrap !important; }
-.wb-root .dsh-soul-preset-row .dsh-soul-preset-name-text {
-  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wb-root .dsh-soul-preset-row .dsh-soul-preset-name > span { flex: none; }
-.wb-root .dsh-soul-preset-row .dsh-soul-preset-actions {
-  flex: 1 0 100% !important; margin-top: 8px; justify-content: flex-start !important;
-  opacity: 1 !important; flex-wrap: nowrap !important; }
-.wb-root .dsh-soul-preset-row::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
-  background: linear-gradient(90deg, var(--wb2-accent), var(--wb2-accent-hi));
-  transform: scaleX(0); transform-origin: left; transition: transform 420ms var(--wb2-ease); }
-.wb-root .dsh-soul-preset-row:hover { transform: translateY(-3px); border-color: var(--wb2-line2) !important;
-  box-shadow: var(--wb2-drop) !important; }
-.wb-root .dsh-soul-preset-row:hover::after { transform: scaleX(1); }
-/* 卡片区改 Bento：卡片行变磁贴。
-   预览区外层那张 .dsh-soul-card 只当容器用，去掉它自己的壳，避免双层描边。 */
-.wb-root .dsh-soul-pane-preview .dsh-soul-card { background: transparent !important; border: none !important;
-  box-shadow: none !important; padding: 0 !important; }
-/* 用网格自适应列数（2026-10 修）：原先写死 repeat(6,1fr) + 每卡 span 2 = 恒定 3 列，
-   4 张卡时第二行只放 1 张、右侧空出两格 —— 用户看到的就是「灵魂右侧留这么大空白」。
-   改成 auto-fill + minmax(320px,1fr)：**列数随容器宽度自适应**，卡片只占自己那一格，
-   不会被拉伸到整行（flex 的 1 1 320px 在 1440px 宽下每行只放得下一张，
-   实测每张被撑到 1439px、4 张各占一行 —— 从「右边空」变成「卡片超宽」，同样不对）。 */
-.wb-root .dsh-soul-card-list {
-  display: grid !important;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 11px; }
-.wb-root .dsh-soul-card-row { flex: 1 1 320px; min-width: 0;
-  padding: 13px 14px !important; border-radius: var(--wb2-r-md) !important;
-  border: 1px solid var(--wb2-line) !important;
-  background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1) 46%) !important;
-  transition: transform 420ms var(--wb2-ease), border-color 420ms var(--wb2-ease), box-shadow 420ms var(--wb2-ease) !important; }
-.wb-root .dsh-soul-card-row:hover { transform: translateY(-2px); border-color: var(--wb2-line2) !important;
-  box-shadow: var(--wb2-drop) !important; }
-/* 窄屏：卡片改单列（flex 的 basis 已能自适应，这里只把最小宽度压掉，
-   保证极窄下也是一列一张、不出现「挤成两列但每张都很窄」的观感） */
-@media (max-width: 900px) {
-  .wb-root .dsh-soul-card-row { flex-basis: 100%; }
-}
-/* 卡片种类图标：统一强调色微底（单色纪律，不吃 kind 彩） */
-.wb-root .dsh-soul-card-kind { background: var(--wb2-a1) !important; border: 1px solid var(--wb2-a3) !important;
-  color: var(--wb2-accent) !important; border-radius: 8px !important;
-  transition: transform 340ms var(--wb2-ease), box-shadow 340ms var(--wb2-ease) !important; }
-.wb-root .dsh-soul-card-row:hover .dsh-soul-card-kind { transform: rotate(-7deg) scale(1.09);
-  box-shadow: 0 0 16px var(--wb2-a3); }
-/* 磁贴内显示正文摘要两行（效果图磁贴有正文，旧行式只有标题+元信息） */
-.wb-root .dsh-soul-card-row .dsh-soul-card-body-excerpt {
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-  font-size: 11.5px; color: var(--wb2-t3); line-height: 1.7; margin-top: 7px;
-  padding-top: 7px; border-top: 1px solid var(--wb2-line); white-space: pre-line; }
-/* 磁贴头部动作区：开关常驻，其余 hover 显形（降噪） */
-.wb-root .dsh-soul-card-row-actions { opacity: .55; transition: opacity 300ms var(--wb2-ease); }
-.wb-root .dsh-soul-card-row:hover .dsh-soul-card-row-actions { opacity: 1; }
-/* 深改区沉到右列底部，收成可折叠 details（低频入口不抢首屏；grid 落格见上） */
-.wb-root .dsh-soul-legacy-details { border: 1px solid var(--wb2-line); border-radius: var(--wb2-r-md);
-  background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1) 46%); overflow: hidden; }
-.wb-root .dsh-soul-legacy-details > summary { cursor: pointer; list-style: none; padding: 12px 15px;
-  display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 620; color: var(--wb2-t1);
-  transition: background 260ms var(--wb2-ease); }
-.wb-root .dsh-soul-legacy-details > summary::-webkit-details-marker { display: none; }
-.wb-root .dsh-soul-legacy-details > summary:hover { background: color-mix(in srgb, var(--wb2-t1) 4%, transparent); }
-.wb-root .dsh-soul-legacy-details > summary::after { content: ""; margin-left: auto; width: 8px; height: 8px;
-  border-right: 1.6px solid var(--wb2-t3); border-bottom: 1.6px solid var(--wb2-t3);
-  transform: rotate(45deg) translateY(-2px); transition: transform 320ms var(--wb2-ease); }
-.wb-root .dsh-soul-legacy-details[open] > summary::after { transform: rotate(-135deg) translateY(-2px); }
-.wb-root .dsh-soul-legacy-details .dsh-soul-legacy { padding: 4px 15px 15px; }
-.wb-root .dsh-soul-legacy-details .dsh-soul-card { background: transparent !important; border: none !important;
-  box-shadow: none !important; padding: 0 !important; }
-
-/* ══════════ 4b · 用量页英雄区（效果图第 4 页） ══════════ */
+/* ══════════ 4 · 用量页英雄区（效果图第 4 页） ══════════ */
 .wb2-us-hero { display: grid; grid-template-columns: 1.28fr 1fr 1fr .94fr; gap: 12px; margin-bottom: 12px; }
 @media (max-width: 1180px) { .wb2-us-hero { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 640px) { .wb2-us-hero { grid-template-columns: 1fr; } }
@@ -638,7 +367,7 @@ body[data-ds-dark-theme] .wb-root {
 .wb2-page-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; }
 .wb2-page-wrap > *:last-child { flex: 1 1 auto; min-height: 0; }
 
-/* ══════════ 6 · 记忆 / 能力 / 画廊 / 邮件：版式向效果图靠拢 ══════════
+/* ══════════ 5 · 记忆 / 能力 / 画廊 / 邮件：版式向效果图靠拢 ══════════
    原则：只动版式与质感，不动各面板的 JSX 与状态机；做不到的交互形态
    （如画廊 Coverflow 轮播需要 JS 状态）不硬凑，留真数据视图。 */
 
@@ -862,38 +591,16 @@ body[data-ds-dark-theme] .wb-root {
 .wb2-cv:hover { z-index: 9; opacity: 1; filter: none; }
 @media (max-width: 900px) { .wb2-cover { display: none; } }
 
-/* ══════════ 7 · 子面板杂项换肤（单色纪律收尾） ══════════ */
-/* soul 的 --s-card-bg 取 static token（恒白），暗色下卡片会亮成白板；
-   收到深空表面一阶。开关旋钮反色：打开态白旋钮落深轨才看得见。 */
-.wb-root .dsh-soul-card { --s-card-bg: var(--wb2-s1); }
-.wb-root .dsh-soul-switch[aria-checked='true']::after { background: var(--wb2-bg); }
-/* soul 的派生强调色 --s-persona（蓝混粉）违反单色纪律，收纯蓝阶 */
-.wb-root .dsh-soul-root {
-  --s-persona: var(--wb2-accent);
-  --s-persona-soft: var(--wb2-a1);
-  --s-persona-line: var(--wb2-a3);
-}
+/* ══════════ 6 · 子面板杂项换肤（单色纪律收尾） ══════════ */
 /* 记忆开关圆点反色修正（暗色下白点落白轨） */
 .wb-root .dsh-memory-switch[aria-checked='true']::after { background: var(--wb2-bg); }
 
-/* 动效一票否决（Dock 已删，选择器同步清理，不留死类名）。
-   角色画廊必须在这里也登记：上面那些覆盖带 !important，会压过 soul/styles.ts
-   里那块 transition:none（同一个 transition 简写属性，谁带 !important 谁赢），
-   漏登记 = reduced-motion 下宽度伸缩照旧 640ms 地转。
-   统摄式画廊新增的来源徽标 / 只读预览行 / 动作行按钮同样登记——它们在 .wb-root 里
-   要么被本表重绘过、要么与工作台其余按钮同族，别让「关掉动效」关一半。 */
+/* 动效一票否决（Dock 已删，选择器同步清理，不留死类名）。 */
 @media (prefers-reduced-motion: reduce) {
   .wb2-rise, .wb2-eyebrow i, .wb2-dot-ok, .wb2-card-hero::before,
-  .wb2-us-spark-line, .wb2-us-gauge-arc, .wb2-us-pie circle,
-  .dsh-soul-profile-card-in, .dsh-soul-profile-card-landed,
-  .dsh-soul-profile-card-landed::before { animation: none !important; }
+  .wb2-us-spark-line, .wb2-us-gauge-arc, .wb2-us-pie circle { animation: none !important; }
   .wb2-card, .wb2-btn, .wb2-ibtn, .wb2-sw, .wb2-sw::after,
-  .wb2-us-bar i, .wb2-us-rank-bar i,
-  .dsh-soul-profile-card, .dsh-soul-profile-card::after, .dsh-soul-profile-avatar,
-  .dsh-soul-profile-initial, .dsh-soul-profile-vname, .dsh-soul-profile-vname-text,
-  .dsh-soul-profile-body, .dsh-soul-profile-bar-fill, .dsh-soul-profile-dot,
-  .dsh-soul-profile-del, .dsh-soul-profile-source, .dsh-soul-profile-preview-item,
-  .dsh-soul-profile-actions-row .dsh-soul-btn { transition: none !important; }
+  .wb2-us-bar i, .wb2-us-rank-bar i { transition: none !important; }
 }
 `
 

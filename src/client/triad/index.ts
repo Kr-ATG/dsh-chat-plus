@@ -45,7 +45,7 @@ function safe(label: string, run: (ctx: ClientContext) => void, ctx: ClientConte
 /** Apply the dsh-chat-plus browser half. */
 export function applyTriadClient(ctx: ClientContext): void {
   safe('responsive styles', (c) => { c.effect(injectResponsiveStyles, 'dsh-chat-plus: triad responsive styles') }, ctx)
-  // 统一工作台（记忆、灵魂、能力、用量、画廊）
+  // 统一工作台（记忆、能力、用量、画廊）
   safe('workbench', applyWorkbenchSeat, ctx)
   // 输入框左侧提示词与记忆注入开关
   safe('memory toggles', applyMemoryClient, ctx)

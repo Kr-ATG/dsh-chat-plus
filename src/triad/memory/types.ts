@@ -146,14 +146,6 @@ export interface StoreState {
    */
   htmlInjectEnabled?: boolean
   /**
-   * 灵魂（Soul）注入开关（全局单值，三态缺省）。
-   * 记忆第四层「顶层身份契约」：用户写的人设/语气/准则，每会话首步独立注入一条
-   * user message。与 zh 通道同范式——主注入关闭或项目被排除时仍单独生效，
-   * 因为「我是谁」跟「记忆库要不要进上下文」是两件正交的事。
-   * 缺省 = 跟随 config.soulInjectDefaultEnabled（默认开）。
-   */
-  soulInjectEnabled?: boolean
-  /**
    * 团队协作（Agent Teams / 子代理委派）规范注入开关（全局单值，三态缺省）。
    * 与 html 同一范式：硬编码在插件内、无卸载路径，主注入关闭或项目被
    * 排除时仍单独注入。投的是一段静态规范文本（分档判据 + 组队硬规矩 + 反模式），
@@ -164,7 +156,7 @@ export interface StoreState {
   /**
    * 回合结束自动收口开关（全局单值，三态缺省）。
    *
-   * 与上面四条注入通道不同：它不往上下文里投文本，而是在 `agent/turn-stopping`
+   * 与上面三条注入通道不同：它不往上下文里投文本，而是在 `agent/turn-stopping`
    * 把清单里残留的 in_progress 项改写为 pending——右栏「任务概览」卡在回合结束
    * 后不该还挂着一条「进行中」，那既不是真实状态（回合都结束了），也会让卡片
    * 永远显示成「卡住了」。仍然是全局单值：清单收口与否是流程纪律，逐会话开关
@@ -295,14 +287,6 @@ export interface MemoryConfig {
    */
   htmlInjectDefaultEnabled: boolean
   /**
-   * 灵魂（Soul）注入默认开关（内置能力，默认开）。
-   *
-   * 与前两条内置通道同构：能力硬编码在插件内、无卸载路径，只有这一个开关。
-   * 它投的是**用户自己写的**顶层身份契约，
-   * 空 soul.md 时通道整体不注入（零开销），一旦写了就说明用户期望它每次都生效。
-   */
-  soulInjectDefaultEnabled: boolean
-  /**
    * 团队协作（Agent Teams / 子代理委派）规范注入默认开关（内置能力，**默认开**）。
    *
    * 与 htmlInjectDefaultEnabled 同构：投的是一段静态规范文本，每会话首步一次。
@@ -314,7 +298,7 @@ export interface MemoryConfig {
   /**
    * 回合结束自动收口默认开关（内置能力，**默认开**）。
    *
-   * 与上面四条注入通道并列的第五条内置通道，但投的不是文本而是**行为**：
+   * 与上面三条注入通道并列的第四条内置通道，但投的不是文本而是**行为**：
    * 回合收口时把残留的 in_progress 任务项改写成 pending（见 engine/todo-closure.ts）。
    * 默认开的理由：`todo` 投影是 last-write-wins 的整表快照，模型漏收尾时
    * in_progress 会一直挂在右栏任务卡上——这是纯展示层噪音，自动清掉没有副作用；
@@ -436,7 +420,6 @@ export const DEFAULT_CONFIG: MemoryConfig = {
   // 默认开：HTML 卡片是交付形态本身（见字段注释），不注入模型就不会主动用。
   // iu 的 13+3 种 kind 文档（含图形三件套）也随本通道注入。
   htmlInjectDefaultEnabled: true,
-  soulInjectDefaultEnabled: true,
   // 默认开：模型默认单线程串完，不注入就不会主动并行委派与组队（见字段注释）。
   teamInjectDefaultEnabled: true,
   // 默认开：回合结束后的残留 in_progress 是纯展示层噪音，自动改写为 pending 无副作用。
@@ -564,7 +547,7 @@ export type ConfigNumberKey = keyof typeof CONFIG_NUMBER_BOUNDS
 
 const CONFIG_NUMBER_KEYS = Object.keys(CONFIG_NUMBER_BOUNDS) as ConfigNumberKey[]
 
-const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'htmlInjectDefaultEnabled', 'soulInjectDefaultEnabled', 'teamInjectDefaultEnabled', 'todoClosureDefaultEnabled'] as const
+const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'htmlInjectDefaultEnabled', 'teamInjectDefaultEnabled', 'todoClosureDefaultEnabled'] as const
 
 /** 可调布尔字段名。 */
 export type ConfigBooleanKey = (typeof CONFIG_BOOLEAN_KEYS)[number]

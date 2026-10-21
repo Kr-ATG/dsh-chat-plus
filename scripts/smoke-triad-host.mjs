@@ -660,51 +660,13 @@ need(paths.some(p => p.startsWith('/api/chat-flow/generated-images')), 'chat-plu
 need(tools.includes('download'), 'chat-plus download tool still registered')
 need(!tools.includes('automation'), 'automation tool gone (官方 schedule_* 工具接管)')
 need(tools.includes('memory_search') && tools.includes('memory_remember'), 'memory tools registered')
-// 记忆第四层「灵魂（Soul）」：路由与工具都挂在记忆模块内（不另开工作台 Tab）。
-// 这条断言防的是「soul 模块被 try/catch 静默吞掉」——记忆引擎照常工作，
-// 只有灵魂面板整块 404，没有断言就只能在用户点开面板时才发现。
-need(paths.some(p => p.startsWith('/api/dsh-memory/soul')), 'soul routes registered (/api/dsh-memory/soul)')
-need(tools.includes('soul_show') && tools.includes('soul_set'), 'soul tools registered (soul_show / soul_set)')
-// 灵魂卡片化（2026-10-05）：卡片是灵魂的权威层（soul.md 是它的全文投影）。
-// 三个卡片工具漏注册 = 「模型能在对话里改人设」这条路径整块消失，而面板侧照常
-// 可用——没有断言就只能等用户自己发现。
-need(tools.includes('soul_cards') && tools.includes('soul_card_set') && tools.includes('soul_card_remove'),
-  'soul card tools registered (soul_cards / soul_card_set / soul_card_remove)')
-// 内置灵魂预设（2026-10-06：原「可爱风」换成「萝莉」，并新增御姐 / 女王 / 公主）。
-// 预设是**代码常量**，某套被改坏、或某张卡被 normalizeCard 过滤掉（标题正文同时
-// 为空）都不会抛错——只会在面板上静默少一行 / 少一张卡。这里直接钉住 router 返给
-// 面板的同一份常量：id 顺序 + 四套角色人格各自的卡数与 style 卡。
-{
-  const presets = mod.BUILTIN_SOUL_PRESETS
-  const expectedIds = [
-    'builtin:engineer', 'builtin:analyst', 'builtin:writer', 'builtin:concise',
-    'builtin:loli', 'builtin:oneesan', 'builtin:queen', 'builtin:princess',
-  ]
-  const ids = Array.isArray(presets) ? presets.map(preset => preset.id) : []
-  need(ids.join(',') === expectedIds.join(','),
-    `builtin soul presets = ${expectedIds.length} 套（4 工作形态 + 4 角色人格），实际 [${ids.join(', ')}]`)
-  // 旧 id 必须真的消失：留着 builtin:cute 会让「萝莉」这套长期挂着 cute 的名字。
-  need(!ids.includes('builtin:cute'), 'builtin:cute 已被 builtin:loli 取代（不留旧 id 混淆）')
-  // 四套角色人格都是「可直接生效的完整人格」：5 张卡，且都有 style 卡落地说法，
-  // 缺了 style 就只剩一张语气卡（语气是全套里最容易写、也最不生效的一层）。
-  const PERSONAS = [
-    ['builtin:loli', '萝莉'],
-    ['builtin:oneesan', '御姐'],
-    ['builtin:queen', '女王'],
-    ['builtin:princess', '公主'],
-  ]
-  for (const [id, name] of PERSONAS) {
-    const preset = typeof mod.builtinPreset === 'function' ? mod.builtinPreset(id) : null
-    need(preset !== null && preset.name === name && preset.cards.length === 5,
-      `${id}（${name}）是可整体套用的完整人格：5 张卡（identity/tone/principles/boundaries/style）`)
-    need(preset !== null && preset.cards.some(card => card.kind === 'style' && card.body.trim() !== ''),
-      `${id} 带 style（风格）卡：角色腔调靠它落地，缺了就只剩一张语气卡`)
-    // 人设只改说法、不改事实：四套都必须显式写下「报错/事故/安全话题照直说」这条硬边界。
-    // 少了它，模型很容易把「本王 / 本公主」那层气场带到故障通报里。
-    need(preset !== null && preset.cards.some(card => card.kind === 'boundaries' && /报错|事故|安全/.test(card.body)),
-      `${id} 的 boundaries 必须点明「报错 / 事故 / 安全话题照直说，不带人设腔」`)
-  }
-}
+// 灵魂（Soul）模块 2026-10-21 按用户要求整块删除：路由、工具、预设全部随之消失。
+// 这类删除最容易「只删了一半」——面板目录删了、host 路由还挂着，或反过来。
+// 断言反过来钉：路由与工具**必须不存在**，且导出面里不得再出现灵魂预设。
+need(!paths.some(p => p.startsWith('/api/dsh-memory/soul')), 'soul routes gone (/api/dsh-memory/soul)')
+need(!tools.some(t => t.startsWith('soul_')), 'soul tools gone (soul_show / soul_set / soul_cards / soul_card_*)')
+need(mod.BUILTIN_SOUL_PRESETS === undefined && mod.builtinPreset === undefined,
+  'builtin soul presets gone (BUILTIN_SOUL_PRESETS / builtinPreset 不再导出)')
 need(listeners.has('agent/pre-step'), 'agent/pre-step injection hooked')
 need(listeners.has('session/event'), 'session/event capture hooked')
 // 邮箱工具：6 个 mail_* 全注册（只留查看类，写类已整块下线）。
@@ -890,8 +852,10 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
     'teamInjectDefaultEnabled 在 CONFIG_BOOLEAN_KEYS 里（否则面板/补丁写不进去）')
   // 通道总数的历史注释会误导下一个人，直接钉住条数表述与实现一致。
   // 2026-10-09：diagram 通道随图形 iu kind（graph/arch/sequence）移除，五条→四条。
-  need(/四条\*\*内置通道\*\*[\s\S]{0,140}team 团队协作/.test(injectSrc),
-    'inject.ts 头部注释声明的内置通道条数与实现一致（当前 4 条，含 team）')
+  // 2026-10-21：soul 通道随灵魂模块整块删除，四条→三条。
+  need(/三条\*\*内置通道\*\*[\s\S]{0,140}team 团队协作/.test(injectSrc),
+    'inject.ts 头部注释声明的内置通道条数与实现一致（当前 3 条：zh / html / team）')
+  need(!/soul|Soul|灵魂/.test(injectSrc), 'inject.ts 不得残留灵魂通道（2026-10-21 整块删除）')
   need(/isTeamInjectEnabled/.test(storeSrc) && /setTeamInjectEnabled/.test(storeSrc),
     'store 提供 team 开关的读写')
   // 旧「效率约束」通道已整条替换，源码里不该再有残留（用户明确要求换掉）。

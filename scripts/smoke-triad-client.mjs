@@ -1019,9 +1019,10 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   const openSrc = strip(srcOf('src/client/open-preview.ts'))
 
   // 2026-10：'mail' 已从 WorkbenchTab 联合类型摘除（入口搬到 Seeker 顶栏邮件
-  // 抽屉），这里只钉「联合类型里确实列了这几个分类」，不再把 mail 当成员。
-  if (!/'soul' \| 'memory' \| 'skills' \| 'usage' \| 'gallery'/.test(hubSrc)) {
-    fail('WorkbenchTab 联合类型必须含 gallery（工作台第五 Tab）')
+  // 抽屉）；2026-10-21：'soul' 随灵魂模块整块删除。这里只钉「联合类型里确实
+  // 列了这几个分类」，不再把 mail / soul 当成员。
+  if (!/'memory' \| 'skills' \| 'usage' \| 'gallery'/.test(hubSrc)) {
+    fail('WorkbenchTab 联合类型必须含 gallery（工作台第四 Tab）')
   } else if (!/<GalleryPanel[\s>]/.test(hubSrc)) {
     // 断言放宽到「渲染了 GalleryPanel」：key 后来移到了外层包裹 div
     // （`<div key="gallery">` 包 PageHead + GalleryPanel），原先钉死

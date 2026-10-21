@@ -63,9 +63,6 @@ import { setToolCallsVisible, subscribeToolCallsVisible, toolCallsVisible } from
 import { setPlainTimelineVisible, subscribePlainTimelineVisible, plainTimelineVisible } from '../plain-timeline-visible.js'
 import { workspaceCwdOf } from '../client-ctx.js'
 import { getPanelSettingsStore } from './panel-settings-store.js'
-// 灵魂图标与 soul 工作台同一枚（内核 + 环绕弧）：同一个概念在两个入口必须是同一张脸，
-// 否则用户不会把「大盘这行」和「工作台那页」读成同一套能力。
-import { SoulIcon } from '../triad/soul/SoulPanel.js'
 
 /**
  * 模块级单例，不是每次渲染新建。
@@ -203,7 +200,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
    * 路由时会静默丢弃写入，回滚会让 UI 显示一个它并不具备的能力，回读拿到的是真实状态。
    */
   const pushChannel = useCallback((
-    key: 'zhEnabled' | 'htmlEnabled' | 'soulEnabled' | 'teamEnabled' | 'todoClosureEnabled',
+    key: 'zhEnabled' | 'htmlEnabled' | 'teamEnabled' | 'todoClosureEnabled',
     next: boolean,
   ): void => {
     setBusy(true)
@@ -212,14 +209,12 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
       ? api.setZhInjectState(next)
       : key === 'htmlEnabled'
         ? api.setHtmlInjectState(next)
-        : key === 'soulEnabled'
-          ? api.setSoulInjectState(next)
-          : key === 'teamEnabled'
-            ? api.setTeamInjectState(next)
-            : api.setTodoClosureState(next)
+        : key === 'teamEnabled'
+          ? api.setTeamInjectState(next)
+          : api.setTodoClosureState(next)
     void write
       .then(res => {
-        // 中文 / 灵魂 / 自动收口缺字段按开兜底（默认开的内置能力）；html / team 缺字段按
+        // 中文 / 自动收口缺字段按开兜底（默认开的内置能力）；html / team 缺字段按
         // 关兜底（旧 host 根本没有这个能力，显示「开」是假阳性）—— 与 normalizeInjectState
         // 的口径逐条一致，改这里必须同步改那里。
         const enabled = key === 'htmlEnabled' || key === 'teamEnabled' ? res.enabled === true : res.enabled !== false
@@ -290,9 +285,8 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
 
   const zhOn = state.zhEnabled !== false
   const htmlOn = state.htmlEnabled === true
-  const soulOn = state.soulEnabled !== false
   const teamOn = state.teamEnabled === true
-  // 自动收口与 zh / soul 同口径（默认开）：缺字段按开，别抄 html / team 的 === true。
+  // 自动收口与 zh 同口径（默认开）：缺字段按开，别抄 html / team 的 === true。
   const todoClosureOn = state.todoClosureEnabled !== false
   /*
    * Agent 邮箱：唯一一条**跨模块**通道（承载在 dsh-mail），也是唯一一条会「不可用」的行。
@@ -393,20 +387,8 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
               busy={busy}
               onToggle={() => { pushChannel('htmlEnabled', !htmlOn) }}
             />
-            {/* 灵魂注入：这一行就是灵魂契约（人设）进不进提示词的总闸门，
-                所以名字按「它到底管什么」来叫，而不是按被管理的东西叫 ——
-                原标签「灵魂人设」会被读成「改人设的入口」，而改人设在 soul 工作台。 */}
             <SettingsRow
               index={2}
-              label="灵魂注入"
-              hint="关掉后名字、语气与行为准则不再进提示词（人设在 soul 工作台里照常保留，只是不生效）；每会话首步注入一次"
-              on={soulOn}
-              busy={busy}
-              icon={<SoulIcon />}
-              onToggle={() => { pushChannel('soulEnabled', !soulOn) }}
-            />
-            <SettingsRow
-              index={3}
               label="团队协作"
               hint="独立子任务默认并行发 subagent；复杂任务组队当 Lead；只有小事自己做。每会话首步注入一次。"
               on={teamOn}
@@ -417,7 +399,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
             {mailAvailable
               ? (
                 <SettingsRow
-                  index={4}
+                  index={3}
                   label="Agent 邮箱"
                   hint={mailHint}
                   on={mailOn}
@@ -427,14 +409,14 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
               )
               : (
                 <SettingsRow
-                  index={4}
+                  index={3}
                   label="Agent 邮箱"
                   hint={mailHint}
                   tag="不可用"
                 />
               )}
             <SettingsRow
-              index={5}
+              index={4}
               label="回合结束自动收口"
               hint="回合结束时把残留的「进行中」任务项改回「未完成」，右栏任务卡不再挂着没收尾的项。它不改提示词，只动任务清单的状态。"
               on={todoClosureOn}
@@ -550,7 +532,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
               只改本机观感，一个字都不进提示词；全局所有会话生效，随本机浏览器持久保存（刷新 / 重启 DSH 后仍在）。悬停或聚焦某行可展开完整说明。
             </span>
             <SettingsRow
-              index={6}
+              index={5}
               lead
               label="总结卡外框"
               hint="关掉后 Seeker 对话流的总结卡不留边框与阴影，退回纯正文。"
@@ -562,7 +544,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
               onToggle={() => { setReplyCardChromeEnabled(!chromeOn) }}
             />
             <SettingsRow
-              index={7}
+              index={6}
               label="工具调用卡"
               hint="关掉后 Seeker 右栏不再显示技术向的「工具调用」台账（默认 5 行滚动窗口那张）；人话行动流不受影响。"
               on={toolCallsOn}
@@ -575,7 +557,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
                 人话的卡，关掉后右栏只剩技术台账，所以默认开、且 hint 要把这件事
                 说明白，免得用户关完发现"什么都不知道了"。 */}
             <SettingsRow
-              index={8}
+              index={7}
               label="操作面板"
               hint="关掉后 Seeker 右栏不再显示那张中文人话行动流（把工具调用翻译成「打开携程 · 机票」的卡）；工具调用台账与其余卡片不受影响。"
               on={plainTimelineOn}
@@ -623,7 +605,6 @@ function SettingsRow({
   on,
   busy = false,
   tag,
-  icon,
   onToggle,
 }: {
   readonly index: number
@@ -634,20 +615,15 @@ function SettingsRow({
   readonly on?: boolean
   readonly busy?: boolean
   readonly tag?: string
-  /** 行首图标（灵魂注入那行）：状态灯同款用法，开=呼吸、关=压暗。 */
-  readonly icon?: JSX.Element
   readonly onToggle?: () => void
 }): JSX.Element {
   return (
     <div
       className={lead ? 'kr-settings__row kr-settings__row--lead' : 'kr-settings__row'}
       style={{ '--row-i': String(index) } as CSSProperties}
-      // data-on 供图标样式判状态。只有 icon 的行读它，其余行挂上也没人用。
-      data-on={on === undefined ? undefined : on ? 'true' : 'false'}
     >
       <span className="kr-settings__main">
         <span className="kr-settings__label">
-          {icon !== undefined && <span className="kr-settings__row-icon">{icon}</span>}
           {label}
           {tag !== undefined && <span className="kr-settings__badge">{tag}</span>}
         </span>

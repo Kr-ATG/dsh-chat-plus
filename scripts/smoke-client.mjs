@@ -1756,8 +1756,15 @@ if (krEnabled) {
     // 2026-10-20：落点从「侧栏」改成「系统默认应用」，aria-label 必须跟着改 ——
     // 读屏用户靠它知道点下去会发生什么，文案落后于实现就是错误信息。
     fail('行主体按钮的 aria-label 必须说明落点是「用默认应用打开」（读屏用户靠它知道点开的去向）')
-  } else if (!/openWithDefaultApp\(path\)/.test(outputsCode)) {
-    fail('产出物行点击必须先交给系统默认应用（openWithDefaultApp），只有开不了才退回侧栏')
+  } else if (!/await openOutputFile\(path, \{ cwd \}\)/.test(outputsCode)) {
+    // 2026-10-21：落点从「官方 openWithDefaultApp」改为本插件 /api/chat-flow/open-file。
+    // 官方那条对相对路径的解析基准是 host 进程 cwd，且 Windows 上从不把 .html
+    // 交给默认浏览器 —— 两条叠起来就是用户报的「点产出物里的 html 打不开」。
+    fail('产出物行点击必须先走本插件 openOutputFile（/api/chat-flow/open-file：按会话工作区绝对化 + 默认浏览器）')
+  } else if (!/const result = await openOutputFile\(path, \{ cwd \}\)[\s\S]{0,900}?resolveWorkspacePath\(cwd, path\)[\s\S]{0,200}?openWithDefaultApp\(absolute\)/.test(outputsCode)) {
+    // 退回官方链路时**必须补成绝对路径**：官方 verifyDesktopPath 用 host 进程 cwd
+    // 解析相对路径，直接传相对路径正是 bug 本身。
+    fail('退回官方 openWithDefaultApp 时必须先 resolveWorkspacePath 补成绝对路径（相对路径会被 host cwd 解析错）')
   } else if (!/className="kr-out-row__go"/.test(outputsCode)) {
     fail('行尾必须保留纯视觉箭头（kr-out-row__go，aria-hidden），承担「这里能点、点开在右栏」的提示')
   } else if (/canInlinePreview|MediaLightbox/.test(outputsCode)) {
@@ -1817,8 +1824,12 @@ if (krEnabled) {
       fail('打开结果必须分三态（opened / unavailable / failed）：无桌面与打开失败对调用方的处置完全不同')
     } else if (!/desktopOpeningAvailable/.test(openerCode) || !/canOpenWorkspacePath/.test(openerCode)) {
       fail('调用前必须问一次 canOpenWorkspacePath 并缓存结论（手机远程访问时每次点击都空跑一次往返）')
-    } else if (!/openWithDefaultApp\(item\.path\)/.test(gallerySrc)) {
-      fail('画廊卡片点击必须先交给系统默认应用（openWithDefaultApp），不得直接弹内置弹窗')
+    } else if (!/openAbsolute\(item\.path\)/.test(gallerySrc) || !/openWithDefaultBrowser\(target\)/.test(gallerySrc)) {
+      // 2026-10-21：主出口换成插件 open-file（.html 才会进默认浏览器），
+      // 官方 openWithDefaultApp 作为 'unavailable' 时的兜底仍在（下一条断言钉住）。
+      fail('画廊卡片点击必须先交给系统打开（open-file → 默认浏览器），不得直接弹内置弹窗')
+    } else if (!/openWithDefaultApp\(target\)/.test(gallerySrc)) {
+      fail('画廊必须保留官方 openWithDefaultApp 作为路由未就绪时的兜底')
     } else if (!/setLightboxIndex\(visible\.indexOf\(item\)\)/.test(gallerySrc)) {
       fail('画廊必须保留内置弹窗作为降级出口（宿主没有桌面时原样退回，不能点了没反应）')
     } else if (!/materializeGenerated/.test(gallerySrc)) {
@@ -2726,43 +2737,61 @@ if (krEnabled) {
   }
 }
 
-// ── 灵魂卡片化 + 「灵魂 / 记忆」两个独立分类（2026-10-05）────────────────────
+// ── 工作台分类（2026-10-05 定稿，2026-10-21 去掉灵魂分类）──────────────────
 //
-// 这几条是**布局契约**，不是实现细节。历史沿革值得写下来，否则后人很容易改回去：
+// 形状契约，不是实现细节。历史沿革值得写下来，否则后人很容易懵：
 //   1. 一开始灵魂只是记忆面板里的一个 Tab；
 //   2. 2026-10-05 用户要求「打开工作台后左侧是灵魂、右侧是记忆」→ 同屏并排一页；
-//   3. 同日用户改口「还是把记忆和灵魂分开两个分类吧」→ **当前形态：两个平级 Tab**。
-// 并排时每边只有半屏，灵魂的卡片列表与记忆的三栏都伸展不开——这才是拆分的原因。
-// 断言必须锁住「灵魂与记忆各自独立成页」，否则后人「顺手」合回去时没有任何提示。
+//   3. 同日用户改口「还是把记忆和灵魂分开两个分类吧」→ 两个平级 Tab；
+//   4. **2026-10-21 用户要求「把插件灵魂这个功能和模块都删掉」→ 灵魂分类整体移除**，
+//      记忆成为默认页（原默认页是灵魂，删掉后必须有人顶上）。
+// 断言锁三件事：灵魂真的没了、默认落在记忆、其余分类仍各自独立成页。
 {
   const hubSrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/WorkbenchPanel.tsx'), 'utf8')
   const hubCss = readFileSync(resolve(ROOT, 'src/client/triad/hub/styles.ts'), 'utf8')
+  const flyoutSrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/row-flyout.tsx'), 'utf8')
   const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/memory/Panel.tsx'), 'utf8')
-  const whaleSrc = readFileSync(resolve(ROOT, 'src/client/triad/soul/WhaleLogo.tsx'), 'utf8')
-  const cardsSrc = readFileSync(resolve(ROOT, 'src/client/triad/soul/CardsSection.tsx'), 'utf8')
-  const presetsSrc = readFileSync(resolve(ROOT, 'src/client/triad/soul/PresetsSection.tsx'), 'utf8')
   const reasons = []
 
-  if (!/export const DEFAULT_TAB: WorkbenchTab = 'soul'/.test(hubSrc)) {
-    reasons.push('默认 Tab 必须是 soul（用户要求打开工作台先看到灵魂）')
+  // ── 灵魂模块必须整块不存在（源码目录 + 一切引用）──────────────────────
+  // 用户原话「把插件灵魂这个功能和模块都删掉」。这条用目录存在性当判据最硬：
+  // 只删引用不删目录 = 死代码；只删目录不删引用 = 构建直接炸。
+  for (const dir of ['src/triad/soul', 'src/client/triad/soul']) {
+    if (existsSync(resolve(ROOT, dir))) reasons.push(`灵魂模块目录必须已删除：${dir}`)
   }
-  // 灵魂与记忆各自独立成页（互不嵌套）：soul 分类只放 SoulPanel，memory 分类只放 MemoryPanel。
-  if (!/activeTab === 'soul'[\s\S]{0,300}SoulPanel/.test(hubSrc)) {
-    reasons.push('「灵魂」必须是独立分类，直接挂 SoulPanel')
+  const hubAll = hubSrc + hubCss + flyoutSrc + panelSrc
+  if (/soul|Soul|灵魂/.test(hubAll)) {
+    reasons.push('工作台不得再残留任何 soul / 灵魂 引用（分类、图标、样式一律清掉）')
+  }
+
+  // ── 分类表与默认页 ───────────────────────────────────────────────────
+  if (/export const DEFAULT_TAB: WorkbenchTab = 'soul'/.test(hubSrc)) {
+    reasons.push("默认 Tab 必须不再是 soul")
+  }
+  if (!/export const DEFAULT_TAB: WorkbenchTab = 'memory'/.test(hubSrc)) {
+    reasons.push('默认 Tab 必须是 memory（灵魂删掉后记忆是第一页）')
   }
   if (!/activeTab === 'memory'[\s\S]{0,300}MemoryPanel/.test(hubSrc)) {
     reasons.push('「记忆」必须是独立分类，直接挂 MemoryPanel')
   }
+  // 分类表：四个分类，且顺序稳定（横滑条与浮层都遍历它，不另起一份真相）。
+  const tabsBlock = /export const WORKBENCH_TABS: readonly WorkbenchTabMeta\[\] = \[([\s\S]*?)\] as const/.exec(flyoutSrc)
+  const tabIds = tabsBlock === null ? [] : [...tabsBlock[1].matchAll(/id: '([a-z]+)'/g)].map(m => m[1])
+  if (tabIds.join(',') !== 'memory,skills,usage,gallery') {
+    reasons.push(`WORKBENCH_TABS 必须是 memory/skills/usage/gallery 四项，实得 [${tabIds.join(', ')}]`)
+  }
+  if (!/return 'memory'/.test(flyoutSrc)) {
+    reasons.push("readWorkbenchTab 的非法值回落必须是 'memory'")
+  }
   if (/wb-pair/.test(hubSrc) || /wb-pair/.test(hubCss)) {
-    reasons.push('并排布局（wb-pair）已废弃：用户要求灵魂与记忆分开两个分类')
+    reasons.push('并排布局（wb-pair）已废弃')
   }
   if (/pairMode/.test(panelSrc)) {
     reasons.push('pairMode 已废弃：记忆面板不再有「只做概览」的半屏形态')
   }
-  // 灵魂入口唯一：记忆面板内不得再有「灵魂」子 Tab / SoulPanel（拆分后归工作台分类）。
-  // 注意判据要精确到「记忆分类那一块」——hub 里的 soulApi 是灵魂分类自己在用，合法。
-  if (/SoulPanel|'soul'/.test(panelSrc)) {
-    reasons.push('记忆面板内不得再挂灵魂子 Tab（灵魂是平级分类，入口只此一处）')
+  // 记忆面板里不得再出现灵魂子 Tab 或灵魂 API 面（灵魂是平级分类，去掉后入口为零）。
+  if (/SoulPanel|soulApi|'soul'/.test(panelSrc)) {
+    reasons.push('记忆面板内不得再挂灵魂子 Tab 或 soulApi')
   }
   // 两个工作区开关（自动记忆 / 排除注入）2026-10-18 迁到大盘设置卡片：
   // 记忆面板里**不许**再有一份。两处各留一个入口的后果不是「多一个方便」，
@@ -2781,132 +2810,18 @@ if (krEnabled) {
 
   const memoryBranch = /activeTab === 'memory'[\s\S]{0,400}?MemoryPanel[^>]*\/>/.exec(hubSrc)
   if (memoryBranch === null || /soulApi/.test(memoryBranch[0])) {
-    reasons.push('记忆分类的 MemoryPanel 不得再接收 soulApi（灵魂入口只此一处）')
+    reasons.push('记忆分类的 MemoryPanel 不得接收 soulApi')
   }
-  // 判据：必须有「原样回填」这条分支，且不得再出现任何 'memory' 的强制迁移
-  // （曾经有过 saved === 'memory' → 'soul'，拆分后那会让用户每次都被拽去灵魂页）。
+  // 判据：必须有「原样回填」这条分支，且不得再出现任何强制迁移
+  // （曾经有过 saved === 'memory' → 'soul'，那会让用户每次都被拽去别的页）。
   if (!/return saved/.test(hubSrc) || /saved === 'memory'/.test(hubSrc)) {
-    reasons.push("localStorage 的 'memory' 是合法值，必须原样回填（拆分后不可再强制迁移到 soul）")
-  }
-  if (!/\.wb-soul-scroll\s*\{[\s\S]{0,200}overflow-y:\s*auto/.test(hubCss)) {
-    reasons.push('灵魂分类要独占整页滚动容器（wb-soul-scroll）')
+    reasons.push("localStorage 的 'memory' 是合法值，必须原样回填（不可强制迁移）")
   }
 
-  // 鲸鱼：动效类名在样式表里（组件只挂类名），path 是官方完整数据。
-  const soulCss = readFileSync(resolve(ROOT, 'src/client/triad/soul/styles.ts'), 'utf8')
-  if (!/dsh-soul-whale-breathe/.test(soulCss)) reasons.push('鲸鱼缺少呼吸动效')
-  if (!/dsh-soul-whale-sweep/.test(soulCss)) reasons.push('鲸鱼缺少流光动效')
-  if (!/prefers-reduced-motion[\s\S]{0,600}dsh-soul-whale/.test(soulCss)) {
-    reasons.push('鲸鱼动效必须在 prefers-reduced-motion 下关闭')
-  }
-  // 灵魂页形态（2026-10 统摄改版，取代 2026-10-06 的三区契约）：
-  //   用户原话「我要的是相当于把他们都替换掉，而不是又一个新的这么冗余」。
-  //   旧的三区（上预设区 / 左下预览 / 右下修改）把「换人格」拆到三个地方讲；
-  //   现在**一条角色画廊统摄全页**：主档 + 档案 + 预设并排成一排卡，点一下就换；
-  //   卡片区搬进激活卡的肚子里（「我用的是谁」与「这份人设里有什么」同一视线）；
-  //   预设区与左列人格核心卡被画廊吸收，不再单独存在。
-  //
-  // 断言随之改写：**旧契约的每条意图都要在新形态里有对应物**，不能只是删掉。
-  //   · 「预设要有入口」→ 预设并进画廊（presets 仍驱动 roles，且套用/合并两条路都在）
-  //   · 「卡片区要在」→ 卡片区进画廊的 cardsSlot
-  //   · 「全文预览要渲染富文本」→ 保留（下面那条断言不变）
-  //   · 「三区顺序」→ 换成「画廊必须排在卡片区之前」（角色是这一页第一件事）
-  // 判据同样用源码顺序：起点跳到 `const body = (` 之后，避开 import 段的同名标识符。
-  const soulPanelSrc = readFileSync(resolve(ROOT, 'src/client/triad/soul/SoulPanel.tsx'), 'utf8')
-  const bodyStart = soulPanelSrc.indexOf('const body = (')
-  // 只看 body 之后的**可执行代码**：注释里提到某个标识符（例如「SoulPersonaCard 已被
-  // 取代」这种说明）不算它还在渲染。逐行剥掉行注释与块注释再判断，
-  // 否则一条解释性注释就会把断言判成「旧结构回来了」（第一版就踩了这个坑）。
-  const bodyCode = soulPanelSrc.slice(bodyStart)
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '')
-    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
-  // 真实顺序：画廊（ProfileGallery，body 里最先出现的重块）→ 全文预览（SoulMarkdown）
-  // → 我的资料 → 深改区。卡片区不是顶层块，它作为 cardsSlot 的**值**嵌在画廊那一段里，
-  // 所以它的位置必然落在 ProfileGallery 与 SoulMarkdown 之间 —— 这正是「卡片进了画廊
-  // 肚子」这条结构事实，用它当判据比单看三个 marker 的先后更准。
-  const iGallery = bodyCode.indexOf('ProfileGallery')
-  const iSlot = bodyCode.indexOf('cardsSlot')
-  const iMd = bodyCode.indexOf('SoulMarkdown')
-  if (bodyStart < 0 || iGallery < 0 || iSlot < 0 || iMd < 0 || !(iGallery < iSlot && iSlot < iMd)) {
-    reasons.push('灵魂页必须是统摄式画廊：卡片区作为 cardsSlot 嵌在画廊里，全文预览在其后')
-  }
-  // 旧三区被吸收后，这些标识符**必须不再出现在 body 的代码里**——它们回来就等于
-  // 旧结构回来了（左侧核心卡 / 顶部预设区 / 独立卡片区），那正是用户点名要拆的冗余。
-  const absorbed = ['SoulPersonaCard', 'PresetsSection', 'css.presetsTop']
-    .filter(marker => bodyCode.includes(marker))
-  if (absorbed.length > 0) {
-    reasons.push(`被统摄式画廊吸收的块不该再单独渲染：${absorbed.join(' / ')}`)
-  }
-  // 画廊里的卡必须能区分「可激活的人格」与「可套用的预设」两种来源：前者点一下换人，
-  // 后者点一下把一套卡片套进当前人格。两者混成一个入口会让用户以为
-  // 「点预设 = 切到某个叫工程搭档的人格」，而那个档案根本不存在。
-  if (!/source === 'preset'/.test(readFileSync(resolve(ROOT, 'src/client/triad/soul/ProfileGallery.tsx'), 'utf8'))) {
-    reasons.push('画廊必须区分角色来源（预设 = 套用卡片，不是切换人格）')
-  }
-  // 折叠按钮已删（用户 2026-10-06：「这个折叠去掉」）。锁住它不再回来：修改区内容
-  // 常驻，右栏顶部不该再出现一枚「整段正文 / 身份字段 / 档案 / 蒸馏」的纯标签。
-  if (/css\.legacyHead|dsh-soul-legacy-head/.test(soulPanelSrc + soulCss)) {
-    reasons.push('修改区外层折叠按钮已废弃（用户要求去掉），别再挂回来')
-  }
-  // 「全文」预览必须渲染富文本：直接把 markdown 原文铺出来会被用户判为
-  // 「非要做技术的才看得懂」。判据：预览走 SoulMarkdown。
-  // 统摄改版后这一栏只剩全文（卡片预览搬进了画廊的激活卡），段控随之删除，
-  // 所以判据不再依赖 previewTab，只要求这一栏仍由 SoulMarkdown 渲染。
-  if (!/data-soul-section="preview-text"[\s\S]{0,400}SoulMarkdown/.test(soulPanelSrc)) {
-    reasons.push('「全文」预览必须渲染 markdown 富文本（SoulMarkdown），不能直接铺原文')
-  }
-  // path 在源码里是**分段拼接**的（只为可读性），判据必须取「常量声明到常量结束」
-  // 之间的全部单引号串再拼接：按段首字符过滤会漏掉以负号开头的续段，量出来比真值短，
-  // 把一份正确的 3448 字符 path 误判成手绘简化版（踩过一次）。
-  const whaleStart = whaleSrc.indexOf('const FISH_LOGO_PATH')
-  const whaleEnd = whaleSrc.indexOf('/** WhaleLogo 属性')
-  const whalePath = (whaleStart === -1 || whaleEnd === -1)
-    ? ''
-    : [...whaleSrc.slice(whaleStart, whaleEnd).matchAll(/'([^']*)'/g)].map(match => match[1]).join('')
-  if (whalePath.length !== 3448 || !whalePath.startsWith('M22.9168')) {
-    reasons.push('鲸鱼 path 必须是官方 FishLogo 的完整数据（3448 字符），不是手绘简化版')
-  }
-  if (!/cards|Card/.test(cardsSrc) || !/soul-cards-|soulCard/.test(cardsSrc + soulCss)) {
-    reasons.push('缺少灵魂卡片区')
-  }
-  const soulLocales = readFileSync(resolve(ROOT, 'src/client/triad/soul/locales.ts'), 'utf8')
-  if (!/soulPresetApplyReplace: '整体替换'/.test(soulLocales) || !/soulPresetApplyMerge: '合并应用'/.test(soulLocales)) {
-    reasons.push('预设区必须同时提供「整体替换」与「合并应用」两条路径')
-  }
-  // ── 我的资料（用户侧身份）必须真的有界面 ──────────────────────────────
-  // host 的 GET/POST /soul/user、client 的 loadUser/saveUser、文案与 .dsh-soul-me-*
-  // 样式一直都在，但**界面**在一次版式改版里被整块弄丢了：端点全都健康、
-  // user.json 也照常注入，用户却再也改不了自己的称呼与档案（表现为「灵魂里
-  // 关于我的档案消失了」）。这组断言盯的就是「三件套齐全才算这套功能在」。
-  const userReasons = []
-  if (!/api\.loadUser\(|loadUser\(\)/.test(soulPanelSrc) && !/saveUser/.test(soulPanelSrc)) {
-    userReasons.push('SoulPanel 没有接 /soul/user 的读写')
-  }
-  if (!/css\.me\b/.test(soulPanelSrc) || !/data-soul-section="me"/.test(soulPanelSrc)) {
-    userReasons.push('SoulPanel 没有渲染「我的资料」区块')
-  }
-  if (!/avatarUrl\(AVATAR_USER_ID/.test(soulPanelSrc)) {
-    userReasons.push('「我的资料」缺少用户头像（AVATAR_USER_ID）渲染')
-  }
-  // 必须在折叠区**外面**：上次就是收进 details 之后没人再看得到。
-  const meSectionAt = soulPanelSrc.indexOf('data-soul-section="me"')
-  const detailsAt = soulPanelSrc.indexOf('className="dsh-soul-legacy-details"')
-  if (meSectionAt < 0 || detailsAt < 0 || meSectionAt > detailsAt) {
-    userReasons.push('「我的资料」必须在「深改」折叠区之外常驻（收起等于没有）')
-  }
-  if (!/\.dsh-soul-me-avatar/.test(soulCss)) {
-    userReasons.push('缺少我的资料样式（.dsh-soul-me-*）')
-  }
-  if (userReasons.length > 0) {
-    reasons.push('我的资料：' + userReasons.join('；'))
-  }
   if (reasons.length > 0) {
-    fail('灵魂/记忆分类契约：' + reasons.join('；'))
+    fail('工作台分类契约：' + reasons.join('；'))
   } else {
-    pass('工作台分类：灵魂与记忆各自独立成页（默认 soul · 无并排残留 · memory 原样回填）')
-    pass('灵魂卡片化：会动的鲸鱼（官方 path）+ 卡片区 + 预设两条应用路径')
-    pass('我的资料界面在位：/soul/user 读写 + 头像 + 折叠区外常驻')
+    pass('工作台分类：灵魂模块已整块删除（目录 + 引用）+ 默认页落到记忆 + 四分类独立成页')
   }
 }
 
@@ -4189,7 +4104,7 @@ if (krEnabled) {
       'kr-settings__ws-name', 'kr-settings__ws-path', 'kr-settings__ws-flags',
       'kr-settings__ws-flag', 'kr-settings__ws-badge', 'kr-settings__ws-hint',
       'kr-settings__switch--mini',
-      'kr-settings__row', 'kr-settings__row--lead', 'kr-settings__row-icon', 'kr-settings__main',
+      'kr-settings__row', 'kr-settings__row--lead', 'kr-settings__main',
       'kr-settings__label', 'kr-settings__hint', 'kr-settings__badge',
       'kr-settings__switch', 'kr-settings__foot',
     ]
@@ -4243,19 +4158,20 @@ if (krEnabled) {
     //    的绿勾。同理下面校验 `--row-i` 序号必须是从 0 起连续的整数 —— 新增行忘了顺延
     //    后面的序号，错开浮现会两行同时冒出来，而这既不该报错也不会打日志。
     const hostWriters = [
-      'setZhInjectState', 'setHtmlInjectState', 'setSoulInjectState',
+      'setZhInjectState', 'setHtmlInjectState',
       'setTeamInjectState', 'setTodoClosureState', 'setMailInjectState',
     ]
     const missingWriter = hostWriters.filter(name => !src.includes(name))
     const rowCount = (src.match(/<SettingsRow\b/g) ?? []).length
-    // 10 处 = 4（中文 / 交互卡片 / 灵魂 / 团队）+ 2（邮箱「给开关 / 给角标」两分支）
+    // 9 处 = 3（中文 / 交互卡片 / 团队）+ 2（邮箱「给开关 / 给角标」两分支）
     //      + 1（自动收口）+ 3（展示组）。
+    // 灵魂注入那一行 2026-10-21 随灵魂模块整块删除：通道没了，闸门也就没有意义。
     // 邮箱那个三态行写两个分支是**刻意的**：省略 on 的那一支才是「不给拨不动的开关」。
     // 「工作区记忆」那一组 2026-10-18 改成了**逐工作区列表**（不再是固定的 SettingsRow），
     // 因此不计入这个数字 —— 它的判据在下面 6c。
-    const expectedRows = 10
-    // 9 个行序号（0..8）：邮箱两分支共用同一个 index（同一行的两种形态，不该占两个错开槽位）。
-    const expectedIndexes = 9
+    const expectedRows = 9
+    // 8 个行序号（0..7）：邮箱两分支共用同一个 index（同一行的两种形态，不该占两个错开槽位）。
+    const expectedIndexes = 8
     const rowIndexes = [...src.matchAll(/index=\{(\d+)\}/g)].map(m => Number(m[1]))
     const distinctIndexes = [...new Set(rowIndexes)].sort((a, b) => a - b)
     const consecutive = distinctIndexes.length === expectedIndexes
@@ -4269,11 +4185,11 @@ if (krEnabled) {
     } else if (!/busy/.test(src)) {
       fail('host 写入缺少 busy 门控（写盘期间连点会出竞态，开关状态弹来弹去）')
     } else if (rowCount !== expectedRows) {
-      fail(`大盘设置应有 ${expectedRows} 处 <SettingsRow>（4 注入 + 邮箱 2 分支 + 自动收口 + 工作区项目记忆 2 分支 + 展示 3），实得 ${rowCount}`)
+      fail(`大盘设置应有 ${expectedRows} 处 <SettingsRow>（3 注入 + 邮箱 2 分支 + 自动收口 + 工作区项目记忆 2 分支 + 展示 3），实得 ${rowCount}`)
     } else if (!consecutive) {
       fail(`行序号 --row-i 必须从 0 起连续到 ${expectedIndexes - 1}（新增行要顺延后面的序号，否则两行同时浮现）：实得 ${JSON.stringify(distinctIndexes)}`)
     } else {
-      pass(`大盘设置：10 个开关行接线完整（7 条 host 通道 + 3 条外观偏好；--row-i 0..${expectedIndexes - 1} 连续，含 busy 门控）`)
+      pass(`大盘设置：${expectedRows} 个开关行接线完整（6 条 host 通道 + 3 条外观偏好；--row-i 0..${expectedIndexes - 1} 连续，含 busy 门控）`)
     }
 
     // 6c) 「工作区记忆」组（2026-10-18 改成逐工作区列表）：用户要求「显示出来所有工作区
@@ -4303,22 +4219,16 @@ if (krEnabled) {
       pass('大盘设置：工作区记忆列出全部工作区 + 逐行两个开关（记录 / 不注入）+ 逐行 busy + 三态兜底')
     }
 
-    // 6d) 灵魂注入行：这行拨的是**灵魂契约进不进提示词**的闸门（host 的
-    //     soulInjectEnabled），不是「改人设」的入口。名字 2026-10-18 从「灵魂人设」
-    //     改成「灵魂注入」——旧名会被读成后者，而用户点进去发现改不了任何东西。
-    //     判据钉三件事：接线仍是 soulEnabled（改名不许顺手换通道）、缺字段口径
-    //     仍是 !== false（默认开的内置能力，抄 html/team 的 === true 会让 host 未重启
-    //     那段窗口显示成关）、图标状态由行上的 data-on 派生（不在 JS 里另算一份状态）。
-    if (!/label="灵魂注入"/.test(src)) {
-      fail('大盘设置这一行应叫「灵魂注入」：它控的是注不注入，旧名「灵魂人设」会被读成改人设的入口')
-    } else if (!/pushChannel\('soulEnabled', !soulOn\)/.test(src)) {
-      fail('「灵魂注入」必须仍接 soulEnabled（改名不换通道；写错 key 就是拨了不改注入行为）')
-    } else if (!/const soulOn = state\.soulEnabled !== false/.test(src)) {
-      fail('灵魂缺字段必须按 !== false 兜底（默认开的内置通道；=== true 会在 host 未重启时显示成关）')
-    } else if (!/icon=\{<SoulIcon \/>\}/.test(src)) {
-      fail('灵魂注入行缺状态灯图标（开=呼吸、关=压暗是这行唯一的即时视觉反馈）')
+    // 6d) 灵魂注入行必须整块消失（2026-10-21 用户要求删除灵魂功能）。
+    //     这一行原来拨的是 host 的 soulInjectEnabled —— 通道随模块一起删掉之后，
+    //     留着这行就是「拨了没有任何东西可注入」的空开关，比缺失更误导。
+    //     判据钉三处：行没了、写入口没了、归一化口径里的 soulEnabled 也没了。
+    if (/label="灵魂注入"/.test(src) || /pushChannel\('soulEnabled'/.test(src) || /soulEnabled/.test(src)) {
+      fail('大盘设置不得再留灵魂注入行（灵魂模块已整块删除，通道不存在了）')
+    } else if (/SoulIcon|soulOn/.test(src)) {
+      fail('大盘设置不得再引用灵魂图标 / soulOn 变量（灵魂模块已删除）')
     } else {
-      pass('大盘设置：灵魂注入行接线 soulEnabled + !== false 兜底 + 状态灯图标在位')
+      pass('大盘设置：灵魂注入行已随模块删除（无空开关、无悬挂引用）')
     }
 
     // 6b) 操作面板显隐（同族第三条）：抽屉里一行 + 大盘消费 + apply 初始化，

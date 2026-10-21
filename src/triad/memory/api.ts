@@ -281,8 +281,6 @@ async function handle(
       const zhEnabled = await store.isZhInjectEnabled(config.zhInjectDefaultEnabled !== false)
       // html 并进回包（同一理由：composer 的开关浮层一次 hover 就要知道全部通道的状态）。
       const htmlEnabled = await store.isHtmlInjectEnabled(config.htmlInjectDefaultEnabled !== false)
-      // soul 同样并进回包（同一理由：开关浮层一次 hover 要知道全部通道状态）。
-      const soulEnabled = await store.isSoulInjectEnabled(config.soulInjectDefaultEnabled !== false)
       // team 同理并进回包（同一理由：开关浮层一次 hover 要知道全部通道状态）。
       const teamEnabled = await store.isTeamInjectEnabled(config.teamInjectDefaultEnabled !== false)
       // 自动收口同理并进回包（同一理由：开关浮层一次 hover 要知道全部通道状态）。
@@ -320,7 +318,6 @@ async function handle(
         projectMemoryEnabled,
         zhEnabled,
         htmlEnabled,
-        soulEnabled,
         teamEnabled,
         todoClosureEnabled,
         // mailEnabled 只跟**声明开关**走（injectEnabled），与工作台总开关解耦：

@@ -7,7 +7,7 @@
  *     hover 浮层 / 滚轮上，见 ./row-flyout.tsx），页头只留一行面包屑。
  *  2. 色彩收敛：在 .wb-root 作用域把官方「业务蓝 / 警告橙 / 成功绿 / 信息蓝」
  *     四个 alias token 统一换成一枚**中性灰 accent**（明暗两套各一枚固定灰），
- *     六个页面几百处 var(--dsw-alias-state-*) 引用一次性全部变灰阶，
+ *     四个页面几百处 var(--dsw-alias-state-*) 引用一次性全部变灰阶，
  *     不需要逐页改色；错误红保留（唯一的真语义色）。选中态 = 灰底 + 主文字色，
  *     实心按钮 = 灰底 + 白字（两枚灰都保证白字对比度 ≥ 4.5）。
  *  3. 工具条几何归一：各页自带的功能工具条（邮件顶栏 / 画廊工具条 / 技能
@@ -68,16 +68,6 @@ body[data-ds-dark-theme] .wb-root {
   to { opacity: 1; transform: none; }
 }
 
-/* ── 「灵魂」页整页滚动容器 ── */
-.wb-soul-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
 /* ── 统一工作台所有页面的工具条与次级导航（Toolbar & Subheader Archetype） ──────
    让画廊工具条、记忆视图行在视觉上高度一致，成为统一的「页面二级控制条」，
    不再每进一页面对不同的突兀布局。
@@ -121,15 +111,13 @@ body[data-ds-dark-theme] .wb-root {
    技能页的筛选行不在此列：它照官方「自动化任务」页的 filter tab 原样
    （纯文字、无边框、选中 = 浅底 + 主文字），不再套主色实心胶囊。 */
 .wb-root .usm-range-btn,
-.wb-root .dsh-memory-view-tab,
-.wb-root .dsh-soul-nav-item {
+.wb-root .dsh-memory-view-tab {
   border-radius: 8px !important;
   font-size: 12px !important;
   transition: all 130ms ease !important;
 }
 .wb-root .usm-range-btn[data-active],
-.wb-root .dsh-memory-view-tab[data-active="true"],
-.wb-root .dsh-soul-nav-item-active {
+.wb-root .dsh-memory-view-tab[data-active="true"] {
   background: var(--wb-accent) !important;
   color: #fff !important;
   border-color: transparent !important;
@@ -141,8 +129,6 @@ body[data-ds-dark-theme] .wb-root {
    不再零碎散落，形成清晰沉静的板块感。 */
 .wb-root .skm-skill-card,
 .wb-root .usm-uc-card,
-.wb-root .dsh-soul-hero-card,
-.wb-root .dsh-soul-card,
 .wb-root .dsh-memory-entry-card,
 .wb-root .tg-card {
   border-radius: var(--wb-surface-radius, 12px) !important;
@@ -172,8 +158,7 @@ body[data-ds-dark-theme] .wb-root {
 .wb-root .skm-tag-scope,
 .wb-root .skm-tag-builtin,
 .wb-root .skm-skill-badge,
-.wb-root .skm-bundle-cat-tag,
-.wb-root .dsh-soul-chip {
+.wb-root .skm-bundle-cat-tag {
   background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent) !important;
   border-color: var(--wb-surface-border) !important;
   color: var(--dsw-alias-label-secondary, #bbb) !important;
@@ -206,17 +191,6 @@ body[data-ds-dark-theme] .wb-root {
   border: 1px solid var(--wb-surface-border) !important;
   background: var(--wb-surface-bg) !important;
   box-shadow: var(--wb-surface-shadow) !important;
-}
-
-/* ── 各页面主内容区几何规范（统一 1140px 居中大盘与内边距节奏） ─────────────
-   消除「点开这页是这个宽度、点开那页又跳成另一种布局」的生硬割裂感，
-   让用量、能力、画廊、灵魂全部收拢为标准的板块大盘。 */
-.wb-root .dsh-soul-root {
-  max-width: 1140px !important;
-  width: 100% !important;
-  margin: 0 auto !important;
-  padding: 16px 20px 24px !important;
-  box-sizing: border-box !important;
 }
 
 /* 技能页：筛选行与列表滚动区整宽铺满（不限宽、不居中）。
@@ -261,7 +235,7 @@ body[data-ds-dark-theme] .wb-root {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .wb-body > *, .wb-soul-scroll > * { animation: none !important; }
+  .wb-body > * { animation: none !important; }
   .wb-bar-btn, .wb-icon-btn { transition: none !important; }
   .wb-bar-btn[data-spin] svg { animation: none !important; }
 }

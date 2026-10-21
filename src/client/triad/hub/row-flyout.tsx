@@ -2,11 +2,11 @@
  * row-flyout — 侧栏「工作台」行的二级导航：hover 浮层 + 滚轮直切。
  *
  * 为什么把分类导航从页面顶部搬到侧栏行上（2026-10 用户要求）：
- * 五个页面原先共用一条顶部 tab 栏，每进一页先看到一排切换器，页面本体
+ * 四个页面原先共用一条顶部 tab 栏，每进一页先看到一排切换器，页面本体
  * 反而像「某个 tab 的内容」而不是一个独立板块。现在侧栏那一行「工作台」
  * 承担全部导航语义：
  *
- *  - hover 行 → 右侧滑出小卡列出五个分类（图标 + 名字 + 一句说明），点谁进谁；
+ *  - hover 行 → 右侧滑出小卡列出四个分类（图标 + 名字 + 一句说明），点谁进谁；
  *  - 停留在行上滚轮 → 不弹浮层，直接把当前分类滚到下一个/上一个（页面原地换）；
  *  - 单击行 → 进工作台，落在「上次看过的分类」（localStorage 回填）。
  *
@@ -32,7 +32,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { WorkbenchTab } from './WorkbenchPanel.js'
-import { DSH_WHALE_PATH, DSH_WHALE_VIEWBOX } from '../brand/whale-path.js'
 import { readRail } from '../sidebar-nav.js'
 import { getService } from '../../client-ctx.js'
 
@@ -56,20 +55,19 @@ export interface WorkbenchTabMeta {
 }
 
 export const WORKBENCH_TABS: readonly WorkbenchTabMeta[] = [
-  { id: 'soul', label: '灵魂', desc: '身份契约 · 卡片与预设' },
   { id: 'memory', label: '记忆', desc: '条目 · 变更 · 修订' },
   { id: 'skills', label: 'SKILL', desc: '技能包与技能开关' },
   { id: 'usage', label: '用量', desc: 'Token 消耗与活动热力' },
   { id: 'gallery', label: '画廊', desc: '图片 · 网页 · 文档产出' },
 ] as const
 
-/** 读当前分类（localStorage 回填，非法值回落灵魂页）。 */
+/** 读当前分类（localStorage 回填，非法值回落记忆页）。 */
 export function readWorkbenchTab(): WorkbenchTab {
   try {
     const saved = localStorage.getItem(WORKBENCH_TAB_STORE) as WorkbenchTab | null
     if (saved !== null && WORKBENCH_TABS.some((t) => t.id === saved)) return saved
   } catch { /* 隐私模式等读取失败：回落默认 */ }
-  return 'soul'
+  return 'memory'
 }
 
 /** 写当前分类并广播（页面在听就原地换页）。 */
@@ -150,13 +148,6 @@ function ensureFlyStyles(): void {
 export function WorkbenchTabIcon({ tab, size = 14 }: { tab: WorkbenchTab; size?: number }): JSX.Element {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
   switch (tab) {
-    case 'soul':
-      // 官方鲸鱼剪影（与品牌徽标同一 path；viewBox 必须用官方盒子，否则拉伸变形）
-      return (
-        <svg width={size} height={Math.round(size * 0.74)} viewBox={DSH_WHALE_VIEWBOX} fill="currentColor" aria-hidden="true">
-          <path d={DSH_WHALE_PATH} />
-        </svg>
-      )
     case 'memory':
       return (<svg {...common}><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" /></svg>)
     case 'skills':
@@ -300,7 +291,7 @@ export function attachWorkbenchRowFlyout(): () => void {
   }
 }
 
-/** 浮层本体：六个分类行 + 一句滚轮提示。 */
+/** 浮层本体：四个分类行 + 一句滚轮提示。 */
 function Flyout({ top, left, current, onEnter, onLeave }: {
   top: number
   left: number

@@ -194,14 +194,6 @@ export interface InjectStateView {
    */
   htmlEnabled?: boolean
   /**
-   * 灵魂（Soul）内置通道是否开启。
-   *
-   * 与 zh 同口径：缺字段按 true 兜底。它是记忆库之上的第四层身份契约，
-   * 默认就该生效；真正决定「注不注得进去」的是 soul.md 有没有内容——
-   * 空灵魂不注入，这一条由 host 的注入器负责，开关只表达用户意图。
-   */
-  soulEnabled?: boolean
-  /**
    * 团队协作内置通道是否开启。
    *
    * 同样由 /inject-state 顺带回传。旧 host 不回此字段时按 false 兜底——与
@@ -214,7 +206,7 @@ export interface InjectStateView {
    * 回合结束自动收口内置通道是否开启（残留 in_progress 改写为 pending）。
    *
    * 与 team 刻意不同口径：它是**默认开**的通道（host 侧
-   * config.todoClosureDefaultEnabled 默认 true），缺字段兜底照 zh / soul 的
+   * config.todoClosureDefaultEnabled 默认 true），缺字段兜底照 zh 的
    * `!== false`。若照 html / team 的 `=== true` 兜底，client 已更新、host 还没
    * 重启的那段窗口里开关会显示成「关」，host 一重启又变「开」——同一个用户
    * 什么都没做，看到开关自己跳了一下。
@@ -466,15 +458,6 @@ export interface MemoryApi {
   /** 对话内 HTML 卡片内置通道开关（全局单值，与主开关无联动）。 */
   getHtmlInjectState: () => Promise<ZhInjectStateView>
   setHtmlInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
-  /**
-   * 灵魂（Soul）内置通道开关（全局单值，与主开关无联动）。
-   *
-   * 独立端点而非并进 /inject-state：灵魂面板自己要读这个状态（它不是只在
-   * composer 的 hover 浮层里出现），而 /inject-state 需要 sessionId、
-   * 语义是「本会话注不注入」，两件事不该互相借用。
-   */
-  getSoulInjectState: () => Promise<ZhInjectStateView>
-  setSoulInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
   /** 团队协作内置通道开关（全局单值，与主开关无联动）。 */
   getTeamInjectState: () => Promise<ZhInjectStateView>
   setTeamInjectState: (enabled: boolean) => Promise<ZhInjectStateView & { ok: boolean }>
@@ -590,8 +573,6 @@ export function createMemoryApi(): MemoryApi {
     setZhInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/zh-inject-state', { enabled }),
     getHtmlInjectState: () => getJson<ZhInjectStateView>('/html-inject-state'),
     setHtmlInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/html-inject-state', { enabled }),
-    getSoulInjectState: () => getJson<ZhInjectStateView>('/soul/state'),
-    setSoulInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/soul/state', { enabled }),
     getTeamInjectState: () => getJson<ZhInjectStateView>('/team-inject-state'),
     setTeamInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/team-inject-state', { enabled }),
     getTodoClosureState: () => getJson<ZhInjectStateView>('/todo-closure-state'),

@@ -607,7 +607,7 @@ export function classifyDeleteTarget(path: string): DeleteFailureReason | null {
   return null
 }
 
-/** 请求体读取（与 soul router 同款；超限直接拒，绝不无界缓存）。 */
+/** 请求体读取（与记忆路由同款；超限直接拒，绝不无界缓存）。 */
 function readJsonBody(req: IncomingMessage, limit = MAX_DELETE_BODY_BYTES): Promise<unknown> {
   return new Promise((resolvePromise, reject) => {
     const chunks: Buffer[] = []

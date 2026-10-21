@@ -29,10 +29,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { useHeightAnimation, useMotionAllowed } from '../motion-utils.ts'
-import { probeWorkspaceFile, probeWorkspaceFiles, tryOpenInSidebar } from '../open-preview.ts'
+import { probeWorkspaceFile, probeWorkspaceFiles, resolveWorkspacePath, tryOpenInSidebar } from '../open-preview.ts'
 import type { ProbeResult } from '../open-preview.ts'
 import { workspaceCwdOf } from '../client-ctx.ts'
 import { openWithDefaultApp } from '../open-default-app.ts'
+import { openOutputFile } from '../open-file.ts'
 import type { OutputKind, OutputItem, OutputsView } from './outputs.ts'
 
 /**
@@ -375,21 +376,41 @@ export const KrOutputsCard = memo(function KrOutputsCard({
     // 问过了（exists 或 unknown）：收掉待定外观。
     setCheckedPaths((prev) => (prev.has(path) ? prev : new Set(prev).add(path)))
     /*
-     * 先试默认应用（2026-10-20），开不了再退回官方侧栏。
+     * 先交给系统打开（2026-10-21 改），开不了再退回官方侧栏。
      *
-     * 为什么这里也要先探一次而不是直接调：`unavailable`（宿主无桌面：手机远程
-     * 访问 / 纯服务端部署）在整页里是**恒定**的，但它每次都是一次异步往返 ——
-     * 官方那个控制器把结论缓存成 SnapshotStore 正是为此，我们的 `openWithDefaultApp`
-     * 也做了同样的缓存，所以这里的开销只有第一次。
+     * **为什么不再直接用 openWithDefaultApp**：那条是官方
+     * remote.session.openWorkspacePath，它把相对路径按 **host 进程 cwd**
+     * （dsh-runtime）解析，而这张卡里 `present` 交付的路径是**相对会话工作区**
+     * 的 —— 于是「打开」的是一个不存在的 dsh-runtime\deliverables\…。更糟的是
+     * 官方校验不 stat 文件本体，explorer 收到不存在的 file URL 会**静默**弹出
+     * 「文档」文件夹，界面上看不出任何异常（用户报的「点了不打开」）。
+     * 细节与三条根因见 ../../open-file.ts 与 host 半身 src/open-file/index.ts。
+     *
+     * 新链路 = 本插件 /api/chat-flow/open-file：host 侧按会话工作区绝对化、
+     * stat 文件本体，并把 .html 这类浏览器文档**直接交给系统默认浏览器**
+     * （Windows 上官方 opener 从不这么做，它只认文件关联）。
      */
-    const result = await openWithDefaultApp(path)
+    const cwd = workspaceCwdOf(sessionId)
+    const result = await openOutputFile(path, { cwd })
     if (result === 'opened') return
     /*
-     * 其余两种都退回侧栏，**不剔除条目**：`unavailable` 是环境限制，
+     * `unavailable` = 本插件路由没就绪（宿主降级 / 老版本）。此时退回官方链路，
+     * 但**一定要给绝对路径** —— 官方那条对相对路径的解析基准是 host cwd，正是
+     * 上面那个 bug 的来源。`failed` 不再退回官方：路由已经明确说「这个目标开不了」
+     * （文件不在 / 可执行类型 / 没有工作区基准），拿官方链路再撞一次只会重复一遍
+     * 「静默弹文件夹」。
+     */
+    if (result === 'unavailable') {
+      const absolute = cwd === undefined ? path : resolveWorkspacePath(cwd, path)
+      const legacy = await openWithDefaultApp(absolute)
+      if (legacy === 'opened') return
+    }
+    /*
+     * 其余情况都退回侧栏，**不剔除条目**：`unavailable` 是环境限制，
      * `failed` 多半是「这台机器没有这个扩展名的默认程序」这类仍可预览的情形 ——
      * 前面刚 stat 过文件是在的，把一行活文件从清单里抹掉是更糟的结果。
      */
-    tryOpenInSidebar(path, { sessionId, cwd: workspaceCwdOf(sessionId) })
+    tryOpenInSidebar(path, { sessionId, cwd })
   }, [sessionId])
 
   /*
@@ -474,8 +495,9 @@ export const KrOutputsCard = memo(function KrOutputsCard({
 /**
  * 一行产出物。
  *
- * **整行就是一个按钮**：这张卡每一行都对应一个真实文件，点它 = 用系统默认应用
- * 打开（2026-10-20；宿主没有桌面时退回官方右侧栏的文档预览 tab）。做成整行可点
+ * **整行就是一个按钮**：这张卡每一行都对应一个真实文件，点它 = 交给系统打开
+ * （2026-10-20 起；2026-10-21 起 html 这类浏览器文档进**默认浏览器**，其余进默认
+ * 应用；宿主没有桌面时退回官方右侧栏的文档预览 tab）。做成整行可点
  * 还顺手解决了键盘与触屏：Tab 一次就到，不需要先聚焦到一枚 10px 高的小按钮上。
  *
  * 2026-10-19 起**行尾那枚「在侧栏打开」钮删掉**：行主体与它做的是同一件事，
@@ -492,7 +514,7 @@ function OutputRow({ item, index, pending = false, onOpen }: {
   readonly item: OutputItem
   readonly index: number
   readonly pending?: boolean
-  /** 整行点击：用默认应用打开（开不了则退回官方右侧栏文档预览）。 */
+  /** 整行点击：交给系统打开（浏览器文档进默认浏览器；开不了则退回官方右侧栏文档预览）。 */
   readonly onOpen: () => void
 }): ReactElement {
   return (

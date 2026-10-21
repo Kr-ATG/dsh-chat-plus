@@ -5661,41 +5661,6 @@ body[data-ds-dark-theme] .kr-settings {
   background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
 }
 
-/* 行首图标（目前只有「灵魂注入」这行用）：一枚会呼吸的状态灯。
-   开 = 主色 + 缓慢呼吸（灵魂注入是每会话首步一次的常驻能力，值得一个"活着"的
-   信号）；关 = 压暗、动画自然不播，一眼看出这条通道现在是哑的。
-   判据走父行的 data-on（由 SettingsRow 用同一个 on 渲染出来），绝不在 JS 里
-   再算一遍状态 —— 两处各自推导状态就是「开关显示与真实不一致」那个老坑。 */
-.kr-settings__row-icon {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  color: var(--dsw-alias-label-tertiary);
-  transition: color var(--kr-dur-fade) linear, opacity var(--kr-dur-fade) linear;
-}
-
-.kr-settings__row[data-on="true"] .kr-settings__row-icon {
-  color: var(--kr-accent);
-  animation: kr-settings-soul-breathe 2.6s var(--kr-ease-soft) infinite;
-}
-
-.kr-settings__row[data-on="false"] .kr-settings__row-icon {
-  opacity: .55;
-}
-
-/* 呼吸只做透明度与轻微缩放：这两项都走合成器，不触发布局。大盘整块动效在
-   cabbcef 里统一收到合成器轴上，别再往这里加会重排的动画。 */
-@keyframes kr-settings-soul-breathe {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: .72;
-    transform: scale(1.08);
-  }
-}
-
 /* 开关：中性黑白语言，状态只由 aria-checked 表达。
    开 = label-primary 实心轨道 + 反色圆点；关 = border-l2 轨道 + label-tertiary 圆点。 */
 .kr-settings__switch {
@@ -5827,13 +5792,6 @@ body[data-ds-dark-theme] .kr-settings {
   }
   .kr-settings__switch[aria-checked="true"]:active:not(:disabled)::after {
     transform: translateX(18px);
-  }
-  /* 状态灯：动画掐掉后停在 opacity:1 的静态态。关闭行的压暗由 data-on 那条规则
-     负责（它与动效无关），所以这里只补动画末帧，不去抹 .55 的降透明度。 */
-  .kr-settings__row[data-on="true"] .kr-settings__row-icon {
-    animation: none;
-    opacity: 1;
-    transform: none;
   }
   /* 行错开浮现整个不播。
      关键：抽屉与遮罩的可见性由 data-open 属性选择器直接决定（opacity /

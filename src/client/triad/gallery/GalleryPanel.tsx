@@ -69,6 +69,7 @@ import { canInlinePreview, MediaLightbox } from './media-lightbox.js'
 import { openWorkspacePreview } from '../../open-preview.js'
 import { getClientCtx } from '../../client-ctx.js'
 import { openWithDefaultApp } from '../../open-default-app.js'
+import { openWithDefaultBrowser } from '../../open-file.js'
 
 /** 类别 chips 的展示顺序（全部之后，按产出频率排）。 */
 const KIND_ORDER: readonly GalleryKind[] = ['image', 'page', 'video', 'pdf', 'slide', 'sheet', 'doc', 'audio']
@@ -1039,19 +1040,34 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
       setLightboxIndex(visible.indexOf(item))
     }
 
+    /*
+     * 2026-10-21：主出口从官方 openWithDefaultApp 换成**本插件 /api/chat-flow/open-file**。
+     * 理由只有一条：Windows 上官方 opener 从不把 .html 交给默认浏览器（它只认
+     * 文件关联），画廊里的「页面」类条目点开可能落到编辑器上。新链路对**绝对
+     * 路径**的行为与官方一致（画廊条目的 path 在 extract.ts 里已绝对化），
+     * 差别只是浏览器文档会走浏览器；'unavailable' 时仍退回官方链路。
+     */
+    const openAbsolute = (target: string): void => {
+      void openWithDefaultBrowser(target).then((result) => {
+        if (result === 'opened') return
+        if (result === 'unavailable') {
+          void openWithDefaultApp(target).then((legacy) => { if (legacy !== 'opened') fallback() })
+          return
+        }
+        fallback()
+      })
+    }
+
     if (item.source === 'generated') {
       void materializeGenerated(item.path).then((files) => {
         const materialized = files[0]?.path
         if (materialized === undefined) { fallback(); return }
-        void openWithDefaultApp(materialized).then((result) => { if (result !== 'opened') fallback() })
+        openAbsolute(materialized)
       })
       return
     }
 
-    void openWithDefaultApp(item.path).then((result) => {
-      if (result === 'opened') return
-      fallback()
-    })
+    openAbsolute(item.path)
   }, [visible, sessionById])
 
   /**
@@ -1713,7 +1729,12 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
               : Promise.resolve(item.path)
             void target.then((path) => {
               if (path === null) return
-              void openWithDefaultApp(path).then((result) => { if (result === 'opened') setLightboxIndex(null) })
+              // 与卡片点击同一出口（浏览器文档进默认浏览器），失败退回官方链路。
+              void openWithDefaultBrowser(path).then((result) => {
+                if (result === 'opened') { setLightboxIndex(null); return }
+                if (result !== 'unavailable') return
+                void openWithDefaultApp(path).then((legacy) => { if (legacy === 'opened') setLightboxIndex(null) })
+              })
             })
           }}
         />

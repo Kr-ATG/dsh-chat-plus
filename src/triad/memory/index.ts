@@ -4,12 +4,11 @@
  * - session/event → turn/end 捕获 → LLM 提取候选 → 直接入库 + changes 变更流
  * - ticker → 每 N 轮增量编译 / 会话结束 final 编译 / 每日编译（衰减+折叠+滚出+daily）
  * - agent/pre-step → 记忆注入（带来源 user message，绝不写 system prompt）
- *   外带四条内置通道：zh 中文偏好 / html+iu 卡片规范 / soul 顶层身份契约 / team 团队协作
- *   （另有第五条 Agent 邮箱声明，由 dsh-mail 模块自己注册 pre-step，不在本文件内；
+ *   外带三条内置通道：zh 中文偏好 / html+iu 卡片规范 / team 团队协作
+ *   （另有第四条 Agent 邮箱声明，由 dsh-mail 模块自己注册 pre-step，不在本文件内；
  *    diagram 流程图通道已于 2026-10-09 随图形 iu kind 上线整体移除）
  * - tools → memory_search / memory_remember / memory_pin / memory_tag / memory_forget
  * - webServer → /api/dsh-memory/*（面板数据 + 裁决操作）
- * - Soul（记忆第四层）→ /api/dsh-memory/soul/*（灵魂读写/档案切换/蒸馏）+ soul_show / soul_set
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -21,7 +20,6 @@ import { createMemoryInjector } from './engine/inject.js'
 import { MemoryStore, entryIdOf, summarize } from './engine/store.js'
 import { createTodoClosure, type TurnStoppingAgent } from './engine/todo-closure.js'
 import { setWebuiMemoryStore } from '../memory-store-singleton.js'
-import { mountSoul, SoulStore } from '../soul/index.js'
 import { createTicker } from './engine/ticker.js'
 import { registerMemoryTools } from './tools.js'
 import { applyConfigOverrides, DEFAULT_CONFIG, type MemoryConfig, type SessionTickerState } from './types.js'
@@ -76,22 +74,8 @@ export function applyMemory(ctx: Context, input: Partial<MemoryConfig> | undefin
   const ticker = createTicker(ctx, store, config)
   ctx.effect(() => ticker.dispose, 'dsh-memory: ticker')
 
-  // ── Soul（记忆第四层：顶层身份契约）────────────────────────────────
-  // 挂载必须早于注入器构造：注入器要拿 soul 实例作 soulSource。整体 try/catch
-  // 隔离——灵魂是锦上添花的能力，路由/工具挂不上不该把记忆引擎一起带走
-  // （soul 为 undefined 时注入侧整条通道静默跳过）。
-  let soul: SoulStore | undefined
-  try {
-    const mounted = mountSoul(ctx, store, config)
-    soul = mounted.soul
-    ctx.effect(() => mounted.dispose, 'dsh-memory: soul')
-    ctx.logger?.info?.('[dsh-memory] soul layer mounted')
-  } catch (error) {
-    ctx.logger?.warn?.(`[dsh-memory] soul layer failed to mount: ${error instanceof Error ? error.message : String(error)}`)
-  }
-
   // ── pre-step 注入（prepend：在下游贡献之后追加到最终 messages） ──────
-  const injector = createMemoryInjector(store, config, ctx.logger, soul)
+  const injector = createMemoryInjector(store, config, ctx.logger)
   ctx.on('agent/pre-step', ((
     payload: { agent: LiveAgent; messages: unknown[]; signal: AbortSignal },
     next: () => Promise<{ kind: 'enter'; messages: unknown[] } | { kind: 'reject' }>,
@@ -136,7 +120,7 @@ export function applyMemory(ctx: Context, input: Partial<MemoryConfig> | undefin
     // （compaction/summary + compaction/end）把早期消息块投影成一条摘要替换掉，
     // 插件注入的那条 user message 没有任何「豁免压缩」的标记——长会话压一次，
     // 记忆就永久从上下文里消失了（后面每一轮都靠 stepCounters 判定「已注入过」
-    // 而静默跳过）。清掉本会话的 5 个 stepCounters，让压缩后的下一 step 重新注入。
+    // 而静默跳过）。清掉本会话的 4 个 stepCounters，让压缩后的下一 step 重新注入。
     //
     // 两个事件都接是刻意的：summary 是内容真正落地的那一刻，end 是压缩事务结束
     // 的那一刻（失败时也发，带 error）。只听 summary 会漏掉「压缩失败但历史已被
