@@ -515,12 +515,14 @@ New-Item -ItemType Junction -Path "$env:USERPROFILE\.dsh\profiles\web\node_modul
 
 ### 浏览器操作标志
 
-哪个会话正在跑浏览器操作，左侧会话列表一眼就能看出来：**该会话行开头一枚会呼吸的
+哪个会话正在跑浏览器操作，左侧会话列表一眼就能看出来：**该会话行右端一枚会呼吸的
 小浏览器图标**（蓝色，跟随主题）。
 
-位置是行首那 16px 的状态位 —— 原本会话状态点（转圈）的地盘。同一语义（这个会话
-在动），扫列表时第一眼就看到，不用把视线拖到右边时间戳后面。有标志时原状态点淡出，
-同一格不叠两枚。
+位置在行右端、时间戳旁边：右侧本来就承载「这个会话最近怎么样」（相对时间 / 进行中
+的 pending 标签），浏览器活动放这里读起来是一路的；行首那 16px 还给官方状态点
+（转圈 = 正在生成，与「正在操作浏览器」不是同一件事，挤一格会互相盖）。图标占位时
+行会向内让出一格（8px → 25px，带过渡），时间戳被轻轻推开、不会与图标重叠；鼠标
+悬停时官方把时间戳换成行操作按钮，图标位置不动。
 
 数据来自 host 半身对 `tools/execute` 的观测（`GET /api/chat-flow/browser-activity`）。
 几处刻意的取舍：
@@ -550,7 +552,7 @@ New-Item -ItemType Junction -Path "$env:USERPROFILE\.dsh\profiles\web\node_modul
   接缝摘要（有没有 callId、sessionId 从哪条路径解析），只含工具名与来源标量，
   不含任何工具参数原文。
 
-![会话行首的浏览器标志](docs/shots/browser-flag-rows.png)
+![会话行右端的浏览器标志（时间戳旁）](docs/shots/browser-flag-rows.png)
 
 ### 环境变量
 
@@ -748,7 +750,7 @@ src/
 │   ├── provider/               供应商中心 + 生图/识图/生视频 + 优化提示词
 │   ├── triad/                  工作台（记忆 / 用量 / SKILL / 画廊）与邮箱面板
 │   ├── tools-gate/             工具闸门
-│   ├── browser-flag/           浏览器操作标志（会话行首的呼吸图标）
+│   ├── browser-flag/           浏览器操作标志（会话行右端的呼吸图标）
 │   ├── sidebar-doc/            侧边栏文档预览（pdf / Office 接管）
 │   ├── sidebar-media/          侧边栏音视频预览（原生 video / audio）
 │   └── sidebar/                documentPreviews 就绪等待（官方服务晚于插件 apply）

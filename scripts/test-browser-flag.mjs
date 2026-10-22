@@ -802,17 +802,23 @@ need(mod.FAST_POLL_MS === 1000 && mod.SLOW_POLL_MS === 5000 && mod.IDLE_ROUNDS_B
   need(/animation:[^;}]*1\.6s/.test(css), '样式：活动期呼吸动画周期约 1.6s（不闪）')
   need(/dsh-bflag-icon-in/.test(css) && /cubic-bezier/.test(css), '样式：行标记有滑入 + 缓动')
   /*
-   * 位置：图标必须落在**行首**（用户要求「标志移动到左边」）。
-   * 判据是 inset-inline-start 且没有 inset-inline-end —— 写反了图标会跑到行尾，
-   * 而这既不报错也不影响其它断言，只能靠这条钉住。
+   * 位置：图标必须落在**行右端**（用户 2026-10-22 要求「浏览器标志放在右侧」）。
+   * 判据是 inset-inline-end —— 写反了图标会跑到行首盖住状态点，而这既不报错
+   * 也不影响其它断言，只能靠这条钉住。
    */
   const iconRule = /\[data-dsh-browser-flag\]::before\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
-  need(/inset-inline-start:\s*calc\(8px/.test(iconRule), '样式：图标定位在行首（inset-inline-start 对齐 .slot 那一格）')
-  need(!/inset-inline-end/.test(iconRule) && !/right:\s*0/.test(iconRule), '样式：图标不在行尾（不写 inset-inline-end / right）')
-  need(/position:\s*absolute/.test(iconRule), '样式：图标脱离 flex 流（绝对定位），不挤标题')
-  // 原状态点淡出：同一格里既转圈又亮浏览器图标会糊成一团。
-  need(/\[data-dsh-browser-flag\]\s*>\s*span:first-child\s*>\s*svg/.test(css),
-    '样式：有标志时让原本的状态点淡出（同一格不叠两枚）')
+  need(/inset-inline-end:\s*6px/.test(iconRule), '样式：图标定位在行右端（inset-inline-end 6px，落在行尾 padding 区）')
+  need(!/inset-inline-start/.test(iconRule) && !/left:\s*0/.test(iconRule), '样式：图标不在行首（不写 inset-inline-start / left）')
+  need(/position:\s*absolute/.test(iconRule), '样式：图标脱离 flex 流（绝对定位），不挤标题与时间戳')
+  // 行让位：右端必须真的留出一格给图标，否则图标会压在时间戳上。
+  const rowRule = /\[data-row-key\^="session:"\]\[data-dsh-browser-flag\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+  need(/padding-inline-end:\s*var\(--dsh-bflag-end-room\)/.test(rowRule),
+    '样式：有标志的行在右端让出一格（padding-inline-end 给图标腾位置）')
+  need(/--dsh-bflag-end-room:\s*28px/.test(css), '样式：让位宽度 = 14px 图标 + 6px 边距 + 8px 与时间戳的间隙')
+  need(/dsh-bflag-row-room/.test(css), '样式：行让位带过渡动效（时间戳被推开而不是瞬移）')
+  // 状态点必须**保留**：标志已挪到右侧，行首那格还给官方 spinner。
+  need(!/\[data-dsh-browser-flag\]\s*>\s*span:first-child\s*>\s*svg/.test(css),
+    '样式：不再淡出行首状态点（标志已挪到右侧，两者互不干扰）')
   // 胶囊必须彻底不存在：样式、类名、座位一个都不能留。
   need(!css.includes('dsh-bflag-pill') && !css.includes('dsh-bflag-tab'),
     '样式：胶囊整块删除（用户明确说不好看）')
