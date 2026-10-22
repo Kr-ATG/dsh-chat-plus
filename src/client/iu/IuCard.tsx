@@ -32,7 +32,6 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import type { IuSpecBase } from './kinds/contract.ts'
 import type { IuState } from './kinds/contract.ts'
@@ -40,10 +39,6 @@ import { iuKindOf } from './kinds/registry.ts'
 import { IU_BODIES } from './kinds/bodies.ts'
 import { iuStateKey, readIuState, writeIuState } from './state.ts'
 import { lockBodyScroll } from '../shared/scroll-lock.ts'
-import {
-  IU_ZOOM_DEFAULT, nextIuZoom, readIuZoom, writeIuZoom,
-  type IuZoom,
-} from './prefs.ts'
 
 /** 图标：全屏（四角外扩）。 */
 function ExpandIcon(): JSX.Element {
@@ -89,40 +84,34 @@ function callFill(kind: string, spec: unknown, state: IuState): string {
   return mod.fillText(spec as never, state as never)
 }
 
-/** 卡片动作按钮（全屏 / 缩放）。`fs` 态下不渲染全屏按钮（已在全屏里）。 */
-function CardActions({ zoom, onZoom, onFullscreen }: {
-  readonly zoom: IuZoom
-  readonly onZoom: () => void
-  readonly onFullscreen?: (() => void) | undefined
+/**
+ * 卡片动作按钮：只剩**全屏**。
+ *
+ * 缩放档位（100% / 115% … / 180% 那枚循环按钮）已按用户要求整块移除：
+ * 卡片就是正文的一部分，字号本该跟随官方「设置 → 字号」走（--iu-text-scale
+ * 那条轴），再挂一个自成一档的百分比按钮，等于在正文里宣告「这是一块可被
+ * 查看器管理的组件」。全屏保留——看板 / 大表格在对话流宽度里铺不开，是刚需。
+ */
+function CardActions({ onFullscreen }: {
+  readonly onFullscreen: () => void
 }): JSX.Element {
   return (
     <span className="dtt-iu__acts">
       <button
         type="button"
-        className={zoom === IU_ZOOM_DEFAULT ? 'dtt-iu__act' : 'dtt-iu__act dtt-iu__act--on'}
-        title={`缩放：${Math.round(zoom * 100)}%（点击切下一档）`}
-        aria-label={`当前缩放 ${Math.round(zoom * 100)}%，点击切换`}
-        onClick={onZoom}
+        className="dtt-iu__act"
+        title="全屏"
+        aria-label="全屏查看"
+        onClick={onFullscreen}
       >
-        {Math.round(zoom * 100)}%
+        <ExpandIcon />
       </button>
-      {onFullscreen !== undefined && (
-        <button
-          type="button"
-          className="dtt-iu__act"
-          title="全屏"
-          aria-label="全屏查看"
-          onClick={onFullscreen}
-        >
-          <ExpandIcon />
-        </button>
-      )}
     </span>
   )
 }
 
 /**
- * 卡头：标题 + 右侧动作（缩放 / 全屏）。
+ * 卡头：标题 + 右侧动作（只剩全屏）。
  *
  * kind 类型角标（"表格" / "清单" 那枚小胶囊）已按要求移除——卡片只挑最必要的
  * 信息显示，右上角不再挂类型标签。注册表里的 label 字段保留（对外契约、注入
@@ -249,23 +238,14 @@ function IuCardLive({ spec, onFill }: {
   }, [])
 
   /*
-   * 全屏与缩放：缩放是**纯呈现偏好**，走 localStorage（刷新即记住）。
+   * 全屏是唯一剩下的卡片动作（缩放档位已整块移除，理由见 CardActions 注释）。
    *
    * ⚠ 全屏**不持久化**（曾经持久化过，是个 bug）：全屏态会给 body 挂
    * `overflow:hidden`，若刷新后自动恢复成全屏，用户会看到「整页滚不动」——
    * 而且他并不知道是自己上次开了全屏。全屏是「当下这一眼」的临时状态，
    * 每次进页面都从关闭开始。
    */
-  const [zoom, setZoom] = useState<IuZoom>(() => readIuZoom())
   const [fullscreen, setFullscreen] = useState(false)
-
-  const cycleZoom = useCallback((): void => {
-    setZoom((prev) => {
-      const next = nextIuZoom(prev)
-      writeIuZoom(next)
-      return next
-    })
-  }, [])
 
   const enterFullscreen = useCallback((): void => { setFullscreen(true) }, [])
   const exitFullscreen = useCallback((): void => { setFullscreen(false) }, [])
@@ -292,17 +272,15 @@ function IuCardLive({ spec, onFill }: {
 
   if (mod === undefined || bodyMod === undefined) return null
   const Body = bodyMod.Body
-  /** 缩放经 CSS 变量下发（基座把 --iu-zoom 乘进 --iu-text-scale，全 kind 跟随）。 */
-  const style = { '--iu-zoom': String(zoom) } as CSSProperties
   const bodyNode = (
     <Body spec={spec as never} state={state} setState={setState} onFill={onFill} />
   )
   return (
     <>
-      <figure className="dtt-iu" style={style}>
+      <figure className="dtt-iu">
         <Head
           title={spec.title}
-          actions={<CardActions zoom={zoom} onZoom={cycleZoom} onFullscreen={enterFullscreen} />}
+          actions={<CardActions onFullscreen={enterFullscreen} />}
         />
         {bodyNode}
       </figure>
@@ -311,14 +289,6 @@ function IuCardLive({ spec, onFill }: {
           <div className="dtt-iu-fs__bar">
             <span className="dtt-iu-fs__title">{spec.title}</span>
             <span className="dtt-iu-fs__acts">
-              <button
-                type="button"
-                className="dtt-iu-fs__btn"
-                title={`缩放：${Math.round(zoom * 100)}%（点击切下一档）`}
-                onClick={cycleZoom}
-              >
-                {Math.round(zoom * 100)}%
-              </button>
               <button
                 type="button"
                 className="dtt-iu-fs__btn"
@@ -331,7 +301,7 @@ function IuCardLive({ spec, onFill }: {
           </div>
           <div className="dtt-iu-fs__stage">
             {/* 全屏里再渲染一份卡片：与内嵌卡共享 state，改一边两边同步。 */}
-            <figure className="dtt-iu dtt-iu--fs" style={style}>
+            <figure className="dtt-iu dtt-iu--fs">
               <Head title={spec.title} />
               {bodyNode}
             </figure>

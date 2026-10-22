@@ -20,8 +20,6 @@ import {
   type ShotQuality,
 } from '../../shot/presets.ts'
 import { canvasPad } from '../../shot/theme.ts'
-// 截图要跟随对话流里选的缩放档位（与 iu / html 卡片同源，同一份 localStorage）。
-import { readIuZoom } from '../iu/prefs.ts'
 // 面板选项的持久化（纯客户端偏好，走 localStorage）。
 import { DEFAULT_LABEL, patchShotPrefs, readShotPrefs } from './prefs.ts'
 import { cls } from './styles.ts'
@@ -158,14 +156,10 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
   const messages = useMemo(() => collect(range), [collect, range])
 
   /*
-   * 截图要跟着对话流里选的缩放档位走（与 iu/html 卡片同源，都读 prefs）。
-   *
-   * 为什么必须带上：用户在 150% 下看着正好，截出来却是 100% 的小字 ——
-   * 「所见即所得」是截图功能的基本预期。编辑模式（传完整 html）不需要它，
-   * 因为那时缩放已经烘焙进 HTML 里了。
+   * 内容缩放：对话流里的 iu 卡片缩放档位已按用户要求整块移除（卡片字号统一跟随
+   * 官方「设置 → 字号」），截图端也不再读任何本地缩放档位——所见即所得，卡片
+   * 在对话流里多大，截出来就多大。
    */
-  const zoom = useMemo(() => readIuZoom(), [])
-
   const run = useCallback((): void => {
     const token = tokenRef.current + 1
     tokenRef.current = token
@@ -186,7 +180,7 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
     setError(null)
     setSavedPath(null)
     setToast(null)
-    render({ messages, theme, width: cardWidth, quality, title: titleText, label: labelText, cwd, zoom })
+    render({ messages, theme, width: cardWidth, quality, title: titleText, label: labelText, cwd })
       .then((next) => {
         if (tokenRef.current !== token) return
         setResult(next)
@@ -200,7 +194,7 @@ export function ShotPanel({ closing, onClose, collect, title, dialogueTitle, ses
         if (tokenRef.current !== token) return
         setBusy(false)
       })
-  }, [messages, theme, cardWidth, quality, titleText, labelText, cwd, zoom])
+  }, [messages, theme, cardWidth, quality, titleText, labelText, cwd])
 
   // 打开时渲染一次，之后任一选项变化都重渲染。
   useEffect(() => { run() }, [run])

@@ -232,8 +232,8 @@ function parseTheme(input: unknown): ShotTheme {
  * 规整内容缩放档位（缺省 1）。
  *
  * 钳到 [0.5, 3]：这个值来自请求体，脏数据不该把截图撑成一屏一个字。
- * 与 client 端 prefs.ts 的档位表是「宽松校验」关系——那边保证只发合法档位，
- * 这边不假设请求一定来自自家前端（路由是公开的）。
+ * 对话流里的 iu 缩放按钮已移除，自家前端不再传这个字段（缺省 1）；这条只服务
+ * 外部调用方，所以不假设请求来自本插件前端（路由是公开的）。
  */
 function parseZoom(input: unknown): number {
   const value = typeof input === 'number' ? input : Number(input)

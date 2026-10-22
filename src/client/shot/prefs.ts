@@ -5,8 +5,8 @@
  *
  * 截图面板的六项选择（范围 / 宽度 / 画质 / 主题 / 标题 / 徽章）全是**纯呈现
  * 偏好**：跟 host 无关、跟会话无关，刷新页面就该记住。按项目既有先例
- * （`dsh.kr_chat.panel_width`、`dsh.chat_plus.iu_zoom`），这类偏好一律走
- * localStorage —— 改完刷新即生效，不需要重启 DSH、也不需要动 host。
+ * （`dsh.kr_chat.panel_width`），这类偏好一律走 localStorage —— 改完刷新即
+ * 生效，不需要重启 DSH、也不需要动 host。
  *
  * ## 为什么「未编辑」要单独记成 null
  *

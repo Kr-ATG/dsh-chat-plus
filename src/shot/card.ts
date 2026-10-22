@@ -93,10 +93,11 @@ export interface ShotCardInput {
   /** 正文提到的本地 HTML：以 iframe 内嵌进截图（只要页面本身，不带对话里那圈工具条）。 */
   embeds?: readonly ShotEmbed[]
   /**
-   * 内容缩放档位（与对话流里的持久化缩放同源，缺省 1）。
+   * 内容缩放档位（缺省 1）。
    *
-   * 截图必须跟着用户在对话流里选的档位走，否则「所见」与「所得」不一致：
-   * 用户在 150% 下看着正好，截出来却是 100% 的小字。
+   * ⚠ 对话流里 iu 卡片的缩放按钮已按用户要求整块移除（2026-10-22），客户端
+   * 不再传这个字段。保留它是为了截图路由仍接受外部调用方显式指定倍率；
+   * 不传就是 1，与对话流「所见即所得」。
    */
   zoom?: number
   /**
@@ -337,6 +338,8 @@ function iuCssFor(theme: ShotTheme, zoom = 1): string {
    * 钳到 [0.5, 3] 是防御：这个值来自请求体，脏数据不该把截图撑成一屏一个字。
    * 只对 iu 卡片生效 —— html 卡片在截图里是静态快照，模型自己写的页面尺寸
    * 由它自己的 CSS 决定，我们不改它（改了反而与对话流不一致）。
+   *
+   * 缺省 1：对话流不再有缩放按钮，客户端也不传 zoom，截图与屏幕上是同一个字号。
    */
   const safeZoom = Number.isFinite(zoom) && zoom > 0 ? Math.min(3, Math.max(0.5, zoom)) : 1
   const zoomRule = safeZoom === 1 ? '' : `\n.dtt-iu{--iu-zoom:${safeZoom}}`
