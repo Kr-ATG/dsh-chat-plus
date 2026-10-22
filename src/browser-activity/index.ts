@@ -29,6 +29,9 @@
  *  - **begin**：按 `exec.callId` 去重后入表（同一 callId 重复 begin 不重复计数，
  *    也不刷新时间），清掉 idleSince；
  *  - **end**：删条目；该会话已无进行中调用时记 `idleSince = now`；
+ *  - **转后台**（`transferToJob`）：调用被 `pwsh` 转成后台 job（超时升级，或显式
+ *    `run_in_background`）时，条目**不删**，只记下 jobId，等 job 真的结算
+ *    （`job/settled` / `job/removed`）才走 end。浏览器进程还在跑，图标就得亮着；
  *  - **快照**（路由被调时现算，不维护缓存）：`active > 0` 或
  *    `now - idleSince <= 1500ms` 才输出。
  *
@@ -53,12 +56,14 @@
 
 import {
   BROWSER_ACTIVITY_DEBUG_LIMIT,
+  BROWSER_ACTIVITY_JOB_WATCH_MAX_MS,
   BROWSER_ACTIVITY_LINGER_MS,
   BROWSER_ACTIVITY_ROUTE,
   type BrowserActivityCall,
   type BrowserActivityConfig,
   type BrowserActivityDebugEntry,
   type BrowserActivityHostContext,
+  type BrowserActivityJobs,
   type BrowserActivityLogger,
   type BrowserActivitySession,
   type BrowserActivitySnapshot,
@@ -91,6 +96,7 @@ import {
 
 export {
   BROWSER_ACTIVITY_DEBUG_LIMIT,
+  BROWSER_ACTIVITY_JOB_WATCH_MAX_MS,
   BROWSER_ACTIVITY_LINGER_MS,
   BROWSER_ACTIVITY_ROUTE,
   type BrowserActivityConfig,
@@ -208,6 +214,15 @@ export class BrowserActivityTracker {
   private readonly now: () => number
   /** 每个会话当前的清理定时器（每会话最多一个；begin 时取消）。 */
   private readonly sweepOf = new Map<string, ReturnType<typeof setTimeout>>()
+  /**
+   * 后台 job 的反查表：jobId → 它在哪个会话的哪次调用上。
+   *
+   * 只服务「转后台后仍要继续亮」这一件事：settled 事件只带 jobId，不带会话；
+   * 不反查就不知道该给哪个会话收尾。
+   */
+  private readonly jobsOf = new Map<string, { sessionId: string; callKey: string }>()
+  /** 每个后台 job 的兜底看护定时器（到点仍未 settled 就强制收尾）。 */
+  private readonly jobWatchOf = new Map<string, ReturnType<typeof setTimeout>>()
   private disposed = false
 
   constructor(options: BrowserActivityTrackerOptions = {}) {
@@ -302,10 +317,69 @@ export class BrowserActivityTracker {
     this.scheduleSweep(sessionId)
   }
 
+  /**
+   * 把一次调用交给后台 job 继续跟踪（不再随 tools/execute 结束而收尾）。
+   *
+   * 场景：`pwsh` 跑浏览器 CLI 时，前台调用超时会转成后台 job 并立刻返回
+   * （`kind: 'promoted'`），显式 `run_in_background` 更是从一开始就只回 jobId
+   * （`kind: 'background'`）。两种情况下 `tools/execute` 都已经结束，但浏览器
+   * 进程还在跑 —— 之前直接 end 的后果就是用户反馈的「操作没中止，标志先没了」。
+   *
+   * 交给 job 之后：条目继续留在 entries 里（active 计数不减），直到收到
+   * `job/settled` / `job/removed`，或看护定时器到点。
+   *
+   * @param sessionId 归属会话。
+   * @param callKey 这次调用的去重键（与 begin 相同）。
+   * @param jobId 后台 job id（空串/非字符串时退回普通 end，绝不静默丢条目）。
+   * @returns 是否真的转成 job 跟踪。
+   */
+  transferToJob(sessionId: string, callKey: string, jobId: unknown): boolean {
+    if (this.disposed || sessionId === '') return false
+    if (typeof jobId !== 'string' || jobId === '') return false
+    const state = this.sessions.get(sessionId)
+    if (state === undefined) return false
+    const entry = state.entries.get(callKey)
+    if (entry === undefined) return false
+    entry.jobId = jobId
+    this.jobsOf.set(jobId, { sessionId, callKey })
+    this.scheduleJobWatch(jobId, sessionId, callKey)
+    // 转后台的条目不许被尾迹定时器扫掉：仍在跑，只是不在前台等了。
+    this.cancelSweep(sessionId)
+    state.idleSince = null
+    return true
+  }
+
+  /**
+   * 后台 job 结算：该 job 对应那次调用到此为止。
+   *
+   * 幂等：job 未知（已结算过 / forget 过 / 不是我们跟踪的）时静默返回。
+   *
+   * @param jobId 后台 job id。
+   * @returns 是否真的收掉了一个条目。
+   */
+  settleJob(jobId: unknown): boolean {
+    if (this.disposed) return false
+    if (typeof jobId !== 'string' || jobId === '') return false
+    this.cancelJobWatch(jobId)
+    const mapped = this.jobsOf.get(jobId)
+    if (mapped === undefined) return false
+    this.jobsOf.delete(jobId)
+    // 与 end 同一条收尾路径：走这里才能正确维护 idleSince 与尾迹。
+    this.end(mapped.sessionId, mapped.callKey)
+    return true
+  }
+
   /** 丢弃某会话的全部观测（会话销毁时调用）。 */
   forget(sessionId: string): void {
     if (sessionId === '') return
     this.cancelSweep(sessionId)
+    // 该会话名下还在跟踪的后台 job 一并摘掉，否则它们会在 job 结算时
+    // 反查到一个已经不存在的会话，白白留着定时器与映射。
+    for (const [jobId, mapped] of [...this.jobsOf]) {
+      if (mapped.sessionId !== sessionId) continue
+      this.jobsOf.delete(jobId)
+      this.cancelJobWatch(jobId)
+    }
     this.sessions.delete(sessionId)
   }
 
@@ -314,6 +388,9 @@ export class BrowserActivityTracker {
     this.disposed = true
     for (const timer of this.sweepOf.values()) clearTimeout(timer)
     this.sweepOf.clear()
+    for (const timer of this.jobWatchOf.values()) clearTimeout(timer)
+    this.jobWatchOf.clear()
+    this.jobsOf.clear()
     this.sessions.clear()
     this.debugBuffer.clear()
   }
@@ -424,6 +501,37 @@ export class BrowserActivityTracker {
     if (timer === undefined) return
     clearTimeout(timer)
     this.sweepOf.delete(sessionId)
+  }
+
+  /**
+   * 给一个转后台的 job 挂兜底看护。
+   *
+   * 正常路径是 `job/settled` 事件即时收尾，这个定时器只处理「事件没等到」：
+   * 订阅晚于结算、registrar 被替换、宿主热重载等。不设的话那张反查表会永久
+   * 留着条目，图标永不灭 —— 这与「漏一次 end 图标永久亮着」是同一类故障，
+   * 而本模块的全部设计都在避免它（见文件头「不维护派生态」那段）。
+   *
+   * `unref` 掉：不拖住进程退出。
+   */
+  private scheduleJobWatch(jobId: string, sessionId: string, callKey: string): void {
+    this.cancelJobWatch(jobId)
+    const timer = setTimeout(() => {
+      this.jobWatchOf.delete(jobId)
+      const mapped = this.jobsOf.get(jobId)
+      if (mapped === undefined) return
+      this.jobsOf.delete(jobId)
+      this.end(mapped.sessionId, mapped.callKey)
+    }, BROWSER_ACTIVITY_JOB_WATCH_MAX_MS)
+    const handle = timer as unknown as { unref?: () => void }
+    handle.unref?.()
+    this.jobWatchOf.set(jobId, timer)
+  }
+
+  private cancelJobWatch(jobId: string): void {
+    const timer = this.jobWatchOf.get(jobId)
+    if (timer === undefined) return
+    clearTimeout(timer)
+    this.jobWatchOf.delete(jobId)
   }
 }
 
@@ -594,12 +702,28 @@ export function applyBrowserActivity(
         } catch {
           observing = false
         }
+        let outcome: unknown
+        let failed = false
         try {
-          return await next()
+          outcome = await next()
+          return outcome
+        } catch (error) {
+          failed = true
+          throw error
         } finally {
           if (observing) {
             try {
-              tracker.end(sessionId, callKey)
+              /*
+               * 先看这次调用是不是被转成了后台 job：`pwsh` 跑浏览器 CLI 时，
+               * 前台超时会转后台并立刻返回（`kind: promoted`），显式后台更是
+               * 从一开始就只回 jobId（`kind: background`）。这两种情况下进程
+               * 还在跑，此时 end 就是用户看到的「操作没中止、标志先没了」。
+               * 拿不到 jobId 或不是这两种形状，才走正常收尾。
+               */
+              const jobId = failed ? '' : backgroundJobIdOf(outcome)
+              if (jobId === '' || !tracker.transferToJob(sessionId, callKey, jobId)) {
+                tracker.end(sessionId, callKey)
+              }
             } catch {
               /* 收尾失败只影响图标，不影响结果 */
             }
@@ -636,6 +760,47 @@ export function applyBrowserActivity(
     }
   } catch (error) {
     safeLog(ctx, 'warn', '[browser-activity] agent/disposed hook failed: ' + describe(error))
+  }
+
+  // ── 后台 job 结算即收尾 ────────────────────────────────────────────────
+  // 转后台的浏览器调用（promoted / background）不再随 tools/execute 结束，而
+  // 是由 job 自己跑到进程退出。这里订阅 jobs 的生命周期事件，等它真的结算了
+  // 才把条目收掉 —— 否则就是用户反馈的「操作没中止、标志先没了」。
+  //
+  // 延迟注入：jobs 服务可能没装（纯前台部署），那时回调不执行，转后台的条目
+  // 只能靠看护定时器兜底 —— 宁可晚收，不可早收。
+  try {
+    ctx.inject(['jobs'], (jobCtx: never) => {
+      const jobs = (jobCtx as unknown as { jobs?: BrowserActivityJobs }).jobs
+      const events = jobs?.events
+      if (events === undefined || typeof events.subscribe !== 'function') {
+        safeLog(ctx, 'warn', '[browser-activity] jobs.events unavailable: 转后台的调用只能靠看护定时器收尾')
+        return
+      }
+      /*
+       * `owners: 'all'`：会话列表是全局视图，本插件要看见所有会话的后台 job。
+       * settled 是正常收尾（进程真的结束了）；removed 是记录从可见集里被摘掉
+       * （调用方自己消费完终态后 remove），两种都意味着「这个 job 不再跑了」，
+       * 都要收。
+       */
+      const subscribe = (): (() => void) => events.subscribe({ owners: 'all' }, (event: unknown) => {
+        try {
+          const record = event as { type?: unknown; job?: { id?: unknown } } | null | undefined
+          const type = record?.type
+          if (type !== 'settled' && type !== 'removed') return
+          const jobId = record?.job?.id
+          if (typeof jobId === 'string' && jobId !== '') tracker.settleJob(jobId)
+        } catch {
+          /* 收尾失败只影响图标，绝不影响 job 本身 */
+        }
+      })
+      // 用 jobCtx.effect 包住订阅：服务销毁 / 插件卸载时自动退订。
+      const scope = jobCtx as unknown as { effect?: (fn: () => unknown, label?: string) => void }
+      if (typeof scope.effect === 'function') scope.effect(subscribe, 'dsh-chat-plus: browser-activity jobs')
+      else subscribe()
+    })
+  } catch (error) {
+    safeLog(ctx, 'warn', '[browser-activity] jobs injection failed: ' + describe(error))
   }
 
   // ── 卸载清理：先声明再挂载 ──────────────────────────────────────────────
@@ -692,6 +857,35 @@ export function applyBrowserActivity(
   }
 }
 
+/**
+ * 从一次工具结果里取「它已转成后台 job」的 jobId；不是这种结果返回空串。
+ *
+ * 只认两种规范形状（见 @deepseek-ai/dsh-tool-pwsh 的输出联合）：
+ *  - `kind: 'promoted'`  —— 前台等待超时，命令被移到后台 job；
+ *  - `kind: 'background'` —— 调用方显式要求后台执行。
+ *
+ * 为什么必须判 kind 而不是「有 jobId 就当后台」：jobId 出现在别的工具结果里是
+ * 完全可能的（比如 job_output / job_kill 的参数回显），那种调用根本没启动任何
+ * 进程，把图标继续挂着就是纯误报。
+ *
+ * @param result 工具执行结果（`{ content, value }` 或已是 canonical value）。
+ * @returns jobId，或空串。
+ */
+export function backgroundJobIdOf(result: unknown): string {
+  try {
+    const record = result as { value?: unknown; content?: unknown } | null | undefined
+    // tools/execute 的 next() 回的是 ToolExecutionResult：canonical value 在 .value。
+    const value = (record?.value ?? record) as { kind?: unknown; jobId?: unknown } | null | undefined
+    if (value === null || typeof value !== 'object') return ''
+    const kind = value.kind
+    if (kind !== 'promoted' && kind !== 'background') return ''
+    const jobId = value.jobId
+    return typeof jobId === 'string' ? jobId : ''
+  } catch {
+    return ''
+  }
+}
+
 /** 把任意异常压成一行文案（日志用，不做类型收窄的花活）。 */
 function describe(error: unknown): string {
   if (error instanceof Error) return error.stack ?? error.message
@@ -711,9 +905,11 @@ export const __test = {
   callKeyOfExecution,
   handleBrowserActivityRoute,
   applyBrowserActivity,
+  backgroundJobIdOf,
   SESSION_SOURCES,
   BROWSER_ACTIVITY_ROUTE,
   BROWSER_ACTIVITY_LINGER_MS,
+  BROWSER_ACTIVITY_JOB_WATCH_MAX_MS,
   BROWSER_ACTIVITY_DEBUG_LIMIT,
   BROWSER_ACTIVITY_HINTS,
   BROWSER_ACTIVITY_PREFIX,

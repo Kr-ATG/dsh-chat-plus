@@ -42,10 +42,12 @@ const {
   sessionIdOfExecution,
   sessionSourceOfExecution,
   handleBrowserActivityRoute,
+  backgroundJobIdOf,
   SESSION_SOURCES,
   BROWSER_ACTIVITY_ROUTE,
   BROWSER_ACTIVITY_LINGER_MS,
   BROWSER_ACTIVITY_DEBUG_LIMIT,
+  BROWSER_ACTIVITY_JOB_WATCH_MAX_MS,
   isShellToolName,
   browserCliOfCommand,
   browserCliInvocationOf,
@@ -437,8 +439,12 @@ function harness(options = {}) {
   const handle = mod.applyBrowserActivity(ctx, { now: () => clock.at })
   need(handle !== null, 'applyBrowserActivity 返回句柄')
   need(handle.tracking === true, 'tracking = true（ctx.on 可用）')
-  need(injections.length === 1 && injections[0].names.includes('webServer'),
+  // 两处延迟注入：webServer（挂路由）与 jobs（跟踪转后台的调用）。
+  // 都不能在 apply 同步路径上直接读 —— 那两个属性是 Proxy，未 inject 时一读就抛。
+  need(injections.some(i => i.names.includes('webServer')),
     '延迟注入 webServer（不在 apply 同步路径读 ctx.webServer）')
+  need(injections.some(i => i.names.includes('jobs')),
+    '延迟注入 jobs（转后台的浏览器调用靠它的结算事件收尾）')
   need(listeners.some(l => l.event === 'tools/execute'), '注册了 tools/execute 观测')
 
   const execute = listeners.find(l => l.event === 'tools/execute').listener
@@ -541,7 +547,7 @@ function harness(options = {}) {
     inject(names, callback) { noOnListeners.push({ names, callback }) },
   }, {})
   need(noOn !== null && noOn.tracking === false, 'ctx.on 缺失时静默降级（tracking=false 不抛错）')
-  need(noOnListeners.length === 1, 'ctx.on 缺失时路由仍然注册')
+  need(noOnListeners.length === 2, 'ctx.on 缺失时路由与 jobs 订阅仍然注入')
 
   handle.dispose()
 }
@@ -794,6 +800,156 @@ function harness(options = {}) {
       handle.dispose()
     }
   }
+}
+
+// ── 11a. backgroundJobIdOf：只认 promoted / background 两种规范形状 ────────
+{
+  need(backgroundJobIdOf({ value: { kind: 'promoted', jobId: 'j-1' } }) === 'j-1',
+    'promoted 结果取出 jobId')
+  need(backgroundJobIdOf({ value: { kind: 'background', jobId: 'j-2' } }) === 'j-2',
+    'background 结果取出 jobId')
+  need(backgroundJobIdOf({ kind: 'promoted', jobId: 'j-3' }) === 'j-3',
+    '直接传 canonical value 也认（不强制包在 ToolExecutionResult 里）')
+  need(backgroundJobIdOf({ value: { kind: 'foreground', jobId: 'x' } }) === '',
+    'foreground 结果不算后台（jobId 存在也不行）')
+  need(backgroundJobIdOf({ value: { kind: 'promoted' } }) === '',
+    'promoted 但缺 jobId → 空串（退回普通收尾，绝不静默丢条目）')
+  need(backgroundJobIdOf({ value: { jobId: 'x' } }) === '',
+    '有 jobId 但没 kind → 空串（job_output 之类回显 jobId 的工具不得被误判）')
+  need(backgroundJobIdOf(null) === '' && backgroundJobIdOf(undefined) === '',
+    'null / undefined 返回空串且不抛')
+  need(backgroundJobIdOf('promoted') === '', '字符串结果不该被当成后台句柄')
+}
+
+// ── 11a2. tracker 级的 transferToJob / settleJob / 兜底看护 ────────────────
+{
+  const h = harness()
+  h.tracker.begin('S-t', 'call-1', 'pwsh', { service: 'ego-browser', tool: '' })
+  need(h.row('S-t')?.active === 1, 'begin 后活跃')
+  need(h.tracker.transferToJob('S-t', 'call-1', 'job-x') === true, 'transferToJob 成功')
+  // 转后台后：条目不许因 idleSince 被尾迹扫掉
+  h.advance(60_000)
+  need(h.row('S-t')?.active === 1, '转后台后 60s 仍活跃（尾迹不适用）')
+  need(h.tracker.settleJob('job-x') === true, 'settleJob 收掉该条目')
+  need(h.row('S-t')?.active === 0 && h.row('S-t')?.lingering === true, '结算后进尾迹')
+  need(h.tracker.settleJob('job-x') === false, '重复 settleJob 幂等（第二次返回 false）')
+  need(h.tracker.settleJob('job-unknown') === false, '未知 jobId 静默返回 false')
+  need(h.tracker.settleJob('') === false && h.tracker.settleJob(null) === false,
+    '空 / null jobId 返回 false 且不抛')
+
+  // transferToJob 的前置条件不满足时返回 false（调用方据此退回普通 end）
+  need(h.tracker.transferToJob('S-missing', 'c', 'job-y') === false, '会话不存在时 transferToJob 返回 false')
+  h.tracker.begin('S-t2', 'call-2', 'pwsh', { service: 'ego-browser', tool: '' })
+  need(h.tracker.transferToJob('S-t2', 'unknown-call', 'job-z') === false,
+    'callKey 不存在时 transferToJob 返回 false')
+  need(h.tracker.transferToJob('S-t2', 'call-2', '') === false, '空 jobId 返回 false')
+
+  // forget 要把该会话名下的 job 映射一起摘掉（否则结算时反查到幽灵会话）
+  h.tracker.forget('S-t2')
+  need(h.tracker.settleJob('job-z') === false, 'forget 后的 job 映射已清（settleJob 返回 false）')
+
+  // 兜底看护：常量是 6 小时，且必须是「远大于任何人类操作」的量级
+  need(mod.BROWSER_ACTIVITY_JOB_WATCH_MAX_MS === 6 * 60 * 60 * 1000,
+    '后台 job 看护上限 6 小时（只在 settled 事件丢失时兜底）')
+}
+
+// ── 11b. 转后台的调用：进程还在跑，标志就不能灭 ───────────────────────────
+/*
+ * 用户实测反馈的故障：浏览器操作没中止，但左侧列表里的标志先没了。
+ *
+ * 根因是 `pwsh` 的两条后台路径：前台等待超时会转后台并立刻返回
+ * （`kind: promoted`），显式 `run_in_background` 更是从一开始就只回 jobId
+ * （`kind: background`）。两种情况下 `tools/execute` 都已经结束、但浏览器进程
+ * 还在跑 —— 观测器照着「调用结束就 end」的旧规则收尾，图标就提前灭了。
+ */
+{
+  const clock = { at: 9_000_000 }
+  const listeners = []
+  const injections = []
+  let jobListener = null
+  const unsubscribed = []
+  const ctx = {
+    logger: { info: () => {}, warn: () => {} },
+    on(event, listener) { listeners.push({ event, listener }) },
+    inject(names, callback) {
+      injections.push({ names, callback })
+      // jobs 注入：给一个真实的订阅面，把监听器抓出来手动喂事件。
+      if (names.includes('jobs') && !names.includes('webServer')) {
+        callback({
+          jobs: {
+            events: {
+              subscribe(filter, listener) {
+                if (filter.owners !== 'all') throw new Error('应订阅全部 owner')
+                jobListener = listener
+                return () => { unsubscribed.push(filter.owners) }
+              },
+            },
+          },
+        })
+      }
+    },
+    effect(fn, label) { fn() },
+  }
+  const handle = mod.applyBrowserActivity(ctx, { now: () => clock.at })
+  const execute = listeners.find(l => l.event === 'tools/execute').listener
+  need(jobListener !== null, '注入了 jobs.events 订阅（owners: all）')
+
+  // 1) promoted：前台超时转后台 —— 调用结束后仍必须亮着
+  await execute({ name: 'pwsh', callId: 'p-1', agent: { session: { id: 'S-job' } },
+    arguments: { command: 'ego-browser nodejs task.mjs', description: 'run task' } },
+    async () => ({ isError: false, value: { kind: 'promoted', jobId: 'pwsh-aaa', cwd: 'D:/x', timeoutMs: 800, output: '' }, content: [] }))
+  const promotedRow = handle.snapshot('S-job').sessions[0]
+  need(promotedRow !== undefined && promotedRow.active === 1 && promotedRow.lingering === false,
+    `转后台后仍算活跃（实得 ${JSON.stringify(promotedRow)}）`)
+  need(promotedRow.service === 'ego-browser', '转后台后展示标签仍是 ego-browser')
+
+  // 2) 时钟推很久也不灭：这是「没做尾迹倒计时」的直接证据
+  clock.at += 60_000
+  need(handle.snapshot('S-job').sessions[0]?.active === 1,
+    '转后台的调用不会因时间流逝被当成结束（60s 后仍亮）')
+
+  // 3) settled 事件到达：此时才收尾，进尾迹
+  jobListener({ type: 'settled', job: { id: 'pwsh-aaa' }, cause: 'producer', awaited: false })
+  const settledRow = handle.snapshot('S-job').sessions[0]
+  need(settledRow !== undefined && settledRow.active === 0 && settledRow.lingering === true,
+    `job 结算后才进尾迹（实得 ${JSON.stringify(settledRow)}）`)
+
+  // 4) 重复的 settled 幂等（事件可能因重连/重复投递来两次）
+  jobListener({ type: 'settled', job: { id: 'pwsh-aaa' } })
+  need(handle.snapshot('S-job').sessions[0]?.active === 0, '重复 settled 幂等（不把 active 算成负的）')
+
+  // 5) background：显式后台执行，同样不能在 tools/execute 结束时收尾
+  await execute({ name: 'pwsh', callId: 'p-2', agent: { session: { id: 'S-bg' } },
+    arguments: { command: 'ego-browser nodejs long.mjs', description: 'run long' } },
+    async () => ({ isError: false, value: { kind: 'background', jobId: 'pwsh-bbb', cwd: 'D:/x' }, content: [] }))
+  need(handle.snapshot('S-bg').sessions[0]?.active === 1, '显式后台的调用同样保持活跃')
+
+  // 6) removed 也收尾（调用方自己消费完终态后 remove）
+  jobListener({ type: 'removed', job: { id: 'pwsh-bbb' } })
+  need(handle.snapshot('S-bg').sessions[0]?.active === 0, 'job removed 同样收尾')
+
+  // 7) 不是浏览器调用、但结果里带 jobId：不得凭空亮灯
+  await execute({ name: 'pwsh', callId: 'p-3', agent: { session: { id: 'S-plain-bg' } },
+    arguments: { command: 'Get-ChildItem D:/AI', description: 'list' } },
+    async () => ({ isError: false, value: { kind: 'promoted', jobId: 'pwsh-ccc', cwd: 'D:/x', timeoutMs: 1, output: '' }, content: [] }))
+  need(handle.snapshot('S-plain-bg').sessions.length === 0,
+    '普通命令转后台不登记（判据仍是命令行，不是结果形状）')
+
+  // 8) 后台 job 的浏览器调用，其 job 结算事件只影响它自己的会话
+  await execute({ name: 'pwsh', callId: 'p-4', agent: { session: { id: 'S-iso' } },
+    arguments: { command: 'ego-browser nodejs a.mjs', description: 'a' } },
+    async () => ({ isError: false, value: { kind: 'promoted', jobId: 'pwsh-ddd', cwd: 'D:/x', timeoutMs: 1, output: '' }, content: [] }))
+  need(handle.snapshot('S-iso').sessions[0]?.active === 1, '第二个会话的后台调用也是活跃的')
+  jobListener({ type: 'settled', job: { id: 'pwsh-unknown' } })
+  need(handle.snapshot('S-iso').sessions[0]?.active === 1,
+    '不认识的 jobId 结算不影响任何会话（不做「收到 settled 就清空」的粗暴处理）')
+
+  // 9) settled 之后再看 agent/disposed：清理仍然正常
+  const disposed = listeners.find(l => l.event === 'agent/disposed')
+  disposed.listener({ agent: { session: { id: 'S-job' } } })
+  need(handle.snapshot('S-job').sessions.length === 0, 'job 结算后的会话仍能被 agent/disposed 清掉')
+
+  handle.dispose()
 }
 
 // ── 12. 构建产物仍是自包含的（本模块不引入 @deepseek-ai/* 运行时依赖）────

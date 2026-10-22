@@ -541,6 +541,11 @@ New-Item -ItemType Junction -Path "$env:USERPROFILE\.dsh\profiles\web\node_modul
      （ego-browser / ego / playwright / stagehand / puppeteer / selenium）。
      `grep ego-browser`、`echo "ego-browser"`、`Get-Content ego-browser.md` 只是在谈论它，
      不会点亮图标；带引号路径、`.exe` 后缀、`&` 调用运算符、管道或分号后的命令段都认。
+- **转后台的调用继续亮到进程真的结束**：`pwsh` 跑浏览器 CLI 时，前台等待超时会把它
+  转成后台 job 并立刻返回（`kind: promoted`），显式 `run_in_background` 更是从一开始
+  就只回 jobId（`kind: background`）。这两种情况下工具调用已经结束、但浏览器进程还在跑，
+  所以观测器认出这两种结果后**不立即收尾**，改由 `ctx.jobs` 的 `settled` / `removed`
+  事件来收（另有一层 6 小时看护定时器兜底，防事件丢失导致图标永不灭）。
 - **只观测、不改行为**：观测器全程 try/catch，任何异常的结果都只是「图标不亮」；
   观测器拿不到会话归属时直接跳过这次记录，绝不会把图标算到别的会话上。
 - **路由不通就静默**：host 半身未装 / 未重启时路由 404，客户端一律当「无活动」，

@@ -30,6 +30,15 @@ export interface BrowserActivityCall {
   tool: string
   /** 这次调用开始的时间戳（ms）。 */
   since: number
+  /**
+   * 这次调用已经转成**后台 job** 时，那个 job 的 id（否则 undefined）。
+   *
+   * 只在本模块内部使用，**不上路由契约**。存在的理由：`pwsh` 跑浏览器 CLI 时，
+   * 前台调用超时会把它转成后台 job 并立刻返回（`kind: 'promoted'`），显式
+   * `run_in_background` 更是如此（`kind: 'background'`）—— 此时 `tools/execute`
+   * 已经结束，但浏览器进程还在跑。不记 jobId 就会「操作没结束、图标先没了」。
+   */
+  jobId?: string
 }
 
 /** 路由里一条会话条目（客户端逐字段消费）。 */
@@ -106,6 +115,36 @@ export interface BrowserActivityWebServer {
     handler: (req: never, res: never) => void
   }): () => void
 }
+
+/**
+ * host 上 ctx.jobs 的最小面（只读观测用）。
+ *
+ * 刻意不引 @deepseek-ai/dsh-jobs 的类型：host 产物对 @deepseek-ai/* 零运行时依赖
+ * （build.mjs 的 assertHostExternals 会拦），类型垫片一旦与真实服务面漂移，反而会
+ * 掩盖「服务缺失」这个真正需要运行时防御的失败模式（与 BrowserActivityHostContext
+ * 同一条理由）。
+ */
+export interface BrowserActivityJobs {
+  /** 生命周期事件流（只关心 settled / removed）。 */
+  events?: {
+    subscribe(
+      filter: { owners: 'all' },
+      listener: (event: unknown) => void,
+    ): () => void
+  }
+  /** 查单个 job 的投影（转后台且已结束时的补救路径；可能因 owner 不匹配而抛）。 */
+  get?(id: string, caller?: string): { status?: unknown } | undefined
+}
+
+/**
+ * 后台 job 的最长观察时长：到点仍未收到 settled 就当它没了。
+ *
+ * 为什么需要上限：settled 事件丢失（宿主热重载、事件订阅晚于结算、registrar 被替换）
+ * 会让条目永久挂在表里 —— 那正是本模块最不能接受的失败姿态（图标永不灭、且用户
+ * 无从解释）。6 小时是「一次人类浏览器操作不可能更长」的粗上限，只用来兜底，
+ * 正常路径由 settled 事件即时收尾。
+ */
+export const BROWSER_ACTIVITY_JOB_WATCH_MAX_MS = 6 * 60 * 60 * 1000
 
 /**
  * 本模块用到的 ctx 面。刻意不引 `@deepseek-ai/cordis` 类型：
