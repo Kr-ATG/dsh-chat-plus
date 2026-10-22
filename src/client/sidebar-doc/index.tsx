@@ -22,16 +22,20 @@
  * 官方给了正规的替换口：`ctx.documentPreviews.register` 的 `priority: 'extension'`
  * 档**优先于**产品自带的 builtin 实现（README 原话「External implementations win
  * over product implementations」）。于是这里注册一个自己的渲染器，把
- * pdf / doc / docx / ppt / pptx / odt / odp / xls / xlsx 全部接管过来，正文用
+ * pdf / doc / docx / ppt / pptx / odt / odp / ods 全部接管过来，正文用
  * **浏览器内置 PDF 查看器**（iframe 指插件的 /office/pdf 或 /office/page）渲染 ——
  * 零新依赖、不碰 pdf.js、翻页/缩放/文字选择全是浏览器原生能力。
  *
  * ## 与官方渲染器的分工
  *
- * 只接管「二进制文档」这一族。markdown / 代码 / 图片 / 表格（xlsx 的浏览器内
- * 渲染）仍走官方 builtin —— 那些链路没坏，接管它们只会平白多一层维护面。
- * xlsx 例外地也接管：官方表格渲染器要拉 7MB 的 excel chunk，而浏览器 PDF
- * 查看器看转换结果已经够用（用户要的是「看见」，不是「编辑」）。
+ * 只接管「二进制文档」这一族。markdown / 代码 / 图片 / **表格**（xls/xlsx 的浏览器
+ * 内 FortunSheet 渲染）仍走官方 builtin —— 那些链路没坏，接管它们只会平白多一层
+ * 维护面，而且"能在格子里选中复制"本来就比"转成 PDF 看个样子"好用。
+ *
+ * `ods` 是唯一的例外（2026-10-22 补）：官方 Excel 渲染器不认它、官方又把它列进
+ * UNVIEWABLE，而 host 的 LibreOffice 引擎本来就支持它（src/office/index.ts 的
+ * RENDERABLE_EXT 含 .ods）—— 不接管的话「引擎能转、侧栏不认」，点开只有一句
+ * 「该格式文件暂时无法预览」。
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -48,15 +52,28 @@ export const SIDEBAR_DOC_ID = 'dsh-chat-plus/sidebar-document'
 /**
  * 接管的扩展名。
  *
- * 只接管**坏掉的那一族**：pdf（pdf.js 的 toHex 崩溃）与 Office 文档（转出的 PDF
- * 走同一条 pdf.js，一起坏）。markdown / 代码 / 图片 / 表格仍走官方 builtin ——
- * 那些链路没坏，接管它们只会平白多一层维护面（官方表格渲染器是浏览器内
- * FortuneSheet，体验比「转 PDF 看」更好，不该抢）。
+ * 三组：
+ *  1. **坏掉的那一族**：pdf（pdf.js 的 toHex 崩溃）与 doc/docx/ppt/pptx（转出的
+ *     PDF 走同一条 pdf.js，一起坏）；
+ *  2. **官方没有、但引擎能转的**：odt / odp / ods（官方把这三个都列进 UNVIEWABLE，
+ *     而 host 的 LibreOffice 引擎支持它们）；
+ *  3. **不该被抢的**：xls / xlsx 留给官方 Excel 渲染器（浏览器内表格，能选中复制）。
+ *
+ * 这份清单必须与 `client/sidebar-display.ts` 的 PLUGIN_RENDERED_EXT 同源 ——
+ * 判据说"能在侧栏看"而渲染器没接管，用户点开就是官方空态。冒烟断言钉住。
  */
-const CLAIMED_EXTENSIONS = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'odt', 'odp'] as const
+const CLAIMED_EXTENSIONS = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'odt', 'odp', 'ods'] as const
 
-/** 这些扩展名的字节不是可读文本（官方据此去掉「纯文本」备选视图）。 */
-const BINARY_EXTENSIONS = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'odt', 'odp'] as const
+/**
+ * 这些扩展名的字节不是可读文本（官方据此去掉「纯文本」备选视图）。
+ *
+ * `ods` 是 2026-10-22 补进来的：host 的 LibreOffice 引擎本来就支持它
+ * （src/office/index.ts 的 RENDERABLE_EXT 含 .ods），但官方 Excel 渲染器只认
+ * xlsx/xls/csv/tsv，官方又把 ods 列进 UNVIEWABLE —— 结果"引擎能转、侧栏不认"，
+ * 点开只有一句「该格式文件暂时无法预览」。接管后它与 xls/xlsx 走不同的路
+ * （转 PDF 看，而非浏览器内表格），但至少能看。
+ */
+const BINARY_EXTENSIONS = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'odt', 'odp', 'ods'] as const
 
 /** 官方文档正文槽位的 owner 面（只用到本渲染器需要的字段）。 */
 interface DocumentBodyOwner {

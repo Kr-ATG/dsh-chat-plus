@@ -4,14 +4,20 @@
  * 回答一个问题：**这次对话一共做出来了哪些文件。**
  *
  * 三件事决定了它的形态：
- *  1. **整行即入口，且默认交给系统默认应用**（2026-10-20 按用户要求改）：不挂
- *     「预览」按钮，也不再弹自己的 Lightbox。点这一行 = 用**这台电脑上打开该
- *     文件的程序**把它打开（PPT 进 PowerPoint、视频进播放器、图进看图器）——
- *     产出物本来就是拿去用的，不是在浏览器里再端详一遍。
- *     打开走官方 `remote.session.openWorkspacePath`（`shell-open` 语义，与双击
- *     文件同一套解析），封装见 `../open-default-app.ts`。宿主没有桌面（手机远程
- *     访问）或这次被拒时，**原样退回**官方右侧栏的文档预览 —— 这是升级前的
- *     行为，不是新加的分支。悬停时右侧浮现一枚小箭头，承担「这里能点」的提示。
+ *  1. **整行即入口，落点按「侧栏能不能正常展示」分流**（2026-10-22 按用户口径
+ *     定稿）：能展示的（图片 / 文档 / Office / PDF / 表格 / 页面 / 音视频）→
+ *     **官方右侧栏**，就地看、不弹外部程序；侧栏展示不了的（3D 模型、压缩包、
+ *     avif/tif/heic、ods…）→ **系统默认应用**。判据见 `../sidebar-display.ts`，
+ *     它读官方 documentPreviews 注册表 + 一张与接管渲染器同源的静态表。
+ *
+ *     沿革：2026-10-20 曾改成「一律交给系统默认应用」，理由是"产出物是拿去用的"。
+ *     实测那样对图 / 文档这类侧栏看得很好的东西是过度动作（点一下就把 PowerPoint
+ *     整窗拉起来），而 3D / 压缩包反而只得到系统关联的一次弹窗。现在按类型分流，
+ *     两边都各得其所。
+ *     系统默认那条走本插件 `/api/chat-flow/open-file`（按会话工作区绝对化 +
+ *     浏览器文档进默认浏览器），封装见 `../open-file.ts`；开不了再退回官方
+ *     `remote.session.openWorkspacePath`，再不行退回侧栏。悬停时右侧浮现一枚
+ *     小箭头，承担「这里能点」的提示。
  *  2. **缩略图是 SVG**：不去读真实文件当缩略图。28px 见方读不出画面内容，
  *     而为每一行发一次文件请求，代价与收益完全不成比例。按**类型**画一枚
  *     矢量缩略图，一眼分得出图 / 视频 / 3D / 文档，这才是这一列真正要传达的。
@@ -34,6 +40,7 @@ import type { ProbeResult } from '../open-preview.ts'
 import { workspaceCwdOf } from '../client-ctx.ts'
 import { openWithDefaultApp } from '../open-default-app.ts'
 import { openOutputFile } from '../open-file.ts'
+import { canShowInSidebar } from '../sidebar-display.ts'
 import type { OutputKind, OutputItem, OutputsView } from './outputs.ts'
 
 /**
@@ -375,10 +382,29 @@ export const KrOutputsCard = memo(function KrOutputsCard({
     }
     // 问过了（exists 或 unknown）：收掉待定外观。
     setCheckedPaths((prev) => (prev.has(path) ? prev : new Set(prev).add(path)))
+    const cwd = workspaceCwdOf(sessionId)
     /*
-     * 先交给系统打开（2026-10-21 改），开不了再退回官方侧栏。
+     * 分流（2026-10-22 按用户口径）：**侧栏能正常展示的走侧栏，其余走系统默认**。
      *
-     * **为什么不再直接用 openWithDefaultApp**：那条是官方
+     * 为什么不是「一律系统默认」（2026-10-20 那版）：图 / PDF / Office / 视频
+     * 这些侧栏看得很好的东西，点一下把 PowerPoint / 播放器整窗拉起来，是过度动作；
+     * 而 3D 模型、压缩包这些侧栏根本展示不了的，点一下只有一句"不支持预览"。
+     * 判据逐扩展名核验过（官方渲染器清单 + 本插件接管的两个渲染器），见
+     * ../sidebar-display.ts 文件头。
+     */
+    if (canShowInSidebar(path)) {
+      /*
+       * 官方右侧栏：与对话流里的文件链接、文件树、deliverable 卡片同一条链路。
+       * 全局面板占着主列时 openWorkspacePreview 会先收起面板（官方右栏只在
+       * 会话填满主列时可见），这不是本卡多做的一步。
+       */
+      if (tryOpenInSidebar(path, { sessionId, cwd })) return
+      // 右栏服务不可用（旧宿主 / 手机远程）：退回系统默认 —— 总比点了没反应好。
+    }
+    /*
+     * 系统默认应用那条（浏览器文档进默认浏览器，其余进文件关联）。
+     *
+     * **为什么不用 openWithDefaultApp**：那条是官方
      * remote.session.openWorkspacePath，它把相对路径按 **host 进程 cwd**
      * （dsh-runtime）解析，而这张卡里 `present` 交付的路径是**相对会话工作区**
      * 的 —— 于是「打开」的是一个不存在的 dsh-runtime\deliverables\…。更糟的是
@@ -386,11 +412,10 @@ export const KrOutputsCard = memo(function KrOutputsCard({
      * 「文档」文件夹，界面上看不出任何异常（用户报的「点了不打开」）。
      * 细节与三条根因见 ../../open-file.ts 与 host 半身 src/open-file/index.ts。
      *
-     * 新链路 = 本插件 /api/chat-flow/open-file：host 侧按会话工作区绝对化、
-     * stat 文件本体，并把 .html 这类浏览器文档**直接交给系统默认浏览器**
-     * （Windows 上官方 opener 从不这么做，它只认文件关联）。
+     * 本插件 /api/chat-flow/open-file：host 侧按会话工作区绝对化、stat 文件本体，
+     * 并把 .html 这类浏览器文档**直接交给系统默认浏览器**（Windows 上官方 opener
+     * 从不这么做，它只认文件关联）。
      */
-    const cwd = workspaceCwdOf(sessionId)
     const result = await openOutputFile(path, { cwd })
     if (result === 'opened') return
     /*
@@ -407,8 +432,10 @@ export const KrOutputsCard = memo(function KrOutputsCard({
     }
     /*
      * 其余情况都退回侧栏，**不剔除条目**：`unavailable` 是环境限制，
-     * `failed` 多半是「这台机器没有这个扩展名的默认程序」这类仍可预览的情形 ——
-     * 前面刚 stat 过文件是在的，把一行活文件从清单里抹掉是更糟的结果。
+     * `failed` 多半是「这台机器没有这个扩展名的默认程序」—— 前面刚 stat 过文件
+     * 是在的，把一行活文件从清单里抹掉是更糟的结果。侧栏对不可展示的类型只会
+     * 给一句"不支持预览"，但它至少是个有路径、有"用系统应用打开"按钮的落点，
+     * 比点了完全没反应好。
      */
     tryOpenInSidebar(path, { sessionId, cwd })
   }, [sessionId])
@@ -495,16 +522,20 @@ export const KrOutputsCard = memo(function KrOutputsCard({
 /**
  * 一行产出物。
  *
- * **整行就是一个按钮**：这张卡每一行都对应一个真实文件，点它 = 交给系统打开
- * （2026-10-20 起；2026-10-21 起 html 这类浏览器文档进**默认浏览器**，其余进默认
- * 应用；宿主没有桌面时退回官方右侧栏的文档预览 tab）。做成整行可点
- * 还顺手解决了键盘与触屏：Tab 一次就到，不需要先聚焦到一枚 10px 高的小按钮上。
+ * **整行就是一个按钮**：这张卡每一行都对应一个真实文件。点击落点按类型分流
+ * （2026-10-22）：侧栏能正常展示的 → **官方右侧栏**；展示不了的 → **系统默认
+ * 应用**。做成整行可点还顺手解决了键盘与触屏：Tab 一次就到，不需要先聚焦到
+ * 一枚 10px 高的小按钮上。
  *
  * 2026-10-19 起**行尾那枚「在侧栏打开」钮删掉**：行主体与它做的是同一件事，
  * 多一枚钮只是把同一句话说了两遍，还让一列行里多出一列图标。行末改留一枚
- * **纯视觉**的箭头（aria-hidden），只在 hover / focus-within 时浮现 —— 它承担
- * 「这里能点、点开在右栏」的提示，不占焦点站、不进无障碍树（读屏用户听到的
- * 是整行按钮的 aria-label）。
+ * **纯视觉**的落点图标（aria-hidden），只在 hover / focus-within 时浮现 ——
+ * 它承担「这里能点、点开在哪」的提示，不占焦点站、不进无障碍树（读屏用户听到
+ * 的是整行按钮的 aria-label）。
+ *
+ * 落点图标按 `data-target` 分派：**sidebar** 是一扇右栏面板（"在右侧打开"），
+ * **external** 是一个跳出去的箭头（"交给别的程序"）。两枚形状差得够远，扫一眼
+ * 就知道这一行点了会往哪走 —— 比同一個箭头配不同文案可靠。
  *
  * `pending` 是**核对尚未出结论**：这一行刚上屏、还没问过磁盘。此时只要一点点
  * 低对比度（`data-pending`）而不是置灰 —— 绝大多数文件是活的，一瞬间的待定态
@@ -514,13 +545,16 @@ function OutputRow({ item, index, pending = false, onOpen }: {
   readonly item: OutputItem
   readonly index: number
   readonly pending?: boolean
-  /** 整行点击：交给系统打开（浏览器文档进默认浏览器；开不了则退回官方右侧栏文档预览）。 */
+  /** 整行点击：侧栏能展示的进右栏，其余交给系统默认应用。 */
   readonly onOpen: () => void
 }): ReactElement {
+  /** 这一行的落点（决定 aria-label 与行尾图标）。纯扩展名判断，无副作用。 */
+  const target = canShowInSidebar(item.path) ? 'sidebar' : 'external'
   return (
     <div
       className="kr-out-row"
       data-kind={item.kind}
+      data-target={target}
       data-pending={pending ? 'true' : undefined}
       title={item.path}
       // 错峰入场：只对靠后的若干条错开，卡片整体不拖出一段长尾。
@@ -529,7 +563,9 @@ function OutputRow({ item, index, pending = false, onOpen }: {
       <button
         type="button"
         className="kr-out-row__main"
-        aria-label={`用默认应用打开 ${item.name}`}
+        aria-label={target === 'sidebar'
+          ? `在右侧栏查看 ${item.name}`
+          : `用默认应用打开 ${item.name}`}
         onClick={onOpen}
       >
         <span className="kr-out-row__thumb" data-kind={item.kind} aria-hidden>
@@ -537,11 +573,23 @@ function OutputRow({ item, index, pending = false, onOpen }: {
         </span>
         <span className="kr-out-row__name">{item.name}</span>
       </button>
-      {/* 纯视觉箭头：hover / focus 浮现，承担「这里能点」的提示。不占焦点站。 */}
+      {/* 纯视觉落点图标：hover / focus 浮现。不占焦点站。 */}
       <span className="kr-out-row__go" aria-hidden="true">
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M6.2 3.6 10.6 8l-4.4 4.4" />
-        </svg>
+        {target === 'sidebar' ? (
+          /* 右栏面板：一个带分隔线的矩形 + 右侧实心条，形状就是"右边那一栏" */
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="3" width="12" height="10" rx="1.8" />
+            <path d="M9.6 3v10" opacity=".55" />
+            <path d="M11.4 6.2h1.2M11.4 8h1.2M11.4 9.8h1.2" opacity=".8" />
+          </svg>
+        ) : (
+          /* 跳出去：方框 + 斜向箭头（"交给别的程序"） */
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9.2 2.6h4.2v4.2" />
+            <path d="M13.4 2.6 7.6 8.4" />
+            <path d="M11.6 9.8v2.4a1.4 1.4 0 0 1-1.4 1.4H3.8a1.4 1.4 0 0 1-1.4-1.4V5.8a1.4 1.4 0 0 1 1.4-1.4h2.4" />
+          </svg>
+        )}
       </span>
     </div>
   )

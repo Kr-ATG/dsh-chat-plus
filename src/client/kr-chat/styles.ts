@@ -3243,17 +3243,20 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 }
 
 /*
- * 行尾箭头（2026-10-19 从「在侧栏打开」真按钮降级为**纯视觉提示**）。
+ * 行尾落点图标（2026-10-19 从「在侧栏打开」真按钮降级为**纯视觉提示**；
+ * 2026-10-22 起按落点分派两枚不同形状）。
  *
- * 为什么降级：行主体点击与那枚按钮做的是同一件事（都是在官方右栏打开该文件），
- * 一列行里挂两枚图标表达同一个动作，只是把一句话说了两遍 —— 用户点名的
- * 「产出物 / 画廊全部用官方侧栏查看」落地后，行内不再需要第二个出口。
+ * 为什么是装饰：行主体点击就是唯一出口（整行 button），一列行里挂第二枚可点
+ * 图标只是把同一句话说了两遍。所以它 status 是 aria-hidden：**不可聚焦、
+ * 不可点**，只在 hover 或行内有焦点时浮现；pointer-events:none 保证它永远不会
+ * 截走本属于整行按钮的那次点击。
  *
- * 所以它现在 status 是 aria-hidden 的装饰：**不可聚焦、不可点**，只在 hover 或
- * 行内有焦点（说明用户已经在操作这一行）时浮现。pointer-events:none 保证它
- * 永远不会截走本属于整行按钮的那次点击。
+ * 为什么分两枚（2026-10-22）：产出物点击按类型分流（侧栏能展示的进右栏，其余
+ * 交给系统默认应用），行尾那枚图标成了**唯一的落点预告**。一扇"右栏面板"和一
+ * 个"跳出去"的箭头，形状差得够远，扫一眼就知道点了会往哪走 —— 比同一个箭头
+ * 配两套文案可靠（也省掉一行悬停提示）。
  *
- * 形态沿用旧按钮那套节奏：向右 2px 位移回位 + 淡入，只是不再有 hover 底色
+ * 动效沿用旧按钮那套节奏：向右 2px 位移回位 + 淡入，只是不再有 hover 底色
  * （它已经不是按钮，给按钮态会骗人）。
  */
 .kr-out-row__go {
@@ -3274,6 +3277,12 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 .kr-out-row:focus-within .kr-out-row__go {
   opacity: 1;
   transform: none;
+}
+
+/* 落点预告：外部程序那枚让颜色退一档 —— 它要跳出应用，比"在右栏看一眼"重。 */
+.kr-out-row[data-target="external"]:hover .kr-out-row__go,
+.kr-out-row[data-target="external"]:focus-within .kr-out-row__go {
+  color: var(--dsw-alias-label-secondary, #9ca3af);
 }
 
 /*

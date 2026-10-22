@@ -388,6 +388,14 @@ export { buildPlainTimeline, condenseSteps } from './kr-chat/plain-timeline.ts'
  */
 export { gateIconForRow, decorateGateMenuRows, GATE_ICON_ATTR, GATE_ICON_COMMANDS } from './tools-gate/menu-icons.ts'
 /**
+ * 产出物点击分流判据（2026-10-22）：**侧栏能正常展示的走侧栏，其余走系统默认**。
+ *
+ * 必须能被 smoke 直接断言：按扩展名判错不会报错，只会让某个类型点开去错地方
+ * （图点出一整个 PowerPoint，或者 3D 模型点开得到一句"不支持预览"）。
+ * 判据的逐扩展名依据见 sidebar-display.ts 文件头。
+ */
+export { canShowInSidebar, sidebarDisplayOf, sidebarRenderedExtensions, extensionOf, PLUGIN_RENDERED_EXT, TEXT_RENDERED_EXT } from './sidebar-display.ts'
+/**
  * 对话内 HTML 卡片：围栏切分 + iframe 文档装配的纯逻辑，供 smoke 直接钉住。
  *
  * 这两条判据错了都不会报错——围栏不命中就静默显示成代码块，沙箱写错就变成

@@ -1752,26 +1752,28 @@ if (krEnabled) {
     // 同一件事（都是官方右栏打开），一列行挂两枚图标只是把一句话说两遍。
     // 这里断言它**不再存在**，防的是日后有人把双出口加回来。
     fail('产出物行尾不得再有第二枚「在侧栏打开」按钮（行主体就是唯一出口）')
-  } else if (!/aria-label=\{`用默认应用打开 \$\{item\.name\}`\}/.test(outputsCode)) {
-    // 2026-10-20：落点从「侧栏」改成「系统默认应用」，aria-label 必须跟着改 ——
-    // 读屏用户靠它知道点下去会发生什么，文案落后于实现就是错误信息。
-    fail('行主体按钮的 aria-label 必须说明落点是「用默认应用打开」（读屏用户靠它知道点开的去向）')
+  } else if (!/aria-label=\{target === 'sidebar'[\s\S]{0,200}?在右侧栏查看[\s\S]{0,200}?用默认应用打开/.test(outputsCode)) {
+    // 2026-10-22：点击按「侧栏能不能正常展示」分流，aria-label 必须**两条都在**——
+    // 读屏用户靠它知道这一行点下去是进右栏还是拉起外部程序，只写一条就是错误信息。
+    fail('行主体 aria-label 必须按落点分两套（侧栏「在右侧栏查看」/ 外部「用默认应用打开」）')
+  } else if (!/if \(canShowInSidebar\(path\)\)[\s\S]{0,600}?tryOpenInSidebar\(path, \{ sessionId, cwd \}\)/.test(outputsCode)) {
+    // 2026-10-22 用户口径：**侧栏能正常展示的走侧栏**，判据收敛在 sidebar-display.ts。
+    // 顺序必须是「先判类型、先试侧栏」，否则图 / PDF / 视频又会把外部程序整窗拉起来。
+    fail('产出物行点击必须先按 canShowInSidebar 分流，可展示的直接 tryOpenInSidebar（不得先拉起系统应用）')
   } else if (!/await openOutputFile\(path, \{ cwd \}\)/.test(outputsCode)) {
-    // 2026-10-21：落点从「官方 openWithDefaultApp」改为本插件 /api/chat-flow/open-file。
+    // 2026-10-21：系统默认那条走本插件 /api/chat-flow/open-file。
     // 官方那条对相对路径的解析基准是 host 进程 cwd，且 Windows 上从不把 .html
     // 交给默认浏览器 —— 两条叠起来就是用户报的「点产出物里的 html 打不开」。
-    fail('产出物行点击必须先走本插件 openOutputFile（/api/chat-flow/open-file：按会话工作区绝对化 + 默认浏览器）')
+    fail('侧栏展示不了的条目必须走本插件 openOutputFile（/api/chat-flow/open-file：按会话工作区绝对化 + 默认浏览器）')
   } else if (!/const result = await openOutputFile\(path, \{ cwd \}\)[\s\S]{0,900}?resolveWorkspacePath\(cwd, path\)[\s\S]{0,200}?openWithDefaultApp\(absolute\)/.test(outputsCode)) {
     // 退回官方链路时**必须补成绝对路径**：官方 verifyDesktopPath 用 host 进程 cwd
     // 解析相对路径，直接传相对路径正是 bug 本身。
     fail('退回官方 openWithDefaultApp 时必须先 resolveWorkspacePath 补成绝对路径（相对路径会被 host cwd 解析错）')
-  } else if (!/className="kr-out-row__go"/.test(outputsCode)) {
-    fail('行尾必须保留纯视觉箭头（kr-out-row__go，aria-hidden），承担「这里能点、点开在右栏」的提示')
+  } else if (!/className="kr-out-row__go"/.test(outputsCode) || !/data-target=\{target\}/.test(outputsCode)) {
+    fail('行尾必须保留纯视觉落点图标（kr-out-row__go + data-target，aria-hidden），侧栏 / 外部两枚形状不同')
   } else if (/canInlinePreview|MediaLightbox/.test(outputsCode)) {
     // 2026-10-19：插件自带的 Lightbox 整套删除，预览一律交官方侧边栏。
     fail('产出物卡不得再引用 canInlinePreview / MediaLightbox（预览出口只有官方侧边栏）')
-  } else if (!/tryOpenInSidebar\(path/.test(outputsCode)) {
-    fail('产出物行点击必须在官方右栏打开（tryOpenInSidebar），不得自己造预览 UI')
   } else if (/<img\b/.test(outputsCode)) {
     fail('缩略图必须是按类型画的 SVG，不得用 <img> 拉真实文件（28px 见方读不出画面，且每行一次请求）')
   } else if (!/function Thumb\(\{ kind \}/.test(outputsCode) || !/case 'model3d':/.test(outputsCode)) {
@@ -1792,8 +1794,80 @@ if (krEnabled) {
     fail('右栏挤压时必须把 squeezed 传给产出物卡（默认露出条数降一档）')
   } else if (!/KrPlainTimelineCard[\s\S]{0,1200}?<KrSubagentsCard[\s\S]{0,800}?<KrOutputsCard/.test(outputsPanelSrc)) {
     fail('右栏卡片顺序必须是 操作面板 → 子智能体 → 产出物（过程 → 派出去的 → 成品）')
+  } else if (typeof mod.canShowInSidebar !== 'function') {
+    fail('client bundle 必须导出 canShowInSidebar（点击分流判据要能被离线断言）')
   } else {
-    pass('产出物卡：整行可点 + SVG 类型缩略图 + 无代码文件 + 无产出时整卡不挂载，位置在操作面板与子智能体卡之下')
+    /*
+     * 点击分流判据（2026-10-22）：**侧栏能正常展示的走侧栏，其余走系统默认**。
+     *
+     * 判错的代价不会报错，只会让某个类型去错地方 —— 图点出一整个 PowerPoint，
+     * 或者 3D 模型点开得到一句"不支持预览"。所以逐档钉死：
+     *   · 真渲染（官方内置 + 插件接管）→ true
+     *   · 只能看源码（rtf / xhtml / obj / gltf / dae）→ false（用户要的是成品形态）
+     *   · 空态（avif/tif/heic、7 种压缩包）→ false
+     *   · not-text（blend / glb / 3ds）→ false
+     */
+    const yes = [
+      'a.png', 'a.jpg', 'a.jpeg', 'a.webp', 'a.bmp', 'a.ico', 'a.svg', 'a.gif',
+      'a.mp4', 'a.webm', 'a.mov', 'a.mkv', 'a.m4v', 'a.avi',
+      'a.mp3', 'a.wav', 'a.flac', 'a.aac', 'a.ogg', 'a.m4a',
+      'a.md', 'a.markdown', 'a.txt',
+      'a.doc', 'a.docx', 'a.odt', 'a.pdf',
+      'a.csv', 'a.tsv', 'a.xls', 'a.xlsx', 'a.ods',
+      'a.ppt', 'a.pptx', 'a.odp',
+      'a.html', 'a.htm',
+      // 大小写与反斜杠分隔符也要认（Windows 路径 + 会话里常见的大写后缀）
+      'D:\\out\\报告.PNG',
+    ]
+    const no = [
+      // 只能看源码
+      'a.rtf', 'a.xhtml', 'a.obj', 'a.gltf', 'a.dae',
+      // 官方图片渲染器不认、且在 UNVIEWABLE 里
+      'a.avif', 'a.tif', 'a.tiff', 'a.heic',
+      // 压缩包
+      'a.zip', 'a.7z', 'a.rar', 'a.tar', 'a.gz', 'a.bz2', 'a.xz',
+      // 既没注册也不在 UNVIEWABLE、落纯文本兜底后 not-text
+      'a.blend', 'a.fbx', 'a.glb', 'a.3ds', 'a.stl', 'a.ply',
+      // 没有扩展名 / 空串
+      'noext', '',
+    ]
+    const wrongYes = yes.filter((p) => mod.canShowInSidebar(p) !== true)
+    const wrongNo = no.filter((p) => mod.canShowInSidebar(p) !== false)
+    if (wrongYes.length > 0) {
+      fail('可以侧栏展示却判成外部：' + wrongYes.join(', '))
+    } else if (wrongNo.length > 0) {
+      fail('侧栏展示不了却判成侧栏（点开只会是空态/乱码）：' + wrongNo.join(', '))
+    } else if (mod.sidebarDisplayOf('a.png') !== 'sidebar' || mod.sidebarDisplayOf('a.zip') !== 'external') {
+      fail('sidebarDisplayOf 的落点标签必须与 canShowInSidebar 同口径')
+    } else {
+      /*
+       * 判据表与两个接管渲染器的 CLAIMED_EXTENSIONS 必须同源。
+       *
+       * 这三处任何一处漂移都是静默 bug：判据说能、渲染器没接管 → 点开是官方空态；
+       * 渲染器接管了、判据没算 → 明明能看却被推去外部程序。用「包含」而不是
+       * 「相等」：判据可以比渲染器多（官方的 md/html/图片/pdf 不在插件渲染器里）。
+       */
+      const docSrc = readFileSync(resolve(ROOT, 'src/client/sidebar-doc/index.tsx'), 'utf8')
+      const mediaSrc = readFileSync(resolve(ROOT, 'src/client/sidebar-media/index.tsx'), 'utf8')
+      const docClaimed = /const CLAIMED_EXTENSIONS = \[([^\]]+)\]/.exec(docSrc)?.[1] ?? ''
+      const mediaClaimed = /const VIDEO_EXTENSIONS = \[([^\]]+)\]/.exec(mediaSrc)?.[1] ?? ''
+      const mediaAudio = /const AUDIO_EXTENSIONS = \[([^\]]+)\]/.exec(mediaSrc)?.[1] ?? ''
+      const claimed = [...(docClaimed + ',' + mediaClaimed + ',' + mediaAudio).matchAll(/'([a-z0-9]+)'/g)].map((m) => m[1])
+      // 注意不能写 `pluginExt instanceof Set`：bundle 跑在 vm sandbox 里，Set 是
+      // 另一个 realm 的构造器，instanceof 恒为 false（实测过一次，报"全漏"）。
+      // 用 Array.from 转成数组再比对，跨 realm 稳妥。
+      const pluginExt = new Set(Array.from(mod.PLUGIN_RENDERED_EXT ?? []))
+      const missing = claimed.filter((ext) => !pluginExt.has(ext))
+      if (missing.length > 0) {
+        fail('sidebar-display 的 PLUGIN_RENDERED_EXT 漏了接管渲染器的扩展名：' + missing.join(', ')
+          + '（判据与渲染器必须同源，漏一个就会"能看却被推去外部程序"）')
+      } else if (!pluginExt.has('ods')) {
+        fail('ods 必须由插件接管（host 引擎本来就支持，官方 UNVIEWABLE 挡着 —— 不接管只能看空态）')
+      } else {
+        pass('产出物卡：整行可点 + SVG 类型缩略图 + 无代码文件 + 无产出时整卡不挂载，位置在操作面板与子智能体卡之下')
+        pass('点击分流判据：' + yes.length + ' 类能侧栏展示 / ' + no.length + ' 类交系统默认（含 ods 接管、大小写与反斜杠路径）')
+      }
+    }
   }
 
   // 「用默认应用打开」通道（2026-10-20）：画廊与产出物卡的主入口。
