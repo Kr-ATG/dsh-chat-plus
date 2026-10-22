@@ -75,8 +75,10 @@ const PAGE_HEADS: ReadonlyArray<{ id: WorkbenchTab; eyebrow: string; title: stri
 
 function PageHead({ tab }: { tab: WorkbenchTab }): JSX.Element | null {
   const head = PAGE_HEADS.find(item => item.id === tab)
-  // 用量页头在 UsagePanel 嵌入分支内（与英雄区同一组件树）
-  if (head === undefined || tab === 'usage') return null
+  // 用量页头在 UsagePanel 嵌入分支内（与英雄区同一组件树）；
+  // SKILL 页头由 SkillsPanel 自己的刊头（Skills / 索引 + 三格统计）承担，
+  // 这里再画一次会变成「SKILL / 会什么」压着「Skills 索引」两个大标题。
+  if (head === undefined || tab === 'usage' || tab === 'skills') return null
   return (
     <header className="wb2-head wb2-rise">
       <div className="wb2-head-l">

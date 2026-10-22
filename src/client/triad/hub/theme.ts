@@ -499,7 +499,7 @@ body[data-ds-dark-theme] .wb-root {
 .wb-root .dsh-memory-top-input { border-radius: 999px !important; }
 
 /* ── 能力：单列整宽列表（与官方自动化任务页同构），技能包行带左侧主色滑入条 ── */
-.wb-root .skm-main-scroll { max-width: none !important; margin: 0 !important; padding: 4px 22px 26px !important; }
+.wb-root .skm-main-scroll { max-width: none !important; margin: 0 !important; padding: 0 60px 40px !important; }
 .wb-root .skm-bundle-row-outer { position: relative; overflow: hidden; border-radius: var(--wb2-r-md) !important; }
 .wb-root .skm-bundle-row-outer::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
   background: var(--wb2-accent); transform: scaleY(0); transform-origin: top; transition: transform 460ms var(--wb2-ease); }

@@ -193,17 +193,15 @@ body[data-ds-dark-theme] .wb-root {
   box-shadow: var(--wb-surface-shadow) !important;
 }
 
-/* 技能页：筛选行与列表滚动区整宽铺满（不限宽、不居中）。
-   用户 2026-10 明确要求「铺满」——居中大盘在宽屏下左右各留一大条空白。 */
-.wb-root .skm-filter-row,
+/* 技能页：列表区整宽铺满（不限宽、不居中）。
+   2026-10-22 版式改为「目录式」：左右内边距由面板样式表统一给 60px（与刊头/工具条同一条版心），
+   这里只负责解除宽度上限，不再改 padding（否则会把版心改回 22px）。 */
 .wb-root .skm-main-scroll {
   max-width: none !important;
   width: 100% !important;
   margin: 0 !important;
   box-sizing: border-box !important;
 }
-/* 技能页筛选行：与官方「自动化任务」页同款 filter tab，不被工作台主题改写 */
-.wb-root .skm-filter-row { padding: 4px 22px 0 !important; }
 
 .wb-root .tg-toolbar {
   max-width: 1140px !important;

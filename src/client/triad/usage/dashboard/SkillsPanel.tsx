@@ -19,6 +19,7 @@ import {
   IconFolderOpenOutlineRegular as IconFolderOpenOutline16,
   IconPlusOutlineRegular as IconPlusOutline16,
   IconRefreshOutlineRegular as IconRefreshOutline14,
+  IconSearchOutlineRegular as IconSearchOutline16,
   IconTrashOutlineRegular as IconTrashOutline16,
   Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -84,7 +85,7 @@ const SKILL_ZH: Record<string, string> = {
   installNameInvalid: '技能名只能包含小写字母、数字和连字符（a-z 0-9 -）',
   installBundle: '归入 Bundle', installLoose: '不归组（散装）', installConfirm: '安装', installCancel: '取消',
   // 技能包分类
-  bundleCatTitle: '分类', bundleCatAll: '全部分类', bundleCatNone: '未分类', bundleCatFilterAria: '按分类筛选技能包',
+  bundleCatTitle: '分类', bundleCatAll: '全部分类', bundleCatAllShort: '全部', bundleCatNone: '未分类', bundleCatFilterAria: '按分类筛选技能包',
   bundleCatEdit: '设置分类', bundleCatEditTitle: '「{name}」的分类', bundleCatPlaceholder: '自定义分类，回车添加',
   bundleCatSaved: '已更新「{name}」的分类', bundleCatTip: '只看「{name}」分类 · 再点一次取消筛选',
   bundleCatLimit: '一个技能包最多 {n} 个分类', bundleCatDone: '保存', bundleCatAddPreset: '加入「{name}」',
@@ -100,12 +101,20 @@ const SKILL_ZH: Record<string, string> = {
   enableBundle: '启用全部', disableBundle: '禁用全部',
   toggleFailed: '切换失败：{message}',
   // 卡片（Skills Hub 风格）文案
-  copySkillName: '复制技能名', copiedSkillName: '已复制', toolsLabel: '工具', scopeAll: '全局', tagLoose: '散装',
+  copySkillName: '复制技能名', copiedSkillName: '已复制', scopeAll: '全局', tagLoose: '散装',
   // Skills Hub 页面文案
   bannerTitle: '添加技能', bannerSub: '拖入技能文件夹安装，或点击浏览选择',
   noMatch: '没有符合筛选条件的技能',
   // 左栏：Agent 预设分类 / 快捷筛选 / 添加技能卡
-  statusAll: '全部', statusOn: '已启用', statusOff: '已停用',
+  statusAll: '全部', statusAllShort: '全部状态', statusOn: '已启用', statusOff: '已停用',
+  expandBundle: '展开技能列表', collapseBundle: '收起技能列表',
+  enabledShort: '已启用', allDisabled: '全部停用',
+  noDescription: '暂无描述', moreSkills: '还有 {n} 个',
+  expandAll: '全部展开', collapseAll: '全部收起', expandAllShort: '展开', collapseAllShort: '收起',
+  // 概览 / 工具条
+  statBundles: '技能包', statSkills: '技能总数', statEnabled: '已启用', statCategories: '分类',
+  searchPlaceholder: '搜索技能包 / 技能名 / 分类…', searchClear: '清空搜索', searchResult: '命中 {n} 个技能', refresh: '刷新',
+  enabledRatio: '{on}/{total} 已启用',
   addSkillsTitle: '添加技能',
   dropHere: '拖拽文件到此处', dropFormat: '支持 .zip .skill 等格式', browseImport: '浏览并导入',
   // 快速上手指南卡
@@ -300,9 +309,16 @@ const css = {
   error: 'skm-error',
   bundleRow: 'skm-bundle-row',
   bundleName: 'skm-bundle-name',
-  bundleCount: 'skm-bundle-count',
-  chevron: 'skm-chevron',
-  // 技能卡片（Skills Hub 风格）
+  bundleLeft: 'skm-bundle-left',
+  bundleRight: 'skm-bundle-right',
+  bundleMeta: 'skm-bundle-meta',
+  bundleSep: 'skm-bundle-sep',
+  toggleDot: 'skm-toggle-dot',  bundlePreview: 'skm-bundle-preview',
+  bundlePreviewChip: 'skm-bundle-preview-chip',
+  bundlePreviewName: 'skm-bundle-preview-name',
+  bundlePreviewDesc: 'skm-bundle-preview-desc',
+  bundlePreviewFiles: 'skm-bundle-preview-files',
+  bundlePreviewMore: 'skm-bundle-preview-more',  // 技能卡片（Skills Hub 风格）
   skillGrid: 'skm-skill-grid',
   skillCard: 'skm-skill-card',
   skillCardHead: 'skm-skill-card-head',
@@ -316,19 +332,31 @@ const css = {
   tagScope: 'skm-tag-scope',
   skillMeta: 'skm-skill-meta',
   skillCardFoot: 'skm-skill-card-foot',
-  skillFootLabel: 'skm-skill-foot-label',
   skillFootIcon: 'skm-skill-foot-icon',
   skillFootIconDanger: 'skm-skill-foot-icon-danger',
   skillCardActions: 'skm-skill-card-actions',
   // Skills Hub 页面结构
   hub: 'skm-hub',
-  // 筛选行：分类 / 启用状态（与官方「自动化任务」页同一套 filter tab）
-  filterRow: 'skm-filter-row',
-  filterTabs: 'skm-filter-tabs',
+  // 刊头 / 工具条 / 搜索（2026-10-22 方向一重做）
+  mast: 'skm-mast',
+  mastWord: 'skm-mast-word',
+  mastZh: 'skm-mast-zh',
+  mastGrow: 'skm-mast-grow',
+  mastStats: 'skm-mast-stats',
+  mastStat: 'skm-mast-stat',
+  bar: 'skm-bar',
+  barCats: 'skm-bar-cats',
+  barGrow: 'skm-bar-grow',
+  barBtn: 'skm-bar-btn',
+  barAdd: 'skm-bar-add',
+  barDivider: 'skm-bar-divider',
+  filterCount: 'skm-filter-count',
+  search: 'skm-search',
+  searchInput: 'skm-search-input',
+  searchClear: 'skm-search-clear',
+  // 筛选行：分类 / 启用状态（与官方「自动化任务」页同一套 filter tab）  filterTabs: 'skm-filter-tabs',
   filterTabsRight: 'skm-filter-tabs-right',
-  filterTab: 'skm-filter-tab',
-  filterDivider: 'skm-filter-divider',
-  addCard: 'skm-add-card',
+  filterTab: 'skm-filter-tab',  addCard: 'skm-add-card',
   addCardActive: 'skm-add-card-active',
   addCardHead: 'skm-add-card-head',
   addCardIcon: 'skm-add-card-icon',
@@ -342,9 +370,7 @@ const css = {
   // 右侧指南栏
   hubMain: 'skm-hub-main',
   // 分组行
-  bundleRowOuter: 'skm-bundle-row-outer',
-  bundleIcon: 'skm-bundle-icon',
-  bundleMore: 'skm-bundle-more',
+  bundleRowOuter: 'skm-bundle-row-outer',  bundleMore: 'skm-bundle-more',
   bundleMoreBtn: 'skm-bundle-more-btn',
   // 分页
   mainScroll: 'skm-main-scroll',
@@ -424,14 +450,87 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 .skm-failure{display:flex;align-items:center;gap:8px}
 .skm-failure p{margin:2px;font-size:13px;line-height:20px;color:var(--dsw-alias-state-error-primary,#e0434b)}
 .skm-error{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#e0434b)}
-/* 分组行（参考设计稿）：白底圆角行，蓝文件夹图标 + 名称 + 计数 pill + chevron + 更多 */
-.skm-bundle-row-outer{flex:none;display:flex;align-items:center;gap:6px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.08));border-radius:11px;background:var(--dsw-alias-bg-base,#fff);padding:2px 6px 2px 10px;min-height:40px;transition:border-color 160ms ease,box-shadow 160ms ease,background 160ms ease}
-.skm-bundle-row-outer:hover{border-color:var(--dsw-alias-border-l3,rgba(0,0,0,.14));box-shadow:0 2px 8px rgba(16,24,40,.06)}
-.skm-bundle-row{flex:1;min-width:0;display:inline-flex;align-items:center;gap:10px;appearance:none;border:none;background:transparent;padding:6px 2px;font-size:14px;cursor:pointer;color:var(--dsw-alias-label-primary,#1f2430);font-family:inherit;border-radius:8px;text-align:left;transition:background 140ms ease}
-.skm-bundle-row:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.02))}
-.skm-bundle-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;color:var(--dsw-alias-state-business-primary,#3d6be5)}
-.skm-bundle-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;display:inline-flex;align-items:center;gap:6px}
-.skm-bundle-count{flex:none;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary,#61666b);background:var(--dsw-alias-bg-module-platform,#f1f3f5);border-radius:999px;padding:0 8px;white-space:nowrap}
+/* ── 目录式技能包行（方向一 · 2026-10-22 定稿）──
+   整个 section 是两栏：左栏包名/分类/启用数，右栏技能目录。
+   没有卡片、圆角、阴影：靠一条发丝分隔线和两栏版心表达结构。 */
+.skm-bundle-row-outer{position:relative;flex:none;display:grid;grid-template-columns:262px minmax(0,1fr);gap:0;
+  box-sizing:border-box;padding:26px 0 24px;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.09));
+  transition:background 200ms ease}
+@media (max-width:1180px){.skm-bundle-row-outer{grid-template-columns:200px minmax(0,1fr)}}
+.skm-bundle-row-outer:hover{background:linear-gradient(90deg,color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 3%,transparent),transparent 38%)}
+/* 左侧主色竖线：hover 时从中间展开（目录里的定位标记，不是装饰） */
+.skm-bundle-row-outer::before{content:"";position:absolute;left:-20px;top:24px;bottom:22px;width:2px;
+  background:var(--dsw-alias-state-business-primary,#3d6be5);transform:scaleY(0);transform-origin:center;
+  transition:transform 360ms cubic-bezier(.32,.72,0,1)}
+.skm-bundle-row-outer:hover::before{transform:scaleY(1)}
+/* 变成单栏时（窄屏）撤掉左栏版心 */
+@media (max-width:900px){.skm-bundle-row-outer{grid-template-columns:minmax(0,1fr)}}
+
+/* 左栏 */
+.skm-bundle-left{min-width:0;padding-right:34px}
+.skm-bundle-row{display:block;width:100%;text-align:left;appearance:none;border:0;background:none;padding:0;
+  font-family:inherit;cursor:pointer;color:var(--dsw-alias-label-primary,#14171b);transition:color .18s ease}
+.skm-bundle-row:hover{color:var(--dsw-alias-state-business-primary,#3d6be5)}
+.skm-bundle-name{display:block;min-width:0;overflow-wrap:anywhere;font-weight:700;font-size:25px;line-height:1.18;
+  letter-spacing:-.026em;margin:0 0 9px;transition:color .18s ease}
+.skm-bundle-meta{display:flex;align-items:center;flex-wrap:wrap;gap:0 7px;font-size:12px;line-height:1.85;
+  color:var(--dsw-alias-label-tertiary,#7b818a)}
+.skm-bundle-meta .skm-bundle-sep{width:2px;height:2px;border-radius:50%;background:var(--dsw-alias-border-l3,rgba(0,0,0,.22));flex:none}
+.skm-bundle-left .skm-bundle-cats{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap;min-width:0}
+/* 包名旁的分类：目录式下划线，不是胶囊 */
+.skm-bundle-cat-tag{display:inline-flex;align-items:center;border:0;background:none;padding:0 0 1px;border-radius:0;
+  font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary,#4c5158);cursor:pointer;white-space:nowrap;
+  border-bottom:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.16));transition:color .16s ease,border-color .16s ease}
+.skm-bundle-cat-tag:hover{color:var(--dsw-alias-state-business-primary,#3d6be5);border-color:var(--dsw-alias-state-business-primary,#3d6be5)}
+/* 启用状态：圆点 + 计数，点一下切整包 */
+.skm-bundle-toggle{display:inline-flex;align-items:center;gap:7px;margin-top:11px;padding:0;border:0;background:none;
+  font-family:inherit;font-size:12px;color:var(--dsw-alias-label-tertiary,#7b818a);letter-spacing:.01em;cursor:pointer;
+  transition:color .16s ease}
+.skm-bundle-toggle .skm-toggle-dot{width:5px;height:5px;border-radius:50%;flex:none;
+  background:var(--dsw-alias-border-l3,rgba(0,0,0,.22));transition:background .24s ease,box-shadow .24s ease}
+.skm-bundle-toggle[data-on]{color:var(--dsw-alias-label-secondary,#4c5158)}
+.skm-bundle-toggle[data-on] .skm-toggle-dot{background:var(--dsw-alias-state-business-primary,#3d6be5);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 14%,transparent)}
+.skm-bundle-toggle:hover{color:var(--dsw-alias-label-primary,#14171b)}
+.skm-bundle-toggle b{font-weight:600;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary,#7b818a)}
+.skm-bundle-toggle[data-on] b{color:var(--dsw-alias-state-business-primary,#3d6be5)}
+/* 旧开关/进度条/文件夹图标：目录式下不再出现，样式保留空壳以防引用 */
+
+/* 右栏：技能目录 */
+.skm-bundle-right{min-width:0;border-left:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.09));padding-left:30px}
+.skm-bundle-more{position:absolute;top:20px;right:0;display:flex;align-items:center}
+.skm-bundle-more-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:0;border-radius:5px;
+  padding:0;background:transparent;cursor:pointer;color:var(--dsw-alias-label-tertiary,#a3a7ad);transition:background .14s ease,color .14s ease,transform .14s ease}
+.skm-bundle-more-btn:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary,#14171b) 7%,transparent);color:var(--dsw-alias-label-primary,#14171b)}
+.skm-bundle-more-btn:active{transform:scale(.9)}
+
+/* 收起态：技能目录（名称 + 描述 + 文件数），两列/三列自适应 */
+.skm-bundle-preview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px 36px;min-width:0}
+@media (max-width:1440px){.skm-bundle-preview{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:900px){.skm-bundle-preview{grid-template-columns:minmax(0,1fr)}}
+.skm-bundle-preview-chip{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:0 12px;
+  width:100%;text-align:left;border:0;background:none;padding:6px 10px 6px 0;font-family:inherit;cursor:pointer;min-width:0;
+  transition:background .16s ease}
+.skm-bundle-preview-chip::before{content:"";position:absolute;left:-10px;top:4px;bottom:4px;width:1.5px;
+  background:var(--dsw-alias-state-business-primary,#3d6be5);transform:scaleY(0);transform-origin:center;
+  transition:transform .22s cubic-bezier(.22,.72,.24,1)}
+.skm-bundle-preview-chip:hover::before{transform:scaleY(1)}
+.skm-bundle-preview-chip:hover{background:linear-gradient(90deg,color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 5%,transparent),transparent 78%)}
+.skm-bundle-preview-name{grid-column:1;display:block;font-family:ui-monospace,"Cascadia Mono","SF Mono",Consolas,monospace;
+  font-size:13.5px;font-weight:600;letter-spacing:-.01em;color:var(--dsw-alias-label-primary,#14171b);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color .16s ease}
+.skm-bundle-preview-chip:hover .skm-bundle-preview-name{color:var(--dsw-alias-state-business-primary,#3d6be5)}
+.skm-bundle-preview-desc{grid-column:1;display:block;font-size:12.5px;line-height:1.55;color:var(--dsw-alias-label-tertiary,#7b818a);
+  margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:430px}
+.skm-bundle-preview-files{grid-column:2;grid-row:1 / span 2;align-self:center;font-family:ui-monospace,Consolas,monospace;
+  font-size:10.5px;color:var(--dsw-alias-label-tertiary,#a3a7ad);opacity:.62;font-variant-numeric:tabular-nums;white-space:nowrap;
+  transition:opacity .16s ease}
+.skm-bundle-preview-chip:hover .skm-bundle-preview-files{opacity:1}
+.skm-bundle-preview-more{grid-column:1 / -1;justify-self:start;display:inline-flex;align-items:center;gap:6px;margin-top:10px;
+  padding:2px 0;border:0;border-bottom:1px solid transparent;background:none;font-family:inherit;font-size:12px;
+  color:var(--dsw-alias-label-tertiary,#7b818a);cursor:pointer;letter-spacing:.03em;transition:color .16s ease,border-color .16s ease}
+.skm-bundle-preview-more:hover{color:var(--dsw-alias-state-business-primary,#3d6be5);border-bottom-color:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 40%,transparent)}
+@keyframes skm-preview-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
 /* ── 技能包分类：顶栏胶囊筛选 / 包名旁标签 / 分类编辑器 ─────────────────────── */
 /* 配色只走主题蓝一把刷子（与 .skm-tag 同语言）；分类名不参与配色——
    彩虹色板实测视觉太吵，与面板其余部分打架，已否。 */
@@ -461,8 +560,6 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 .skm-cat-input:focus,.skm-cat-input:focus-visible{outline:none;border-color:var(--dsw-alias-state-business-primary,#3d6be5);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
 .skm-cat-limit{margin:0;font-size:11.5px;line-height:17px;color:var(--dsw-alias-label-tertiary,#81858c)}
 
-.skm-chevron{flex:none;margin-left:auto;color:var(--dsw-alias-label-caption,#adb2b8);transition:transform 120ms}
-.skm-bundle-row-outer[data-open='true'] .skm-chevron{transform:rotate(180deg)}
 .skm-bundle-more{flex:none;display:flex;align-items:center}
 .skm-bundle-more-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;border-radius:8px;padding:0;background:transparent;cursor:pointer;color:var(--dsw-alias-label-caption,#adb2b8);transition:background 140ms ease,color 140ms ease,transform 140ms ease}
 .skm-bundle-more-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.05));color:var(--dsw-alias-label-primary,#1f2430)}
@@ -470,6 +567,8 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 
 /* ── 技能卡片（Skills Hub 风格）：双列网格；列表视图切单列宽卡 ── */
 .skm-skill-grid{list-style:none;margin:8px 0 0;padding:0;width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;box-sizing:border-box}
+/* 超宽屏三列：两列时每张卡近 1000px，一行一个技能读起来太空（用户 2026-10-22 反馈） */
+@media (min-width:1680px){.skm-skill-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .skm-skill-grid > .skm-status{grid-column:1/-1;padding-top:4px}
 .skm-skill-card{position:relative;min-width:0;display:flex;flex-direction:column;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));border-radius:16px;background:var(--dsw-alias-bg-base,#fff);padding:14px 16px 0;overflow:hidden;opacity:0;animation:skm-card-in 260ms cubic-bezier(.2,.7,.3,1.06) forwards;animation-delay:calc(var(--skm-i,0)*40ms);transition:border-color 160ms ease,box-shadow 160ms ease,transform 160ms ease}
 .skm-skill-card:hover{border-color:var(--dsw-alias-border-l3,rgba(0,0,0,.16));box-shadow:0 3px 14px rgba(16,24,40,.08);transform:translateY(-1px)}
@@ -499,8 +598,12 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
    一眼区别于用户自己装的技能。 */
 .skm-tag-builtin{background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 12%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 34%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5)}
 .skm-skill-meta{margin-left:auto;flex:none;font-size:12px;line-height:17px;color:var(--dsw-alias-label-caption,#adb2b8);white-space:nowrap}
-.skm-skill-card-foot{display:flex;align-items:center;gap:6px;margin:12px -16px 0;padding:8px 14px 8px 16px;border-top:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.06))}
-.skm-skill-foot-label{flex:none;font-size:12px;line-height:17px;color:var(--dsw-alias-label-caption,#adb2b8)}
+/* 卡片底部操作条：不再挂一个空的「操作」文字标签（那行只剩按钮，读起来像占位）。
+   按钮默认压低对比，hover / 键盘聚焦才浮到全亮 —— 卡片主体永远是内容，不是按钮墙。 */
+.skm-skill-card-foot{display:flex;align-items:center;gap:6px;margin:12px -16px 0;padding:6px 10px 6px 16px;border-top:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.06));background:color-mix(in srgb,var(--dsw-alias-label-primary,#0f1115) 1.6%,transparent);transition:background 200ms ease}
+.skm-skill-card:hover .skm-skill-card-foot,.skm-skill-card:focus-within .skm-skill-card-foot{background:color-mix(in srgb,var(--dsw-alias-label-primary,#0f1115) 3.2%,transparent)}
+.skm-skill-card-foot .skm-skill-foot-icon{opacity:.62;transition:opacity 200ms ease,background 140ms ease,color 140ms ease,transform 140ms ease}
+.skm-skill-card:hover .skm-skill-foot-icon,.skm-skill-card:focus-within .skm-skill-foot-icon{opacity:1}
 .skm-skill-foot-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:none;border-radius:8px;padding:0;background:transparent;cursor:pointer;color:var(--dsw-alias-label-secondary,#61666b);transition:background 140ms ease,color 140ms ease,transform 140ms ease}
 .skm-skill-foot-icon:hover{background:var(--dsw-alias-interactive-bg-hover-solid,#f1f3f5);color:var(--dsw-alias-label-primary,#0f1115);transform:scale(1.05)}
 .skm-skill-foot-icon:active{transform:scale(.92)}
@@ -512,18 +615,60 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 .skm-skill-foot-icon:disabled:hover{background:transparent;color:var(--dsw-alias-label-secondary,#61666b)}
 .skm-skill-card-actions{margin-left:auto;display:flex;align-items:center;gap:4px}
 
-/* ── Skills Hub 页面骨架：左栏（分类/筛选/添加） / 统计行 / 工具栏 / tabs / 分组 / 卡片 ── */
+/* ── Skills Hub 页面骨架：概览 / 工具条 / 筛选 / 分组 / 卡片 ── */
 .skm-hub{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;min-width:0;background:var(--dsw-alias-bg-base,#fff)}
-/* 筛选行：与官方「自动化任务」页同一套 filter tab（纯文字胶囊，无边框） */
-.skm-filter-row{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:12px 16px 2px}
+
+/* ── 刊头（嵌入工作台）：大标题 + 右侧三格统计。独立座位仍走 psh-head，不重复画。 ── */
+.skm-mast{flex:none;display:flex;align-items:flex-start;gap:14px;padding:26px 60px 16px}
+.skm-mast-word{font-size:44px;font-weight:700;letter-spacing:-.045em;line-height:.96;color:var(--dsw-alias-label-primary,#14171b)}
+.skm-mast-zh{font-size:12px;color:var(--dsw-alias-label-tertiary,#7b818a);letter-spacing:.44em;padding-top:20px}
+.skm-mast-grow{flex:1}
+.skm-mast-stats{display:flex;padding-top:4px}
+.skm-mast-stat{padding:0 22px;border-right:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.12));text-align:left}
+.skm-mast-stat:first-child{padding-left:0}
+.skm-mast-stat:last-child{border-right:0;padding-right:0}
+.skm-mast-stat b{display:block;font-size:27px;font-weight:700;letter-spacing:-.03em;line-height:1.1;color:var(--dsw-alias-label-primary,#14171b);font-variant-numeric:tabular-nums}
+.skm-mast-stat span{display:block;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#7b818a);letter-spacing:.1em;margin-top:3px;white-space:nowrap}
+@media (max-width:900px){.skm-mast{padding:18px 22px 12px;flex-wrap:wrap}.skm-mast-word{font-size:34px}.skm-mast-stats{margin-left:auto}}
+
+/* ── 工具条：搜索 + 分类 + 全部展开，一条通栏，上下各一条实线 ── */
+.skm-bar{flex:none;display:flex;align-items:center;gap:12px;padding:0 60px;height:52px;box-sizing:border-box;overflow:hidden;
+  border-top:2px solid var(--dsw-alias-label-primary,#14171b);border-bottom:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.09))}
+@media (max-width:900px){.skm-bar{padding:0 22px}}
+.skm-search{flex:0 1 230px;display:flex;align-items:center;gap:7px;height:52px;min-width:140px}
+.skm-search svg{flex:none;color:var(--dsw-alias-label-tertiary,#7b818a);transition:color .2s ease}
+.skm-search:focus-within svg{color:var(--dsw-alias-state-business-primary,#3d6be5)}
+.skm-search-input{flex:1;min-width:0;height:100%;border:0;background:none;padding:0;outline:none;font-family:inherit;font-size:13.5px;color:var(--dsw-alias-label-primary,#14171b)}
+.skm-search-input::placeholder{color:var(--dsw-alias-label-tertiary,#7b818a)}
+.skm-search-input::-webkit-search-cancel-button,.skm-search-input::-webkit-search-decoration{-webkit-appearance:none;appearance:none}
+.skm-search-clear{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:0;border-radius:50%;background:color-mix(in srgb,var(--dsw-alias-label-primary,#14171b) 8%,transparent);color:var(--dsw-alias-label-secondary,#4c5158);cursor:pointer;transition:background .14s ease,transform .14s ease}
+.skm-search-clear:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary,#14171b) 16%,transparent);transform:scale(1.06)}
+.skm-bar-cats{flex:0 1 auto;display:flex;align-items:center;gap:0;flex-wrap:nowrap;min-width:0;overflow-x:auto;scrollbar-width:none}
+.skm-bar-cats::-webkit-scrollbar{display:none}
+.skm-bar-divider{flex:none;width:1px;height:14px;background:var(--dsw-alias-border-l2,rgba(0,0,0,.16));margin:0 2px}
+.skm-filter-count{font-style:normal;font-size:10px;color:var(--dsw-alias-label-tertiary,#a3a7ad);margin-left:4px;font-variant-numeric:tabular-nums;letter-spacing:0}
+.skm-bar-grow{flex:1}
+.skm-bar-btn{flex:none;border:0;background:none;padding:5px 6px;font-family:inherit;font-size:12.5px;white-space:nowrap;color:var(--dsw-alias-label-tertiary,#7b818a);cursor:pointer;letter-spacing:.03em;transition:color .16s ease}
+.skm-bar-btn:hover{color:var(--dsw-alias-state-business-primary,#3d6be5)}
+.skm-bar-btn[data-spin] svg{animation:skm-spin 720ms linear infinite}
+.skm-bar-add{flex:none;display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px;white-space:nowrap;border:1px solid var(--dsw-alias-state-business-primary,#3d6be5);
+  border-radius:4px;background:transparent;color:var(--dsw-alias-state-business-primary,#3d6be5);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;
+  transition:background .16s ease,color .16s ease,transform .12s ease}
+.skm-bar-add:hover{background:var(--dsw-alias-state-business-primary,#3d6be5);color:#fff}
+.skm-bar-add:active{transform:scale(.97)}
+@keyframes skm-spin{to{transform:rotate(360deg)}}
+/* 状态筛选已并入工具条（分类右侧一条细分隔后），不再单独占一行 */
 .skm-filter-tabs{flex-wrap:wrap;align-items:center;gap:8px 12px;display:flex}
-/* 启用状态组：靠右（margin-left:auto 吃掉中间空白），与左侧分类分开 */
-.skm-filter-tabs-right{flex-wrap:wrap;align-items:center;gap:8px 12px;display:flex;margin-left:auto}
-.skm-filter-tab{flex:none;display:inline-flex;align-items:center;height:28px;box-sizing:border-box;border:0;border-radius:14px;background:transparent;padding:0 10px;font-family:inherit;font-size:14px;line-height:22px;color:var(--dsw-alias-label-tertiary,#81858c);white-space:nowrap;cursor:pointer;transition:background 140ms ease,color 140ms ease}
-.skm-filter-tab:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.04))}
-.skm-filter-tab[data-active]{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.04));color:var(--dsw-alias-label-primary,#1f2430)}
-/* 分类与启用状态两组筛选之间的细分隔（两组都是纯文字胶囊，并排会读成一组） */
-.skm-filter-divider{flex:none;width:1px;height:16px;background:var(--dsw-alias-border-l2,rgba(0,0,0,.12))}
+.skm-filter-tabs-right{flex:none;flex-wrap:nowrap;align-items:center;gap:0;display:flex}
+/* 纯文字 tab：选中用下划线，不用胶囊底（目录式排版里底块会读成按钮） */
+.skm-filter-tab{position:relative;flex:none;display:inline-flex;align-items:center;height:26px;box-sizing:border-box;border:0;border-radius:2px;
+  background:transparent;padding:0 8px;font-family:inherit;font-size:12.5px;line-height:20px;color:var(--dsw-alias-label-tertiary,#7b818a);
+  white-space:nowrap;cursor:pointer;letter-spacing:.02em;transition:color 160ms ease,background 160ms ease}
+.skm-filter-tab:hover{color:var(--dsw-alias-label-primary,#14171b);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 4%,transparent)}
+.skm-filter-tab[data-active]{color:var(--dsw-alias-label-primary,#14171b);font-weight:600}
+.skm-filter-tab[data-active]::after{content:"";position:absolute;left:10px;right:10px;bottom:1px;height:1.5px;background:var(--dsw-alias-label-primary,#14171b)}
+.skm-filter-count{font-style:normal;font-size:10px;color:var(--dsw-alias-label-tertiary,#a3a7ad);margin-left:4px;font-variant-numeric:tabular-nums;letter-spacing:0}
+.skm-filter-tab[data-active] .skm-filter-count{color:var(--dsw-alias-state-business-primary,#3d6be5)}
 /* 添加技能卡 */
 .skm-add-card{flex:none;display:flex;flex-direction:column;gap:8px;margin-top:18px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.08));border-radius:14px;background:var(--dsw-alias-bg-base,#fff);padding:12px;cursor:pointer;box-shadow:0 1px 2px rgba(16,24,40,.04);transition:border-color 140ms ease,box-shadow 140ms ease,transform 140ms ease}
 .skm-add-card:hover{border-color:var(--dsw-alias-border-l3,rgba(0,0,0,.14));box-shadow:0 4px 14px rgba(16,24,40,.08)}
@@ -541,7 +686,8 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 .skm-hub-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 /* 主区：单列整宽列表（与官方「自动化任务」页同构）。
    旧版是两列网格 —— 宽屏下每个技能包只占半屏，右侧留一大片空白，用户要求铺满。 */
-.skm-main-scroll{flex:1;min-height:0;overflow-y:auto;padding:12px 16px 20px;display:flex;flex-direction:column;gap:10px}
+.skm-main-scroll{flex:1;min-height:0;overflow-y:auto;padding:0 60px 40px;display:flex;flex-direction:column}
+@media (max-width:900px){.skm-main-scroll{padding:0 22px 32px}}
 .skm-hub-section{min-width:0}
 .skm-main-scroll>.skm-status{flex:none}
 .skm-hub-section{display:flex;flex-direction:column;min-width:0}
@@ -1123,7 +1269,6 @@ function SkillCard({ skill, bundleId, bundleName, enabled, scopeLabel, index, on
         </ul>
       )}
       <div className={css.skillCardFoot}>
-        <span className={css.skillFootLabel}>{skillT('toolsLabel')}</span>
         <div className={css.skillCardActions}>
           {canExpand && (
             <Tooltip label={skillT('expandSkillFiles')} side="bottom" delayMs={500}>
@@ -1295,6 +1440,12 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
   const [toggling, setToggling] = useState<Set<string>>(new Set())
   /** 启用状态筛选：全部 / 已启用 / 已停用。 */
   const [statusFilter, setStatusFilter] = useState<'all' | 'on' | 'off'>('all')
+  /** 技能库搜索词：匹配包名 / 分类 / 技能名 / 技能描述。 */
+  const [query, setQuery] = useState('')
+  /** 工具条刷新钮的短暂旋转态（真实取数在 refresh()，这里只做点击反馈）。 */
+  const [refreshing, setRefreshing] = useState(false)
+  /** 「全部展开 / 全部收起」总开关：true 时所有包都按展开渲染（不再逐个 toggle）。 */
+  const [allOpen, setAllOpen] = useState(false)
   /** 技能包分类筛选：null = 不筛；分类名或 UNCATEGORIZED = 只看该类。 */
   const [catFilter, setCatFilter] = useState<string | null>(null)
   /** 「设置分类」弹窗的目标包（null = 关）；catDraft 是弹窗内的编辑副本。 */
@@ -1731,8 +1882,6 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
     return counts
   })()
   const categoryList = sortCategories(categoryCounts)
-  /** 至少要有一个真分类（未分类桶不算）才值得占一行顶栏空间。 */
-  const hasCategories = categoryList.some((cat) => cat !== UNCATEGORIZED)
   /** 选中的分类被最后一个包摘掉时自动回落「全部」，不留一个筛不出东西的死状态。 */
   const activeCat = catFilter !== null && categoryCounts.has(catFilter) ? catFilter : null
   const catMatch = (bundle: BundleInfo): boolean => {
@@ -1740,12 +1889,42 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
     const cats = bundle.categories ?? []
     return activeCat === UNCATEGORIZED ? cats.length === 0 : cats.includes(activeCat)
   }
+  /* ── 搜索：包名 / 分类 / 技能名 / 描述，四路 OR；命中时包内只留命中的技能 ── */
+  const needle = query.trim().toLowerCase()
+  const textHit = (value: string | undefined): boolean =>
+    needle === '' || (value ?? '').toLowerCase().includes(needle)
+  const skillHit = (skill: SkillInfo): boolean =>
+    textHit(skill.name) || textHit(skill.description)
+  const bundleSelfHit = (bundle: BundleInfo): boolean =>
+    needle === '' || textHit(bundle.name) || (bundle.categories ?? []).some((cat) => textHit(cat))
+  /**
+   * 搜索态下包内技能先按搜索词收窄（包名/分类命中则整包保留），
+   * 再叠启用状态筛选 —— 否则搜到包名却只列出「已启用」的子集，读起来像丢数据。
+   */
+  const searchedSkills = (bundle: BundleInfo): SkillInfo[] => {
+    const base = bundleSelfHit(bundle) ? bundle.skills : bundle.skills.filter(skillHit)
+    return filteredSkills(base)
+  }
   const visibleBundleAll = bundles
     .filter((bundle) => catMatch(bundle))
-    .map((bundle) => ({ ...bundle, skills: filteredSkills(bundle.skills) }))
-    .filter((bundle) => bundle.skills.length > 0 || (bundle.skillCount === 0 && !filtering))
-  const visibleLooseAll = activeCat !== null ? [] : filteredSkills(loose)
+    .map((bundle) => ({ ...bundle, skills: searchedSkills(bundle) }))
+    .filter((bundle) => {
+      if (bundle.skills.length > 0) return true
+      if (bundle.skillCount === 0 && !filtering && needle === '') return true
+      // 搜索命中包名/分类但包内没有技能命中时，仍把包本身留在结果里（空包可见）。
+      return needle !== '' && bundleSelfHit(bundle) && !filtering
+    })
+  const visibleLooseAll = (activeCat !== null ? [] : filteredSkills(loose))
+    .filter((skill) => needle === '' || skillHit(skill))
   const noResults = visibleBundleAll.length === 0 && visibleLooseAll.length === 0
+
+  /* ── 概览统计（概览条四格） ── */
+  const totalSkills = bundles.reduce((sum, bundle) => sum + bundle.skillCount, 0) + loose.length
+  const enabledSkills = [...bundles.flatMap((bundle) => bundle.skills), ...loose]
+    .filter((skill) => toggles.skills[skill.name] !== false).length
+  const realCategories = categoryList.filter((cat) => cat !== UNCATEGORIZED)
+  const matchedSkills = visibleBundleAll.reduce((sum, bundle) => sum + bundle.skills.length, 0)
+    + visibleLooseAll.length
 
   const trimmedName = installName.trim()
   const nameInvalid = trimmedName !== '' && !SKILL_NAME_PATTERN.test(trimmedName)
@@ -1779,51 +1958,69 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
 
   return shellOrWrap(
     <>
-      {/* 头部：整页形态下关闭钮已去掉——离开这一页是「点侧边栏会话行 / 点别的菜单行 / Esc」，
-          与官方自动化任务页同一套；标题行只承担标题。 */}
-      <div className="psh-head">
-        <span className="psh-title" style={{ flex: 'none' }}>{t('panelTitle')}</span>
-      </div>
+      {/* 头部：**嵌入工作台时不再画标题行**——上面的 wb2 页头已经是「SKILL / 会什么」，
+          再来一条 SKILL 横条是重复标题（2026-10-22 用户点名「展示页好丑」的主因之一）。
+          只有独立 main 座位（非 embedded）才需要这条自带标题。 */}
+      {!embedded && (
+        <div className="psh-head">
+          <span className="psh-title" style={{ flex: 'none' }}>{t('panelTitle')}</span>
+        </div>
+      )}
       <PshBody className={css.modalBody}>
       <span data-skm-panel-marker aria-hidden="true" style={{ display: 'none' }} />
       <div className={css.hub} aria-busy={state.status === 'loading'}>
-        {/* ── 筛选行（与官方自动化任务页同一套 filter tab）：分类 + 启用状态 ── */}
-        <div className={css.filterRow}>
-          {hasCategories && (
-            <div className={css.filterTabs} role="group" aria-label={t('bundleCatFilterAria')}>
-              <button
-                type="button"
-                className={css.filterTab}
-                data-active={activeCat === null || undefined}
-                aria-pressed={activeCat === null}
-                onClick={() => { setCatFilter(null) }}
-              >
-                {t('bundleCatAll')}
+        {/* ── 刊头：大标题 + 三格统计（嵌入工作台时替代 wb2 页头的角色，
+            但保留工作台统一页头，这里只补信息密度，不重复标题语义） ── */}
+        <div className={css.mast}>
+          <span className={css.mastWord}>Skills</span>
+          <span className={css.mastZh}>索引</span>
+          <span className={css.mastGrow} />
+          <div className={css.mastStats}>
+            <div className={css.mastStat}><b>{bundles.length}</b><span>{t('statBundles')}</span></div>
+            <div className={css.mastStat}><b>{totalSkills}</b><span>{t('statSkills')}</span></div>
+            <div className={css.mastStat}><b>{enabledSkills}</b><span>{t('statEnabled')}</span></div>
+          </div>
+        </div>
+
+        {/* ── 工具条：搜索 + 分类筛选 + 全部展开（上下实线，与目录同一条版心） ── */}
+        <div className={css.bar}>
+          <label className={css.search}>
+            <IconSearchOutline16 size={13} aria-hidden="true" />
+            <input
+              className={css.searchInput}
+              type="search"
+              value={query}
+              placeholder={t('searchPlaceholder')}
+              aria-label={t('searchPlaceholder')}
+              onChange={(event) => { setQuery(event.currentTarget.value) }}
+              onKeyDown={(event) => { if (event.key === 'Escape') setQuery('') }}
+            />
+            {query !== '' && (
+              <button type="button" className={css.searchClear} aria-label={t('searchClear')} title={t('searchClear')}
+                onClick={() => { setQuery('') }}>
+                <IconCloseOutline16 size={11} aria-hidden="true" />
               </button>
-              {categoryList.map((cat) => {
-                const none = cat === UNCATEGORIZED
-                const active = activeCat === cat
-                return (
-                  <button
-                    type="button"
-                    key={cat}
-                    className={css.filterTab}
-                    data-active={active || undefined}
-                    aria-pressed={active}
-                    onClick={() => { setCatFilter(active ? null : cat) }}
-                  >
-                    {none ? t('bundleCatNone') : cat}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-
-          {hasCategories && <span className={css.filterDivider} aria-hidden="true" />}
-
-          {/* 启用状态靠右（用户 2026-10 要求）：分类在左、状态在右，中间留白 */}
+            )}
+          </label>
+          <div className={css.barCats} role="group" aria-label={t('bundleCatFilterAria')}>
+            <button type="button" className={css.filterTab} data-active={activeCat === null || undefined}
+              aria-pressed={activeCat === null} onClick={() => { setCatFilter(null) }}>
+              {t('bundleCatAllShort')}<i className={css.filterCount}>{bundles.length}</i>
+            </button>
+            {categoryList.map((cat) => {
+              const none = cat === UNCATEGORIZED
+              const active = activeCat === cat
+              return (
+                <button type="button" key={cat} className={css.filterTab} data-active={active || undefined}
+                  aria-pressed={active} onClick={() => { setCatFilter(active ? null : cat) }}>
+                  {none ? t('bundleCatNone') : cat}<i className={css.filterCount}>{categoryCounts.get(cat) ?? 0}</i>
+                </button>
+              )
+            })}
+          </div>
+          <span className={css.barDivider} aria-hidden="true" />
           <div className={css.filterTabsRight} role="group" aria-label={t('statusAll')}>
-            {([['all', t('statusAll')], ['on', t('statusOn')], ['off', t('statusOff')]] as const).map(([value, label]) => (
+            {([['all', t('statusAllShort')], ['on', t('statusOn')], ['off', t('statusOff')]] as const).map(([value, label]) => (
               <button
                 key={value}
                 type="button"
@@ -1836,7 +2033,26 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
               </button>
             ))}
           </div>
+          <span className={css.barGrow} />
+          <button type="button" className={css.barBtn} onClick={() => { setAllOpen((value) => !value) }}>
+            {allOpen ? t('collapseAllShort') : t('expandAllShort')}
+          </button>
+          <button type="button" className={css.barBtn} data-spin={refreshing || undefined}
+            aria-label={t('refresh')} title={t('refresh')}
+            onClick={() => {
+              setRefreshing(true)
+              window.setTimeout(() => { setRefreshing(false) }, 720)
+              refresh()
+            }}>
+            <IconRefreshOutline14 size={13} aria-hidden="true" />
+          </button>
+          <button type="button" className={css.barAdd}
+            onClick={() => { setInstall(null); setInstallError(null); setAddOpen(true) }}>
+            <IconPlusOutline16 size={12} aria-hidden="true" />
+            {t('addSkillsTitle')}
+          </button>
         </div>
+
 
         {/* ── 主区 ── */}
         <div className={css.hubMain}>
@@ -1879,67 +2095,102 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
                     const bundleCats = bundle.categories ?? []
                     const emptyBundle = bundle.skillCount === 0
                     // 空包默认展开显示引导：折叠着只剩一行标题，用户会以为包丢了。
-                    const openView = open2 || emptyBundle
+                    const openView = open2 || allOpen || emptyBundle
+                    // 预览与进度永远按**整包**算：搜索/状态筛选只该裁展开后的列表，
+                    // 不该让「12/25 已启用」跟着筛选结果一起变。
+                    const rawBundle = state.status === 'ready'
+                      ? state.snapshot.bundles.find((item) => item.id === bundle.id)
+                      : undefined
+                    const allSkills = rawBundle?.skills ?? bundle.skills
+                    const onCount = allSkills.filter((skill) => toggles.skills[skill.name] !== false).length
+                    // 预览跟当前结果走：搜索时只列命中的技能，否则列整包前 8 个。
+                    const previewSource = needle !== '' ? bundle.skills : allSkills
+                    const previewSkills = previewSource.slice(0, 8)
+                    const previewMore = previewSource.length - previewSkills.length
                     return (
                       <section key={bundle.id} className={css.hubSection} data-open={openView ? 'true' : undefined} data-empty={emptyBundle ? 'true' : undefined}>
                         <header
                           className={css.bundleRowOuter}
                           data-open={openView ? 'true' : undefined}
                         >
-                          <button
-                            type="button"
-                            className={css.bundleRow}
-                            aria-expanded={openView}
-                            onClick={(event) => {
-                              // 标题行里嵌着分类标签：点到标签就是筛选，不该顺手把包展开/收起。
-                              // 标签本身是 span（按钮里不能再套按钮），键盘路径走顶栏分类胶囊。
-                              const hit = (event.target as HTMLElement).closest('[data-skm-cat]') as HTMLElement | null
-                              if (hit !== null) {
-                                const cat = hit.dataset.skmCat ?? ''
-                                setCatFilter(activeCat === cat ? null : cat)
-                                return
-                              }
-                              toggleExpanded(bundle.id)
-                            }}
-                          >
-                            <span className={css.bundleIcon} aria-hidden="true"><FolderBlueIcon size={17} /></span>
-                            <span className={css.bundleName} title={bundle.name}>{bundle.name}</span>
-                            <span className={css.bundleCount}>{t('skillsCount', { n: bundle.skillCount })}</span>
-                            {bundleCats.length > 0 && (
-                              <span className={css.bundleCats}>
-                                {bundleCats.map((cat) => (
-                                  <span
-                                    key={cat}
-                                    className={css.bundleCatTag}
-                                    data-skm-cat={cat}
-                                    data-active={activeCat === cat || undefined}
-                                    title={t('bundleCatTip', { name: cat })}
-                                  >
-                                    {cat}
-                                  </span>
-                                ))}
-                              </span>
-                            )}
-                            <IconChevronDownOutline14 className={css.chevron} size={13} aria-hidden="true" />
-                          </button>
-                          {/* 技能包一键开关：整包启用/禁用 */}
-                          <span className={css.bundleToggle}>
+                          {/* 左栏：包名（点开/收起整包）+ 分类（点即筛选）+ 启用计数 */}
+                          <div className={css.bundleLeft}>
                             <button
                               type="button"
+                              className={css.bundleRow}
+                              aria-expanded={openView}
+                              title={openView ? t('collapseBundle') : t('expandBundle')}
+                              onClick={() => { toggleExpanded(bundle.id) }}
+                            >
+                              <span className={css.bundleName}>{bundle.name}</span>
+                            </button>
+                            <div className={css.bundleMeta}>
+                              {bundleCats.length > 0 && (
+                                <span className={css.bundleCats}>
+                                  {bundleCats.map((cat, catIndex) => (
+                                    <span key={cat}>
+                                      {catIndex > 0 && <span className={css.bundleSep} aria-hidden="true" />}
+                                      <button
+                                        type="button"
+                                        className={css.bundleCatTag}
+                                        data-skm-cat={cat}
+                                        data-active={activeCat === cat || undefined}
+                                        title={t('bundleCatTip', { name: cat })}
+                                        onClick={() => { setCatFilter(activeCat === cat ? null : cat) }}
+                                      >
+                                        {cat}
+                                      </button>
+                                    </span>
+                                  ))}
+                                  <span className={css.bundleSep} aria-hidden="true" />
+                                </span>
+                              )}
+                              <span>{t('skillsCount', { n: bundle.skillCount })}</span>
+                            </div>
+                            <button
+                              type="button"
+                              className={css.bundleToggle}
                               role="switch"
                               aria-checked={bundleEnabled}
                               aria-label={bundleEnabled ? t('disableBundle') : t('enableBundle')}
                               title={bundleEnabled ? t('disableBundle') : t('enableBundle')}
-                              className={`${css.toggle} ${bundleEnabled ? css.toggleOn : css.toggleOff}`}
+                              data-on={bundleEnabled || undefined}
                               disabled={bundleToggling || bundle.skillCount === 0}
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                toggleBundle(bundle, !bundleEnabled)
-                              }}
+                              onClick={() => { toggleBundle(bundle, !bundleEnabled) }}
                             >
-                              <span className={css.toggleKnob} aria-hidden="true" />
+                              <span className={css.toggleDot} aria-hidden="true" />
+                              {onCount > 0
+                                ? <span>{t('enabledShort')} <b>{onCount}/{allSkills.length}</b></span>
+                                : <span>{t('allDisabled')}</span>}
                             </button>
-                          </span>
+                          </div>
+                          <div className={css.bundleRight}>
+                          {/* 目录式技能列表：收起态就是可以直接点开文件的目录项 */}
+                          {!openView && previewSkills.length > 0 && (
+                            <div className={css.bundlePreview}>
+                              {previewSkills.map((skill) => (
+                                <button
+                                  key={skill.name}
+                                  type="button"
+                                  className={css.bundlePreviewChip}
+                                  title={skill.name}
+                                  data-off={toggles.skills[skill.name] === false || undefined}
+                                  onClick={() => { openViewer(skill) }}
+                                >
+                                  <span className={css.bundlePreviewName}>{skill.name}</span>
+                                  <span className={css.bundlePreviewDesc}>{skill.description !== undefined && skill.description.trim() !== '' ? skill.description.replace(/^"|"$/g, '') : t('noDescription')}</span>
+                                  {(skill.fileCount ?? 0) > 1 && <span className={css.bundlePreviewFiles}>{t('fileCount', { n: skill.fileCount ?? 0 })}</span>}
+                                </button>
+                              ))}
+                              {previewMore > 0 && (
+                                <button type="button" className={css.bundlePreviewMore} onClick={() => { toggleExpanded(bundle.id) }}>
+                                  {t('moreSkills', { n: previewMore })}
+                                  <IconChevronDownOutline14 size={10} aria-hidden="true" />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          </div>
                           <div className={css.bundleMore}>
                             <Menu
                               open={openMenu === `bundle:${bundle.id}`}
@@ -2046,17 +2297,21 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
                         className={css.bundleRowOuter}
                         data-open={looseOpen ? 'true' : undefined}
                       >
-                        <button
-                          type="button"
-                          className={css.bundleRow}
-                          aria-expanded={looseOpen}
-                          onClick={() => { setLooseExpanded((value) => !value) }}
-                        >
-                          <span className={css.bundleIcon} aria-hidden="true"><IconArchiveOutline20 size={16} /></span>
-                          <span className={css.bundleName}>{t('looseTitle')}</span>
-                          <span className={css.bundleCount}>{t('skillsCount', { n: visibleLooseAll.length })}</span>
-                          <IconChevronDownOutline14 className={css.chevron} size={13} aria-hidden="true" />
-                        </button>
+                        <div className={css.bundleLeft}>
+                          <button
+                            type="button"
+                            className={css.bundleRow}
+                            aria-expanded={looseOpen}
+                            title={looseOpen ? t('collapseBundle') : t('expandBundle')}
+                            onClick={() => { setLooseExpanded((value) => !value) }}
+                          >
+                            <span className={css.bundleName}>{t('looseTitle')}</span>
+                          </button>
+                          <div className={css.bundleMeta}>
+                            <span>{t('skillsCount', { n: visibleLooseAll.length })}</span>
+                          </div>
+                        </div>
+                        <div className={css.bundleRight} />
                       </header>
                       {looseOpen && (
                         <ul className={css.skillGrid}>
