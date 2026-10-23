@@ -1456,6 +1456,32 @@ if (krEnabled) {
       fail('子智能体卡必须**有几个就几行**（一行一个，逐行渲染）')
     } else if (!/className="kr-subs-row__main"[\s\S]{0,400}?onClick=\{\(\) => \{ onOpen\(row\) \}\}/.test(subsSrc)) {
       fail('每一行必须是可点的跳转入口（整行一个 button，点了 openSubagentSession）')
+    } else if (!/kr-subs-done__toggle/.test(subsSrc) || !/kr-subs-done__body/.test(subsCode)) {
+      fail('已结束的子智能体必须收进可折叠分区（用户 2026-10-23 点名「完工的也放 Show more」）')
+    } else if (!/kr-subs-done__toggle/.test(code) || !/kr-subs-done__chevron/.test(code)) {
+      fail('client bundle is missing the done-section styles (.kr-subs-done*)')
+    } else if (
+      // 折叠区必须是**连续的尾块**：先按 running 分组、再进行中在前已结束在后，
+      // 否则收起时中间被抽走几行、下面的行往上跳。
+      !/rows\.filter\(\(row\) => row\.running\)/.test(subsCode) ||
+      !/rows\.filter\(\(row\) => !row\.running\)/.test(subsCode)
+    ) {
+      fail('子智能体必须按 running 分组：进行中在前、已结束在后（折叠区要是连续尾块）')
+    } else if (
+      // 折叠行上的读数必须在**收起态**可见：只说「收起」的按钮等于把
+      // "还有几个完工的"藏起来了，读者会以为这轮只派了上面那两行。
+      !/\$\{doneRows\.length\} 个已结束/.test(subsSrc)
+    ) {
+      fail('已结束折叠行必须带「N 个已结束」读数（收起态可见，不是只写「收起」）')
+    } else if (!/aria-expanded=\{doneOpen\}/.test(subsSrc)) {
+      fail('已结束折叠行必须给 aria-expanded（读屏用户要知道这块是开是合）')
+    } else if (
+      // 没有进行中的行时不该再挂折叠条：那时折叠只会把卡掏空，或剩一句
+      // 「N 个已结束」。此时应该直接平铺。
+      !/doneFoldable = runningRows\.length > 0 && doneRows\.length > 0/.test(subsCode) ||
+      !/\{doneFoldable && \(/.test(subsSrc)
+    ) {
+      fail('已结束分区只在「上面还有进行中」时才折叠，否则直接平铺（不挂折叠条）')
     } else if (!/openSubagentSession/.test(subsSrc) || !/uiWorkspace/.test(catSrc0)) {
       fail('跳转必须走官方 uiWorkspace.openSession（与官方子智能体目录点一行同一条链路）')
     } else if (!/projectionsBySession/.test(catSrc0) || !/subagentCatalog/.test(catSrc0)) {
@@ -4495,6 +4521,80 @@ if (krEnabled) {
       fail('triad/memory/index.ts 仍引用 BuiltinToggle（应已随之删除）')
     } else {
       pass('composer 重复卡已彻底删除（座位 / 组件 / 引用三处都干净）')
+    }
+
+    // 13) 技能开关：**随操作组 hover 浮出，浮出后必须可点**。
+    //     2026-10-23 踩过两次：
+    //       ① 开关与操作组抢同一格，hover 时开关 opacity→0 + pointer-events:none，
+    //          而要点开关必然先 hover → 一碰上去就自己藏起来，点了没反应；
+    //       ② 开关常驻占位，把每行撑高、把描述挤窄（用户要的是紧凑目录行）。
+    //     现在的形态：开关住在 .skm-skill-card-foot 里，操作组默认
+    //     opacity:0 + pointer-events:none，hover/focus-within 时整体变可见可点。
+    //     判据因此变成三条：操作组自身隐藏、可见态放开、且开关确实在里面。
+    const skillsPanel = readFileSync(resolve(ROOT, 'src/client/triad/usage/dashboard/SkillsPanel.tsx'), 'utf8')
+    const footBase = /\.skm-skill-card-foot\{([^}]*)\}/.exec(skillsPanel)
+    const footShow = /\.skm-skill-card:hover \.skm-skill-card-foot,\.skm-skill-card:focus-within \.skm-skill-card-foot\{([^}]*)\}/.exec(skillsPanel)
+    const toggleInFoot = /<div className=\{css\.skillCardFoot\}>[\s\S]{0,600}?role="switch"/.test(skillsPanel)
+    if (footBase === null || footShow === null) {
+      fail('找不到 .skm-skill-card-foot 的默认/浮出两条规则（技能操作组样式被改掉了？）')
+    } else if (!/visibility\s*:\s*hidden/.test(footBase[1]) || !/opacity\s*:\s*0/.test(footBase[1])) {
+      fail('操作组默认必须隐藏（visibility:hidden + opacity:0），否则开关会常驻占着右列、把行撑高')
+    } else if (!/visibility\s*:\s*visible/.test(footShow[1]) || !/opacity\s*:\s*1/.test(footShow[1])) {
+      fail('操作组 hover/focus 时必须恢复可见，否则开关浮出后点不动（2026-10-23 回归）')
+    } else if (!toggleInFoot) {
+      fail('技能开关应住在操作组（.skm-skill-card-foot）里，随它一起浮出 —— 常驻会把行撑高')
+    } else {
+      pass('技能开关随操作组 hover 浮出，浮出后可见可点（不常驻、不占行高）')
+    }
+
+    // 14) 收起态与展开态必须是**同一个技能行**，只差渲染数量。
+    //     设计稿 dir-1 就是 `shown = open ? list : list.slice(0, 6)`；插件曾经把它
+    //     实现成两套 DOM（.skm-bundle-preview-chip / .skm-skill-card），结果两边外观
+    //     永远对不齐、每次只改一边另一边就掉队。这里钉死：收起态不许再有独立行组件。
+    // 先剥注释：本次改动恰恰在注释里反复提到「旧的 .skm-bundle-preview-chip 已合并」，
+    // 拿原文匹配会把说明文字当成残留（本仓第 12 条已经踩过同一类假阳性）。
+    const skillsSrc2 = readFileSync(resolve(ROOT, 'src/client/triad/usage/dashboard/SkillsPanel.tsx'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+    if (/bundlePreviewChip|skm-bundle-preview-chip/.test(skillsSrc2)) {
+      fail('收起态又长出了独立的 .skm-bundle-preview-chip —— 收起/展开必须共用 .skm-skill-card')
+    } else if (!/shownSkills/.test(skillsSrc2) || !/listSource\.slice\(0, COLLAPSED_ROWS\)/.test(skillsSrc2)) {
+      fail('收起/展开应共用同一个列表（shownSkills = openView ? listSource : listSource.slice(0, COLLAPSED_ROWS)）')
+    } else if (!/skillMoreRow/.test(skillsSrc2)) {
+      fail('收起态缺少「还有 N 个」尾巴（它把同一批行的剩余部分露出来，而不是切版式）')
+    } else {
+      pass('收起/展开共用同一套技能行：只差渲染数量，另加「还有 N 个」尾巴')
+    }
+
+    // 15) 技能列表必须住在**右栏里面**，左栏 262px 整列归技能包。
+    //     2026-10-23：列表一度被挪到 <header> 外面，于是横跨整行、压到左栏包名
+    //     区域下方 —— 左栏只剩三行字贴顶，视觉上包名像是挂在技能列表的边角。
+    //     判据：<div className={css.bundleRight}> 之内必须包住技能列表。
+    const rightOpen = skillsSrc2.indexOf('<div className={css.bundleRight}>')
+    const rightClose = skillsSrc2.indexOf('</header>', rightOpen)
+    const gridInRight = rightOpen >= 0 && rightClose > rightOpen
+      && /css\.skillGrid|gridClass/.test(skillsSrc2.slice(rightOpen, rightClose))
+    if (rightOpen < 0) {
+      fail('找不到右栏容器 <div className={css.bundleRight}>')
+    } else if (!gridInRight) {
+      fail('技能列表跑到右栏外面了 —— 它会横跨整行，左栏 262px 就不再是纯技能包信息')
+    } else {
+      pass('技能列表住在右栏内：左栏 262px 整列归技能包，两栏靠发丝竖线分隔')
+    }
+
+    // 16) 包行左侧那条主色竖线必须**彻底消失**。
+    //     2026-10-23 用户截图指认「左侧这条线去掉」。它有两条来源，缺一条就复活：
+    //       ① 面板表 SkillsPanel.tsx 的 .skm-bundle-row-outer::before（left:-20px）
+    //       ② 换肤层 theme.ts  的 .wb-root .skm-bundle-row-outer::before（left:0, 2px）
+    //     两条叠起来 hover 时从行首直贯行尾，比 25px 的包名还抢眼。
+    const themeSrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/theme.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+    const panelSrc = skillsSrc2
+    const lineInPanel = /\.skm-bundle-row-outer::before\s*\{/.test(panelSrc)
+    const lineInTheme = /\.wb-root \.skm-bundle-row-outer::before\s*\{/.test(themeSrc)
+    if (lineInPanel || lineInTheme) {
+      fail(`包行左侧竖线又出现了（面板表:${lineInPanel} 换肤层:${lineInTheme}）—— 用户要求去掉`)
+    } else {
+      pass('包行左侧不再画主色竖线（面板表与换肤层两处来源都已清除）')
     }
   }
 }

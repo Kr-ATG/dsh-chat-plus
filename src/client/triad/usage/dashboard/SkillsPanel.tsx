@@ -313,12 +313,11 @@ const css = {
   bundleRight: 'skm-bundle-right',
   bundleMeta: 'skm-bundle-meta',
   bundleSep: 'skm-bundle-sep',
-  toggleDot: 'skm-toggle-dot',  bundlePreview: 'skm-bundle-preview',
-  bundlePreviewChip: 'skm-bundle-preview-chip',
-  bundlePreviewName: 'skm-bundle-preview-name',
-  bundlePreviewDesc: 'skm-bundle-preview-desc',
-  bundlePreviewFiles: 'skm-bundle-preview-files',
-  bundlePreviewMore: 'skm-bundle-preview-more',  // 技能卡片（Skills Hub 风格）
+  toggleDot: 'skm-toggle-dot',  // 收起态的「还有 N 个」尾巴：仍留在技能列表里，占满一整行。
+  // 旧的 bundlePreview / bundlePreviewChip / Name / Desc / Files 五个类名
+  // 已随「收起态改用同一套技能行」而删除，别再往映射里加回来。
+  bundlePreviewMore: 'skm-bundle-preview-more',
+  skillMoreRow: 'skm-skill-more-row',  // 技能卡片（Skills Hub 风格）
   skillGrid: 'skm-skill-grid',
   skillCard: 'skm-skill-card',
   skillCardHead: 'skm-skill-card-head',
@@ -453,21 +452,30 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 /* ── 目录式技能包行（方向一 · 2026-10-22 定稿）──
    整个 section 是两栏：左栏包名/分类/启用数，右栏技能目录。
    没有卡片、圆角、阴影：靠一条发丝分隔线和两栏版心表达结构。 */
+/* 两栏：左 262px **整列独占给技能包信息**（包名 / 分类 / 计数 / 更多动作），
+   右栏才是技能目录。align-items:start 让左栏不被右栏的长列表拉伸——
+   拉伸后包名会垂直居中、跟右侧第一行技能错位，读起来像两个不相干的东西。
+   2026-10-23 用户要求「左侧的空间全部留给技能包」：此前技能列表被挪到 header
+   外面横跨整行，包名下方那一整块被技能行占着，左栏只剩三行字贴着顶边。 */
 .skm-bundle-row-outer{position:relative;flex:none;display:grid;grid-template-columns:262px minmax(0,1fr);gap:0;
-  box-sizing:border-box;padding:26px 0 24px;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.09));
+  align-items:start;box-sizing:border-box;padding:26px 0 24px;
+  border-bottom:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.09));
   transition:background 200ms ease}
 @media (max-width:1180px){.skm-bundle-row-outer{grid-template-columns:200px minmax(0,1fr)}}
 .skm-bundle-row-outer:hover{background:linear-gradient(90deg,color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 3%,transparent),transparent 38%)}
-/* 左侧主色竖线：hover 时从中间展开（目录里的定位标记，不是装饰） */
-.skm-bundle-row-outer::before{content:"";position:absolute;left:-20px;top:24px;bottom:22px;width:2px;
-  background:var(--dsw-alias-state-business-primary,#3d6be5);transform:scaleY(0);transform-origin:center;
-  transition:transform 360ms cubic-bezier(.32,.72,0,1)}
-.skm-bundle-row-outer:hover::before{transform:scaleY(1)}
+/* 2026-10-23：包行左侧主色竖线整条删除（用户要求「左侧这条线去掉」）。
+   面板表原先在这里画一条 left:-20px 的，换肤层又在 left:0 画一条 2px 的，
+   两条叠在一起，hover 时从行首直贯到行尾，比 25px 的包名还抢眼。
+   hover 反馈不靠线：包名转主色（.skm-bundle-row:hover）+ 行内极淡的横向渐变底
+   （见 .skm-bundle-row-outer:hover）已经够用，也不会在左侧留一条常驻的边。 */
 /* 变成单栏时（窄屏）撤掉左栏版心 */
 @media (max-width:900px){.skm-bundle-row-outer{grid-template-columns:minmax(0,1fr)}}
 
-/* 左栏 */
-.skm-bundle-left{min-width:0;padding-right:34px}
+/* 左栏：262px 整列归技能包所有。
+   sticky 让包名在滚动长列表时**钉在顶部**——一个 25 个技能的包能撑出两屏，
+   滚到第二屏时左边如果跟着滚走，就只剩一列光秃秃的技能名，看不出这是哪个包。
+   self-start 配合上的 align-items:start，避免把它拉成整列高。 */
+.skm-bundle-left{min-width:0;padding-right:34px;position:sticky;top:0;align-self:start}
 .skm-bundle-row{display:block;width:100%;text-align:left;appearance:none;border:0;background:none;padding:0;
   font-family:inherit;cursor:pointer;color:var(--dsw-alias-label-primary,#14171b);transition:color .18s ease}
 .skm-bundle-row:hover{color:var(--dsw-alias-state-business-primary,#3d6be5)}
@@ -477,11 +485,21 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
   color:var(--dsw-alias-label-tertiary,#7b818a)}
 .skm-bundle-meta .skm-bundle-sep{width:2px;height:2px;border-radius:50%;background:var(--dsw-alias-border-l3,rgba(0,0,0,.22));flex:none}
 .skm-bundle-left .skm-bundle-cats{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap;min-width:0}
-/* 包名旁的分类：目录式下划线，不是胶囊 */
+/* 包名旁的分类：目录式下划线，不是胶囊。**照 design-demos/dir-1.html 的 .pm .cat 原样**——
+   那里就只有「12px / ink2 文字 + 1px 下划线」，hover 时文字与下划线一起转主色。
+   2026-10-23 用户反馈「分类标签包裹很丑」：根因是同文件后面还压着一段旧的
+   胶囊定义（border-radius:999px + 底色 + 边框），同优先级后者胜，下划线版
+   从未生效；那段已整块删除。另外 hub/styles.ts 也曾用 !important 给它补底补边，
+   一并撤掉——形状只在这一处定义，别再往回加底加框。 */
 .skm-bundle-cat-tag{display:inline-flex;align-items:center;border:0;background:none;padding:0 0 1px;border-radius:0;
-  font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary,#4c5158);cursor:pointer;white-space:nowrap;
-  border-bottom:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.16));transition:color .16s ease,border-color .16s ease}
-.skm-bundle-cat-tag:hover{color:var(--dsw-alias-state-business-primary,#3d6be5);border-color:var(--dsw-alias-state-business-primary,#3d6be5)}
+  font-family:inherit;font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary,#4c5158);
+  cursor:pointer;white-space:nowrap;
+  border-bottom:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.16));
+  transition:color .16s ease,border-color .16s ease}
+.skm-bundle-cat-tag:hover{color:var(--dsw-alias-state-business-primary,#3d6be5);border-bottom-color:var(--dsw-alias-state-business-primary,#3d6be5)}
+/* 选中筛选：文字转主色 + 加粗，下划线跟着主色（与工具条的分类 tab 同一套语言） */
+.skm-bundle-cat-tag[data-active]{color:var(--dsw-alias-state-business-primary,#3d6be5);font-weight:600;
+  border-bottom-color:var(--dsw-alias-state-business-primary,#3d6be5)}
 /* 启用状态：圆点 + 计数，点一下切整包 */
 .skm-bundle-toggle{display:inline-flex;align-items:center;gap:7px;margin-top:11px;padding:0;border:0;background:none;
   font-family:inherit;font-size:12px;color:var(--dsw-alias-label-tertiary,#7b818a);letter-spacing:.01em;cursor:pointer;
@@ -491,12 +509,15 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 .skm-bundle-toggle[data-on]{color:var(--dsw-alias-label-secondary,#4c5158)}
 .skm-bundle-toggle[data-on] .skm-toggle-dot{background:var(--dsw-alias-state-business-primary,#3d6be5);
   box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 14%,transparent)}
+/* 包级开关的圆点与技能级开关（.skm-toggle-knob）同规格：5px 在包名下方够用，
+   技能行更密，7px 才剩得住同样的视觉重量。两处共用「开=实心+光晕」这条规则。 */
 .skm-bundle-toggle:hover{color:var(--dsw-alias-label-primary,#14171b)}
 .skm-bundle-toggle b{font-weight:600;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary,#7b818a)}
 .skm-bundle-toggle[data-on] b{color:var(--dsw-alias-state-business-primary,#3d6be5)}
 /* 旧开关/进度条/文件夹图标：目录式下不再出现，样式保留空壳以防引用 */
 
-/* 右栏：技能目录 */
+/* 右栏：技能目录。左侧发丝竖线把两栏分开——左栏因此是**一个完整的信息块**，
+   而不是散落在技能行旁边的一行标题。 */
 .skm-bundle-right{min-width:0;border-left:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.09));padding-left:30px}
 .skm-bundle-more{position:absolute;top:20px;right:0;display:flex;align-items:center}
 .skm-bundle-more-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:0;border-radius:5px;
@@ -504,43 +525,33 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 .skm-bundle-more-btn:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary,#14171b) 7%,transparent);color:var(--dsw-alias-label-primary,#14171b)}
 .skm-bundle-more-btn:active{transform:scale(.9)}
 
-/* 收起态：技能目录（名称 + 描述 + 文件数），两列/三列自适应 */
-.skm-bundle-preview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px 36px;min-width:0}
-@media (max-width:1440px){.skm-bundle-preview{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media (max-width:900px){.skm-bundle-preview{grid-template-columns:minmax(0,1fr)}}
-.skm-bundle-preview-chip{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:0 12px;
-  width:100%;text-align:left;border:0;background:none;padding:6px 10px 6px 0;font-family:inherit;cursor:pointer;min-width:0;
-  transition:background .16s ease}
-.skm-bundle-preview-chip::before{content:"";position:absolute;left:-10px;top:4px;bottom:4px;width:1.5px;
-  background:var(--dsw-alias-state-business-primary,#3d6be5);transform:scaleY(0);transform-origin:center;
-  transition:transform .22s cubic-bezier(.22,.72,.24,1)}
-.skm-bundle-preview-chip:hover::before{transform:scaleY(1)}
-.skm-bundle-preview-chip:hover{background:linear-gradient(90deg,color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 5%,transparent),transparent 78%)}
-.skm-bundle-preview-name{grid-column:1;display:block;font-family:ui-monospace,"Cascadia Mono","SF Mono",Consolas,monospace;
-  font-size:13.5px;font-weight:600;letter-spacing:-.01em;color:var(--dsw-alias-label-primary,#14171b);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color .16s ease}
-.skm-bundle-preview-chip:hover .skm-bundle-preview-name{color:var(--dsw-alias-state-business-primary,#3d6be5)}
-.skm-bundle-preview-desc{grid-column:1;display:block;font-size:12.5px;line-height:1.55;color:var(--dsw-alias-label-tertiary,#7b818a);
-  margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:430px}
-.skm-bundle-preview-files{grid-column:2;grid-row:1 / span 2;align-self:center;font-family:ui-monospace,Consolas,monospace;
-  font-size:10.5px;color:var(--dsw-alias-label-tertiary,#a3a7ad);opacity:.62;font-variant-numeric:tabular-nums;white-space:nowrap;
-  transition:opacity .16s ease}
-.skm-bundle-preview-chip:hover .skm-bundle-preview-files{opacity:1}
-.skm-bundle-preview-more{grid-column:1 / -1;justify-self:start;display:inline-flex;align-items:center;gap:6px;margin-top:10px;
-  padding:2px 0;border:0;border-bottom:1px solid transparent;background:none;font-family:inherit;font-size:12px;
-  color:var(--dsw-alias-label-tertiary,#7b818a);cursor:pointer;letter-spacing:.03em;transition:color .16s ease,border-color .16s ease}
-.skm-bundle-preview-more:hover{color:var(--dsw-alias-state-business-primary,#3d6be5);border-bottom-color:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 40%,transparent)}
+/* ── 收起态的「还有 N 个」：它只是把同一批行的尾巴显示出来，不是另一套版式 ──
+   2026-10-23 合并。原先这里还躺着一整套 .skm-bundle-preview-chip（名称 + 描述 +
+   文件数的独立 DOM），与展开态的 .skm-skill-card 是两套实现——两边外观永远对不齐，
+   改一边另一边就掉队，用户看到的「展开会不会变样」根子就在这。现在收起态也用
+   .skm-skill-card，仅多渲染这个尾巴。
+   它占满一整行（grid-column:1/-1），并与上一行的技能项左边缘对齐。 */
+/* 「还有 N 个」：占满整行、与技能行左边缘对齐（.skm-skill-card 有 7px 内距，
+   这里补同样的缩进，否则它会比上面的技能名靠左 ~7px，看着像掉出栅格）。 */
+.skm-skill-more-row{grid-column:1/-1;list-style:none;display:flex;justify-content:flex-start;padding-left:0}
+.skm-bundle-preview-more{display:inline-flex;align-items:center;gap:6px;margin-top:2px;padding:4px 0;
+  border:0;border-bottom:1px solid transparent;background:none;font-family:inherit;font-size:12px;
+  color:var(--dsw-alias-label-tertiary,#7b818a);cursor:pointer;letter-spacing:.03em;
+  transition:color .16s ease,border-color .16s ease}
+.skm-bundle-preview-more svg{transition:transform .24s cubic-bezier(.22,.72,.24,1)}
+.skm-bundle-preview-more:hover{color:var(--dsw-alias-state-business-primary,#3d6be5);
+  border-bottom-color:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 40%,transparent)}
+.skm-bundle-preview-more:hover svg{transform:translateY(1px)}
 @keyframes skm-preview-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
 /* ── 技能包分类：顶栏胶囊筛选 / 包名旁标签 / 分类编辑器 ─────────────────────── */
 /* 配色只走主题蓝一把刷子（与 .skm-tag 同语言）；分类名不参与配色——
    彩虹色板实测视觉太吵，与面板其余部分打架，已否。 */
 .skm-stack-form{display:flex;flex-direction:column;gap:10px}
-/* 包名旁标签：整颗可点（点在标题行里，由 JS 分流成筛选而非展开），带入场弹入。 */
+/* 包名旁标签：整颗可点（点在标题行里，由 JS 分流成筛选而非展开）。
+   外观在「目录式技能包行」那一节（下划线版），此处不再重复定义——
+   2026-10-23 删掉的正是这里的第二份胶囊定义：同优先级后者胜，
+   它把下划线版整段盖掉了，用户看到的就是包着灰底的胶囊。 */
 .skm-bundle-cats{flex:none;display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0}
-.skm-bundle-cat-tag{display:inline-flex;align-items:center;gap:4px;height:19px;box-sizing:border-box;padding:0 7px;border-radius:999px;font-size:11px;line-height:17px;white-space:nowrap;cursor:pointer;color:var(--dsw-alias-state-business-primary,#3d6be5);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 11%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 22%,transparent);animation:skm-cat-tag-in 200ms cubic-bezier(.2,.9,.3,1.1) both;transition:background 150ms ease,border-color 150ms ease,transform 120ms ease,box-shadow 180ms ease}
-.skm-bundle-cat-tag:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 20%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 45%,transparent);transform:translateY(-1px);box-shadow:0 2px 7px color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 22%,transparent)}
-.skm-bundle-cat-tag[data-active]{background:var(--dsw-alias-state-business-primary,#3d6be5);border-color:transparent;color:#fff;box-shadow:0 2px 9px color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 40%,transparent)}
-@keyframes skm-cat-tag-in{from{opacity:0;transform:translateY(3px) scale(.94)}to{opacity:1;transform:none}}
 /* 分类编辑器 */
 .skm-cat-editor{display:flex;flex-direction:column;gap:8px;box-sizing:border-box;width:100%}
 .skm-cat-empty{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#81858c)}
@@ -565,45 +576,118 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 .skm-bundle-more-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.05));color:var(--dsw-alias-label-primary,#1f2430)}
 .skm-bundle-more-btn:active{transform:scale(.9)}
 
-/* ── 技能卡片（Skills Hub 风格）：双列网格；列表视图切单列宽卡 ── */
-.skm-skill-grid{list-style:none;margin:8px 0 0;padding:0;width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;box-sizing:border-box}
-/* 超宽屏三列：两列时每张卡近 1000px，一行一个技能读起来太空（用户 2026-10-22 反馈） */
-@media (min-width:1680px){.skm-skill-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+/* ── 展开态技能目录：**直接照 design-demos/dir-1.html 的 .sk 规格** ─────────
+   2026-10-23 用户反馈「展开为什么变成老样式了」。设计稿里这件事的答案很干脆：
+   收起态和展开态根本是**同一个 .sk 行**，只差渲染数量——
+       const shown = open ? list : list.slice(0, 6)
+   压根没有第二套「卡片」样式。插件这边却把它实现成了两套 DOM/两套 CSS
+   （收起 = 目录行，展开 = Skills Hub 圆角卡片），一展开自然跳回旧设计。
+   这里把展开态的行压回设计稿的那一套 grid 规格：
+       grid-template-columns:1fr auto；名称与描述在第 1 列、文件数在第 2 列；
+       ::before 竖线藏在外侧 -10px，hover 从中间长出来。
+   外壳（border/圆角/背景/阴影/底栏）一律没有 —— 那是卡片语言，不是目录语言。 */
+.skm-skill-grid{list-style:none;margin:2px 0 0;padding:0;width:100%;display:grid;gap:0 28px;box-sizing:border-box;
+  /* 列数由技能数现算，见 JSX 的 data-cols（1 / 2 / 3），不再写死 2 列 */
+  grid-template-columns:repeat(var(--skm-cols,2),minmax(0,1fr))}
+@media (max-width:900px){.skm-skill-grid{grid-template-columns:minmax(0,1fr)}}
 .skm-skill-grid > .skm-status{grid-column:1/-1;padding-top:4px}
-.skm-skill-card{position:relative;min-width:0;display:flex;flex-direction:column;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));border-radius:16px;background:var(--dsw-alias-bg-base,#fff);padding:14px 16px 0;overflow:hidden;opacity:0;animation:skm-card-in 260ms cubic-bezier(.2,.7,.3,1.06) forwards;animation-delay:calc(var(--skm-i,0)*40ms);transition:border-color 160ms ease,box-shadow 160ms ease,transform 160ms ease}
-.skm-skill-card:hover{border-color:var(--dsw-alias-border-l3,rgba(0,0,0,.16));box-shadow:0 3px 14px rgba(16,24,40,.08);transform:translateY(-1px)}
-@keyframes skm-card-in{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:translateY(0) scale(1)}}
-.skm-skill-card-head{display:flex;align-items:center;gap:10px;min-width:0}
-.skm-skill-badge{flex:none;display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:7px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 12%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5);font-size:10.5px;font-weight:700;letter-spacing:.2px}
-.skm-skill-title{flex:1;min-width:0;appearance:none;border:none;background:transparent;padding:0;text-align:left;font-family:inherit;font-size:15px;font-weight:600;line-height:22px;color:var(--dsw-alias-label-primary,#0f1115);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;border-radius:6px;transition:color 140ms ease}
+/* 行本体：设计稿 .sk —— 两列两行（名称/描述 在左列，文件数 在右列），右留 10px 给竖线。
+   2026-10-23 收紧密度：用户要求「别占这么多空间」，参照图里一行只有
+   名称(13px) + 描述(12px) 两行、行间几乎贴在一起。这里把上下内距从 7px 压到 4px、
+   行间距从 2px 压到 0（靠内距撑开），整行从 62px → 约 48px。 */
+.skm-skill-card{position:relative;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;
+  grid-template-rows:auto auto;align-content:center;align-items:baseline;gap:0 12px;box-sizing:border-box;
+  border:0;border-radius:0;background:none;box-shadow:none;padding:3px 10px 3px 0;min-height:38px;
+  opacity:0;animation:skm-card-in 260ms cubic-bezier(.2,.7,.3,1.06) forwards;
+  animation-delay:calc(var(--skm-i,0)*40ms);transition:background .16s ease}
+/* 设计稿 .sk::before：竖线在行外 -10px，hover / 聚焦时从中间展开 */
+.skm-skill-card::before{content:"";position:absolute;left:-10px;top:5px;bottom:5px;width:1.5px;
+  background:var(--dsw-alias-state-business-primary,#3d6be5);transform:scaleY(0);transform-origin:center;
+  transition:transform .22s cubic-bezier(.22,.72,.24,1)}
+.skm-skill-card:hover::before,.skm-skill-card:focus-within::before{transform:scaleY(1)}
+.skm-skill-card:hover,.skm-skill-card:focus-within{background:linear-gradient(90deg,color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 4.5%,transparent),transparent 78%)}
+@keyframes skm-card-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+/* head 用 display:contents：让徽章 / 标题 / 开关直接参与外层 grid 的行列分配，
+   各自落到指定格子（标题与开关在第 1 行，描述在第 2 行），外壳本身不产生盒子。 */
+.skm-skill-card-head{display:contents}
+/* 设计稿没有「skill」徽章 —— 一列目录里每行都挂一个同样的词纯属噪音，隐藏（保留节点给读屏） */
+.skm-skill-badge{display:none}
+/* 设计稿 .sn：等宽、13.5px、600、单行省略 */
+.skm-skill-title{grid-column:1;grid-row:1;appearance:none;border:none;background:transparent;padding:0;
+  text-align:left;font-family:ui-monospace,"Cascadia Mono","SF Mono",Consolas,monospace;
+  font-size:13px;font-weight:600;line-height:1.45;letter-spacing:-.01em;color:var(--dsw-alias-label-primary,#14171b);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;border-radius:0;
+  transition:color .16s ease}
 .skm-skill-title:hover{color:var(--dsw-alias-state-business-primary,#3d6be5)}
-.skm-skill-title:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:1px}
-.skm-skill-card-toggle{flex:none;display:inline-flex;align-items:center}
-.skm-skill-card-desc{margin:8px 0 0;appearance:none;border:none;background:transparent;padding:0;text-align:left;font-family:inherit;font-size:13px;line-height:19px;color:var(--dsw-alias-label-tertiary,#81858c);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;min-height:38px;cursor:pointer;transition:color 140ms ease}
-.skm-skill-card-desc:hover{color:var(--dsw-alias-label-secondary,#61666b)}
-.skm-skill-tags{display:flex;align-items:center;gap:8px;margin-top:12px;min-width:0}
-.skm-tag{flex:none;display:inline-flex;align-items:center;height:22px;padding:0 10px;border-radius:999px;font-size:12px;line-height:20px;box-sizing:border-box;white-space:nowrap;transition:color 160ms ease,border-color 160ms ease,background 160ms ease}
-.skm-tag-source{background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 12%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5)}
-.skm-tag-scope{background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 12%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5)}
-.skm-tag-scope[data-off='true']{border-color:var(--dsw-alias-border-l2,rgba(0,0,0,.12));color:var(--dsw-alias-label-tertiary,#81858c)}
-/* 关掉的技能留在列表里，但要一眼看出是关的：左侧状态条 + 标题降饱和（带过渡） */
-.skm-skill-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:transparent;transition:background 220ms ease}
-.skm-skill-card[data-off='true']{background:var(--dsw-alias-bg-layer-1,rgba(0,0,0,.02))}
-.skm-skill-card[data-off='true']::before{background:var(--dsw-alias-border-l3,rgba(0,0,0,.2))}
-.skm-skill-card[data-off='true'] .skm-skill-badge,.skm-skill-card[data-off='true'] .skm-skill-title{color:var(--dsw-alias-label-tertiary,#81858c)}
-.skm-skill-card[data-off='true'] .skm-skill-card-desc{color:var(--dsw-alias-label-quaternary,#a5aab2)}
-.skm-skill-badge,.skm-skill-title{transition:color 220ms ease}
-.skm-tag-status{background:transparent;border:1px dashed var(--dsw-alias-border-l2,rgba(0,0,0,.18));color:var(--dsw-alias-label-tertiary,#81858c)}
-/* 内置技能徽章：与「关」标签的虚线框刻意反着来——实心底 + 主色描边，
-   一眼区别于用户自己装的技能。 */
-.skm-tag-builtin{background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 12%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 34%,transparent);color:var(--dsw-alias-state-business-primary,#3d6be5)}
-.skm-skill-meta{margin-left:auto;flex:none;font-size:12px;line-height:17px;color:var(--dsw-alias-label-caption,#adb2b8);white-space:nowrap}
-/* 卡片底部操作条：不再挂一个空的「操作」文字标签（那行只剩按钮，读起来像占位）。
-   按钮默认压低对比，hover / 键盘聚焦才浮到全亮 —— 卡片主体永远是内容，不是按钮墙。 */
-.skm-skill-card-foot{display:flex;align-items:center;gap:6px;margin:12px -16px 0;padding:6px 10px 6px 16px;border-top:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.06));background:color-mix(in srgb,var(--dsw-alias-label-primary,#0f1115) 1.6%,transparent);transition:background 200ms ease}
-.skm-skill-card:hover .skm-skill-card-foot,.skm-skill-card:focus-within .skm-skill-card-foot{background:color-mix(in srgb,var(--dsw-alias-label-primary,#0f1115) 3.2%,transparent)}
-.skm-skill-card-foot .skm-skill-foot-icon{opacity:.62;transition:opacity 200ms ease,background 140ms ease,color 140ms ease,transform 140ms ease}
-.skm-skill-card:hover .skm-skill-foot-icon,.skm-skill-card:focus-within .skm-skill-foot-icon{opacity:1}
+/* 键盘聚焦环：紧贴文字（offset 1px），不向外扩到整行——
+   原来 offset:3px 在目录行里会顶到上一行，看着像给整格套了个蓝框。 */
+.skm-skill-title:focus-visible{outline:1.5px solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:1px;border-radius:2px}
+/* 开关：已并入操作组（见 JSX），随 hover / 键盘聚焦一起浮出。
+   这一格现在空着 —— 保留类名不做布局，避免老的引用报错。 */
+.skm-skill-card-toggle{display:contents}
+/* 设计稿 .sd：12.5px、单行省略、max-width 430px。
+   2026-10-23 修：原来写的是 min(430px, calc(100% - 130px))，本意是给 hover 浮出的
+   操作组让位；但 3 列布局下每列只有 ~240px，减 130 只剩 110px，描述被压成「飞书…」。
+   操作组在第二行右列、本来就只覆盖很短一段，且 hover 时才出现——不需要预留这么宽。
+   改成直接吃满左列，只在需要时由省略号收尾。 */
+.skm-skill-card-desc{grid-column:1;grid-row:2;margin:1px 0 0;appearance:none;border:none;background:transparent;padding:0;
+  text-align:left;font-family:inherit;font-size:12px;line-height:1.45;color:var(--dsw-alias-label-tertiary,#7b818a);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:430px;min-width:0;
+  cursor:pointer;transition:color .16s ease}
+.skm-skill-card-desc:hover{color:var(--dsw-alias-label-secondary,#4c5158)}
+/* 标记行：设计稿里**没有这一行**，这里整块隐掉。
+   「全局」对每个技能都一样（SKILL.md frontmatter 恒为全局层），零信息；
+   「内置」在展开态一眼看不出区别也没关系——真要区分，看操作组的删除键是否置灰；
+   「已关闭」已经改成名字删除线（设计稿 .sk[data-off] 的做法），不必再加一枚标签。
+   这三枚标签正是之前「到处是胶囊」观感的主要来源。 */
+.skm-skill-tags{display:none}
+/* 标记（全局 / 内置 / 已关闭）：小圆点 + 文字，没有底、没有框 ——
+   彩色胶囊在这套目录语言里会读成按钮（这正是「包裹很丑」的来源）。 */
+.skm-tag{flex:none;display:inline-flex;align-items:center;gap:5px;font-size:11.5px;line-height:1.6;
+  color:var(--dsw-alias-label-tertiary,#7b818a);white-space:nowrap;background:none;border:0;padding:0;
+  transition:color .16s ease}
+.skm-tag::before{content:"";flex:none;width:4px;height:4px;border-radius:50%;background:currentColor;
+  opacity:.5;transition:opacity .16s ease,background .16s ease}
+.skm-tag-scope{color:var(--dsw-alias-label-secondary,#4c5158)}
+.skm-tag-scope[data-off='true']{color:var(--dsw-alias-label-tertiary,#7b818a)}
+.skm-tag-scope[data-off='true']::before{opacity:.3}
+/* 关掉的技能：设计稿用删除线（.sk[data-off] .sn{text-decoration:line-through}），
+   比再加一枚「已关闭」标签干净——状态写在名字本身上。 */
+.skm-tag-status{display:none}
+.skm-skill-card[data-off='true'] .skm-skill-title{color:var(--dsw-alias-label-tertiary,#7b818a);
+  text-decoration:line-through;text-decoration-thickness:1px;text-underline-offset:3px}
+.skm-skill-card[data-off='true'] .skm-skill-card-desc{color:var(--dsw-alias-label-quaternary,#a3a7ad)}
+.skm-skill-card[data-off='true'] .skm-skill-title{transition:color .22s ease}
+/* 内置：圆点吃主色，一眼区别于用户自己装的技能 */
+.skm-tag-builtin{color:var(--dsw-alias-state-business-primary,#3d6be5)}
+.skm-tag-builtin::before{background:var(--dsw-alias-state-business-primary,#3d6be5);opacity:1}
+/* 文件数：设计稿 .sf —— 第 2 列、**跨两行居中**（名称与描述之间的那条竖线上）。
+   2026-10-23：它原先挂在 .skm-skill-tags 里，被 display:none 一起藏掉，右列变成空白。
+   现在与标记行平级，独立占第 2 列。 */
+.skm-skill-meta{grid-column:2;grid-row:1 / span 2;justify-self:end;align-self:center;
+  font-family:ui-monospace,Consolas,monospace;font-size:10.5px;line-height:1.6;
+  color:var(--dsw-alias-label-caption,#a3a7ad);font-variant-numeric:tabular-nums;
+  opacity:.62;white-space:nowrap;transition:opacity .16s ease}
+/* 文件数在 hover 时让位给操作组（操作组绝对定位在同一处）：
+   两者交接，不留空档。用 opacity 而非 display，避免行宽跳动。 */
+.skm-skill-files{grid-column:1/-1;grid-row:3}
+/* 操作组：绝对定位浮在行右端，**不参与网格、不占位**。
+   2026-10-23：原先它挂在 grid 第 2 行，那 26px 的按钮把整行从 43px 撑到 51px ——
+   「占用空间」的第二个来源（第一个是常驻的开关，已并入这里）。
+   改成绝对定位后行高只由「名称 + 描述」决定，hover 时才浮出图层。 */
+.skm-skill-card-foot{position:absolute;top:50%;right:0;transform:translateY(-50%);
+  display:flex;align-items:center;gap:2px;margin:0;padding:0 2px;border:0;
+  background:color-mix(in srgb,var(--dsw-alias-bg-base,#fff) 92%,transparent);border-radius:8px;
+  /* 隐藏用 visibility 而不是只靠 opacity：visibility 是离散属性，没有过渡插值，
+     读出来就是 hidden/visible 两态，不会出现「规则命中了但 opacity 还停在 0」
+     那种过渡卡住的状态。visibility 隐藏时元素也不接收指针事件，正好两件事一起管。 */
+  visibility:hidden;opacity:0;
+  transition:opacity .18s ease,visibility 0s linear .18s}
+.skm-skill-card:hover .skm-skill-card-foot,.skm-skill-card:focus-within .skm-skill-card-foot{
+  visibility:visible;opacity:1;transition:opacity .18s ease,visibility 0s linear 0s}
+/* 操作组落在第二行右列，与文件数同一格交接（文件数淡出、按钮淡入）。
+   开关在第一行，两者互不遮挡，也不再靠「藏起开关」腾地方。 */
+.skm-skill-card-foot .skm-skill-foot-icon{opacity:1;transition:opacity 200ms ease,background 140ms ease,color 140ms ease,transform 140ms ease}
 .skm-skill-foot-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:none;border-radius:8px;padding:0;background:transparent;cursor:pointer;color:var(--dsw-alias-label-secondary,#61666b);transition:background 140ms ease,color 140ms ease,transform 140ms ease}
 .skm-skill-foot-icon:hover{background:var(--dsw-alias-interactive-bg-hover-solid,#f1f3f5);color:var(--dsw-alias-label-primary,#0f1115);transform:scale(1.05)}
 .skm-skill-foot-icon:active{transform:scale(.92)}
@@ -780,16 +864,29 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 .skm-loose-empty{margin:2px;padding:4px 0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#888)}
 .skm-visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
-/* ── 技能/技能包开关（Skills Hub 风格：绿色胶囊 + 白色圆钮，回弹过渡） ── */
-.skm-toggle{flex:none;display:inline-flex;align-items:center;width:34px;height:20px;box-sizing:border-box;border-radius:10px;padding:2px;appearance:none;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1));background:var(--dsw-alias-bg-module-platform,#e9ebee);cursor:pointer;transition:background 160ms ease,border-color 160ms ease,filter 160ms ease}
-.skm-toggle:hover{filter:brightness(1.03)}
-.skm-toggle:disabled{opacity:.55;cursor:not-allowed;filter:none}
+/* ── 技能开关：由 iOS 拨杆改为「圆点」状态标记 ────────────────────────
+   2026-10-23 改。理由是同一条视觉纪律：目录式版面里没有任何胶囊控件，
+   一排 iOS 拨杆是整页唯一的「现代控件」，与发丝线＋小圆点的语言打架，
+   而且它在展开态一行一个、视觉重量远超条目本身。
+   现在与包级开关（.skm-toggle-dot / 设计稿 .tog .dt）共用同一种表达：
+     关 = 空心圆环；开 = 实心主色圆点 + 一圈 14% 的光晕。
+   仍是真 <button role="switch">，键盘可达、aria-checked 不变。 */
+.skm-toggle{flex:none;position:relative;display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;box-sizing:border-box;padding:0;appearance:none;border:0;background:none;cursor:pointer;
+  border-radius:50%;transition:background 160ms ease}
+.skm-toggle:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary,#14171b) 6%,transparent)}
+.skm-toggle:active .skm-toggle-knob{transform:scale(.85)}
+.skm-toggle:disabled{opacity:.4;cursor:not-allowed;background:none}
+.skm-toggle:disabled:active .skm-toggle-knob{transform:none}
 .skm-toggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:1px}
-.skm-toggle-on{border-color:transparent;background:var(--dsw-alias-state-business-primary,#4176e6)}
-.skm-toggle-off{background:var(--dsw-alias-bg-module-platform,#e9ebee);border-color:var(--dsw-alias-border-l2,rgba(0,0,0,.1))}
-.skm-toggle-knob{display:block;width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform 180ms cubic-bezier(.3,1.4,.5,1)}
-.skm-toggle-on .skm-toggle-knob{transform:translateX(14px)}
-.skm-toggle-off .skm-toggle-knob{transform:translateX(0)}
+/* 圆点本体：关=空心环，开=实心+光晕；transition 让切换有「点亮」的手感 */
+.skm-toggle-knob{display:block;width:7px;height:7px;box-sizing:border-box;border-radius:50%;
+  background:transparent;box-shadow:inset 0 0 0 1.5px var(--dsw-alias-border-l3,rgba(0,0,0,.26));
+  transition:background .22s ease,box-shadow .26s ease,transform .18s cubic-bezier(.3,1.4,.5,1)}
+.skm-toggle-on .skm-toggle-knob{background:var(--dsw-alias-state-business-primary,#4176e6);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 14%,transparent)}
+.skm-toggle-off .skm-toggle-knob{background:transparent;
+  box-shadow:inset 0 0 0 1.5px var(--dsw-alias-border-l3,rgba(0,0,0,.26))}
 .skm-bundle-toggle{flex:none;display:inline-flex;align-items:center;gap:4px;margin-left:0}
 
 /* ── 面板级提示条：删除/归组/改名/安装的成败都要让用户看见 ── */
@@ -849,8 +946,14 @@ body[data-ds-dark-theme] .skm-bundle-missing{color:#f0c48a}
   .skm-bundle-empty,.skm-bundle-missing{animation:none}
   .skm-bundle-empty-btn,.skm-bundle-missing-btn{transition:none}
   .skm-skill-card::before,.skm-skill-badge,.skm-skill-title,.skm-tag-status{transition:none}
+  /* hover 竖线现在是 ::before（::after 是旧卡片状态的残留，已随样式一起删掉） */
+  .skm-skill-card::before,.skm-skill-card-foot,.skm-skill-meta,.skm-skill-card-toggle{transition:none}
   .skm-bundle-cat-tag,.skm-cat-selected-tag{animation:none}
   .skm-bundle-cat-tag,.skm-cat-preset,.skm-cat-remove,.skm-cat-input,.skm-filter-tab{transition:none}
+  /* 减弱动效：竖线不靠 scaleY 过渡出场，hover 时直接切换可见性；
+     操作组同理，按钮切换不做淡入淡出（但仍需 hover 才出现，避免常驻占位）。 */
+  .skm-skill-card:hover::before,.skm-skill-card:focus-within::before{transition:none}
+  .skm-toggle-knob,.skm-toggle{transition:none}
   .skm-viewer-media img{animation:none}
   .skm-viewer-media-open{transition:none}
 }
@@ -1221,33 +1324,20 @@ function SkillCard({ skill, bundleId, bundleName, enabled, scopeLabel, index, on
         >
           {skill.name}
         </button>
-        <span className={css.skillCardToggle}>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={enabled}
-            aria-label={toggleLabel}
-            title={toggleLabel}
-            className={`${css.toggle} ${enabled ? css.toggleOn : css.toggleOff}`}
-            onClick={(event) => {
-              event.stopPropagation()
-              onToggle(skill, !enabled)
-            }}
-          >
-            <span className={css.toggleKnob} aria-hidden="true" />
-          </button>
-        </span>
       </div>
       {description !== '' && (
         <button type="button" className={css.skillDesc} title={description} onClick={() => { onView(skill) }}>{description}</button>
       )}
+      {/* 标记行：整块隐藏（见样式注释），但「N 文件」要留下——它是右列那一格的唯一内容，
+          设计稿 .sf 就是它。之前它挂在这个 div 里，跟着 display:none 一起消失了，
+          右侧变成一片空白，行读起来像「只有名字和描述」。改成与标记行平级的独立节点。 */}
       <div className={css.skillTags}>
         <span className={`${css.tag} ${css.tagSource}`}>{bundleName ?? skillT('tagLoose')}</span>
         <span className={`${css.tag} ${css.tagScope}`} data-off={enabled ? undefined : 'true'}>{scopeLabel}</span>
         {skill.builtin === true && <span className={`${css.tag} ${css.tagBuiltin}`}>{skillT('builtinTag')}</span>}
         {!enabled && <span className={`${css.tag} ${css.tagStatus}`}>{skillT('skillOffTag')}</span>}
-        <span className={css.skillMeta}>{skillT('fileCount', { n: fileMeta })}</span>
       </div>
+      <span className={css.skillMeta}>{skillT('fileCount', { n: fileMeta })}</span>
       {/* 展开技能文件：卡内文件树（只读，点文件名进查看器）。默认收起，
           只对有文件的技能给入口——空文件列表展开出一条空轨道毫无意义。 */}
       {filesOpen && canExpand && (
@@ -1270,6 +1360,27 @@ function SkillCard({ skill, bundleId, bundleName, enabled, scopeLabel, index, on
       )}
       <div className={css.skillCardFoot}>
         <div className={css.skillCardActions}>
+          {/* 开关放在操作组第一位：目录行默认只显示「名称 + 描述 + 文件数」，
+              开关跟着操作组一起在 hover / 键盘聚焦时浮出，行才能压到设计稿的密度。
+              它仍然是真 <button role="switch">，键盘 Tab 可达；而 hover 本来就要先
+              进出这一行，浮出后鼠标就停在那里，点得动（上一轮的回归正是因为它
+              浮出后又被 hover 规则隐藏，这里只浮出、不隐藏）。 */}
+          <Tooltip label={toggleLabel} side="bottom" delayMs={500}>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={enabled}
+              aria-label={toggleLabel}
+              title={toggleLabel}
+              className={`${css.toggle} ${enabled ? css.toggleOn : css.toggleOff}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                onToggle(skill, !enabled)
+              }}
+            >
+              <span className={css.toggleKnob} aria-hidden="true" />
+            </button>
+          </Tooltip>
           {canExpand && (
             <Tooltip label={skillT('expandSkillFiles')} side="bottom" delayMs={500}>
               <button
@@ -1354,6 +1465,15 @@ type ViewerState = {
 }
 
 const SKILL_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
+
+/**
+ * 收起态每个包最多显示几行技能。
+ *
+ * 设计稿 dir-1 用的是 6（`list.slice(0, 6)`）；这里取 8，因为插件的技能行是
+ * 「名称 + 单行描述」的紧凑两行，8 行在 3 列下正好排满一屏可见区域，
+ * 再多就会把下一个包挤出视野，用户反而要点「还有 N 个」才能看到别的包。
+ */
+const COLLAPSED_ROWS = 8
 
 /** 从 SKILL.md 文本里取 frontmatter 的 name（安装弹窗预览真实技能名用）。 */
 function frontmatterName(text: string): string | null {
@@ -1925,6 +2045,8 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
   const realCategories = categoryList.filter((cat) => cat !== UNCATEGORIZED)
   const matchedSkills = visibleBundleAll.reduce((sum, bundle) => sum + bundle.skills.length, 0)
     + visibleLooseAll.length
+  /** 散装技能列表的列数：与技能包内同一算法（ceil(n/2)，上限 3）。 */
+  const looseCols = Math.min(3, Math.max(1, Math.ceil(visibleLooseAll.length / 2)))
 
   const trimmedName = installName.trim()
   const nameInvalid = trimmedName !== '' && !SKILL_NAME_PATTERN.test(trimmedName)
@@ -2103,10 +2225,18 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
                       : undefined
                     const allSkills = rawBundle?.skills ?? bundle.skills
                     const onCount = allSkills.filter((skill) => toggles.skills[skill.name] !== false).length
-                    // 预览跟当前结果走：搜索时只列命中的技能，否则列整包前 8 个。
-                    const previewSource = needle !== '' ? bundle.skills : allSkills
-                    const previewSkills = previewSource.slice(0, 8)
-                    const previewMore = previewSource.length - previewSkills.length
+                    /* ── 收起 / 展开：**同一个列表，只差渲染数量** ─────────────────
+                       设计稿 dir-1 的原话就是 `const shown = open ? list : list.slice(0, 6)`，
+                       压根没有第二套结构。插件之前把它实现成了两套 DOM（收起
+                       .skm-bundle-preview-chip / 展开 .skm-skill-card），于是两边外观
+                       永远对不齐、每次改一边另一边就"掉队"。2026-10-23 合并成一套：
+                       两种状态都用 <SkillRow>，收起态只多渲染一个「还有 N 个」尾巴。 */
+                    const listSource = needle !== '' ? bundle.skills : allSkills
+                    const shownSkills = openView ? listSource : listSource.slice(0, COLLAPSED_ROWS)
+                    // 列数按**实际渲染的行数**算（设计稿 dir-1 的同一招：ceil(n/2)，上限 3）。
+                    // 必须用 shownSkills 而不是整包：收起态只显示 8 个，
+                    // 若按整包算，只有 1 个技能的包（Kr）会被排成 3 列，右侧空出两大片。
+                    const skillCols = Math.min(3, Math.max(1, Math.ceil(shownSkills.length / 2)))
                     return (
                       <section key={bundle.id} className={css.hubSection} data-open={openView ? 'true' : undefined} data-empty={emptyBundle ? 'true' : undefined}>
                         <header
@@ -2164,32 +2294,46 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
                                 : <span>{t('allDisabled')}</span>}
                             </button>
                           </div>
+                          {/* 右栏：技能目录。收起 / 展开共用同一套行。
+                              2026-10-23：列表必须留在右栏**里面**——
+                              之前把它挪到了 header 外面，它就横跨整行、压到左栏包名
+                              区域的正下方，左栏那 262px 只放了「包名 / 分类 / 计数」
+                              三行字，右边一大片被技能行占走，视觉上像包名挂在
+                              技能列表的边角上。左栏就该整列独占给技能包。 */}
                           <div className={css.bundleRight}>
-                          {/* 目录式技能列表：收起态就是可以直接点开文件的目录项 */}
-                          {!openView && previewSkills.length > 0 && (
-                            <div className={css.bundlePreview}>
-                              {previewSkills.map((skill) => (
-                                <button
-                                  key={skill.name}
-                                  type="button"
-                                  className={css.bundlePreviewChip}
-                                  title={skill.name}
-                                  data-off={toggles.skills[skill.name] === false || undefined}
-                                  onClick={() => { openViewer(skill) }}
-                                >
-                                  <span className={css.bundlePreviewName}>{skill.name}</span>
-                                  <span className={css.bundlePreviewDesc}>{skill.description !== undefined && skill.description.trim() !== '' ? skill.description.replace(/^"|"$/g, '') : t('noDescription')}</span>
-                                  {(skill.fileCount ?? 0) > 1 && <span className={css.bundlePreviewFiles}>{t('fileCount', { n: skill.fileCount ?? 0 })}</span>}
-                                </button>
-                              ))}
-                              {previewMore > 0 && (
-                                <button type="button" className={css.bundlePreviewMore} onClick={() => { toggleExpanded(bundle.id) }}>
-                                  {t('moreSkills', { n: previewMore })}
-                                  <IconChevronDownOutline14 size={10} aria-hidden="true" />
-                                </button>
-                              )}
-                            </div>
-                          )}
+                            {bundle.skills.length === 0 ? (
+                              <ul className={gridClass} data-cols="1" style={{ '--skm-cols': 1 } as CSSProperties}>
+                                <li className={css.bundleEmpty}>
+                                  <span className={css.bundleEmptyTitle}>{t('bundleEmptyTitle')}</span>
+                                  <span className={css.bundleEmptyHint}>{t('bundleEmptyHint')}</span>
+                                  <button type="button" className={css.bundleEmptyBtn} onClick={() => { openInstallFor(bundle.id) }}>
+                                    <CloudUpIcon size={14} />
+                                    {t('bundleUploadHere')}
+                                  </button>
+                                </li>
+                              </ul>
+                            ) : (
+                              <ul className={gridClass} data-cols={skillCols} style={{ '--skm-cols': skillCols } as CSSProperties} data-renamed={renamedFlash === bundle.id ? 'true' : undefined}>
+                                {shownSkills.map((skill, index) => (
+                                  <SkillCard key={skill.name} skill={skill} bundleId={bundle.id} bundleName={bundle.name}
+                                    enabled={skillEnabledIn(skill.name)}
+                                    scopeLabel={scopeLabel}
+                                    index={index}
+                                    onToggle={toggleSkill}
+                                    onView={openViewer}
+                                    onRemove={(s) => { void removeFromBundle(bundle.id, s.name) }}
+                                    onDelete={(s) => { setConfirm({ kind: 'skill', name: s.name, dir: s.dir }) }} />
+                                ))}
+                                {!openView && listSource.length > shownSkills.length && (
+                                  <li className={css.skillMoreRow}>
+                                    <button type="button" className={css.bundlePreviewMore} onClick={() => { toggleExpanded(bundle.id) }}>
+                                      {t('moreSkills', { n: listSource.length - shownSkills.length })}
+                                      <IconChevronDownOutline14 size={10} aria-hidden="true" />
+                                    </button>
+                                  </li>
+                                )}
+                              </ul>
+                            )}
                           </div>
                           <div className={css.bundleMore}>
                             <Menu
@@ -2264,29 +2408,7 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
                             </button>
                           </div>
                         )}
-                        {openView && (
-                          <ul className={gridClass} data-renamed={renamedFlash === bundle.id ? 'true' : undefined}>
-                            {bundle.skills.length === 0 ? (
-                              <li className={css.bundleEmpty}>
-                                <span className={css.bundleEmptyTitle}>{t('bundleEmptyTitle')}</span>
-                                <span className={css.bundleEmptyHint}>{t('bundleEmptyHint')}</span>
-                                <button type="button" className={css.bundleEmptyBtn} onClick={() => { openInstallFor(bundle.id) }}>
-                                  <CloudUpIcon size={14} />
-                                  {t('bundleUploadHere')}
-                                </button>
-                              </li>
-                            ) : bundle.skills.map((skill, index) => (
-                              <SkillCard key={skill.name} skill={skill} bundleId={bundle.id} bundleName={bundle.name}
-                                enabled={skillEnabledIn(skill.name)}
-                                scopeLabel={scopeLabel}
-                                index={index}
-                                onToggle={toggleSkill}
-                                onView={openViewer}
-                                onRemove={(s) => { void removeFromBundle(bundle.id, s.name) }}
-                                onDelete={(s) => { setConfirm({ kind: 'skill', name: s.name, dir: s.dir }) }} />
-                            ))}
-                          </ul>
-                        )}
+
                       </section>
                     )
                   })}
@@ -2314,7 +2436,7 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
                         <div className={css.bundleRight} />
                       </header>
                       {looseOpen && (
-                        <ul className={css.skillGrid}>
+                        <ul className={css.skillGrid} data-cols={looseCols} style={{ '--skm-cols': looseCols } as CSSProperties}>
                           {visibleLooseAll.map((skill, index) => (
                             <SkillCard key={skill.name} skill={skill} bundleId={null} bundleName={null}
                               enabled={skillEnabledIn(skill.name)}

@@ -498,12 +498,14 @@ body[data-ds-dark-theme] .wb-root {
 /* 顶栏搜索胶囊化 */
 .wb-root .dsh-memory-top-input { border-radius: 999px !important; }
 
-/* ── 能力：单列整宽列表（与官方自动化任务页同构），技能包行带左侧主色滑入条 ── */
+/* ── 能力：单列整宽列表（与官方自动化任务页同构） ── */
 .wb-root .skm-main-scroll { max-width: none !important; margin: 0 !important; padding: 0 60px 40px !important; }
-.wb-root .skm-bundle-row-outer { position: relative; overflow: hidden; border-radius: var(--wb2-r-md) !important; }
-.wb-root .skm-bundle-row-outer::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
-  background: var(--wb2-accent); transform: scaleY(0); transform-origin: top; transition: transform 460ms var(--wb2-ease); }
-.wb-root .skm-bundle-row-outer:hover::before { transform: scaleY(1); }
+/* 2026-10-23：包行不再吃 15px 圆角。目录式版面靠发丝线与两栏版心表达结构，
+   给整行套圆角会让每个包读成一张"卡片"，与「无卡片」的定稿方向相悖
+   （用户反馈「包裹很丑」，一半来自这里）。只保留定位与裁切，形状交回面板表。
+   同日二次：整行左侧那条 2px 主色竖线**也删了**（用户截图指认「左侧这条线去掉」）——
+   它是旧「卡片 hover 滑入条」的遗留，在这套目录式版面里会从行首一直拉到行尾，
+   比包名还抢眼，成了每个包前面一道杠。hover 反馈改由包名变色 + 淡底承担。 */
 
 /* ── 画廊：网格改瀑布流 + 类别筛选进工具条 ── */
 .wb-root .tg-root { display: flex; flex-direction: column; }

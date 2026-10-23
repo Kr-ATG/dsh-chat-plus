@@ -126,8 +126,11 @@ body[data-ds-dark-theme] .wb-root {
 
 /* ── 善用卡片，拒绝碎乱：统一板块卡片质感（Unified Surface System） ──
    所有页面的主要容器表面采用统一的边框、圆角、背景与内边距，
-   不再零碎散落，形成清晰沉静的板块感。 */
-.wb-root .skm-skill-card,
+   不再零碎散落，形成清晰沉静的板块感。
+   2026-10-23：.skm-skill-card 已撤出这份名单——SKILL 页改用目录式版式，
+   技能条目是「目录行」不是卡片。这条 !important 规则正是「一展开就
+   变回旧卡片」的第二个来源：它把插件样式表里刚撤掉的圆角、边框、阴影
+   又强行补了回来。条目外观从此只由面板样式表决定。 */
 .wb-root .usm-uc-card,
 .wb-root .dsh-memory-entry-card,
 .wb-root .tg-card {
@@ -137,7 +140,6 @@ body[data-ds-dark-theme] .wb-root {
   box-shadow: var(--wb-surface-shadow) !important;
   transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease !important;
 }
-.wb-root .skm-skill-card:hover,
 .wb-root .usm-uc-card:hover,
 .wb-root .tg-card:hover {
   border-color: color-mix(in srgb, var(--wb-accent) 45%, var(--wb-surface-border)) !important;
@@ -154,20 +156,13 @@ body[data-ds-dark-theme] .wb-root {
 }
 
 /* ── 彩色标签与徽标降噪（Pills, Tags, Badges） ───────────────────── */
-.wb-root .skm-tag-source,
-.wb-root .skm-tag-scope,
-.wb-root .skm-tag-builtin,
-.wb-root .skm-skill-badge,
-.wb-root .skm-bundle-cat-tag {
-  background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent) !important;
-  border-color: var(--wb-surface-border) !important;
-  color: var(--dsw-alias-label-secondary, #bbb) !important;
-}
-.wb-root .skm-bundle-cat-tag[data-active] {
-  background: var(--wb-accent) !important;
-  color: #fff !important;
-  border-color: transparent !important;
-}
+/* 2026-10-23 SKILL 页改目录式后，这里的每一条都在「补回胶囊」：
+   包名旁的分类被补了底和边（用户反馈「标签包裹很丑」，当时报的就是它），
+   技能条目里的 全局/内置 标记被补成灰胶囊，skill 徽章被补成灰底块。
+   形状一律交回面板样式表（分类 = 下划线、标记 = 圆点 + 文字），
+   本层只保留一处真正需要换肤的东西：颜色降噪本身。
+   唯一保留的例外是「内置」标记的圆点色 —— 它靠 CSS 变量吃强调色，
+   在 .wb-root 里已经是换肤后的值，无需在此重复声明。 */
 
 /* ── 用量嵌入页板块容器（响应式大盘，摆脱狭隘弹窗感） ─────────────── */
 .wb-root .usm-uc {
