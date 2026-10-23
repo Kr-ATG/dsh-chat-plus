@@ -62,6 +62,10 @@ export interface ProjectView {
   autoMemory: boolean
   entryCount: number
   pinnedCount: number
+  /** 工作区文件夹是否还在（旧 host 不回 → undefined，按「还在」处理）。 */
+  pathMissing?: boolean
+  /** true = 只存在于 DSH 工作区注册表、记忆库没有档案。 */
+  fromRegistry?: boolean
 }
 
 /** 列表响应。 */

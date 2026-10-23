@@ -58,6 +58,35 @@ export interface ProjectView {
   injectExcluded?: boolean
   entryCount: number
   pinnedCount: number
+  /**
+   * 这个工作区的文件夹还在不在（2026-10-23；旧 host 不回该字段 → undefined，
+   * 按「还在」处理：旧 host 没有这个判定，画成失效会是假阳性）。
+   * 项目档案按 cwd 派生 hash 存着、永不自动清除，文件夹删掉后档案照样在，
+   * 面板据此把这类行标灰并给「清理」。
+   */
+  pathMissing?: boolean
+  /** true = 只存在于 DSH 工作区注册表、记忆库没有档案（这类行不给清理入口）。 */
+  fromRegistry?: boolean
+}
+
+/**
+ * 「清理失效工作区」的响应（2026-10-23）。
+ *
+ * ok=false 有两种原因，调用方必须分开处理：
+ *   · reason='has-entries' → 该项目下还有 entryCount 条活跃条目，需要再确认一次
+ *     （带 purgeEntries=true 重发）；
+ *   · reason='no-project'  → 记忆库里根本没有这个项目的档案（它只存在于 DSH
+ *     工作区注册表），不该由记忆插件清理；
+ *   · reason='remove-failed' → 软废弃做完了但档案目录没删掉（权限/占用），
+ *     下次打开面板还会看到它。
+ */
+export interface PruneProjectResponse {
+  ok: boolean
+  reason?: 'has-entries' | 'no-project' | 'remove-failed'
+  /** reason='has-entries' 时的活跃条目数。 */
+  entryCount?: number
+  /** 实际被软废弃（进回收站）的条目数。 */
+  removedEntries?: number
 }
 
 /** 变更记录。 */
@@ -443,6 +472,13 @@ export interface MemoryApi {
   /** 批量删除（一次事务 + 一次编译，替代 N 次 deleteEntry）。 */
   deleteBatch: (entryIds: string[]) => Promise<{ ok: boolean; deleted: number; missing: number }>
   deleteProject: (projectHash: string) => Promise<{ ok: boolean; deleted: number }>
+  /**
+   * 清理已失效工作区的记忆档案（路径已经不存在的项目）。
+   *
+   * purgeEntries=false 时若该项目下还有活跃条目，host 会拒绝（reason=has-entries）
+   * 并回条数；true 时那些条目一并**软废弃**（进回收站，可恢复），随后删掉档案目录。
+   */
+  pruneProject: (projectHash: string, purgeEntries: boolean) => Promise<PruneProjectResponse>
   /** 一键删除今日记忆（更新/创建于本地今天；置顶与已废弃跳过）。 */
   deleteToday: (target?: { scope?: 'global' | 'project'; projectHash?: string }) => Promise<{ ok: boolean; deleted: number }>
   meta: (projectHash: string, patch: { alias?: string; locked?: boolean; path?: string; autoMemory?: boolean; injectExcluded?: boolean }) => Promise<{ ok: boolean; meta: ProjectView }>
@@ -550,6 +586,7 @@ export function createMemoryApi(): MemoryApi {
     deleteEntry: (entryId) => sendJson<{ ok: boolean }>('/delete', { entryId }),
     deleteBatch: (entryIds) => sendJson<{ ok: boolean; deleted: number; missing: number }>('/delete-batch', { entryIds }),
     deleteProject: (projectHash) => sendJson<{ ok: boolean; deleted: number }>('/delete-project', { projectHash }),
+    pruneProject: (projectHash, purgeEntries) => sendJson<PruneProjectResponse>('/prune-project', { projectHash, purgeEntries }),
     deleteToday: (target = {}) => sendJson<{ ok: boolean; deleted: number }>('/delete-today', target),
     meta: (projectHash, patch) => sendJson<{ ok: boolean; meta: ProjectView }>('/meta', { projectHash, ...patch }),
     remember: (input) => sendJson<{ ok: boolean; created: boolean; entry: MemoryEntryView }>('/remember', input).then(withEntry),

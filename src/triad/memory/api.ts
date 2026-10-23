@@ -12,7 +12,7 @@ import { applyConfigOverrides, DEFAULT_CONFIG, publicConfig, type ConsolidateRes
 import { compileAll } from './engine/compile.js'
 import { consolidateAll, consolidateScope } from './engine/consolidate.js'
 import { searchEntries } from './engine/retrieval.js'
-import { localDate, mergeTags, nowIso, projectHashOf, entryIdOf, summarize, type MemoryStore } from './engine/store.js'
+import { isWorkspacePathAlive, localDate, mergeTags, nowIso, projectHashOf, entryIdOf, summarize, type MemoryStore } from './engine/store.js'
 import { getMailStatusSource } from '../../mail/registry.js'
 
 /** Minimal service-shaped view of the webserver route register. */
@@ -940,6 +940,57 @@ async function handle(
       json(res, 200, { ok: true, deleted: removed.length })
       return
     }
+    if (method === 'POST' && rest === '/prune-project') {
+      /*
+       * 清理**已失效工作区**的记忆档案（2026-10-23）。
+       *
+       * 与 /delete-project 的区别：那条清的是记忆条目、档案留着；这条删的是
+       * 档案本身（projects/<hash>/，实际只有一个 meta.json），条目按需一并软废弃。
+       *
+       * 为什么档案会「失效」：档案按 cwd 派生 hash 落盘，永不自动清除。文件夹被
+       * 删掉 / 改名 / 挪走之后，meta.json 照样在，于是记忆面板和「工作区记忆」
+       * 设置里会永久多出一行不存在的工作区（用户 2026-10-23 问到的那一例）。
+       *
+       * 安全阀：项目下还有活跃条目时默认**拒绝**（reason=has-entries），必须显式
+       * 传 purgeEntries:true。前端据此弹二次确认，避免「只想删掉一行死工作区，
+       * 结果把还想要的记忆一起废了」。purge 走的是软废弃（进回收站可恢复），
+       * 不是物理删除。
+       */
+      const body = await readBody(req) as Record<string, unknown>
+      const projectHash = requireString(body.projectHash, 'projectHash')
+      const meta = await store.readProjectMeta(projectHash)
+      if (meta === undefined) {
+        // 只存在于工作区注册表、记忆库里没有档案的项目不该由这里删：
+        // 注册表归 DSH 管，记忆插件删别人的登记项是越界。
+        json(res, 200, { ok: false, reason: 'no-project', entryCount: 0 })
+        return
+      }
+      const owned = (await store.readEntries()).filter(entry =>
+        entry.scope === 'project' && entry.projectHash === projectHash && entry.deprecated !== true)
+      if (owned.length > 0 && body.purgeEntries !== true) {
+        json(res, 200, { ok: false, reason: 'has-entries', entryCount: owned.length })
+        return
+      }
+      for (const entry of owned) {
+        const retired = await store.retireEntry(entry.id, '工作区文件夹已不存在，档案清理时一并软废弃')
+        if (retired === undefined) continue
+        await store.appendChange({
+          action: 'retire',
+          entryId: entry.id,
+          scope: entry.scope,
+          projectHash: entry.projectHash,
+          summary: `清理失效工作区：${summarize(entry.content)}`,
+        })
+      }
+      const removed = await store.removeProjectDir(projectHash)
+      await compileAll(store, config)
+      json(res, 200, {
+        ok: removed,
+        ...(removed ? {} : { reason: 'remove-failed' }),
+        removedEntries: owned.length,
+      })
+      return
+    }
     if (method === 'POST' && rest === '/remember') {
       // 手动添加记忆（面板「添加」）：内容/范围/标签/置顶/重要性。
       const body = await readBody(req) as Record<string, unknown>
@@ -1072,8 +1123,18 @@ async function listView(store: MemoryStore, params: URLSearchParams): Promise<{ 
   return { entries: views, projects: await mergeWorkspaces(store, await store.listProjects(entries)) }
 }
 
-/** 项目视图类型（面板返回）。 */
-type ProjectView = { hash: string; path: string; alias: string | null; locked: boolean; autoMemory: boolean; injectExcluded: boolean; entryCount: number; pinnedCount: number }
+/**
+ * 项目视图类型（面板返回）。
+ *
+ * pathMissing：这个工作区的文件夹还在不在（2026-10-23）。项目档案按 cwd 派生 hash
+ * 存着、永不自动清除，所以文件夹被删掉之后列表里会永久多出一行死工作区。面板据此
+ * 标灰 + 给「清理」，但**不隐藏**：盘没挂载和目录被删在 existsSync 眼里是同一种
+ * 结果，隐藏会把可恢复的误判成没了。
+ *
+ * fromRegistry：这个项目只存在于 DSH 工作区注册表、记忆库里没有档案（没有 meta.json）。
+ * 这类行不能由记忆插件清理——注册表归 DSH 管，删别人的登记项是越界。
+ */
+type ProjectView = { hash: string; path: string; alias: string | null; locked: boolean; autoMemory: boolean; injectExcluded: boolean; entryCount: number; pinnedCount: number; pathMissing: boolean; fromRegistry?: boolean }
 
 /**
  * 合并 DSH 工作区注册表：尚无记忆的新工作区也出现在项目列表（entryCount 0），
@@ -1093,6 +1154,10 @@ async function mergeWorkspaces(store: MemoryStore, projects: ProjectView[]): Pro
         injectExcluded: false,
         entryCount: 0,
         pinnedCount: 0,
+        // 注册表里的路径同样可能早已失效（DSH 自己也不清理已删工作区）：
+        // 标出来但不给清理入口，见 ProjectView.fromRegistry 的注释。
+        pathMissing: !isWorkspacePathAlive(workspace.path),
+        fromRegistry: true,
       })
       known.add(hash)
     }

@@ -124,6 +124,24 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
   const [projectsState, setProjectsState] = useState<'idle' | 'loading' | 'error'>('idle')
   /** 正在写的工作区 hash（逐行 busy：写 A 不该把 B 也变灰）。 */
   const [projectBusy, setProjectBusy] = useState<string | null>(null)
+  /**
+   * 失效工作区的清理交互（2026-10-23）。
+   *
+   * 为什么需要这几个 state 而不是一个 confirm()：项目档案按 cwd 派生 hash 存着、
+   * 永不自动清除，文件夹删掉之后列表里会永久留一行死工作区；用户看到的第一反应
+   * 是「这玩意怎么还在」。清理是**删档案**（条目按需一并进回收站），比拨开关危险，
+   * 所以给两次机会而不是弹原生 confirm：
+   *   · pruneConfirm  —— 哪一行展开了二次确认条（只有含记忆的行才需要）；
+   *   · pruneBusy     —— 哪一行正在清理（逐行，写 A 不该把 B 变灰）；
+   *   · pruneLeaving  —— 哪一行正在播退场动画（先动画、后从 state 移除）；
+   *   · pruneError    —— 行内提示（host 拒绝 / 网络失败），不静默吞掉。
+   */
+  const [pruneConfirm, setPruneConfirm] = useState<string | null>(null)
+  const [pruneBusy, setPruneBusy] = useState<string | null>(null)
+  const [pruneLeaving, setPruneLeaving] = useState<string | null>(null)
+  const [pruneError, setPruneError] = useState<{ hash: string; text: string } | null>(null)
+  /** host 回的真实活跃条数（本地 entryCount 过时、被 /prune-project 拒回时记录）。 */
+  const [pruneCount, setPruneCount] = useState<{ hash: string; count: number } | null>(null)
 
   /**
    * 回读整份状态；失败按兜底形状（与 composer 卡同一份兜底，不另写）。
@@ -284,6 +302,50 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
       .catch(() => { loadProjects() })
       .finally(() => { setProjectBusy(current => (current === hash ? null : current)) })
   }, [loadProjects])
+
+  /**
+   * 清理一条失效工作区的记忆档案。
+   *
+   * 只有「文件夹已经不存在」且「记忆库里有它的档案」的行才会走到这里（判据见
+   * ProjectView.pathMissing / fromRegistry）。三种返回必须分开处理，否则用户
+   * 看到的是「点了按钮没反应」：
+   *   · ok            → 先播 320ms 退场动画再从列表摘掉（直接 filter 会让行
+   *                     「啪」一下消失，与卡片其它过渡不是一套语言）；
+   *   · has-entries   → 卡片上的 entryCount 过时了（别处刚给它加过记忆），把真实
+   *                     条数摆出来，让用户重新确认；
+   *   · 其它/网络失败 → 行内红字提示，不静默吞。
+   */
+  const pruneWorkspace = useCallback((hash: string, purgeEntries: boolean): void => {
+    setPruneBusy(hash)
+    setPruneError(null)
+    void api.pruneProject(hash, purgeEntries)
+      .then(res => {
+        if (res.ok !== true) {
+          // has-entries：本地 entryCount 过时了（别处刚给它加过记忆），把真实
+          // 条数记下来并展开确认条，让用户按真实数字重新确认，而不是只弹一行错。
+          if (res.reason === 'has-entries') {
+            setPruneCount({ hash, count: res.entryCount ?? 0 })
+            setPruneConfirm(hash)
+            return
+          }
+          const text = res.reason === 'no-project'
+            ? '记忆库里没有这个项目的档案（它只存在于 DSH 工作区注册表，那里由 DSH 自己清理）'
+            : '档案没删掉（可能被占用），稍后再试'
+          setPruneError({ hash, text })
+          return
+        }
+        setPruneConfirm(null)
+        setPruneCount(null)
+        setPruneLeaving(hash)
+        // 320ms 与 CSS 里 .kr-settings__ws-row--leaving 的动画时长一致，改一处必须同步另一处。
+        window.setTimeout(() => {
+          setProjects(prev => prev.filter(item => item.hash !== hash))
+          setPruneLeaving(null)
+        }, 320)
+      })
+      .catch(() => { setPruneError({ hash, text: '清理失败（宿主没响应）' }) })
+      .finally(() => { setPruneBusy(current => (current === hash ? null : current)) })
+  }, [])
 
   const zhOn = state.zhEnabled !== false
   const htmlOn = state.htmlEnabled === true
@@ -481,11 +543,24 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
                     : (project.path.split(/[\\/]/).filter(Boolean).at(-1) ?? project.hash)
                   const isCurrent = projectCwd !== null && samePath(project.path, projectCwd)
                   const rowBusy = projectBusy === project.hash
+                  // 文件夹不存在（2026-10-23）：整行标灰 + 禁用开关 + 给「清理」。
+                  // fromRegistry 行是「只存在于 DSH 注册表、记忆库没档案」，不给清理入口。
+                  const missing = project.pathMissing === true
+                  const cleanable = missing && project.fromRegistry !== true
+                  const confirmOpen = pruneConfirm === project.hash
+                  const leaving = pruneLeaving === project.hash
+                  const rowError = pruneError !== null && pruneError.hash === project.hash ? pruneError.text : null
                   return (
                     <div
                       key={project.hash}
-                      className={isCurrent ? 'kr-settings__ws-row kr-settings__ws-row--current' : 'kr-settings__ws-row'}
+                      className={[
+                        'kr-settings__ws-row',
+                        isCurrent ? 'kr-settings__ws-row--current' : '',
+                        missing ? 'kr-settings__ws-row--missing' : '',
+                        leaving ? 'kr-settings__ws-row--leaving' : '',
+                      ].filter(Boolean).join(' ')}
                       data-current={isCurrent ? 'true' : undefined}
+                      data-missing={missing ? 'true' : undefined}
                       // 行上带 hash：e2e 按工作区定位开关（只靠名字会在重名/别名时选错行）。
                       data-hash={project.hash}
                     >
@@ -493,8 +568,35 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
                         <span className="kr-settings__ws-name" title={project.path}>
                           {name}
                           {isCurrent && <span className="kr-settings__ws-badge">当前</span>}
+                          {missing && <span className="kr-settings__ws-badge kr-settings__ws-badge--missing">文件夹已不存在</span>}
                         </span>
                         <span className="kr-settings__ws-path" title={project.path}>{project.path}</span>
+                        {rowError !== null && (
+                          <span className="kr-settings__ws-error" role="alert">{rowError}</span>
+                        )}
+                        {confirmOpen && (
+                          <span className="kr-settings__ws-confirm" role="alertdialog" aria-label="确认清理">
+                            <span className="kr-settings__ws-confirm-text">
+                              这个项目下还有 {pruneCount !== null && pruneCount.hash === project.hash ? pruneCount.count : project.entryCount} 条记忆，清理会把它们一并移入回收站。
+                            </span>
+                            <button
+                              type="button"
+                              className="kr-settings__ws-confirm-ok"
+                              disabled={pruneBusy === project.hash}
+                              onClick={() => { pruneWorkspace(project.hash, true) }}
+                            >
+                              确认清理
+                            </button>
+                            <button
+                              type="button"
+                              className="kr-settings__ws-confirm-cancel"
+                              disabled={pruneBusy === project.hash}
+                              onClick={() => { setPruneConfirm(null); setPruneCount(null); setPruneError(null) }}
+                            >
+                              取消
+                            </button>
+                          </span>
+                        )}
                       </div>
                       <div className="kr-settings__ws-flags">
                         <span className="kr-settings__ws-flag">
@@ -504,7 +606,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
                             aria-checked={project.autoMemory}
                             aria-label={`${name}：记录新记忆`}
                             title="记录新记忆：关掉后这个工作区不再自动提取，模型也不能手动往里记；已有记忆不受影响。"
-                            disabled={rowBusy}
+                            disabled={rowBusy || missing}
                             className="kr-settings__switch kr-settings__switch--mini"
                             onClick={() => { pushProjectFlag(project.hash, { autoMemory: !project.autoMemory }) }}
                           />
@@ -517,12 +619,35 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
                             aria-checked={project.injectExcluded === true}
                             aria-label={`${name}：不注入记忆`}
                             title="不注入：开启后，在这个工作区的会话里不再注入任何记忆条目；记录、检索与面板展示都不受影响。"
-                            disabled={rowBusy}
+                            disabled={rowBusy || missing}
                             className="kr-settings__switch kr-settings__switch--mini kr-settings__switch--warn"
                             onClick={() => { pushProjectFlag(project.hash, { injectExcluded: !(project.injectExcluded === true) }) }}
                           />
                           <span className="kr-settings__ws-flag-text">不注入</span>
                         </span>
+                        {cleanable && (
+                          <span className="kr-settings__ws-flag">
+                            <button
+                              type="button"
+                              className="kr-settings__ws-clean"
+                              disabled={rowBusy}
+                              onClick={() => {
+                                setPruneError(null)
+                                // 本地 count 大于 0 直接进确认（条数摆出来再确认一次）；
+                                // 本地是 0 也可能过时（别处刚加过），host 会以 has-entries
+                                // 拒回真实条数，届时再展开确认 —— 两处都兜住。
+                                if (project.entryCount > 0) {
+                                  setPruneCount({ hash: project.hash, count: project.entryCount })
+                                  setPruneConfirm(project.hash)
+                                } else {
+                                  pruneWorkspace(project.hash, false)
+                                }
+                              }}
+                            >
+                              {pruneBusy === project.hash ? '清理中…' : '清理'}
+                            </button>
+                          </span>
+                        )}
                       </div>
                     </div>
                   )

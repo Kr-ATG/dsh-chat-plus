@@ -6,7 +6,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { copyFileSync, existsSync, readdirSync, readFileSync, renameSync, unlinkSync } from 'node:fs'
-import { copyFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import type {
@@ -24,6 +24,28 @@ import type {
 export function memoryHome(): string {
   const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
   return join(dshHome, 'memories', 'dsh-memory')
+}
+
+/**
+ * 工作区路径现在还找不找得到。
+ *
+ * 用途只有一个：把**文件夹已经不在**的项目从「活工作区」里区分出来。项目档案
+ * （projects/<hash>/meta.json）不会随文件夹消失而消失——它按 cwd 派生 hash 存着，
+ * 目录被人删掉、改名叫、或者整个挪走之后，档案仍然躺在盘上，于是面板里会永久
+ * 多出一行「工作区」，用户对着一个不存在的目录拨开关（实测 2026-10-23 用户问到
+ * 《这个文件夹不是没了吗，怎么还会有工作区》）。
+ *
+ * 只做 existsSync 而不 stat 类型：移动硬盘没插、网络盘没挂的时候同样返回 false，
+ * 那正是需要提示用户的状态（这一行拨了不会生效），而不是误报。所以面板据此
+ * **标灰**而不是隐藏——盘挂回来重新拉一次就恢复，档案一条不丢。
+ */
+export function isWorkspacePathAlive(path: string): boolean {
+  if (typeof path !== 'string' || path.trim() === '') return false
+  try {
+    return existsSync(path)
+  } catch {
+    return false
+  }
 }
 
 /** workspace 路径 → 项目目录 hash（sha1 前 12 位）。 */
@@ -1087,6 +1109,22 @@ export class MemoryStore {
     await atomicWriteJson(join(this.projectDir(hash), 'meta.json'), meta)
   }
 
+  /**
+   * 删掉某项目的档案目录（projects/<hash>/，实际只有 meta.json）。
+   *
+   * 只删档案，**不动条目**：条目住在 store/entries.json 里，由调用方决定要不要
+   * 一起软废弃（见 /prune-project）。目录不存在时按成功返回——清理一个幽灵
+   * 项目点两次，第二次不该报错。
+   */
+  async removeProjectDir(hash: string): Promise<boolean> {
+    try {
+      await rm(this.projectDir(hash), { recursive: true, force: true })
+      return true
+    } catch {
+      return false
+    }
+  }
+
   /** 该工作区是否开启自动记忆（默认 true；meta 缺失或字段未写视为开启）。 */
   async isAutoMemoryEnabled(hash: string): Promise<boolean> {
     const meta = await this.readProjectMeta(hash)
@@ -1123,8 +1161,13 @@ export class MemoryStore {
    * entryCount / pinnedCount 只数活跃条目：已软废弃（回收站里的）不计。
    * 早先这里把 deprecated 一并算进去，导致「全部记忆 5」与「某项目 8」
    * 自相矛盾——删掉的记忆在项目计数里阴魂不散。
+   *
+   * pathMissing（2026-10-23）：meta.path 指向的文件夹还在不在。档案是按 cwd
+   * 派生 hash 存的**永不清除的路由记录**，文件夹删掉之后它照样留在盘上，于是
+   * 面板会列出一个不存在的工作区。这里只如实标出来，不替调用方做隐藏决定——
+   * 隐藏会让「盘没挂载」和「目录真被删了」两种情况看起来一样。
    */
-  async listProjects(entries: MemoryEntry[]): Promise<Array<ProjectMeta & { hash: string; entryCount: number; pinnedCount: number; autoMemory: boolean; injectExcluded: boolean }>> {
+  async listProjects(entries: MemoryEntry[]): Promise<Array<ProjectMeta & { hash: string; entryCount: number; pinnedCount: number; autoMemory: boolean; injectExcluded: boolean; pathMissing: boolean }>> {
     const dir = join(this.root, 'projects')
     let hashes: string[]
     try {
@@ -1134,7 +1177,7 @@ export class MemoryStore {
     } catch {
       hashes = []
     }
-    const projects: Array<ProjectMeta & { hash: string; entryCount: number; pinnedCount: number; autoMemory: boolean; injectExcluded: boolean }> = []
+    const projects: Array<ProjectMeta & { hash: string; entryCount: number; pinnedCount: number; autoMemory: boolean; injectExcluded: boolean; pathMissing: boolean }> = []
     for (const hash of hashes) {
       const meta = await this.readProjectMeta(hash)
       if (meta === undefined) continue
@@ -1149,6 +1192,7 @@ export class MemoryStore {
         injectExcluded: meta.injectExcluded === true,
         entryCount: owned.length,
         pinnedCount: owned.filter(entry => entry.pinned).length,
+        pathMissing: !isWorkspacePathAlive(meta.path),
       })
     }
     projects.sort((a, b) => a.path.localeCompare(b.path))

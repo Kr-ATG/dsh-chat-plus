@@ -5783,10 +5783,142 @@ body[data-ds-dark-theme] .kr-settings {
   color: var(--dsw-alias-label-primary);
 }
 
+/* ── 失效工作区（2026-10-23）：文件夹已被删/改名/挪走 ──────────────────
+   pathMissing 的行整行标灰：开关禁用（对着不存在的目录拨开关毫无意义）、
+   名称旁一枚「文件夹已不存在」角标、行尾一枚「清理」按钮。
+   为什么标灰而不是隐藏：盘没挂载与目录被删在 existsSync 眼里是同一种结果，
+   隐藏会让可恢复的误判成没了。盘挂回来重拉一次就恢复。
+   为什么禁用开关而不是隐藏它们：禁用保留了行的形状，用户能看出「这一行
+   不能拨」，而不是以为开关消失了。 */
+.kr-settings__ws-row--missing {
+  opacity: .55;
+}
+
+.kr-settings__ws-row--missing .kr-settings__ws-name,
+.kr-settings__ws-row--missing .kr-settings__ws-path {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.kr-settings__ws-row--missing:hover {
+  background: transparent;
+}
+
+/* 角标：与「当前」同款小胶囊，但用警示色系，扫视时「这行有问题」自己跳出来。 */
+.kr-settings__ws-badge--missing {
+  color: var(--dsw-alias-state-warning-primary, #f59e0b);
+  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #f59e0b) 12%, transparent);
+}
+
+/* 清理按钮：小幽灵按钮，hover 才显形 —— 常态下是整行的低频操作，
+   太显眼会跟两枚开关抢注意力。 */
+.kr-settings__ws-clean {
+  border: 1px solid var(--kr-card-border);
+  border-radius: 6px;
+  padding: 1px 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--kr-fs-10-5, 10.5px);
+  font-family: inherit;
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, background-color .15s ease;
+}
+
+.kr-settings__ws-clean:hover:not(:disabled) {
+  color: var(--dsw-alias-state-danger-primary, #e5484d);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-danger-primary, #e5484d) 40%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-danger-primary, #e5484d) 8%, transparent);
+}
+
+.kr-settings__ws-clean:disabled {
+  opacity: .6;
+  cursor: default;
+}
+
+/* 二次确认条：含记忆的行点「清理」后展开 —— 清理会一并软废弃这些条目
+   （进回收站可恢复），先摆出真实条数让用户再确认一次。 */
+.kr-settings__ws-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary, #f59e0b) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary, #f59e0b) 30%, transparent);
+}
+
+.kr-settings__ws-confirm-text {
+  font-size: var(--kr-fs-10-5, 10.5px);
+  line-height: 1.45;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-settings__ws-confirm-ok {
+  border: none;
+  border-radius: 5px;
+  padding: 2px 9px;
+  background: var(--dsw-alias-state-danger-primary, #e5484d);
+  color: #fff;
+  font-size: var(--kr-fs-10-5, 10.5px);
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity .15s ease;
+}
+
+.kr-settings__ws-confirm-ok:hover:not(:disabled) {
+  opacity: .88;
+}
+
+.kr-settings__ws-confirm-ok:disabled,
+.kr-settings__ws-confirm-cancel:disabled {
+  opacity: .6;
+  cursor: default;
+}
+
+.kr-settings__ws-confirm-cancel {
+  border: 1px solid var(--kr-card-border);
+  border-radius: 5px;
+  padding: 2px 9px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--kr-fs-10-5, 10.5px);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color .15s ease;
+}
+
+.kr-settings__ws-confirm-cancel:hover:not(:disabled) {
+  background: var(--kr-hover-bg);
+}
+
+/* 行内错误提示（host 拒绝 / 网络失败）：红字，不弹 toast ——
+   toast 会盖住正在看的这一行，行内提示指向更明确。 */
+.kr-settings__ws-error {
+  margin-top: 3px;
+  font-size: var(--kr-fs-10-5, 10.5px);
+  line-height: 1.45;
+  color: var(--dsw-alias-state-danger-primary, #e5484d);
+}
+
+/* 退场动画：清理成功后整行先淡出 + 收起，再摘出列表（320ms 与
+   KrPanelSettings.tsx 里 pruneWorkspace 的 setTimeout 时长一致）。 */
+.kr-settings__ws-row--leaving {
+  transition: opacity .28s ease, transform .28s ease, max-height .28s ease;
+  opacity: 0;
+  transform: translateX(8px);
+  max-height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .kr-settings__ws-row,
   .kr-settings__ws-name,
-  .kr-settings__ws-retry {
+  .kr-settings__ws-retry,
+  .kr-settings__ws-row--leaving {
     transition: none;
   }
 }
