@@ -268,6 +268,32 @@ function snapshot({ parentId = 'parent-1', catalog, cellState = 'idle', listRows
   delete globalThis.__dshClientCtx__
 }
 
+/* ── 8. 会话口径（2026-10-23）：目录不按轮次裁剪，模块里不该再有那个函数 ─── */
+
+{
+  const mod = await import(pathToFileURL(outPath).href)
+  check('不再导出 filterCatalogByTurn（按轮次过滤已整块删除）',
+    mod.filterCatalogByTurn === undefined, String(typeof mod.filterCatalogByTurn))
+
+  // 同一份快照里混着「上一轮派出去、现在还在跑」与「本轮刚派」的子智能体：
+  // 会话口径下两条都必须在，卡不会因为切轮次而丢掉还在跑的那个。
+  const snap = snapshot({
+    catalog: [
+      { id: 'child-old', mode: 'continuable', label: '上一轮派的、还在跑' },
+      { id: 'child-new', mode: 'one-shot', label: '本轮派的' },
+    ],
+    cellState: 'ready',
+    listRows: {
+      'child-old': { id: 'child-old', parentId: 'parent-1', origin: 'subagent', running: true, displayTitle: '上一轮派的、还在跑' },
+      'child-new': { id: 'child-new', parentId: 'parent-1', origin: 'subagent', running: false, displayTitle: '本轮派的' },
+    },
+  })
+  const view = readSubagentCatalog(snap, 'parent-1')
+  check('会话口径：跨轮次的子智能体一起列出（2 条）', view.rows.length === 2,
+    view.rows.map((r) => r.id).join(','))
+  check('会话口径：上一轮那个还在跑的被算进 runningCount', view.runningCount === 1, String(view.runningCount))
+}
+
 rmSync(scratch, { recursive: true, force: true })
 
 if (failed > 0) {

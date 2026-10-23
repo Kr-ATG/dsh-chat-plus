@@ -17,17 +17,20 @@
  *  · **有几个、谁还在跑** —— 来自官方子智能体目录投影（见 subagent-catalog.ts）；
  *  · **点进去看它自己在干什么** —— 跳转，不在卡上编造子智能体内部的活动。
  *
- * 口径是**当前查看的这一轮对话**（2026-10-09 起，用户点名：会话口径下对话一多
- * 卡里堆十几行历史子智能体）：目录在 KrAgentPanel 里经 filterCatalogByTurn 按
- * 轮次窗口（catalog 条目自带 createdAt × 本轮 turnStart/turnEnd）过滤后才传进来，
- * 切到哪轮就看哪轮派出去的那几个；本轮没派 = 过滤后为空 = 整卡不渲染。
+ * 口径是**整场会话**（2026-10-23 用户点名「一个会话里的子代理卡片不要根据对话
+ * 区分了」，撤销了 2026-10-09 那版按轮次窗口裁剪的做法）：这个会话派生过的子
+ * 智能体一个不落地都在卡上，与「产出物」卡同一粒度。
+ *
+ * 撤销的理由：子智能体是**独立会话**，不是某一轮的子步骤。按轮次裁剪时，上一轮
+ * 派出去、到现在还在跑的那几个会在切到新一轮后从卡上消失 —— 而「谁还在跑」正是
+ * 这张卡存在的理由，行数爆炸改由下面的进行中 / 已结束折叠与「展开其余 N 个」承担。
  *
  * 拿不到的信息一律空着：子智能体此刻在调什么工具、说了什么，client 侧没有这份
  * 数据（那是子会话的消息投影，只有点开才有）。这跟"假装它没在干活"是两件事。
  *
  * ## 什么时候不出现
  *
- * 这次会话一个子智能体都没有、本轮也没有派生动作时**整张卡不渲染** —— 任务 /
+ * 这次会话一个子智能体都没有、也从没派生过时**整张卡不渲染** —— 任务 /
  * 操作面板 / 产出物三张卡是"这场对话一定有的东西"，子智能体不是；常驻一张空卡
  * 只会在右栏白占一行高度。真有派生动作但目录还没落地时给一行「正在读取」，
  * 那是**事实**（我们确实还没读到），不是「这次没有」（那是我们不知道的结论）。
@@ -81,10 +84,11 @@ export interface KrSubagentsCardProps {
   /** 当前会话的子智能体目录（由 KrAgentPanel 单点订阅后传下来）。 */
   readonly catalog: SubagentCatalogView
   /**
-   * 本轮时间线上是否存在「派出子任务」这一步。
+   * 本**会话**的工具调用里是否存在「派出子任务」这一步（不是本轮）。
    *
-   * 只用来决定**目录还没落地时**要不要占一行「正在读取」：没有派生动作时
-   * 空目录就是真的没有，整张卡不该出现。
+   * 只用来决定**目录还没落地时**要不要占一行「正在读取」：从没派过时空目录
+   * 就是真的没有，整张卡不该出现。口径必须与目录一致（都是会话累计），
+   * 否则切到新一轮会出现「目录有行、卡却被判空」的错位。
    */
   readonly spawning: boolean
   /** 右栏是否已被挤压：露出的行数降一档。 */
@@ -160,6 +164,15 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
   const [open, setOpen] = useState(true)
   const [showAll, setShowAll] = useState(false)
   /**
+   * 已结束分区是否「展开其余」。
+   *
+   * 会话口径（2026-10-23）之后这张卡不再按轮次裁剪，一场长对话跑下来已结束的
+   * 行可能有十几个。折叠条只负责「收起来」，展开后同样要有上限 —— 否则一点开
+   * 就把右栏整段占满，上面的进行中行被顶出视口。所以展开态也走 maxRows 一档，
+   * 超出部分交给同一枚「展开其余 N 个」。
+   */
+  const [doneShowAll, setDoneShowAll] = useState(false)
+  /**
    * 已结束分区是否展开。
    *
    * 用户 2026-10-23 点名「已经完工的也可以放 Show more」，口径对齐 Claude 桌面端
@@ -197,6 +210,12 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
     [runningRows, showAll, maxRows],
   )
   const hiddenCount = runningRows.length - visible.length
+  /** 已结束分区实际渲染的行（展开后仍受 maxRows 约束，见 doneShowAll）。 */
+  const doneVisible = useMemo(
+    () => (doneShowAll ? doneRows : doneRows.slice(0, maxRows)),
+    [doneRows, doneShowAll, maxRows],
+  )
+  const doneHiddenCount = doneRows.length - doneVisible.length
 
   /**
    * 这一堆已结束的行**值不值得折叠**。
@@ -224,7 +243,7 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
    *
    * 判据是「有没有东西可说」，不是「state 是不是 ready」：
    *  · 有行 → 渲染（ready 是唯一能带出行的状态）；
-   *  · 没行但本轮有派生动作 → 渲染一行「正在读取子智能体…」（目录还没落地）；
+   *  · 没行但本会话有过派生动作 → 渲染一行「正在读取子智能体…」（目录还没落地）；
    *  · 其余 → null。这次会话确实没有子智能体，不该在右栏白占一行高度。
    */
   if (rows.length === 0 && !spawning) return null
@@ -233,6 +252,10 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
    * 标题右侧的读数。折叠之后**已结束的那部分也必须出现在读数里** ——
    * 否则卡上只剩两行进行中，读者会以为"这轮就派了两个"，而下面那行
    * 「M 个已结束」正是告诉他还有一摞收在折叠区里。
+   *
+   * 口径是**整场会话**（2026-10-23）：读数的 N 与下面逐行列出的行数一致，
+   * 也与操作面板「派出 N 个子智能体」那枚徽标一致 —— 三处对不上，读者就会
+   * 以为卡里漏了东西。
    */
   const meta = rows.length === 0
     ? '读取中'
@@ -370,10 +393,22 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
                       {...(!doneOpen ? { inert: '' } : {})}
                     >
                       <div className="kr-subs-list">
-                        {doneRows.map((row, index) => (
+                        {doneVisible.map((row, index) => (
                           <SubagentLine key={row.id} row={row} index={index} onOpen={onOpen} failed={blocked} />
                         ))}
                       </div>
+                      {doneHiddenCount > 0 && (
+                        <button
+                          type="button"
+                          className="kr-subs-more"
+                          onClick={() => { setDoneShowAll(true) }}
+                        >
+                          <span>展开其余 {doneHiddenCount} 个</span>
+                          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="m4.4 6.2 3.6 3.6 3.6-3.6" />
+                          </svg>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

@@ -1460,7 +1460,7 @@ if (krEnabled) {
       fail('右栏必须挂 KrSubagentsCard（子智能体独立成卡）')
     } else if (!/useSubagentCatalog\(latestChatSessionId\)/.test(agentSrc)) {
       fail('子智能体目录必须由 KrAgentPanel 单点订阅（两张卡各订一次 = 各开一条 interval + 各发一份 RPC）')
-    } else if (!/subagentCatalog=\{spawningThisTurn \? subagentCatalog : null\}/.test(agentSrc)) {
+    } else if (!/subagentCatalog=\{subagentCatalog\}/.test(agentSrc)) {
       fail('操作面板那枚计数必须拿到同一份目录（单点订阅、向下传）')
     } else if (!/rows\.map\(\(row, index\) => \(/.test(subsSrc) && !/visible\.map\(\(row, index\) => \(/.test(subsSrc)) {
       fail('子智能体卡必须**有几个就几行**（一行一个，逐行渲染）')
@@ -1498,6 +1498,15 @@ if (krEnabled) {
       fail('子智能体目录必须读 projectionsBySession[父].values.subagentCatalog（官方目录用的同一份投影）')
     } else if (!/refreshProjections/.test(catSrc0)) {
       fail('子智能体目录必须主动调 refreshProjections 拉基线（不拉就永远读不到目录）')
+    } else if (/filterCatalogByTurn/.test(stripComments(catSrc0)) || /filterCatalogByTurn/.test(stripComments(agentSrc))) {
+      // 2026-10-23 用户点名「一个会话里的子代理卡片不要根据对话区分了」：
+      // 目录回到整场会话口径，按轮次窗口裁剪的那一层整块删除。
+      // 匹配前必须剥注释：这一轮的改动恰恰在注释里反复解释"那一层已删、为什么删"。
+      fail('子智能体目录不得再按轮次过滤（filterCatalogByTurn 必须删除，卡按整场会话列）')
+    } else if (!/const subagentCatalog = useSubagentCatalog\(latestChatSessionId\)/.test(agentSrc)) {
+      fail('子智能体目录必须直接是整场会话口径（useSubagentCatalog 结果不再被轮次窗口包一层）')
+    } else if (!/spawnsSubagents\(callName\(/.test(agentSrc)) {
+      fail('子智能体卡的「正在读取」判定必须扫**会话全部**工具节点（与目录同粒度，不能只看本轮）')
     } else {
       pass('子智能体独立成卡：有几个几行 + 整行可点跳转 + 数据源读真实快照形状')
     }

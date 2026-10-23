@@ -18,9 +18,10 @@ import { collectMessages, deriveCurrentDialogueTitle, type ShotRange, type ShotM
 import { useModalClose } from '../modal-animation.ts'
 import { getLiveDshTodos, subscribeLiveDshTodos } from './kr-todo-bridge.ts'
 import { buildPlainTimeline } from './plain-timeline.ts'
+import { spawnsSubagents } from './plain-language.ts'
 import { KrPlainTimelineCard } from './KrPlainTimelineCard.tsx'
 import { KrSubagentsCard } from './KrSubagentsCard.tsx'
-import { filterCatalogByTurn, useSubagentCatalog } from './subagent-catalog.ts'
+import { useSubagentCatalog } from './subagent-catalog.ts'
 import { KrOutputsCard } from './KrOutputsCard.tsx'
 import { collectOutputs, collectSessionToolNodes, EMPTY_OUTPUTS, outputsFingerprint, type OutputsView } from './outputs.ts'
 import { AGENT_DISPLAY_NAME, KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE, KR_SUBAGENTS_CARD_VISIBLE, KR_TOOL_CALLS_CARD_VISIBLE } from './enabled.ts'
@@ -253,12 +254,27 @@ export const KrAgentPanel = memo(function KrAgentPanel({
    * 而它下游要做的是「遍历全部工具节点 + 对没见过的节点扫结果文本」。指纹
    * 不变就复用上一次的引用，下游整条 memo 链原样命中。
    */
+  /**
+   * 会话全部 tool-call 节点（按 anchorSeq 升序）。
+   *
+   * 两个会话级消费者共用这一份：产出物卡（扫成品路径）与「本会话派过子智能体吗」
+   * （扫派生类工具名）。各算一次等于每 tick 多走一遍全量节点 + 一次排序，
+   * 而流式期 tick 频率很高 —— 提到这里算一次、两边读同一份引用。
+   */
+  const sessionToolNodes = useMemo<readonly unknown[]>(() => {
+    try {
+      return collectSessionToolNodes(getCurrentChatSnapshot())
+    } catch (err) {
+      console.warn('[kr-agent-panel] collectSessionToolNodes error', err)
+      return []
+    }
+  }, [actTick, snapTick])
+
   const outputsCacheRef = useRef<{ sig: string; data: OutputsView } | null>(null)
   const outputs = useMemo<OutputsView>(() => {
-    const snap = getCurrentChatSnapshot()
     let next: OutputsView
     try {
-      next = collectOutputs(collectSessionToolNodes(snap))
+      next = collectOutputs(sessionToolNodes)
     } catch (err) {
       // 节点形状未知时不该让整张卡消失：退到空态。
       console.warn('[kr-agent-panel] collectOutputs error', err)
@@ -269,7 +285,30 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     if (cached !== null && cached.sig === sig) return cached.data
     outputsCacheRef.current = { sig, data: next }
     return next
-  }, [actTick, snapTick])
+  }, [sessionToolNodes])
+
+  /*
+   * 本会话是否派生过子智能体 —— **会话累计**，不是本轮。
+   *
+   * 只喂给子智能体卡的**空目录判定**：目录还没落地（state 不是 ready）时，本会话
+   * 有过派生动作就占一行「正在读取子智能体…」，从没派过就整张卡不渲染 —— 后者
+   * 说明这次会话确实没有子智能体，不该在右栏白占一行高度。
+   *
+   * 口径必须跟着目录走（2026-10-23）：目录已经不再按轮次裁剪，判定若还留在
+   * 「本轮有没有派生动作」，切到新一轮（那一轮还没派东西）时会出现「目录里有行、
+   * 卡却因为空目录判定被判空」的错位。判据改成扫会话全部工具节点里的派生类工具，
+   * 与目录同一粒度。
+   */
+  const spawnedInSession = useMemo(() => {
+    for (const node of sessionToolNodes) {
+      try {
+        const root = (node as { data?: { root?: unknown } }).data?.root
+        if (root === undefined || root === null) continue
+        if (spawnsSubagents(callName(root as Parameters<typeof callName>[0]))) return true
+      } catch { /* 单条形状未知就跳过它 */ }
+    }
+    return false
+  }, [sessionToolNodes])
 
   // 思考文本提取
   const reasoningTexts = useMemo<readonly string[]>(() => {
@@ -461,28 +500,13 @@ export const KrAgentPanel = memo(function KrAgentPanel({
    * 两处消费：下面「子智能体」卡列清单，操作面板的「派出子任务」那一步取计数。
    * 只在会话身份存在时订阅；没有会话身份时 hook 内部不挂 interval，零开销。
    *
-   * 订阅口径仍是**整场会话**（目录是一份会话级投影，一次订阅两处消费），
-   * 但**展示口径按当前查看的轮次过滤**（用户 2026-10-09 点名：会话口径下
-   * 对话一多，卡里堆十几行历史子智能体没人看得完）：filterCatalogByTurn
-   * 用 catalog 条目自带的 createdAt 与本轮 turnStart/turnEnd 对齐，切到哪轮
-   * 就看哪轮派出去的那几个。窗口拿不到时不过滤（宁可多列不漏列）。
+   * 口径是**整场会话**，不按轮次切分（2026-10-23 用户点名「一个会话里的子代理
+   * 卡片不要根据对话区分了」）：这个会话派生过的子智能体一个不落地都在卡上。
+   * 原先是 filterCatalogByTurn 按本轮 turnStart/turnEnd 裁剪，代价是切到新一轮
+   * 时上一轮派出去、到现在还在跑的那几个会从卡上消失 —— 而「谁还在跑」正是这
+   * 张卡存在的理由。行数由卡内的进行中 / 已结束折叠与「展开其余 N 个」承担。
    */
-  const subagentCatalogAll = useSubagentCatalog(latestChatSessionId)
-  const subagentCatalog = useMemo(
-    () => filterCatalogByTurn(subagentCatalogAll, turnData?.turnStart, turnData?.turnEnd),
-    [subagentCatalogAll, turnData?.turnStart, turnData?.turnEnd],
-  )
-  /**
-   * 本轮是否出现过「派出子任务」这一步。
-   *
-   * 只喂给子智能体卡的**空目录判定**：目录还没落地（state 不是 ready）时，
-   * 本轮有派生动作就占一行「正在读取子智能体…」，没有就整张卡不渲染 ——
-   * 后者说明这次会话确实没有子智能体，不该在右栏白占一行高度。
-   */
-  const spawningThisTurn = useMemo(
-    () => plainTimeline.steps.some((step) => step.spawnsSubagents === true),
-    [plainTimeline.steps],
-  )
+  const subagentCatalog = useSubagentCatalog(latestChatSessionId)
 
   const hasContent = currentRunning
     || tasks.length > 0
@@ -915,7 +939,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
             running={currentRunning}
             squeezed={panelSqueezed}
             sessionId={latestChatSessionId}
-            subagentCatalog={spawningThisTurn ? subagentCatalog : null}
+            subagentCatalog={subagentCatalog}
           />
         )}
 
@@ -928,7 +952,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
         {KR_SUBAGENTS_CARD_VISIBLE && (
           <KrSubagentsCard
             catalog={subagentCatalog}
-            spawning={spawningThisTurn}
+            spawning={spawnedInSession}
             squeezed={panelSqueezed}
           />
         )}

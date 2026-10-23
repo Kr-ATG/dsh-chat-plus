@@ -60,12 +60,6 @@ export interface SubagentRow {
   readonly elapsedMs?: number
   /** 累计 token（四个桶求和）。拿不到就是 undefined。 */
   readonly tokens?: number
-  /**
-   * 官方 catalog 条目的创建时刻（ms）。用于按**轮次**过滤：
-   * 卡只列「当前查看的这一轮对话」派出去的子智能体（用户 2026-10-09 点名：
-   * 会话口径下对话一多行数爆炸）。拿不到时该行不参与时间过滤（宁可多列不漏列）。
-   */
-  readonly createdAt?: number
 }
 
 export interface SubagentCatalogView {
@@ -159,7 +153,7 @@ function tokensOf(summary: unknown): number | undefined {
 
 /** 把一条 id/label/mode 补齐成完整行（running / 后代 / 时长 / token）。 */
 function enrich(
-  base: { id: string; label: string; mode: SubagentMode; createdAt?: number },
+  base: { id: string; label: string; mode: SubagentMode },
   parentSessionId: string,
   byId: unknown,
   projections: unknown,
@@ -175,16 +169,9 @@ function enrich(
     running,
     hasChildren: hasChildrenOf(base.id, byId, projections),
     mode: base.mode,
-    ...(base.createdAt === undefined ? {} : { createdAt: base.createdAt }),
     ...(elapsedOf(summary, running, now) === undefined ? {} : { elapsedMs: elapsedOf(summary, running, now) }),
     ...(tokensOf(summary) === undefined ? {} : { tokens: tokensOf(summary) }),
   }
-}
-
-/** catalog 条目的创建时刻：host 侧折 `subagent/catalog` 事件时带的时间戳。 */
-function createdAtOf(raw: unknown): number | undefined {
-  const value = pick(raw, 'createdAt', 'createdMs', 'startedAt')
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
 /** 从 `values.subagentCatalog` 条目造行。 */
@@ -196,7 +183,7 @@ function rowsFromEntries(entries: readonly unknown[], parentSessionId: string, b
     if (typeof id !== 'string' || id === '') continue
     // catalog 条目不带运行态；`activity` 只在官方渲染层合成过，这里作旧快照兜底。
     const hint = pick(raw, 'activity', 'status') === 'running'
-    rows.push(enrich({ id, label: labelOf(raw, id), mode: modeOf(raw), createdAt: createdAtOf(raw) }, parentSessionId, byId, projections, now, hint))
+    rows.push(enrich({ id, label: labelOf(raw, id), mode: modeOf(raw) }, parentSessionId, byId, projections, now, hint))
   }
   return rows
 }
@@ -213,12 +200,12 @@ function rowsFromList(byId: unknown, parentSessionId: string, projections: unkno
   for (const [id, entry] of Object.entries(byId as Record<string, unknown>)) {
     if (pick(entry, 'parentId') !== parentSessionId) continue
     if (pick(entry, 'origin') !== 'subagent') continue
-    rows.push(enrich({ id, label: labelOf(entry, id), mode: modeOf(entry), createdAt: createdAtOf(entry) }, parentSessionId, byId, projections, now))
+    rows.push(enrich({ id, label: labelOf(entry, id), mode: modeOf(entry) }, parentSessionId, byId, projections, now))
   }
   return rows
 }
 
-/** 投影路的行优先（它带 mode / createdAt），列表路的行按 id 补齐缺失的那些。 */
+/** 投影路的行优先（它带 mode），列表路的行按 id 补齐缺失的那些。 */
 function mergeRows(primary: readonly SubagentRow[], extra: readonly SubagentRow[]): SubagentRow[] {
   if (extra.length === 0) return [...primary]
   const seen = new Set(primary.map((row) => row.id))
@@ -237,35 +224,20 @@ function finalize(rows: readonly SubagentRow[]): SubagentCatalogView {
   return { rows, runningCount, doneCount: rows.length - runningCount, state: 'ready' }
 }
 
-/**
- * 按**轮次**过滤目录：只留创建时刻落在 [turnStart, turnEnd] 窗口内的行。
+/*
+ * 2026-10-23：**按轮次过滤整块删除**（用户点名「一个会话里的子代理卡片不要根据
+ * 对话区分了」）。
  *
- * 用户 2026-10-09 点名：会话口径下对话一多，这张卡会堆出十几行历史子智能体，
- * 而读者关心的是「**当前查看的这一轮对话**派出去的那几个」。catalog 条目自带
- * `createdAt`（host 折 `subagent/catalog` 事件的时间戳），轮次窗口来自官方快照
- * 的 turn start/end，两者都是现成事实，不需要猜。
+ * 原先这里有一层 filterCatalogByTurn：拿 catalog 条目的 createdAt 与本轮
+ * turnStart/turnEnd 对齐，卡只列「当前查看的这一轮」派出去的那几个。它解决的是
+ * 「对话一多、卡里堆十几行历史」——但代价是把同一场会话里的子智能体按轮次劈开，
+ * 而子智能体是**独立会话**：上一轮派出去、到现在还在跑的那几个，在切到新一轮后
+ * 会从卡上消失，读者反而找不到"谁还在跑"。行数爆炸现在由卡内的「进行中 / 已结束
+ * 折叠 + 展开其余 N 个」承担（见 KrSubagentsCard），不再靠时间窗口裁剪。
  *
- * 边界口径：
- *  · `turnStart` 拿不到（新会话快照还没落地）→ 不过滤，全量显示（宁可多列不漏列）；
- *  · `turnEnd` 拿不到（本轮还在跑）→ 上界放开到 +∞，进行中的轮次里陆续派生的
- *    子智能体能实时进卡；
- *  · 行自身没有 `createdAt`（旧快照 / 列表路兜底行）→ 保留，同上「宁可多列」。
- *
- * 过滤后一行不剩时 state 落 `empty`：渲染层据此整卡不渲染（本轮没派 = 没东西可说），
- * 而不是留一张空卡白占右栏高度。
+ * 于是目录的粒度回到**整场会话**：这个会话派生过的子智能体一个不落地都在卡上，
+ * 与「产出物」卡同一口径（那张卡本来也是会话累计的）。
  */
-export function filterCatalogByTurn(
-  view: SubagentCatalogView,
-  turnStart: number | undefined,
-  turnEnd: number | undefined,
-): SubagentCatalogView {
-  if (view.rows.length === 0) return view
-  if (typeof turnStart !== 'number' || !Number.isFinite(turnStart)) return view
-  const end = typeof turnEnd === 'number' && Number.isFinite(turnEnd) ? turnEnd : Number.POSITIVE_INFINITY
-  const rows = view.rows.filter((row) => row.createdAt === undefined || (row.createdAt >= turnStart && row.createdAt <= end))
-  if (rows.length === view.rows.length) return view
-  return finalize(rows)
-}
 
 /**
  * 纯函数：找出某个父会话下的子智能体清单。
