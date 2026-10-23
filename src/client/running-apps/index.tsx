@@ -120,9 +120,28 @@ function toCandidate(app: RunningAppWindow): InputTriggerCandidate {
 /**
  * 注册 @ 源。
  *
- * 数据缓存：`cached` 与 `cachedAt` 是模块级闭包变量 —— 菜单在打字过程中会
- * 反复调用 candidates（每个键一次），每次都打一次路由就等于每敲一个字发一次
- * 请求。缓存 2 秒，且**请求进行中不重复发起**（inFlight 复用同一个 Promise）。
+ * ## 数据新鲜度：每次候选请求都真发，不做客户端缓存
+ *
+ * 用户实测反馈过「@ 的时候不是实时获取的」——当时为了抢菜单高亮，客户端
+ * 缓存了 30 秒。现在改成每次 candidates 都真发一次请求：
+ *
+ *  · host 侧是常驻 PowerShell 子进程，一次真采集 **2~4ms**（实测，图标与
+ *    Get-Process 都有进程内缓存），比一次 HTTP 往返还便宜；
+ *  · 所以「关掉一个程序 → 立刻打 @」看到的必然是关掉之后的状态。
+ *
+ * 只保留两层不算缓存的机制：
+ *  1. **并发去重**（inFlight）：同一时刻只允许一个请求在飞，后来的等它。
+ *     等的也是「最新那一次」，不是旧值；
+ *  2. **失败兜底**（lastKnown）：请求失败（host 没挂 / 网络断）时用上一次
+ *     成功的结果，避免菜单突然整组消失。
+ *
+ * ## 高亮归属（为什么 order 之外还要预热）
+ *
+ * 官方菜单把高亮落在**第一个 settle 完成的源**上（menuReduce 的 firstHighlight）。
+ * 程序源要走一次本地 HTTP（几毫秒），官方的文件源是本地的（也几毫秒）——
+ * 两者本来就接近，谁先 settle 取决于当次负载。预热的意义是让程序源首次
+ * 也走「已完成的请求」路径，把差距压到最小；万一真被文件源抢先，用户仍能
+ * 用上下键选到程序（组在菜单最上面，第一下 ↑ 就是最后一条文件）。
  */
 export function applyRunningAppsSource(ctx: ClientContext): void {
   injectRunningAppsStyles()
@@ -133,55 +152,24 @@ export function applyRunningAppsSource(ctx: ClientContext): void {
     return
   }
 
-  let cached: RunningAppWindow[] | null = null
-  let cachedAt = 0
+  /** 上一次成功拿到的窗口列表（只用于请求失败时兜底，不参与正常路径）。 */
+  let lastKnown: RunningAppWindow[] | null = null
+  /** 正在飞的请求（并发去重：等的是最新那一次，不是缓存）。 */
   let inFlight: Promise<RunningAppWindow[] | null> | null = null
-  /**
-   * 客户端缓存时长。
-   *
-   * 30 秒而不是 2 秒，理由是**高亮归属**：官方菜单把高亮落在第一个 settle
-   * 完成的源上（menuReduce 的 firstHighlight）。程序源若能**同步**返回
-   * （microtask 级），就一定排在异步的文件/会话源之前；一旦缓存过期要走网络，
-   * 高亮就会被文件源抢走——实测表现为「打 @ 后回车选中了一个文件夹」。
-   *
-   * 数据新鲜度不靠这个值：host 侧有自己的 3s TTL，每次请求都会现采（或命中
-   * 它自己的短缓存）。这里 30s 只决定「要不要发这次 HTTP」。
-   */
-  const CACHE_MS = 30_000
-
-  /** 后台刷新（不阻塞调用方）。 */
-  function refreshInBackground(): void {
-    if (inFlight !== null) return
-    inFlight = fetchRunningApps().then((list) => {
-      if (list !== null) {
-        cached = list
-        cachedAt = Date.now()
-      }
-      return list
-    }).catch(() => null).finally(() => { inFlight = null })
-  }
 
   /**
-   * 取窗口列表。
+   * 取窗口列表（每次都是真请求）。
    *
-   * 策略：**有缓存立刻返回缓存**（同步返回，microtask 级 settle），同时后台
-   * 刷新。只有完全没有缓存时才等网络——那时也只能等。
+   * @param signal - 候选请求的 abort 信号；已中止时立刻返回，不再发新请求。
    */
   async function load(signal: AbortSignal): Promise<RunningAppWindow[]> {
-    if (cached !== null) {
-      // 缓存超过 CACHE_MS 就在后台刷一份新的，但不阻塞本次返回。
-      if (Date.now() - cachedAt >= CACHE_MS) refreshInBackground()
-      return cached
-    }
+    if (signal.aborted) return lastKnown ?? []
     if (inFlight === null) {
       inFlight = fetchRunningApps().finally(() => { inFlight = null })
     }
     const list = await inFlight
-    if (signal.aborted) return cached ?? []
-    if (list === null) return cached ?? []
-    cached = list
-    cachedAt = Date.now()
-    return list
+    if (list !== null) lastKnown = list
+    return list ?? lastKnown ?? []
   }
 
   const source: InputTriggerSource = {
@@ -190,12 +178,8 @@ export function applyRunningAppsSource(ctx: ClientContext): void {
     // 排在官方文件/会话源（order 0）之前：打 @ 时最想找的是此刻开着的东西。
     order: -10,
     /*
-     * 会话作用域出生时预热一次。
-     *
-     * 为什么必须预热：官方菜单的高亮落在**第一个 settle 完成的源**上。程序源
-     * 首次要等 host 冷启动（600~700ms），而官方的文件源是本地的、毫秒级返回——
-     * 不预热的话，用户打 @ 后高亮会先落在某个文件夹上，按回车选中文件夹而不是
-     * 他刚看的那个窗口。预热让程序源也变成毫秒级，高亮自然落在第一条。
+     * 会话作用域出生时预热一次：把 host 侧的采集器拉起来（冷启动 600~700ms），
+     * 之后每次候选请求就都是 2~4ms 的真采集，不必等冷启动。
      */
     warm() {
       void load(new AbortController().signal)
@@ -227,8 +211,9 @@ export function applyRunningAppsSource(ctx: ClientContext): void {
     },
   }
 
-  // 插件装配完就预热一次：不等 session scope 建立，先把数据与图标拿回来。
-  // 失败无所谓（采集器不可用时只是候选为空，官方文件/会话候选照常）。
+  // 插件装配完就预热一次：把 host 侧的常驻采集器拉起来（冷启动 600~700ms），
+  // 这样用户第一次打 @ 时就是 2~4ms 的真采集。失败无所谓（采集器不可用时
+  // 只是候选为空，官方文件/会话候选照常）。
   void load(new AbortController().signal)
 
   ctx.effect(() => {

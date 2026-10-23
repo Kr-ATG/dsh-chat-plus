@@ -1,7 +1,11 @@
 /**
  * dsh-chat-plus — 「运行中的程序」路由（host 半身）。
  *
- *   GET /api/chat-flow/running-apps[?force=1]
+ *   GET /api/chat-flow/running-apps
+ *
+ * 每次都真采（无缓存）—— 常驻子进程一次往返 2~4ms，比 HTTP 往返还便宜，
+ * 所以「关掉程序 → 立刻打 @」看到的必然是关掉之后的状态。
+ * 历史遗留的 ?force=1 参数仍被接受但无作用（旧客户端会带）。
  *
  * 只读、同源 GET，返回 {@link RunningAppsSnapshot}。
  *
@@ -66,15 +70,7 @@ export function handleRunningAppsRoute(req: unknown, res: unknown): void {
     return
   }
 
-  let force = false
-  try {
-    const url = new URL((req as { url?: string })?.url ?? '/', 'http://x')
-    force = url.searchParams.get('force') === '1'
-  } catch {
-    force = false
-  }
-
-  void collectRunningApps(force)
+  void collectRunningApps()
     .then((snapshot) => respond(200, snapshot as unknown as Record<string, unknown>))
     .catch((error: unknown) => {
       respond(200, {

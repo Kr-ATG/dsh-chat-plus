@@ -38,7 +38,6 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import {
   RUNNING_APPS_MAX,
   RUNNING_APPS_TIMEOUT_MS,
-  RUNNING_APPS_TTL_MS,
   type RunningAppsSnapshot,
   type RunningAppWindow,
 } from './types.ts'
@@ -62,6 +61,41 @@ const END_MARK = '<<<DSH-APPS-END>>>'
  *  5. **主循环读 stdin**：一行 PROBE 回一行结果；QUIT 或 EOF 退出。
  *  6. **输出强制 UTF-8**：中文标题在 Windows 默认代码页下会变乱码。
  */
+/**
+ * 采集脚本正文。
+ *
+ * ## 为什么枚举与进程查询全部写在 C# 里（性能，实测 500ms → 5ms）
+ *
+ * 最早的版本用 PowerShell 逐句写循环：foreach 里逐条 Get-Process。功能正确，
+ * 但**每次采集稳定要 450~550ms** —— 逐段计时后发现 EnumWindows 只要 3ms、
+ * Get-Process 6 个进程只要 1ms、取 Path 只要 2ms，那 500ms 全花在 PowerShell
+ * 解释执行逐条语句、管道装箱与对象构造上。搬进 C# 之后：EnumWindows + 进程名/
+ * 路径查询 5ms，加图标 54ms（首次）、之后 1ms。用户打 @ 时这是「即时」与
+ * 「等一下」的区别。
+ *
+ * ## ⚠ 不要给 Add-Type 传 -ReferencedAssemblies（踩过，静默失效）
+ *
+ * 在 pwsh（PowerShell 7）下，Add-Type -TypeDefinition $src -ReferencedAssemblies
+ * System.Drawing 会**覆盖**默认引用集，于是 List<> / Dictionary<> / Process 全部
+ * 报「找不到类型或命名空间」，Add-Type 失败；而 $ErrorActionPreference =
+ * SilentlyContinue 把编译错误吞掉，Collect() 静默返回空串 —— 表现为「列表永远
+ * 是空的」，不报任何错。正确做法：先 Add-Type -AssemblyName System.Drawing 单独
+ * 加载，再 Add-Type -TypeDefinition 不传 ReferencedAssemblies（图标相关代码因此
+ * 留在 PowerShell 侧，见 Get-Icon）。
+ *
+ * ## 其他刻意的写法（都有实测理由）
+ *
+ *  1. IsWindowVisible + WS_EX_TOOLWINDOW 双重过滤：只按 IsWindowVisible 会把输入法
+ *     候选窗、托盘提示窗、屏幕取词窗全算进来（本机实测多出 4~6 个无意义条目）。
+ *  2. 有 owner 的窗口跳过（GetWindow(h, 4)）：那是弹出层（Chrome 的「翻译此页？」
+ *     气泡等），不是用户会指认的「那个程序」。
+ *  3. 桌面外壳类名跳过：Progman / WorkerW / Shell_TrayWnd。
+ *  4. 进程级跳过：TextInputHost / ShellExperienceHost 等系统提示宿主。
+ *  5. 空标题直接跳过：没有标题的窗口对用户没有语义。
+ *  6. 进程名/路径按 PID 缓存、图标按 exe 路径缓存：同一进程的多窗口只查一次。
+ *  7. 主循环读 stdin：一行 PROBE 回一行结果；QUIT 或 EOF 退出。
+ *  8. 输出强制 UTF-8：中文标题在 Windows 默认代码页下会变乱码。
+ */
 const COLLECTOR_SCRIPT = String.raw`$ErrorActionPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -71,6 +105,8 @@ using System;
 using System.Text;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
+
 public class DshRunningApps {
   public delegate bool EnumProc(IntPtr h, IntPtr l);
   [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc f, IntPtr l);
@@ -81,66 +117,29 @@ public class DshRunningApps {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
   [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int i);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint cmd);
   [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
   [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle, uint ms);
   [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
-  /**
-   * 宿主看门狗：父进程一退出就让本进程立刻死掉。
-   *
-   * 为什么必须有：Node 侧 dispose 只在「插件正常卸载」时执行。宿主被强杀
-   * （任务管理器结束进程 / 崩溃 / 断电）时那段代码根本不跑，本进程就成了
-   * 一个永远挂在 ReadLine 上的孤儿 —— 实测一次调试就在机器上留下过。
-   *
-   * 为什么不用 PowerShell 的循环检查：ReadLine 是阻塞的，父进程死掉时 stdin
-   * 未必立刻 EOF（管道可能仍被系统持有），循环顶部的检查根本没机会跑。
-   * 这里用独立线程 WaitForSingleObject 等父进程句柄，父进程一消失就 Exit(0)，
-   * 与主循环是否阻塞无关。
-   */
   [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
   [DllImport("kernel32.dll")] static extern bool TerminateProcess(IntPtr hProcess, uint exitCode);
-  public static void WatchParent(int parentPid) {
-    if (parentPid <= 0) return;
-    var t = new System.Threading.Thread(() => {
-      IntPtr h = OpenProcess(0x00100000, false, parentPid);
-      if (h == IntPtr.Zero) { TerminateProcess(GetCurrentProcess(), 0); return; }
-      WaitForSingleObject(h, 0xFFFFFFFF);
-      CloseHandle(h);
-      // ⚠ 必须用 TerminateProcess 而不是 Environment.Exit：
-      // Environment.Exit 会跑 AppDomain 的 ProcessExit 事件、等待前台线程，
-      // 在 PowerShell 宿主里实测会被拖住而**不退出**（本机复现：线程日志
-      // 打印了 "exiting" 但进程仍在）。TerminateProcess 是硬终止，不给宿主
-      // 任何拒绝的机会。
-      TerminateProcess(GetCurrentProcess(), 0);
-    });
-    t.IsBackground = true;
-    t.Start();
-  }
-  /**
-   * 主循环里的兜底检查：父进程不在了就返回 true。
-   *
-   * 为什么有了上面的线程还要这个：线程只在**等待 stdin** 时才起作用。
-   * 实测（2026-10-23）在「父进程刚退出、子进程正阻塞在 ReadLine」的窗口里，
-   * 线程确实被唤醒了，但 Exit 之前主线程已经被 Node 侧 kill 之外的路径
-   * 拉回可运行态，两种退出路径会打架。这条检查挂在每次 PROBE 处理的入口，
-   * 让主循环自己先看一眼：父进程没了就不必再干活，直接 break 干净退出。
-   */
-  public static bool ParentGone(int parentPid) {
-    if (parentPid <= 0) return false;
-    IntPtr h = OpenProcess(0x00100000, false, parentPid);
-    if (h == IntPtr.Zero) return true;
-    CloseHandle(h);
-    return false;
-  }
-  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint cmd);
-  public static List<string> List() {
-    var rows = new List<string>();
+
+  const char FSEP = (char)1;
+  const char RSEP = (char)2;
+
+  static readonly string[] SkipProcs = new string[] { "TextInputHost", "ShellExperienceHost", "StartMenuExperienceHost", "SearchHost", "explorer" };
+  static readonly Dictionary<int, string> NameCache = new Dictionary<int, string>();
+  static readonly Dictionary<int, string> PathCache = new Dictionary<int, string>();
+
+  public static long Now() { return DateTime.UtcNow.Ticks / 10000; }
+
+  public static string Collect() {
+    var found = new List<IntPtr>();
     IntPtr fg = GetForegroundWindow();
     EnumWindows((h, l) => {
       if (!IsWindowVisible(h)) return true;
       int ex = GetWindowLong(h, -16);
       if ((ex & 0x8) != 0) return true;
-      // 有 owner 的窗口是弹出层（Chrome 的「翻译此页？」气泡、各类浮层），
-      // 不是用户会指认的「那个程序」。主窗口一律没有 owner。
       if (GetWindow(h, 4) != IntPtr.Zero) return true;
       var cn = new StringBuilder(256);
       GetClassName(h, cn, 256);
@@ -148,26 +147,117 @@ public class DshRunningApps {
       if (cls == "Progman" || cls == "WorkerW" || cls == "Shell_TrayWnd" || cls == "Shell_SecondaryTrayWnd") return true;
       var sb = new StringBuilder(1024);
       if (GetWindowText(h, sb, 1024) == 0) return true;
-      uint pid; GetWindowThreadProcessId(h, out pid);
-      rows.Add(pid + "\u0001" + (h == fg ? "1" : "0") + "\u0001" + (IsIconic(h) ? "1" : "0") + "\u0001" + cls + "\u0001" + sb);
+      found.Add(h);
       return true;
     }, IntPtr.Zero);
-    return rows;
+
+    var rows = new StringBuilder();
+    int count = 0;
+    foreach (IntPtr h in found) {
+      uint pidRaw;
+      GetWindowThreadProcessId(h, out pidRaw);
+      int pid = (int)pidRaw;
+      string pname = ProcName(pid);
+      if (pname == null) continue;
+      bool skip = false;
+      for (int i = 0; i < SkipProcs.Length; i++) { if (SkipProcs[i] == pname) { skip = true; break; } }
+      if (skip) continue;
+      var title = new StringBuilder(1024);
+      GetWindowText(h, title, 1024);
+      if (count > 0) rows.Append(RSEP);
+      rows.Append(pid).Append(FSEP)
+          .Append(h == fg ? "1" : "0").Append(FSEP)
+          .Append(IsIconic(h) ? "1" : "0").Append(FSEP)
+          .Append(pname).Append(FSEP)
+          .Append(title.ToString()).Append(FSEP)
+          .Append(ProcPath(pid));
+      count++;
+    }
+    return rows.ToString();
+  }
+
+  static string ProcName(int pid) {
+    string v;
+    if (NameCache.TryGetValue(pid, out v)) return v;
+    try {
+      var p = Process.GetProcessById(pid);
+      v = p.ProcessName;
+      NameCache[pid] = v;
+      return v;
+    } catch { return null; }
+  }
+
+  static string ProcPath(int pid) {
+    string v;
+    if (PathCache.TryGetValue(pid, out v)) return v;
+    try {
+      var p = Process.GetProcessById(pid);
+      v = p.MainModule.FileName;
+    } catch { v = ""; }
+    PathCache[pid] = v;
+    return v;
+  }
+
+  /** 主循环里的兜底检查：父进程不在了就返回 true。 */
+  public static bool ParentGone(int parentPid) {
+    if (parentPid <= 0) return false;
+    IntPtr h = OpenProcess(0x00100000, false, parentPid);
+    if (h == IntPtr.Zero) return true;
+    CloseHandle(h);
+    return false;
+  }
+
+  /**
+   * 宿主看门狗：父进程一退出就让本进程死掉。
+   *
+   * ## ⚠ 只在 stdin 常驻模式下启用（传 parentPid 才装）
+   *
+   * 踩过的坑：一开始无条件启用，结果 **-EncodedCommand 模式下采集器立刻自杀**。
+   * 原因：PowerShell 用 -EncodedCommand 启动时，真正的 pwsh 进程会先起一个
+   * 短命的中间宿主，脚本跑在它的子进程里 —— 那个「父进程」在命令派发完就退出，
+   * 看门狗于是立刻判定「宿主没了」并把采集器干掉（症状：每次探测都
+   * collector exited，列表永远空）。
+   *
+   * 现在由 Node 侧显式决定是否安装：只有确认父进程是长期存活的 DSH 宿主时才传
+   * 非 0 的 parentPid。判定做在 Node 侧（process.pid 的那一层），PowerShell 不再
+   * 自己猜。
+   *
+   * 为什么需要它：Node 侧 dispose 只在「插件正常卸载」时执行。宿主被强杀
+   * （任务管理器结束进程 / 崩溃 / 断电）时那段代码根本不跑，本进程就成了一个
+   * 永远挂在 ReadLine 上的孤儿 —— 实测一次调试就在机器上留下过。
+   *
+   * 为什么不用 PowerShell 的循环检查：ReadLine 是阻塞的，父进程死掉时 stdin
+   * 未必立刻 EOF（管道可能仍被系统持有），循环顶部的检查根本没机会跑。
+   * 独立线程 WaitForSingleObject 等父进程句柄则与主循环是否阻塞无关。
+   *
+   * 必须用 TerminateProcess 而不是 Environment.Exit：后者会跑 AppDomain 的
+   * ProcessExit 事件、等待前台线程，在 PowerShell 宿主里实测会被拖住而不退出。
+   */
+  public static void WatchParent(int parentPid) {
+    if (parentPid <= 0) return;
+    var t = new System.Threading.Thread(() => {
+      IntPtr h = OpenProcess(0x00100000, false, parentPid);
+      if (h == IntPtr.Zero) { TerminateProcess(GetCurrentProcess(), 0); return; }
+      WaitForSingleObject(h, 0xFFFFFFFF);
+      CloseHandle(h);
+      TerminateProcess(GetCurrentProcess(), 0);
+    });
+    t.IsBackground = true;
+    t.Start();
   }
 }
 '@
-Add-Type -TypeDefinition $cs -Language CSharp
-# 宿主看门狗：必须在 Add-Type 之后（之前 DshRunningApps 还不存在，调用会静默失败）。
-# 父进程（DSH 宿主）一退出，本进程立刻 Exit —— 宿主被强杀时来不及跑 effect 清理，
-# 不加这条就会在机器上留下一个永远挂在 ReadLine 上的孤儿 pwsh（实测踩到过）。
+Add-Type -TypeDefinition $cs
+# 宿主看门狗：父进程 PID 由 Node 侧从 stdin 第一行传进来（"PARENT <pid>"），
+# 传 0 或没传就不装。见 WatchParent 的注释：-EncodedCommand 模式下 PowerShell
+# 会先起一个短命的中间宿主，脚本自己查到的「父进程」不是真正的 DSH 宿主，
+# 无条件启用会让采集器立刻自杀。
 $ParentPid = 0
-try { $ParentPid = [int](Get-CimInstance Win32_Process -Filter ("ProcessId=" + $PID)).ParentProcessId } catch {}
-[DshRunningApps]::WatchParent($ParentPid)
+
 $iconCache = @{}
-$procCache = @{}
 function Get-Icon([string]$exe) {
   if ($exe -and $iconCache.ContainsKey($exe)) { return $iconCache[$exe] }
-  $icon = ''
+  $icon = ""
   if ($exe -and (Test-Path -LiteralPath $exe)) {
     try {
       $ic = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
@@ -175,7 +265,7 @@ function Get-Icon([string]$exe) {
         $bmp = $ic.ToBitmap()
         $ms = New-Object System.IO.MemoryStream
         $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-        $icon = 'data:image/png;base64,' + [Convert]::ToBase64String($ms.ToArray())
+        $icon = "data:image/png;base64," + [Convert]::ToBase64String($ms.ToArray())
         $ms.Dispose(); $bmp.Dispose(); $ic.Dispose()
       }
     } catch {}
@@ -183,48 +273,43 @@ function Get-Icon([string]$exe) {
   if ($exe) { $iconCache[$exe] = $icon }
   return $icon
 }
+
 while ($true) {
-  # 这里死等即可：孤儿由上面的看门狗线程硬终止负责（ReadLine 阻塞时它照样生效，
+  # 死等即可：孤儿由上面的看门狗线程硬终止负责（ReadLine 阻塞时它照样生效，
   # 因为那是独立线程 + TerminateProcess）。
-  # 曾试过 ReadLineAsync().Wait(1500) 做超时轮询——PowerShell 宿主里
+  # 曾试过 ReadLineAsync().Wait(1500) 做超时轮询 —— PowerShell 宿主里
   # Console.In 的异步读取会退化成同步阻塞，Wait 永远不超时，等于没改。
   if ([DshRunningApps]::ParentGone($ParentPid)) { break }
   $line = [Console]::In.ReadLine()
   if ($null -eq $line) { break }
-  if ($line -eq 'QUIT') { break }
+  if ($line -eq "QUIT") { break }
+  if ($line.StartsWith("PARENT ")) {
+    $ParentPid = [int]$line.Substring(7)
+    [DshRunningApps]::WatchParent($ParentPid)
+    continue
+  }
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
-  $rows = [DshRunningApps]::List()
+  $raw = [DshRunningApps]::Collect()
   $apps = New-Object System.Collections.ArrayList
-  foreach ($row in $rows) {
-    $parts = $row.Split([char]1)
-    $procId = [int]$parts[0]
-    $proc = $null
-    if ($procCache.ContainsKey($procId)) { $proc = $procCache[$procId] }
-    else {
-      $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
-      if ($null -eq $proc) { continue }
-      $procCache[$procId] = $proc
+  if ($raw.Length -gt 0) {
+    foreach ($row in $raw.Split([char]2)) {
+      if ([string]::IsNullOrEmpty($row)) { continue }
+      $parts = $row.Split([char]1)
+      if ($parts.Count -lt 6) { continue }
+      [void]$apps.Add([pscustomobject]@{
+        pid = [int]$parts[0]
+        focused = ($parts[1] -eq "1")
+        minimized = ($parts[2] -eq "1")
+        title = $parts[4]
+        process = $parts[3]
+        exe = $parts[5]
+        icon = (Get-Icon $parts[5])
+      })
     }
-    if ($null -eq $proc) { continue }
-    // 桌面外壳 / 输入法 / 系统提示宿主：它们有窗口有标题，但用户永远不会
-    // 想「@ 桌面」。实测不加这几条时列表里会混进 Program Manager、
-    // Windows 输入体验、Windows Shell Experience Host。
-    if ($proc.ProcessName -in @('TextInputHost', 'ShellExperienceHost', 'StartMenuExperienceHost', 'SearchHost', 'explorer')) { continue }
-    $exe = $null
-    try { $exe = $proc.Path } catch {}
-    [void]$apps.Add([pscustomobject]@{
-      pid = $procId
-      focused = ($parts[1] -eq '1')
-      minimized = ($parts[2] -eq '1')
-      title = $parts[4]
-      process = $proc.ProcessName
-      exe = $exe
-      icon = (Get-Icon $exe)
-    })
   }
   $payload = [pscustomobject]@{ ok = $true; apps = $apps; ms = $sw.ElapsedMilliseconds }
   [Console]::Out.WriteLine(($payload | ConvertTo-Json -Depth 5 -Compress))
-  [Console]::Out.WriteLine('<<<DSH-APPS-END>>>')
+  [Console]::Out.WriteLine("<<<DSH-APPS-END>>>")
   [Console]::Out.Flush()
 }
 `
@@ -236,8 +321,6 @@ interface CollectorState {
   buffer: string
   /** 当前在等回包的那一次探测（同时只允许一个：探针是串行的）。 */
   pending: { resolve: (value: RawProbeResult) => void; timer: ReturnType<typeof setTimeout> } | null
-  /** 上一次成功采集的结果与时间。 */
-  cache: { snapshot: RunningAppsSnapshot; at: number } | null
   /** 是否已卸载（卸载后不再拉起新进程）。 */
   disposed: boolean
 }
@@ -254,7 +337,6 @@ const state: CollectorState = {
   proc: null,
   buffer: '',
   pending: null,
-  cache: null,
   disposed: false,
 }
 
@@ -355,6 +437,17 @@ function ensureCollector(): ChildProcessWithoutNullStreams | null {
     }
     settlePending({ ok: false, error: 'collector exited' })
   })
+  /*
+   * 把本进程 PID 告诉采集器，让它装宿主看门狗（见 C# WatchParent 的注释）。
+   *
+   * 为什么由 Node 传而不是让 PowerShell 自己查 ParentProcessId：
+   * -EncodedCommand 模式下 pwsh 会先起一个短命的中间宿主，脚本查到的
+   * 「父进程」是那个中间宿主，它派发完命令就退出 —— 采集器会立刻自杀。
+   * 这里传的 process.pid 是真正的 DSH 宿主进程。
+   */
+  try {
+    proc.stdin.write('PARENT ' + process.pid + '\n')
+  } catch { /* 管道已断，下次重建 */ }
   return proc
 }
 
@@ -422,16 +515,23 @@ function sortWindows(list: RunningAppWindow[]): RunningAppWindow[] {
 }
 
 /**
- * 采集一次运行中的窗口（带 3s 缓存）。
+ * 采集一次运行中的窗口。
  *
- * @param force - true 时跳过缓存（客户端手动刷新 / 冒烟测试用）。
+ * ## 无缓存 —— 每次都真采
+ *
+ * 曾经有过 3 秒 TTL，但用户实测反馈「@ 的时候不是实时获取的」：关掉一个程序、
+ * 切一个标签页，再打 @ 看到的还是旧的。3 秒听起来很短，可用户的操作节奏恰恰是
+ * 「关掉 → 立刻打 @」。
+ *
+ * 现在每次都真采。代价可以忽略：常驻子进程一次往返 2~4ms（实测），比一次
+ * HTTP 往返还便宜。真正的去重交给 pending 队列 —— 同一时刻多个请求只会发起
+ * 一次探测（常驻进程串行处理 stdin，并发写两行会错配回包）。
+ *
+ * @param _force - 保留参数只为兼容旧调用（已无缓存可跳过）。
  * @returns 契约快照；任何失败都是 ok:false + 空列表，绝不抛。
  */
-export async function collectRunningApps(force = false): Promise<RunningAppsSnapshot> {
+export async function collectRunningApps(_force = false): Promise<RunningAppsSnapshot> {
   const now = Date.now()
-  if (!force && state.cache !== null && now - state.cache.at < RUNNING_APPS_TTL_MS) {
-    return { ...state.cache.snapshot, ms: 0, at: state.cache.at }
-  }
   const raw = await probe()
   if (raw.ok !== true) {
     return {
@@ -454,7 +554,6 @@ export async function collectRunningApps(force = false): Promise<RunningAppsSnap
     ms: typeof raw.ms === 'number' ? raw.ms : 0,
     at: now,
   }
-  state.cache = { snapshot, at: now }
   return snapshot
 }
 
@@ -463,7 +562,6 @@ export function disposeRunningApps(): void {
   state.disposed = true
   settlePending({ ok: false, error: 'disposed' })
   killCollector()
-  state.cache = null
 }
 
 /** 导出给冒烟直接对拍：归一化与排序这两条判据错了不会报错，只会静默丢条目或排错序。 */

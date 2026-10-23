@@ -163,8 +163,13 @@ console.log('[running-apps] host 采集脚本判据')
   check('输出 UTF-8', script.includes('[Console]::OutputEncoding'))
   check('主循环读 stdin', script.includes('[Console]::In.ReadLine()'))
   check('图标走 ExtractAssociatedIcon', script.includes('ExtractAssociatedIcon'))
-  check('含父进程看门狗（宿主被强杀不留孤儿 pwsh）', script.includes('WatchParent') && script.includes('WaitForSingleObject'))
   check('回包分隔符存在', typeof host.runningAppsTest.END_MARK === 'string' && host.runningAppsTest.END_MARK.length > 0)
+  check('含父进程看门狗（宿主被强杀不留孤儿 pwsh）', script.includes('WatchParent') && script.includes('WaitForSingleObject'))
+  // 性能：枚举与进程查询必须在 C# 里（PowerShell 逐句循环实测 500ms）
+  check('枚举与进程查询写在 C# 里（性能）', script.includes('public static string Collect()') && script.includes('Process.GetProcessById'))
+  // ⚠ 这条是踩过的坑：传 -ReferencedAssemblies 会让 Add-Type 静默失败
+  check('Add-Type 不传 ReferencedAssemblies（传了会静默编译失败）', !script.includes('-ReferencedAssemblies'))
+  check('System.Drawing 用 -AssemblyName 单独加载', script.includes('Add-Type -AssemblyName System.Drawing'))
   const source = readFileSync(resolve(ROOT, 'src/running-apps/collect.ts'), 'utf8')
   check('用 -EncodedCommand 传脚本（stdin 模式会让过滤失效）', source.includes("'-EncodedCommand'"))
   check('不再从 stdin 灌脚本', !source.includes('proc.stdin.write(COLLECTOR_SCRIPT)'))
@@ -184,6 +189,21 @@ console.log('[running-apps] host 归一化与排序')
     win({ title: 'fg', focused: true }),
   ])
   check('前台第一、最小化最后', sorted[0].title === 'fg' && sorted[2].title === 'min')
+}
+
+console.log('[running-apps] 实时性（不得有任何缓存层）')
+{
+  const hostSrc = readFileSync(resolve(ROOT, 'src/running-apps/collect.ts'), 'utf8')
+  const hostTypes = readFileSync(resolve(ROOT, 'src/running-apps/types.ts'), 'utf8')
+  const clientSrc = readFileSync(resolve(ROOT, 'src/client/running-apps/index.tsx'), 'utf8')
+  const routeSrc = readFileSync(resolve(ROOT, 'src/running-apps/index.ts'), 'utf8')
+  // 这三条是「@ 不是实时」那个 bug 的根因，钉死不许回来。
+  check('host 侧无 TTL 常量', !hostTypes.includes('RUNNING_APPS_TTL_MS') && !hostSrc.includes('RUNNING_APPS_TTL_MS'))
+  check('host 侧无结果缓存写入', !hostSrc.includes('state.cache'))
+  check('client 侧无 CACHE_MS 缓存窗口', !clientSrc.includes('CACHE_MS'))
+  check('client 侧保留并发去重（inFlight）', clientSrc.includes('inFlight'))
+  check('client 侧保留失败兜底（lastKnown）', clientSrc.includes('lastKnown'))
+  check('路由不再读 force 参数', !routeSrc.includes('searchParams.get(\'force\')'))
 }
 
 console.log('[running-apps] 路由契约')
