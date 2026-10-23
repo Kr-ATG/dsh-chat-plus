@@ -35,7 +35,7 @@ import type { InjectStateView } from './api.js'
  * 拨了没用的开关 —— 拨不动的开关是骗人。
  */
 export const FALLBACK_INJECT_STATE: InjectStateView = {
-  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, htmlEnabled: true, teamEnabled: false, todoClosureEnabled: true,
+  enabled: true, defaultEnabled: true, explicit: false, zhEnabled: true, htmlEnabled: true, teamEnabled: false, todoClosureEnabled: true, stepEnabled: true,
   mailEnabled: false, mailAvailable: false, mailWorkbenchEnabled: false, mailToolsMounted: false, mailAuthorized: false, mailAddress: null,
   projectHash: null, projectPath: null, projectMemoryEnabled: null,
 }
@@ -65,6 +65,10 @@ export function normalizeInjectState(res: InjectStateView): InjectStateView {
     // 通道，缺字段按开。写成 === true 的话，client 已更新、host 还没重启的那段
     // 窗口里开关会显示成关，host 一重启又跳成开。
     todoClosureEnabled: res.todoClosureEnabled !== false,
+    // step 纪律与 zh / 自动收口同口径（默认开的通道）：缺字段按开。写成 === true
+    // 的话，client 已更新、host 还没重启的那段窗口里开关会显示成关，host 一重启
+    // 又跳成开——同一个用户什么都没做，看到开关自己跳了一下。
+    stepEnabled: res.stepEnabled !== false,
     // 邮箱字段全是「缺字段即不可用/关」：跨模块回传，旧 host 没有。
     mailEnabled: res.mailEnabled === true,
     mailAvailable: res.mailAvailable === true,

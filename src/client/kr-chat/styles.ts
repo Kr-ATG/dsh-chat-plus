@@ -2804,30 +2804,45 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 }
 
 /*
- * 状态点：5px，跑着的用主色 + 脉冲，结束的压成淡灰。
+ * 状态图标：**形状即状态**（2026-10-23 第二轮）。
  *
- * 颜色 + 脉冲两重线索，且**形状不承担状态** —— 色弱用户与灰度截图下靠脉冲与
- * 那枚文字状态（「进行中」/「已结束」）依然读得出。文字状态在窄栏里会被挤掉，
- * 所以它排在标签之后、读数之前，优先级最低，但绝不是唯一线索。
+ * 第一版是一颗 6px 的点：跑着的主色脉冲、结束的淡灰。用户在实际右栏里看不出
+ * 区别（原话「正在执行和已结束看不出来，不明显」）—— 那颗点在两种状态下都只有
+ * 几像素，颜色深浅差在密集列表里读不出来，脉冲又是动态的、扫读时抓不住。
+ *
+ * 现在换成形状差：**跑着的是一枚转圈的环，结束的是一枚对勾**。形状在 10px、
+ * 灰度截图、色弱视角下都成立，不依赖颜色也不依赖动画（减弱动效时环不再转，
+ * 但「环 vs 勾」这个差别仍在）。
+ *
+ * 两种形态共用同一格槽位，行内布局不跳动。
  */
-.kr-subs-row__dot {
+.kr-subs-row__icon {
   flex: none;
-  /* 状态点：随字号轴放大（否则它在大字行的左侧缩成一颗小痣）。 */
-  width: calc(6px + var(--dsh-content-font-delta, 0px) * 0.45);
-  height: calc(6px + var(--dsh-content-font-delta, 0px) * 0.45);
-  border-radius: 50%;
-  background: var(--dsw-alias-label-caption);
-  /* 结束态的点原先压到 .5：caption 本就是全套最淡一档，再对半砍在白底上几乎
-      invisible（用户点名「视觉上看不出来」）。抬到 .75 —— 仍明显弱于进行中的
-     主色实点，但扫读时能认出"这里有个结束的行"。 */
-  opacity: .75;
-  transition: opacity .2s ease, background-color .2s ease;
+  display: grid;
+  place-items: center;
+  /* 状态图标：随字号轴放大（否则它在大字行的左侧缩成一颗小痣）。 */
+  width: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6);
+  height: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6);
+  color: var(--dsw-alias-label-caption);
 }
 
-.kr-subs-row[data-running="true"] .kr-subs-row__dot {
-  background: var(--kr-accent);
-  opacity: 1;
-  animation: kr-pulse 1.4s var(--kr-ease-loop) infinite;
+.kr-subs-row__icon > svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* 进行中：主色 + 转圈。整枚 SVG 转 —— 环上那道弧在跑，视觉上就是"还在动"。 */
+.kr-subs-row[data-running="true"] .kr-subs-row__icon {
+  color: var(--kr-accent);
+}
+
+.kr-subs-row__spin {
+  animation: kr-subs-spin 1s linear infinite;
+}
+
+@keyframes kr-subs-spin {
+  to { transform: rotate(360deg); }
+}
 }
 
 /* 名字是这一行的主体：主文字色 + 500 字重，长了省略（完整名字在 title 里）。 */
@@ -2866,23 +2881,15 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   font-variant-numeric: tabular-nums;
 }
 
-.kr-subs-row__state {
-  flex: none;
-  /* 「进行中 / 已结束」文字状态：与上面那枚读数同一档字号，但字色抬一档 ——
-     caption 是全套最淡的 alias，10.5px 小字再叠最淡色，白底上等于隐形
-     （用户点名「已结束标签过于淡」）。tertiary 比 caption 深两级，仍弱于
-     名字（secondary），层级没乱：名字 > 状态 > 读数。 */
-  font-size: var(--kr-fs-10-5, 10.5px);
-  color: var(--dsw-alias-label-tertiary);
-  font-variant-numeric: tabular-nums;
-  transition: color .2s ease;
-}
-
-/* 进行中：状态文字比结束态再亮一档，与主色脉冲点同向，扫读时"谁还在跑"一眼可分。 */
-.kr-subs-row[data-running="true"] .kr-subs-row__state {
-  color: var(--dsw-alias-label-secondary);
-}
-
+/*
+ * 行内那枚「进行中 / 已结束」文字**已撤**（2026-10-23 第二轮）。
+ *
+ * 撤掉的理由不是"太淡"（虽然它确实淡），而是**分区标题已经说过一遍**：
+ * 上面那摞挂着「正在执行 N」、下面那摞挂着「已完成 N」，每行再写一次状态
+ * 就是同一句话说三遍。状态改由行首那枚形状图标承担（环 vs 勾）。
+ *
+ * 读屏不受影响：整行 aria-label 与 title 里都带着状态（见 KrSubagentsCard）。
+ */
 /*
  * 跳转箭头：**悬停/聚焦才浮现**，常态宽度也占住（opacity 而不是 display），
  * 否则指针移到行上时整行文字会向右挪 12px —— 那是"列表在抖"，不是反馈。
@@ -2949,18 +2956,128 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   outline-offset: -2px;
 }
 
-/* ══ 已结束分区（折叠）══════════════════════════════════════════════════
-   用户 2026-10-23 点名「已经完工的也可以放 Show more」，形态对齐 Claude 桌面端
-   那张后台任务面板：**进行中摊开，已结束收在下面一行读数里**，点一下才展开。
+/* ══ 两段分区标题（2026-10-23 第二轮）══════════════════════════════════
+   用户点名「正在执行和已结束看不出来，不明显」——第一版只有行内一颗 6px 的点和
+   一个 10.5px 的词来分状态，在右栏那种密度下确实读不出来。
 
-   为什么折叠的一定是「结束的那一堆」：结束的行不再变化，它们只是已经交割完的
-   事实；摊在上面会把正在跑的那两行一路挤到卡底 —— 而这张卡存在的意义恰恰是
-   「谁还在跑」。
+   这一轮把区分交给**结构**：两段各有自己的标题。上面是主色的「正在执行 N」，
+   下面是带对勾的「已完成 N」折叠带。读者不需要逐行比对，扫一眼卡就知道上面
+   这摞在跑、下面这摞跑完了。
 
-   折叠行本身长得像一条分隔：左侧一枚结束态灰点（与行内状态点同形同色，读起来
-   是"下面这些是结束的"），中间读数，右侧 chevron。它比普通行更淡 —— 它是
-   目录式结尾，不是第 N 个子智能体。 */
+   两条标题刻意**不对称**，因为它们说的不是一件事：
+    · 「正在执行」是**此刻的状态** —— 主色 + 呼吸点，轻、无底色，不抢行的注意力；
+    · 「已完成」是**一个可折叠的分区入口** —— 有底色、整条可点、带 chevron，
+      读起来是"这下面还收着一摞"，而不是列表结尾的省略号。
 
+   两个标题都用同一套字号轴（11px 档），否则放大档里它们会比行文字还小。 */
+
+.kr-subs-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 8px 3px;
+  /* 段标题：跟随字号轴（见「字号轴」段）。 */
+  font-size: var(--kr-fs-11, 11px);
+  line-height: calc(15px + var(--dsh-content-font-delta, 0px) * 1.4);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 进行中段标题：主色、无底色 —— 它是一条"此刻"的注脚，不是一个可点的分区。 */
+.kr-subs-group--run {
+  color: var(--kr-accent);
+  font-weight: 600;
+  letter-spacing: .2px;
+}
+
+/* 呼吸点：与行内转圈的节奏同源（1.4s），读作"这两处说的是同一件事"。 */
+.kr-subs-group__dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: kr-pulse 1.4s var(--kr-ease-loop) infinite;
+}
+
+.kr-subs-group__label {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* 计数：与标签同一档字号，只把数字加粗——它是要被读的那个量。 */
+.kr-subs-group__count {
+  flex: none;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 已完成段标题：**带底色的整条折叠带**。
+ *
+ * 底色是它跟上面那条最重要的差别：读者不用读字，光看"这里有一块灰底、右边还有个
+ * chevron"就知道它是一个可以点开的分区，而不是又一行结束的行。字色压到 tertiary
+ * ——已完成是已经交割完的事实，不该和正在跑的那两行抢注意力。
+ *
+ * 它只在**可折叠时**渲染（上面还有进行中的行）。全部结束时整条标题不出现 ——
+ * 那时卡头读数已经写明「全部结束」，再挂一条对勾 + 淡字只会被读成第 N+1 行
+ * （形状和下面每一行一样）；分区标题的意义是把两段分开，只剩一段就没得可分。
+ * 所以下面这套「灰底 + 可点」的视觉只服务一种东西：一个真按钮。
+ */
+.kr-subs-group--done {
+  margin-top: 4px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--kr-fill-bg);
+  color: var(--dsw-alias-label-tertiary);
+  font-weight: 500;
+  transition: background-color var(--kr-dur-tap) linear, color var(--kr-dur-fade) linear;
+}
+
+.kr-subs-group--done .kr-subs-group__count {
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* 对勾：形状与行内结束态那枚一致 —— 读作同一套语言（勾 = 交割完）。 */
+.kr-subs-group__tick {
+  flex: none;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* 可折叠时它是个真按钮：抹掉 UA 样式，保留键盘焦点环。 */
+.kr-subs-group--toggle {
+  width: 100%;
+  border: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.kr-subs-group--toggle:hover {
+  background: var(--kr-hover-bg);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-subs-group--toggle:focus-visible {
+  outline: 2px solid var(--kr-accent);
+  outline-offset: -2px;
+}
+
+/* chevron：收起时朝下、展开时翻上来。翻的是图标本身，不是那条带子 ——
+   带子里还有文字，整条转过去会连字一起倒过来。 */
+.kr-subs-group__chevron {
+  flex: none;
+  margin-left: auto;
+  color: var(--dsw-alias-label-caption);
+  transition: transform var(--kr-dur-fade) var(--kr-ease-soft);
+}
+
+.kr-subs-group--toggle[aria-expanded="true"] .kr-subs-group__chevron {
+  transform: rotate(180deg);
+}
+
+/* 已结束分区外壳：只负责排版，折叠带与展开体都是它的子节点。 */
 .kr-subs-done {
   display: flex;
   flex-direction: column;
@@ -2968,76 +3085,6 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   min-width: 0;
 }
 
-/* 只有「上面还有进行中的行」时才画那根分隔线：它分的是「在跑的」与「跑完的」
-   两段。没有进行中的行时（全部结束 / 全部平铺），这根线上面什么都没有，
-   留着就只是在卡头下面凭空多出一道杠。 */
-.kr-subs-done[data-foldable] {
-  margin-top: 3px;
-  padding-top: 3px;
-  border-top: 1px solid var(--kr-card-border);
-}
-
-.kr-subs-done__toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  min-height: calc(26px + var(--dsh-content-font-delta, 0px) * 1.3333);
-  padding: 3px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  font-family: inherit;
-  font-size: var(--kr-fs-11-5, 11.5px);
-  line-height: calc(16px + var(--dsh-content-font-delta, 0px) * 1.3333);
-  text-align: left;
-  color: var(--dsw-alias-label-tertiary);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: background-color var(--kr-dur-tap) linear, color var(--kr-dur-fade) linear;
-}
-
-.kr-subs-done__toggle:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.07));
-  color: var(--dsw-alias-label-secondary);
-}
-
-.kr-subs-done__toggle:focus-visible {
-  outline: 2px solid var(--kr-accent);
-  outline-offset: -2px;
-}
-
-/* 结束态灰点：与 .kr-subs-row__dot 的结束态同一档亮度，读作同一套语言。 */
-.kr-subs-done__dot {
-  flex: none;
-  width: calc(6px + var(--dsh-content-font-delta, 0px) * 0.45);
-  height: calc(6px + var(--dsh-content-font-delta, 0px) * 0.45);
-  border-radius: 50%;
-  background: var(--dsw-alias-label-caption);
-  opacity: .75;
-}
-
-/* 读数占满中段（把 chevron 顶到最右，与行内箭头同一条右边线）。 */
-.kr-subs-done__label {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* chevron：收起时朝下、展开时翻上来。翻的是图标本身，不是那个按钮 —— 按钮里
-   还有读数，整条转过去会连字一起倒过来。 */
-.kr-subs-done__chevron {
-  flex: none;
-  color: var(--dsw-alias-label-caption);
-  transition: transform var(--kr-dur-fade) var(--kr-ease-soft);
-}
-
-.kr-subs-done__toggle[aria-expanded="true"] .kr-subs-done__chevron {
-  transform: rotate(180deg);
-}
 
 /* 展开体：高度补间由 useHeightAnimation 接管（写内联 height + overflow），
    这里只排版，绝不写 height，否则和内联样式打架。 */
@@ -3102,12 +3149,14 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
     transform: none;
   }
 
-  /* 子智能体卡：入场位移、状态点脉冲、跳转箭头的滑入一并关掉。
-     脉冲关掉后"进行中"仍有两重静态线索（主色点 + 「进行中」文字），
+  /* 子智能体卡：入场位移、转圈、呼吸点、跳转箭头的滑入一并关掉。
+     关掉动画后状态**仍然可读**——这是这一轮换图标换来的：环 vs 勾是形状差，
+     不依赖转动；呼吸点关掉后「正在执行」还有主色与计数。
      箭头则是常态隐藏的装饰，关掉动画后依然在 hover 时浮现（只是不做位移）。 */
   .kr-subs-row,
   .kr-subs-blocked,
-  .kr-subs-row[data-running="true"] .kr-subs-row__dot {
+  .kr-subs-row__spin,
+  .kr-subs-group__dot {
     animation: none;
   }
 
@@ -3120,14 +3169,14 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
     transform: none;
   }
 
-  /* 已结束分区：折叠行的入场位移与 chevron 翻转一并关掉。
+  /* 已结束分区：展开行的入场位移与 chevron 翻转一并关掉。
      chevron 关掉过渡后仍会翻转（只是瞬间跳变）—— 方向仍然是"展开 / 收起"
      的静态线索，不依赖动画。 */
   .kr-subs-done__body .kr-subs-row {
     animation: none;
   }
 
-  .kr-subs-done__chevron {
+  .kr-subs-group__chevron {
     transition: none;
   }
 }
@@ -3303,11 +3352,17 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   height: calc(11px + var(--dsh-content-font-delta, 0px) * 0.8);
 }
 
-/* 已结束折叠行的 chevron：呈现属性同样是 11（与上面那两枚同一档），
+/* 已完成折叠带的 chevron：呈现属性同样是 11（与上面那两枚同一档），
    但它自己就是 svg（不像其它几枚外面还套一层容器），所以规则直接落在它身上。 */
-.kr-subs-done__chevron {
+.kr-subs-group__chevron {
   width: calc(11px + var(--dsh-content-font-delta, 0px) * 0.8);
   height: calc(11px + var(--dsh-content-font-delta, 0px) * 0.8);
+}
+
+/* 段标题里的对勾：呈现属性 12（与行内状态图标同一档）。 */
+.kr-subs-group__tick {
+  width: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6);
+  height: calc(12px + var(--dsh-content-font-delta, 0px) * 0.6);
 }
 
 /* 悬停时缩略图轻微放大：一行里"有东西在回应指针"，但只有这一个元素动，

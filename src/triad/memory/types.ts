@@ -164,6 +164,14 @@ export interface StoreState {
    * 缺省 = 跟随 config.todoClosureDefaultEnabled（见 store.isTodoClosureEnabled）。
    */
   todoClosureEnabled?: boolean
+  /**
+   * step 纪律（减少模型往返）规范注入开关（全局单值，三态缺省）。
+   * 与 zh / html / team 同一范式：硬编码在插件内、无卸载路径，主注入关闭或项目被
+   * 排除时仍单独注入。投的是一段静态规范文本（合并判据 + 实测收益 + 反判据），
+   * 不读条目、不做检索、不参与命中加分。
+   * 缺省 = 跟随 config.stepInjectDefaultEnabled（默认开）。
+   */
+  stepInjectEnabled?: boolean
 }
 
 /** 单个会话的 ticker 状态。 */
@@ -305,6 +313,22 @@ export interface MemoryConfig {
    * 用户真想在回合间保留「进行中」语义时，关掉即可。
    */
   todoClosureDefaultEnabled: boolean
+  /**
+   * step 纪律（减少模型往返）规范注入默认开关（内置能力，**默认开**）。
+   *
+   * 与 zh / html / team 三条注入通道同构：投的是一段静态规范文本，每会话首步一次。
+   *
+   * 默认开的理由（2026-10-23 实测，非推测）：DSH 每个 step 是一次完整模型往返，
+   * 本机实测中位数 7.3s，而工具执行只占 39%——减少往返的唯一有效杠杆是**合并**，
+   * 不是并行（PTC 里 Promise.all 实测收益仅 0.76%，调度器单泳道会串行化）。
+   * 同一批 3 条独立命令：拆 3 step = 25.7s，合并 1 step = 5.3s，省 79%。
+   * 但模型默认不会合并——本机 40.6% 的 step 边界是「相邻两 step 用同一工具」。
+   *
+   * 与 team 通道的关键差别：team 管「这活怎么组织」，本通道管「一次调用装多少动作」，
+   * 两者正交，各自独立开关。文本自带反判据（真依赖 / 需独立审批 / 输出会超限不合并），
+   * 因为官方拒绝把合并写死进框架的理由正是这三种情况真实存在。
+   */
+  stepInjectDefaultEnabled: boolean
   /** 注入检索 top-k（当前任务相关记忆注入条数；identity/pinned/长期常驻不占此预算）。 */
   injectTopK: number
   /**
@@ -424,6 +448,9 @@ export const DEFAULT_CONFIG: MemoryConfig = {
   teamInjectDefaultEnabled: true,
   // 默认开：回合结束后的残留 in_progress 是纯展示层噪音，自动改写为 pending 无副作用。
   todoClosureDefaultEnabled: true,
+  // 默认开：模型默认不合并独立动作（本机 40.6% 的 step 边界是相邻同工具），
+  // 而合并实测省 79% 耗时——不注入这条纪律，模型几乎不会自己合并。
+  stepInjectDefaultEnabled: true,
   injectTopK: 8,
   // 默认 false：升级不改既有可见性（见 extractRequireConfirm 注释）。
   extractRequireConfirm: false,
@@ -547,7 +574,7 @@ export type ConfigNumberKey = keyof typeof CONFIG_NUMBER_BOUNDS
 
 const CONFIG_NUMBER_KEYS = Object.keys(CONFIG_NUMBER_BOUNDS) as ConfigNumberKey[]
 
-const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'htmlInjectDefaultEnabled', 'teamInjectDefaultEnabled', 'todoClosureDefaultEnabled'] as const
+const CONFIG_BOOLEAN_KEYS = ['dailyCompileEnabled', 'consolidateEnabled', 'logApiRequests', 'injectDefaultEnabled', 'zhInjectDefaultEnabled', 'htmlInjectDefaultEnabled', 'teamInjectDefaultEnabled', 'todoClosureDefaultEnabled', 'stepInjectDefaultEnabled'] as const
 
 /** 可调布尔字段名。 */
 export type ConfigBooleanKey = (typeof CONFIG_BOOLEAN_KEYS)[number]

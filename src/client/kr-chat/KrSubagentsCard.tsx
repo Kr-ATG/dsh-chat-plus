@@ -35,15 +35,26 @@
  * 只会在右栏白占一行高度。真有派生动作但目录还没落地时给一行「正在读取」，
  * 那是**事实**（我们确实还没读到），不是「这次没有」（那是我们不知道的结论）。
  *
- * ## 进行中 / 已结束两段（2026-10-23）
+ * ## 两段分区 + 各自的段标题（2026-10-23 第二轮）
  *
  * 用户点名「已经完工的也可以放 Show more」，形态对齐 Claude 桌面端那张后台任务
- * 面板：**进行中摊在上面，已结束收在下面一行读数里**，点一下才展开。折叠的是
- * 「结束的那一堆」而不是列表尾巴 —— 结束的行不再变化，摊在上面会把还在跑的那两行
- * 一路挤到卡底，而这张卡存在的意义恰恰是"谁还在跑"。
+ * 面板：**进行中摊在上面，已结束收在下面**，点一下才展开。折叠的是「结束的那一堆」
+ * 而不是列表尾巴 —— 结束的行不再变化，摊在上面会把还在跑的那两行一路挤到卡底，
+ * 而这张卡存在的意义恰恰是"谁还在跑"。
  *
- * 没有进行中的行时**不折叠**（那时折叠栏只会把卡掏空，或剩一句「N 个已结束」），
- * 直接平铺。判据见组件里的 `doneFoldable`。
+ * **为什么又改一轮**：第一版只有行内那颗 6px 点和「进行中 / 已结束」一个词来分状态，
+ * 用户在真实右栏里看不出区别（他原话：「正在执行和已结束看不出来，不明显」）。
+ * 现在两段的区别由**结构**承担，而不是靠一颗点的深浅：
+ *
+ *  · **段标题**：「正在执行 2」是主色 + 呼吸点的小标题；「已完成 2」是一条带对勾
+ *    的整块折叠带（有底色，点一下展开）。读者不用逐行比对，扫一眼卡就知道
+ *    上面这摞在跑、下面这摞跑完了。
+ *  · **行内图标**：跑着的转圈、结束的打勾 —— 形状差异，缩到 10px、灰度截图、
+ *    色弱视角下都成立。行内那枚「进行中 / 已结束」文字随之撤掉：分区已经说了
+ *    一遍，每行再说一遍只是噪声（用户 2026-10-23 同意）。
+ *
+ * 没有进行中的行时**不折叠**（那时折叠带只会把卡掏空），直接平铺；但「已完成 N」
+ * 这条段标题仍然在 —— 它是分区标签，不是折叠开关。判据见 `doneFoldable`。
  */
 
 import { memo, useMemo, useState } from 'react'
@@ -123,12 +134,30 @@ function SubagentLine({ row, index, onOpen, failed }: {
       <button
         type="button"
         className="kr-subs-row__main"
-        aria-label={`打开子智能体 ${row.label}`}
+        /*
+         * 状态必须进 aria-label / title：行内那枚文字撤掉之后，视觉用户靠形状
+         * 图标读状态，读屏用户只有这一处文字来源 —— 撤了却不在别处补，等于
+         * 对他们把状态删掉了。
+         */
+        aria-label={`打开子智能体 ${row.label}（${row.running ? '进行中' : '已结束'}）`}
         onClick={() => { onOpen(row) }}
       >
-        {/* 状态点：跑着的用主色脉冲，结束的压成淡灰点。形状不承担状态，
-            颜色 + 脉冲两重线索，色弱用户与灰度截图下也读得出。 */}
-        <span className="kr-subs-row__dot" aria-hidden />
+        {/* 状态图标：**形状即状态**（2026-10-23 第二轮）。
+            跑着的是主色转圈，结束的是灰对勾 —— 只靠颜色与深浅在右栏里读不出来
+            （用户点名「看不出来，不明显」），形状差在 10px、灰度截图、色弱视角下
+            都成立。三种形态共用同一格，避免行内布局跳动。 */}
+        <span className="kr-subs-row__icon" aria-hidden>
+          {row.running ? (
+            <svg className="kr-subs-row__spin" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <circle cx="8" cy="8" r="5.6" strokeOpacity=".28" />
+              <path d="M8 2.4A5.6 5.6 0 0 1 13.6 8" />
+            </svg>
+          ) : (
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m3.4 8.5 3.1 3.1 6-6.6" />
+            </svg>
+          )}
+        </span>
         <span className="kr-subs-row__label">{row.label}</span>
         {row.hasChildren && <span className="kr-subs-row__tag">还有下级</span>}
         {/* 「可续接」标签已按用户要求移除（2026-10-09）：mode 是官方目录的内部
@@ -139,7 +168,11 @@ function SubagentLine({ row, index, onOpen, failed }: {
         {row.elapsedMs !== undefined && (
           <span className="kr-subs-row__time">{formatDuration(row.elapsedMs)}</span>
         )}
-        <span className="kr-subs-row__state">{row.running ? '进行中' : '已结束'}</span>
+        {/*
+          * 行内那枚「进行中 / 已结束」文字已撤（2026-10-23 第二轮）：
+          * 分区标题已经说过一遍，每行再说一遍只是噪声；状态由行首图标承担。
+          * 读屏用户不受影响 —— 整行的 aria-label 与 title 里都带着状态。
+          */}
         {/* 悬停浮现的跳转箭头：承担「这里能点」的提示，纯视觉、aria-hidden，
             不占按钮位、不进无障碍树（读屏用户听到的是整行的 aria-label）。 */}
         {!failed && (
@@ -317,15 +350,27 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
             <>
               {/*
                * 进行中分区：卡的上半段永远是「谁还在跑」。
-               * 一行都没有时不画空列表 —— 空 div 会让下面的折叠行与卡头之间
-               * 多出一道 2px 的 gap，读起来像缺了块东西。
+               *
+               * 段标题「正在执行 N」是这一轮（2026-10-23 第二轮）的关键改动：
+               * 状态原先只靠行内一颗 6px 点区分，用户看不出区别。段标题把
+               * 「上面这摞在跑」变成**结构事实**——主色 + 呼吸点 + 计数，扫一眼
+               * 卡头下方就知道此刻有几个活的。
+               *
+               * 一行都没有时整段（含标题）不渲染：空段只会多一道杠。
                */}
               {visible.length > 0 && (
-                <div className="kr-subs-list">
-                  {visible.map((row, index) => (
-                    <SubagentLine key={row.id} row={row} index={index} onOpen={onOpen} failed={blocked} />
-                  ))}
-                </div>
+                <>
+                  <div className="kr-subs-group kr-subs-group--run">
+                    <span className="kr-subs-group__dot" aria-hidden />
+                    <span className="kr-subs-group__label">正在执行</span>
+                    <span className="kr-subs-group__count">{runningRows.length}</span>
+                  </div>
+                  <div className="kr-subs-list">
+                    {visible.map((row, index) => (
+                      <SubagentLine key={row.id} row={row} index={index} onOpen={onOpen} failed={blocked} />
+                    ))}
+                  </div>
+                </>
               )}
               {hiddenCount > 0 && (
                 <button
@@ -346,44 +391,49 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
                * 为什么折叠的是**结束的那一堆**而不是列表尾巴：结束的行不再变化，
                * 它们只是"已经交割完的事实"；把它们摊在上面，正在跑的那两行就被
                * 一路挤到卡底 —— 而这张卡存在的意义恰恰是"谁还在跑"。所以固定
-               * 顺序是 进行中 → 已结束(折叠)。
+               * 顺序是 进行中 → 已完成(折叠)。
                *
-               * 折叠按钮本身就是那行读数（数字必须在**收起态**可见，否则读者
-               * 会以为这轮只派了上面那两行），点一下展开全部已结束的行。
-               * 展开态再点即收回，不额外挂「收起」按钮 —— 同一个位置同一个动作。
+               * **这一轮（2026-10-23 第二轮）的关键变化**：段标题从「N 个已结束」
+               * 一行淡灰文字，改成一条**带对勾、有底色、能点的整块折叠带**。
+               * 旧形态读起来像列表结尾的省略号，读者根本意识不到「下面还收着一摞」；
+               * 新形态是一个明确的分区标签：对勾图标 + 「已完成 N」 + chevron，
+               * 与上面那条主色的「正在执行 N」形成对照。
                *
-               * 没有进行中的行时**整条折叠轨不渲染**（见 doneFoldable）：那时折叠
-               * 栏要么把卡掏空、要么只剩一句「NJ 已结束」，两种情况都不如直接平铺。
+               * 不可折叠时（上面没有进行中的行）**整条标题不渲染**：那是「全部
+               * 已结束」的卡，卡头读数已经写明，再挂一条「已完成 N」只会被读成
+               * 第 N+1 行（对勾 + 淡字的形状和下面每一行一样）。分区标题存在的
+               * 意义是「把两段分开」，只剩一段时它没有可分的东西。
                */}
               {doneRows.length > 0 && (
                 <div className="kr-subs-done" data-foldable={doneFoldable || undefined}>
-                  {doneFoldable && (
+                  {doneFoldable ? (
                     <button
                       type="button"
-                      className="kr-subs-done__toggle"
+                      className="kr-subs-group kr-subs-group--done kr-subs-group--toggle"
                       aria-expanded={doneOpen}
                       onClick={() => { setDoneOverride(!doneOpen) }}
                     >
-                      <span className="kr-subs-done__dot" aria-hidden />
-                      <span className="kr-subs-done__label">
-                        {doneOpen ? '收起' : `${doneRows.length} 个已结束`}
-                      </span>
+                      <svg className="kr-subs-group__tick" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="m3.4 8.5 3.1 3.1 6-6.6" />
+                      </svg>
+                      <span className="kr-subs-group__label">已完成</span>
+                      <span className="kr-subs-group__count">{doneRows.length}</span>
                       <svg
                         width="11"
                         height="11"
                         viewBox="0 0 16 16"
                         fill="none"
                         stroke="currentColor"
-                        strokeWidth="1.6"
+                        strokeWidth="1.7"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         aria-hidden="true"
-                        className="kr-subs-done__chevron"
+                        className="kr-subs-group__chevron"
                       >
                         <path d="m4.4 6.2 3.6 3.6 3.6-3.6" />
                       </svg>
                     </button>
-                  )}
+                  ) : null}
                   {donePresent && (
                     <div
                       ref={doneRef}

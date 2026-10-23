@@ -853,8 +853,56 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
   // 通道总数的历史注释会误导下一个人，直接钉住条数表述与实现一致。
   // 2026-10-09：diagram 通道随图形 iu kind（graph/arch/sequence）移除，五条→四条。
   // 2026-10-21：soul 通道随灵魂模块整块删除，四条→三条。
-  need(/三条\*\*内置通道\*\*[\s\S]{0,140}team 团队协作/.test(injectSrc),
-    'inject.ts 头部注释声明的内置通道条数与实现一致（当前 3 条：zh / html / team）')
+  need(/四条\*\*内置通道\*\*[\s\S]{0,160}step 纪律/.test(injectSrc),
+    'inject.ts 头部注释声明的内置通道条数与实现一致（当前 4 条：zh / html / team / step）')
+
+  // ── step 纪律通道（2026-10-23 新增：减少模型往返）──────────────────
+  //
+  // 这条通道投的是一段**行为纪律**，不是能力文档：告诉模型「无数据依赖的多条
+  // 动作要合并进一次调用」。它的价值全部来自实测数字（拆 3 step 25.7s / 合并
+  // 1 step 5.3s），所以断言里必须钉住几个数字与反判据——只写「尽量合并」是口号，
+  // 模型会过度合并、把依赖链压成一条命令，出错返工反而更慢。
+  if (route !== undefined) {
+    const callStep = async (method, url) => {
+      const captured = { status: 0, body: null }
+      const res = {
+        writeHead: (status) => { captured.status = status },
+        end: (payload) => { try { captured.body = JSON.parse(payload) } catch { captured.body = null } },
+      }
+      route.handler({ method, url, socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:3080' } }, res)
+      await new Promise((r) => setTimeout(r, 60))
+      return captured
+    }
+    const gotStep = await callStep('GET', '/api/dsh-memory/step-inject-state')
+    need(gotStep.status === 200, `GET /step-inject-state answers 200（实得 ${gotStep.status}）`)
+    need(typeof gotStep.body?.enabled === 'boolean', 'step-inject-state returns a boolean enabled')
+    need(gotStep.body?.enabled === true, `step 通道默认开（实得 ${JSON.stringify(gotStep.body)}）`)
+    need(gotStep.body?.builtin === true, 'step-inject-state is tagged builtin (无卸载入口)')
+    const isStep = await callStep('GET', '/api/dsh-memory/inject-state?sessionId=smoke-step')
+    need(typeof isStep.body?.stepEnabled === 'boolean', 'GET /inject-state 顺带回传 stepEnabled')
+  }
+  // 规范文本住在独立模块（inject.ts 只 import 常量），所以扫 step-rule.ts 本体；
+  // 扫 inject.ts 会得到一串假失败——常量名在、正文不在。
+  const stepRuleSrc = readFileSync(resolve(ROOT, 'src/triad/memory/engine/step-rule.ts'), 'utf8')
+  need(/STEP_INJECTION_RULE/.test(stepRuleSrc), 'step-rule.ts 导出 STEP_INJECTION_RULE 常量')
+  for (const [needle, why] of [
+    ['合并判据', '正向判据（A 的结果不影响 B 的参数才合并）'],
+    ['不要合并', '反判据（真依赖 / 独立审批 / 输出超限三种情况必须拆开）'],
+    ['并行不是杠杆', '钉住「并行没用」这条已被实测证伪的方向'],
+    ['79%', '实测收益数字（没有数字规则就退化成口号）'],
+    ['1635', '本机可合并空间的量化依据'],
+    ['重复 read', '同文件重复读这条实测发现'],
+  ]) {
+    need(stepRuleSrc.includes(needle), `step 纪律注入规范必须写清「${why}」（缺 ${needle}）`)
+  }
+  need(/stepStepCounters/.test(injectSrc) && /isStepInjectEnabled/.test(injectSrc),
+    'step 通道有独立 step 计数器（不与其它通道抢首步名额）')
+  need(/stepInjectDefaultEnabled: boolean/.test(typesSrc), 'MemoryConfig 声明 stepInjectDefaultEnabled')
+  need(/stepInjectDefaultEnabled: true/.test(typesSrc), 'stepInjectDefaultEnabled 默认 true')
+  need(/CONFIG_BOOLEAN_KEYS[\s\S]{0,400}stepInjectDefaultEnabled/.test(typesSrc),
+    'stepInjectDefaultEnabled 在 CONFIG_BOOLEAN_KEYS 里（否则面板/补丁写不进去）')
+  need(/isStepInjectEnabled/.test(storeSrc) && /setStepInjectEnabled/.test(storeSrc),
+    'store 提供 step 开关的读写')
   need(!/soul|Soul|灵魂/.test(injectSrc), 'inject.ts 不得残留灵魂通道（2026-10-21 整块删除）')
   need(/isTeamInjectEnabled/.test(storeSrc) && /setTeamInjectEnabled/.test(storeSrc),
     'store 提供 team 开关的读写')
@@ -907,11 +955,18 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
     need(clientToggle.includes('团队协作'), `抽屉里有 team 通道这一行（${key} 的承载者）`)
   }
   need(clientToggle.includes(`pushChannel('teamEnabled'`), 'Toggle 写 team 通道走 teamEnabled 键')
+  // step 通道：抽屉里的硬编码行 + 写入口键 + 缺字段兜底口径三处必须齐。
+  // 兜底口径是历史最易错点（谁 !== false、谁 === true），所以直接钉源码表达式。
+  need(clientToggle.includes('step 纪律'), '抽屉里有 step 通道这一行')
+  need(clientToggle.includes(`pushChannel('stepEnabled'`), 'Toggle 写 step 通道走 stepEnabled 键')
+  const clientToggleSrc = readFileSync(resolve(ROOT, 'src/client/triad/memory/Toggle.tsx'), 'utf8')
+  need(/stepEnabled: res\.stepEnabled !== false/.test(clientToggleSrc),
+    'stepEnabled 缺字段按「开」兜底（默认开的通道；与 team 的 === true 口径不同）')
 
   // ── 回合结束自动收口（todo-closure） ────────────────────────────────
   // 它不是「注入通道」（不往上下文里塞任何文本），而是**行为通道**：回合结束时
   // 把残留 in_progress 降级为 pending，让任务卡不再挂着假进行中。因此它不进
-  // 上面那条「四条内置通道」的条数断言，单开一段钉。
+  // 上面那条「四条注入通道」的条数断言，单开一段钉。
   if (route !== undefined) {
     const call3 = async (method, url) => {
       const captured = { status: 0, body: null }

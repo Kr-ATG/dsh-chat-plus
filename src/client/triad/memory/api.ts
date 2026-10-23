@@ -213,6 +213,15 @@ export interface InjectStateView {
    */
   todoClosureEnabled?: boolean
   /**
+   * step 纪律（减少模型往返）内置通道是否开启。
+   *
+   * 与 zh / 自动收口同口径（`!== false` 兜底）：它是**默认开**的通道，缺字段
+   * 按开。写成 `=== true` 的话，client 已更新、host 还没重启的那段窗口里开关会
+   * 显示成「关」，host 一重启又跳成「开」——同一个用户什么都没做，看到开关自己
+   * 跳了一下。（真实口径以 traits：Toggle.tsx 的 normalizeInjectState 为准。）
+   */
+  stepEnabled?: boolean
+  /**
    * Agent 邮箱（dsh-mail）能力声明是否生效。
    *
    * **只看声明开关 `mail.injectEnabled`**，与邮箱工作台总开关解耦：工作台关着
@@ -577,6 +586,8 @@ export function createMemoryApi(): MemoryApi {
     setTeamInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/team-inject-state', { enabled }),
     getTodoClosureState: () => getJson<ZhInjectStateView>('/todo-closure-state'),
     setTodoClosureState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/todo-closure-state', { enabled }),
+    getStepInjectState: () => getJson<ZhInjectStateView>('/step-inject-state'),
+    setStepInjectState: (enabled) => sendJson<ZhInjectStateView & { ok: boolean }>('/step-inject-state', { enabled }),
     getMailInjectState: () => getJson<MailInjectStateView>('/mail-inject-state'),
     setMailInjectState: (enabled) => sendJson<MailInjectStateView & { ok: boolean }>('/mail-inject-state', { enabled }),
     setMailWorkbench: (enabled) => sendJson<MailInjectStateView & { ok: boolean }>('/mail-inject-state', { workbench: enabled }),

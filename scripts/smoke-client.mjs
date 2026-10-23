@@ -1466,10 +1466,33 @@ if (krEnabled) {
       fail('子智能体卡必须**有几个就几行**（一行一个，逐行渲染）')
     } else if (!/className="kr-subs-row__main"[\s\S]{0,400}?onClick=\{\(\) => \{ onOpen\(row\) \}\}/.test(subsSrc)) {
       fail('每一行必须是可点的跳转入口（整行一个 button，点了 openSubagentSession）')
-    } else if (!/kr-subs-done__toggle/.test(subsSrc) || !/kr-subs-done__body/.test(subsCode)) {
+    } else if (!/kr-subs-group--toggle/.test(subsSrc) || !/kr-subs-done__body/.test(subsCode)) {
       fail('已结束的子智能体必须收进可折叠分区（用户 2026-10-23 点名「完工的也放 Show more」）')
-    } else if (!/kr-subs-done__toggle/.test(code) || !/kr-subs-done__chevron/.test(code)) {
-      fail('client bundle is missing the done-section styles (.kr-subs-done*)')
+    } else if (!/kr-subs-group--done/.test(code) || !/kr-subs-group__chevron/.test(code)) {
+      fail('client bundle is missing the group-header styles (.kr-subs-group--done / __chevron)')
+    } else if (
+      // 2026-10-23 第二轮：用户点名「正在执行和已结束看不出来，不明显」。
+      // 状态必须由**结构**承担，而不是靠一颗点的深浅：
+      //   ① 两段各有自己的段标题（主色「正在执行 N」/ 带对勾的「已完成 N」）；
+      //   ② 行首图标用形状差（转圈 vs 对勾），不依赖颜色与动画。
+      !/kr-subs-group--run/.test(subsSrc) ||
+      !/className="kr-subs-group__label">正在执行</.test(subsSrc) ||
+      !/className="kr-subs-group__label">已完成</.test(subsSrc)
+    ) {
+      fail('子智能体必须分「正在执行 / 已完成」两段并各带段标题（用户点名状态看不出来）')
+    } else if (
+      !/kr-subs-row__spin/.test(subsSrc) ||
+      !/kr-subs-row__icon/.test(subsSrc) ||
+      !/kr-subs-row__spin/.test(code)
+    ) {
+      fail('行首必须是形状状态图标（进行中转圈 / 已结束对勾），不能退回只有一颗点')
+    } else if (
+      // 行内那枚「进行中 / 已结束」文字已撤：分区标题说过一遍，每行再说一遍是噪声。
+      // 但状态必须仍在无障碍面 —— aria-label 里要带。
+      /kr-subs-row__state/.test(subsCode) ||
+      !/进行中' : '已结束/.test(subsSrc)
+    ) {
+      fail('行内状态文字必须撤掉（分区已交代），但 aria-label 里必须仍带状态')
     } else if (
       // 折叠区必须是**连续的尾块**：先按 running 分组、再进行中在前已结束在后，
       // 否则收起时中间被抽走几行、下面的行往上跳。
@@ -1478,20 +1501,20 @@ if (krEnabled) {
     ) {
       fail('子智能体必须按 running 分组：进行中在前、已结束在后（折叠区要是连续尾块）')
     } else if (
-      // 折叠行上的读数必须在**收起态**可见：只说「收起」的按钮等于把
-      // "还有几个完工的"藏起来了，读者会以为这轮只派了上面那两行。
-      !/\$\{doneRows\.length\} 个已结束/.test(subsSrc)
+      // 折叠带上的计数必须在**收起态**可见：读者要知道下面收着几个。
+      // 现在它是一条带对勾的分区带（「已完成 N」），不再是「N 个已结束」的淡灰行。
+      !/className="kr-subs-group__count">\{doneRows\.length\}/.test(subsSrc)
     ) {
-      fail('已结束折叠行必须带「N 个已结束」读数（收起态可见，不是只写「收起」）')
+      fail('已完成折叠带必须带计数（收起态可见，读者要知道下面收着几个）')
     } else if (!/aria-expanded=\{doneOpen\}/.test(subsSrc)) {
-      fail('已结束折叠行必须给 aria-expanded（读屏用户要知道这块是开是合）')
+      fail('已完成折叠带必须给 aria-expanded（读屏用户要知道这块是开是合）')
     } else if (
-      // 没有进行中的行时不该再挂折叠条：那时折叠只会把卡掏空，或剩一句
-      // 「N 个已结束」。此时应该直接平铺。
+      // 没有进行中的行时不该再挂折叠**按钮**：那时折叠只会把卡掏空。
+      // 但段标题本身仍在（它是分区标签，不是开关）—— 见下面的 else 分支。
       !/doneFoldable = runningRows\.length > 0 && doneRows\.length > 0/.test(subsCode) ||
-      !/\{doneFoldable && \(/.test(subsSrc)
+      !/\{doneFoldable \? \(/.test(subsSrc)
     ) {
-      fail('已结束分区只在「上面还有进行中」时才折叠，否则直接平铺（不挂折叠条）')
+      fail('已完成分区只在「上面还有进行中」时才可折叠，否则退化成静态分区标签（平铺）')
     } else if (!/openSubagentSession/.test(subsSrc) || !/uiWorkspace/.test(catSrc0)) {
       fail('跳转必须走官方 uiWorkspace.openSession（与官方子智能体目录点一行同一条链路）')
     } else if (!/projectionsBySession/.test(catSrc0) || !/subagentCatalog/.test(catSrc0)) {
@@ -4278,19 +4301,19 @@ if (krEnabled) {
     //    后面的序号，错开浮现会两行同时冒出来，而这既不该报错也不会打日志。
     const hostWriters = [
       'setZhInjectState', 'setHtmlInjectState',
-      'setTeamInjectState', 'setTodoClosureState', 'setMailInjectState',
+      'setTeamInjectState', 'setStepInjectState', 'setTodoClosureState', 'setMailInjectState',
     ]
     const missingWriter = hostWriters.filter(name => !src.includes(name))
     const rowCount = (src.match(/<SettingsRow\b/g) ?? []).length
-    // 9 处 = 3（中文 / 交互卡片 / 团队）+ 2（邮箱「给开关 / 给角标」两分支）
+    // 10 处 = 4（中文 / 交互卡片 / 团队 / step 纪律）+ 2（邮箱「给开关 / 给角标」两分支）
     //      + 1（自动收口）+ 3（展示组）。
     // 灵魂注入那一行 2026-10-21 随灵魂模块整块删除：通道没了，闸门也就没有意义。
     // 邮箱那个三态行写两个分支是**刻意的**：省略 on 的那一支才是「不给拨不动的开关」。
     // 「工作区记忆」那一组 2026-10-18 改成了**逐工作区列表**（不再是固定的 SettingsRow），
     // 因此不计入这个数字 —— 它的判据在下面 6c。
-    const expectedRows = 9
-    // 8 个行序号（0..7）：邮箱两分支共用同一个 index（同一行的两种形态，不该占两个错开槽位）。
-    const expectedIndexes = 8
+    const expectedRows = 10
+    // 9 个行序号（0..8）：邮箱两分支共用同一个 index（同一行的两种形态，不该占两个错开槽位）。
+    const expectedIndexes = 9
     const rowIndexes = [...src.matchAll(/index=\{(\d+)\}/g)].map(m => Number(m[1]))
     const distinctIndexes = [...new Set(rowIndexes)].sort((a, b) => a - b)
     const consecutive = distinctIndexes.length === expectedIndexes
@@ -4304,11 +4327,11 @@ if (krEnabled) {
     } else if (!/busy/.test(src)) {
       fail('host 写入缺少 busy 门控（写盘期间连点会出竞态，开关状态弹来弹去）')
     } else if (rowCount !== expectedRows) {
-      fail(`大盘设置应有 ${expectedRows} 处 <SettingsRow>（3 注入 + 邮箱 2 分支 + 自动收口 + 工作区项目记忆 2 分支 + 展示 3），实得 ${rowCount}`)
+      fail(`大盘设置应有 ${expectedRows} 处 <SettingsRow>（4 注入 + 邮箱 2 分支 + 自动收口 + 展示 3），实得 ${rowCount}`)
     } else if (!consecutive) {
       fail(`行序号 --row-i 必须从 0 起连续到 ${expectedIndexes - 1}（新增行要顺延后面的序号，否则两行同时浮现）：实得 ${JSON.stringify(distinctIndexes)}`)
     } else {
-      pass(`大盘设置：${expectedRows} 个开关行接线完整（6 条 host 通道 + 3 条外观偏好；--row-i 0..${expectedIndexes - 1} 连续，含 busy 门控）`)
+      pass(`大盘设置：${expectedRows} 个开关行接线完整（6 条 host 通道 + 3 条外观偏好，邮箱两分支各占一行；--row-i 0..${expectedIndexes - 1} 连续，含 busy 门控）`)
     }
 
     // 6c) 「工作区记忆」组（2026-10-18 改成逐工作区列表）：用户要求「显示出来所有工作区

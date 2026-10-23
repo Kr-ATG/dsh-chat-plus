@@ -1055,6 +1055,27 @@ export class MemoryStore {
     await this.writeState(state)
   }
 
+  // ── step 纪律规范注入开关（全局单值） ──────────────────────────────
+
+  /**
+   * step 纪律注入是否开启（三态：state 显式值 ?? 调用方给的 fallback）。
+   *
+   * 与 zh / html / team 同样是**全局单值**：它投的是「一次调用该装多少动作」的
+   * 静态纪律，跨会话恒定，逐会话开关只会制造「这个会话合并、下个不合并」的
+   * 不可预期。
+   */
+  async isStepInjectEnabled(fallback: boolean): Promise<boolean> {
+    const state = await this.readState()
+    return typeof state.stepInjectEnabled === 'boolean' ? state.stepInjectEnabled : fallback
+  }
+
+  /** 写 step 纪律注入开关（全局单值；直接落盘，调用频率极低）。 */
+  async setStepInjectEnabled(enabled: boolean): Promise<void> {
+    const state = await this.readState()
+    state.stepInjectEnabled = enabled
+    await this.writeState(state)
+  }
+
   // ── 项目 meta ───────────────────────────────────────────────────────
 
   async readProjectMeta(hash: string): Promise<ProjectMeta | undefined> {

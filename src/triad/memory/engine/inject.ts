@@ -6,8 +6,8 @@
  * injectPinnedBudgetRatio（默认 40%），装不下的置顶退回普通池参与竞争。
  * 命中刷新：被注入的条目距上次命中 ≥1 天时刷新 lastHitAt 并加分。
  *
- * 除主注入外，本文件还承载三条**内置通道**（zh 中文偏好 / html+iu 卡片规范 /
- * team 团队协作）：各自独立 stepCounters、各自全局开关、每会话只注首步、
+ * 除主注入外，本文件还承载四条**内置通道**（zh 中文偏好 / html+iu 卡片规范 /
+ * team 团队协作 / step 纪律）：各自独立 stepCounters、各自全局开关、每会话只注首步、
  * 位置一律在「项目排除 + 主注入开关」两道闸门之前，失败只记日志。
  */
 
@@ -18,6 +18,7 @@ import { createUserMessage } from '../../../vendor/dsh-llm/index.js'
 import { iuKindsDoc, IU_KIND_NAMES } from '../../../client/iu/kinds/registry.ts'
 import type { MemoryConfig } from '../types.js'
 import { buildChineseInjectionText, buildInjectionText, selectChineseEntries, selectInjectionEntries, workspaceHashOf } from './compile.js'
+import { STEP_INJECTION_RULE } from './step-rule.js'
 import { searchEntries } from './retrieval.js'
 import { daysSince } from './scoring.js'
 import type { MemoryStore } from './store.js'
@@ -306,6 +307,12 @@ export function createMemoryInjector(
    */
   const teamStepCounters = new Map<string, number>()
 
+  /**
+   * step 纪律通道的每会话 step 计数，理由同 teamStepCounters——各通道各记各的，
+   * 共用一个 Map 会互相抢占首步名额。
+   */
+  const stepStepCounters = new Map<string, number>()
+
   async function buildMemoryBlock(
     agent: PreStepAgent,
     query: string,
@@ -498,6 +505,34 @@ export function createMemoryInjector(
       }
     }
 
+    // ── step 纪律（减少模型往返）规范注入（内置通道） ──────────────────
+    // 位置同 zh / html / team：两道闸门之前。它回答的是「一次调用该装多少动作」，
+    // 与「记忆库要不要进上下文」正交，也与 team 通道（回答「这活怎么组织」）正交。
+    // 开关读取在 stepCounters 检查之内（理由见上方 zh 通道的注释）。
+    if (!stepStepCounters.has(sessionId)) {
+      const stepEnabled = await store.isStepInjectEnabled(config.stepInjectDefaultEnabled !== false)
+      if (!stepEnabled) {
+        logger?.debug?.('[dsh-memory] step injection off (switch disabled)')
+      } else {
+        stepStepCounters.set(sessionId, 1)
+        try {
+          messages = [...messages, createUserMessage({
+            content: [{ type: 'text', text: STEP_INJECTION_RULE }],
+            source: {
+              kind: 'plugin:dsh-memory',
+              plugin: 'dsh-memory',
+              form: 'snapshot',
+              sections: [{ name: 'step 纪律', text: STEP_INJECTION_RULE }],
+            },
+          })]
+          logger?.debug?.('[dsh-memory] step injection ok')
+        } catch (error) {
+          // 失败绝不能影响主注入与其它通道。
+          logger?.warn?.(`[dsh-memory] step injection failed: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+    }
+
     // 项目注入排除：被排除的工作区里，会话不注入**记忆库条目**（用户在面板
     // 项目上下文条里按项目关闭注入）。判定在会话级开关之前——排除是项目级
     // 硬闸，会话级开关管不到它。注意这不再影响上面已产出的中文块。
@@ -553,6 +588,7 @@ export function createMemoryInjector(
       zhStepCounters.delete(sessionId)
       htmlStepCounters.delete(sessionId)
       teamStepCounters.delete(sessionId)
+      stepStepCounters.delete(sessionId)
     },
   }
 }
