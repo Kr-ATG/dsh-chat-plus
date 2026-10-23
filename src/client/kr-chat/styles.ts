@@ -2949,6 +2949,111 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   outline-offset: -2px;
 }
 
+/* ══ 已结束分区（折叠）══════════════════════════════════════════════════
+   用户 2026-10-23 点名「已经完工的也可以放 Show more」，形态对齐 Claude 桌面端
+   那张后台任务面板：**进行中摊开，已结束收在下面一行读数里**，点一下才展开。
+
+   为什么折叠的一定是「结束的那一堆」：结束的行不再变化，它们只是已经交割完的
+   事实；摊在上面会把正在跑的那两行一路挤到卡底 —— 而这张卡存在的意义恰恰是
+   「谁还在跑」。
+
+   折叠行本身长得像一条分隔：左侧一枚结束态灰点（与行内状态点同形同色，读起来
+   是"下面这些是结束的"），中间读数，右侧 chevron。它比普通行更淡 —— 它是
+   目录式结尾，不是第 N 个子智能体。 */
+
+.kr-subs-done {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+/* 只有「上面还有进行中的行」时才画那根分隔线：它分的是「在跑的」与「跑完的」
+   两段。没有进行中的行时（全部结束 / 全部平铺），这根线上面什么都没有，
+   留着就只是在卡头下面凭空多出一道杠。 */
+.kr-subs-done[data-foldable] {
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid var(--kr-card-border);
+}
+
+.kr-subs-done__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: calc(26px + var(--dsh-content-font-delta, 0px) * 1.3333);
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--kr-fs-11-5, 11.5px);
+  line-height: calc(16px + var(--dsh-content-font-delta, 0px) * 1.3333);
+  text-align: left;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--kr-dur-tap) linear, color var(--kr-dur-fade) linear;
+}
+
+.kr-subs-done__toggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.07));
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-subs-done__toggle:focus-visible {
+  outline: 2px solid var(--kr-accent);
+  outline-offset: -2px;
+}
+
+/* 结束态灰点：与 .kr-subs-row__dot 的结束态同一档亮度，读作同一套语言。 */
+.kr-subs-done__dot {
+  flex: none;
+  width: calc(6px + var(--dsh-content-font-delta, 0px) * 0.45);
+  height: calc(6px + var(--dsh-content-font-delta, 0px) * 0.45);
+  border-radius: 50%;
+  background: var(--dsw-alias-label-caption);
+  opacity: .75;
+}
+
+/* 读数占满中段（把 chevron 顶到最右，与行内箭头同一条右边线）。 */
+.kr-subs-done__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* chevron：收起时朝下、展开时翻上来。翻的是图标本身，不是那个按钮 —— 按钮里
+   还有读数，整条转过去会连字一起倒过来。 */
+.kr-subs-done__chevron {
+  flex: none;
+  color: var(--dsw-alias-label-caption);
+  transition: transform var(--kr-dur-fade) var(--kr-ease-soft);
+}
+
+.kr-subs-done__toggle[aria-expanded="true"] .kr-subs-done__chevron {
+  transform: rotate(180deg);
+}
+
+/* 展开体：高度补间由 useHeightAnimation 接管（写内联 height + overflow），
+   这里只排版，绝不写 height，否则和内联样式打架。 */
+.kr-subs-done__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+/* 折叠区内每行错峰入场：与进行中那些行同一套节奏，展开时是"一层层落下来"，
+   而不是"整块闪出来"。 */
+.kr-subs-done__body .kr-subs-row {
+  animation: kr-subs-row-in var(--kr-dur-row) var(--kr-ease-out) backwards;
+}
+
 /* 跳转失败（旧宿主没有 uiWorkspace）时的一枚提示：说清事实，而不是"点了没反应"。
    字号比 .kr-card__meta 更小、字色更弱 —— 它是异常说明，不该跟读数抢。 */
 .kr-subs-blocked {
@@ -3013,6 +3118,17 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 
   .kr-subs-row__main:active .kr-subs-row__go {
     transform: none;
+  }
+
+  /* 已结束分区：折叠行的入场位移与 chevron 翻转一并关掉。
+     chevron 关掉过渡后仍会翻转（只是瞬间跳变）—— 方向仍然是"展开 / 收起"
+     的静态线索，不依赖动画。 */
+  .kr-subs-done__body .kr-subs-row {
+    animation: none;
+  }
+
+  .kr-subs-done__chevron {
+    transition: none;
   }
 }
 
@@ -3183,6 +3299,13 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 /* 下面两枚的呈现属性是 11px（两张卡的「展开其余 N」）。 */
 .kr-subs-more svg,
 .kr-out-more svg {
+  width: calc(11px + var(--dsh-content-font-delta, 0px) * 0.8);
+  height: calc(11px + var(--dsh-content-font-delta, 0px) * 0.8);
+}
+
+/* 已结束折叠行的 chevron：呈现属性同样是 11（与上面那两枚同一档），
+   但它自己就是 svg（不像其它几枚外面还套一层容器），所以规则直接落在它身上。 */
+.kr-subs-done__chevron {
   width: calc(11px + var(--dsh-content-font-delta, 0px) * 0.8);
   height: calc(11px + var(--dsh-content-font-delta, 0px) * 0.8);
 }

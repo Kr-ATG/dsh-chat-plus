@@ -31,6 +31,16 @@
  * 操作面板 / 产出物三张卡是"这场对话一定有的东西"，子智能体不是；常驻一张空卡
  * 只会在右栏白占一行高度。真有派生动作但目录还没落地时给一行「正在读取」，
  * 那是**事实**（我们确实还没读到），不是「这次没有」（那是我们不知道的结论）。
+ *
+ * ## 进行中 / 已结束两段（2026-10-23）
+ *
+ * 用户点名「已经完工的也可以放 Show more」，形态对齐 Claude 桌面端那张后台任务
+ * 面板：**进行中摊在上面，已结束收在下面一行读数里**，点一下才展开。折叠的是
+ * 「结束的那一堆」而不是列表尾巴 —— 结束的行不再变化，摊在上面会把还在跑的那两行
+ * 一路挤到卡底，而这张卡存在的意义恰恰是"谁还在跑"。
+ *
+ * 没有进行中的行时**不折叠**（那时折叠栏只会把卡掏空，或剩一句「N 个已结束」），
+ * 直接平铺。判据见组件里的 `doneFoldable`。
  */
 
 import { memo, useMemo, useState } from 'react'
@@ -149,6 +159,23 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
   // 默认展开：这张卡只在真有子智能体时出现，出现即是要看的东西。
   const [open, setOpen] = useState(true)
   const [showAll, setShowAll] = useState(false)
+  /**
+   * 已结束分区是否展开。
+   *
+   * 用户 2026-10-23 点名「已经完工的也可以放 Show more」，口径对齐 Claude 桌面端
+   * 那张同名面板：完工的行是**已经交割完的事实**，正在跑的才是此刻要盯的东西。
+   * 不折叠时——一轮派八个、跑完六个——进行中的那两行会被一路挤到卡的下半段去。
+   *
+   * 默认值分两种情况（`undefined` = 用户还没表过态）：
+   *  · **还有人在跑** → 折叠。卡的目的是"谁还在跑"，结束的那摞收起来让位；
+   *  · **全都结束了** → 那就没有折叠这回事了：卡上只有结束的行，任何折叠都
+   *    只会变成"点开才能看见唯一的内容"，见下面 doneFoldable 的判据。
+   *
+   * 用 `undefined` 而不是布尔初值：这是**随状态推出来的默认值**，一旦用户亲手
+   * 点过，他的选择就固定下来，不再被后面的 running 变化覆盖（用户刚点开展开看
+   * 某个子智能体的名字，最后一个人跑完了，卡不能自作主张把它收回去）。
+   */
+  const [doneOverride, setDoneOverride] = useState<boolean | undefined>(undefined)
   /** 跳转失败（宿主没有 uiWorkspace）时的一枚短暂提示，避免"点了没反应"。 */
   const [blocked, setBlocked] = useState(false)
   const motion = useMotionAllowed(true)
@@ -156,11 +183,35 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
 
   const rows = catalog.rows
   const maxRows = squeezed ? MAX_VISIBLE_SQUEEZED : MAX_VISIBLE
+  /*
+   * 进行中在前、已结束在后（两边各自保持目录给的创建顺序）。
+   *
+   * 这不只是排序偏好：已结束的分区要能被折叠，折叠区就必须是**连续的尾块** ——
+   * 否则收起时中间被抽走几行、下面的行往上跳，读起来像列表在乱动。分完组之后
+   * 「谁还在跑」固定占据卡的上半段，与 Claude 那张面板同一种形态。
+   */
+  const runningRows = useMemo(() => rows.filter((row) => row.running), [rows])
+  const doneRows = useMemo(() => rows.filter((row) => !row.running), [rows])
   const visible = useMemo(
-    () => (showAll ? rows : rows.slice(0, maxRows)),
-    [rows, showAll, maxRows],
+    () => (showAll ? runningRows : runningRows.slice(0, maxRows)),
+    [runningRows, showAll, maxRows],
   )
-  const hiddenCount = rows.length - visible.length
+  const hiddenCount = runningRows.length - visible.length
+
+  /**
+   * 这一堆已结束的行**值不值得折叠**。
+   *
+   * 判据是「折叠之前，上面还有没有别的行」：进行中一行都没有时，折叠行就成了
+   * 卡里唯一的内容，默认展开它等于脱裤子放屁，默认收起它等于把整张卡变成一句
+   * 「N 个已结束」。两种情况都不如**直接平铺**：卡上只有结束时，那几行就是
+   * 这一屏要看的全部东西。此时折叠条整条不渲染（也就没有「收起」）。
+   */
+  const doneFoldable = runningRows.length > 0 && doneRows.length > 0
+  /** 可折叠时默认收起；不可折叠时就是平铺（恒为展开）。 */
+  const doneOpen = doneFoldable ? (doneOverride ?? false) : true
+  // 已结束分区的展开体，和整卡折叠是两层独立的高度补间（两个 ref、两段状态）。
+  // 放在 doneOpen 之后：hook 顺序必须稳定，而它的入参由上面那一行决定。
+  const { ref: doneRef, present: donePresent } = useHeightAnimation(doneRows.length > 0 && doneOpen, motion)
 
   const onOpen = (row: SubagentRow): void => {
     if (openSubagentSession(row)) return
@@ -178,11 +229,18 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
    */
   if (rows.length === 0 && !spawning) return null
 
+  /*
+   * 标题右侧的读数。折叠之后**已结束的那部分也必须出现在读数里** ——
+   * 否则卡上只剩两行进行中，读者会以为"这轮就派了两个"，而下面那行
+   * 「M 个已结束」正是告诉他还有一摞收在折叠区里。
+   */
   const meta = rows.length === 0
     ? '读取中'
-    : catalog.runningCount > 0
-      ? `${rows.length} 个 · ${catalog.runningCount} 个进行中`
-      : `${rows.length} 个 · 全部结束`
+    : doneRows.length === 0
+      ? `${rows.length} 个 · 全部进行中`
+      : runningRows.length === 0
+        ? `${rows.length} 个 · 全部结束`
+        : `${rows.length} 个 · ${runningRows.length} 个进行中`
 
   return (
     <div className="kr-card kr-card--subs" data-empty={rows.length === 0 || undefined}>
@@ -234,11 +292,18 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
             </div>
           ) : (
             <>
-              <div className="kr-subs-list">
-                {visible.map((row, index) => (
-                  <SubagentLine key={row.id} row={row} index={index} onOpen={onOpen} failed={blocked} />
-                ))}
-              </div>
+              {/*
+               * 进行中分区：卡的上半段永远是「谁还在跑」。
+               * 一行都没有时不画空列表 —— 空 div 会让下面的折叠行与卡头之间
+               * 多出一道 2px 的 gap，读起来像缺了块东西。
+               */}
+              {visible.length > 0 && (
+                <div className="kr-subs-list">
+                  {visible.map((row, index) => (
+                    <SubagentLine key={row.id} row={row} index={index} onOpen={onOpen} failed={blocked} />
+                  ))}
+                </div>
+              )}
               {hiddenCount > 0 && (
                 <button
                   type="button"
@@ -250,6 +315,68 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
                     <path d="m4.4 6.2 3.6 3.6 3.6-3.6" />
                   </svg>
                 </button>
+              )}
+
+              {/*
+               * 已结束分区（用户 2026-10-23 点名：完工的收进「Show more」）。
+               *
+               * 为什么折叠的是**结束的那一堆**而不是列表尾巴：结束的行不再变化，
+               * 它们只是"已经交割完的事实"；把它们摊在上面，正在跑的那两行就被
+               * 一路挤到卡底 —— 而这张卡存在的意义恰恰是"谁还在跑"。所以固定
+               * 顺序是 进行中 → 已结束(折叠)。
+               *
+               * 折叠按钮本身就是那行读数（数字必须在**收起态**可见，否则读者
+               * 会以为这轮只派了上面那两行），点一下展开全部已结束的行。
+               * 展开态再点即收回，不额外挂「收起」按钮 —— 同一个位置同一个动作。
+               *
+               * 没有进行中的行时**整条折叠轨不渲染**（见 doneFoldable）：那时折叠
+               * 栏要么把卡掏空、要么只剩一句「NJ 已结束」，两种情况都不如直接平铺。
+               */}
+              {doneRows.length > 0 && (
+                <div className="kr-subs-done" data-foldable={doneFoldable || undefined}>
+                  {doneFoldable && (
+                    <button
+                      type="button"
+                      className="kr-subs-done__toggle"
+                      aria-expanded={doneOpen}
+                      onClick={() => { setDoneOverride(!doneOpen) }}
+                    >
+                      <span className="kr-subs-done__dot" aria-hidden />
+                      <span className="kr-subs-done__label">
+                        {doneOpen ? '收起' : `${doneRows.length} 个已结束`}
+                      </span>
+                      <svg
+                        width="11"
+                        height="11"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                        className="kr-subs-done__chevron"
+                      >
+                        <path d="m4.4 6.2 3.6 3.6 3.6-3.6" />
+                      </svg>
+                    </button>
+                  )}
+                  {donePresent && (
+                    <div
+                      ref={doneRef}
+                      className="kr-subs-done__body"
+                      data-open={doneOpen || undefined}
+                      aria-hidden={!doneOpen}
+                      {...(!doneOpen ? { inert: '' } : {})}
+                    >
+                      <div className="kr-subs-list">
+                        {doneRows.map((row, index) => (
+                          <SubagentLine key={row.id} row={row} index={index} onOpen={onOpen} failed={blocked} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </>
           )}
