@@ -886,7 +886,7 @@ if (!code.includes('data-dsh-anim-paused') || !code.includes('animation-play-sta
 // 十三枚槽位：对话增强六枚（turn-process / assistant-step keyed / 截图按钮 /
 // download toolview / kr-todo-bridge / tools-gate 胶囊）+ 融合工作台五枚
 // （记忆 / 能力 / 邮箱三个工作台各两枚：main 页 + sidebar.panellist 菜单行，
-// 共 6；composer 开关 dsh-memory-inject-toggle；
+// 共 6；
 // skill toolview 一枚）+ 供应商设置页一枚（settings.section / provider-hub，
 // 2026-10-05 从工作台 Tab 撤回官方设置弹窗）
 // + 首 token 平均平铺桥一枚（input.dock / dsh-stats-ttft-flat，只做 DOM 追认）。
@@ -900,10 +900,12 @@ const cell = (key) => registeredSlots.find((s) => s?.slot === 'conversation.chat
 // 2026-10-20：浏览器标志**不占任何座位** —— 标题栏胶囊整块删除（用户反馈不好看），
 // 只剩会话行上的一枚伪元素图标（DOM 属性注入，见 browser-flag/row-mark.ts）。
 // 槽位仍是 12；若哪天有人把胶囊座位加回来，这里的计数会立刻红。
-if (registeredSlots.length !== 12) {
-  fail(`expected 12 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
+// 2026-10-23：composer 那枚 dsh-memory-inject-toggle（记忆注入卡，order 99）
+// 按用户要求删除，槽位从 12 → 11。它的开关能力仍在 Seeker 右栏「大盘设置」抽屉里。
+if (registeredSlots.length !== 11) {
+  fail(`expected 11 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
 } else {
-  pass('registered 12 seats (6 chat-plus + 5 triad + 1 provider settings section + 1 ttft flat bridge)')
+  pass('registered 11 seats (6 chat-plus + 4 triad + 1 provider settings section + 1 ttft flat bridge)')
 }
 
 // 工具闸门卡片：挂在输入栏工具行**左端**（与记忆注入开关同一排），order 100。
@@ -1047,10 +1049,15 @@ const skillSeat = registeredSlots.find((s) => s?.slot === 'tool.call.toolview' &
 if (skillSeat === undefined) fail('missing triad seat tool.call.toolview / skill')
 else pass('seat tool.call.toolview / skill (triad)')
 
+// 2026-10-23：composer 的「记忆注入」座位（dsh-memory-inject-toggle / order 99）
+// 按用户要求整块删除（原话「算了这个对话框内的记忆开关给删掉吧」）。这里反向断言
+// 它**不再**被注册 —— 复活即意味着对话框里又长出那张重复的卡。
 const memoryToggle = registeredSlots.find((s) => s?.slot === 'conversation.input.left' && s?.id === 'dsh-memory-inject-toggle')
-if (memoryToggle === undefined) fail('missing triad seat conversation.input.left / dsh-memory-inject-toggle')
-else if (memoryToggle.order !== 99) fail(`memory toggle order = ${memoryToggle.order}, expected 99`)
-else pass('seat conversation.input.left / dsh-memory-inject-toggle @ order 99 (triad)')
+if (memoryToggle !== undefined) {
+  fail('dsh-memory-inject-toggle 座位已删除（开关迁至大盘设置抽屉），不该再注册')
+} else {
+  pass('seat conversation.input.left / dsh-memory-inject-toggle 已下线（开关迁至大盘设置抽屉）')
+}
 
 // 2026-10-15：composer 的「内置提示词通道」座位（dsh-memory-builtin-toggle / order 98）
 // 按用户要求整块删除，其 9 个开关迁到 Seeker 右栏「大盘设置」抽屉。这里反向断言

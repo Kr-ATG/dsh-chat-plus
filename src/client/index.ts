@@ -29,6 +29,7 @@ import { injectHtmlEmbedStyles } from './html-embed/styles.ts'
 import { injectIuStyles } from './iu/styles.ts'
 import { applyIuSlash } from './iu/slash.ts'
 import { applyRunningAppsSource } from './running-apps/index.tsx'
+import { applyAtGuard } from './running-apps/at-rule.ts'
 import { injectProtoStyles } from './proto/styles.ts'
 import { injectDownloadStyles } from './download/styles.ts'
 import { DownloadCard } from './download/DownloadCard.tsx'
@@ -183,6 +184,11 @@ export function apply(ctx: ClientContext): void {
   // 回车、点选、hover、高亮、滚动、无障碍——重写就是抄一份官方实现，官方改版
   // 就跟着坏。这里只注册一个 @ 源 + 一个自定义图标组件。
   guarded(ctx, 'running apps @ source', () => { applyRunningAppsSource(ctx) })
+  // 修「普通对话里的 @ 被误渲染成蓝色文件芯片」：官方 @ 文件规则的判据只要求
+  // 「@ 前是空白、后跟一串非空白字符」，中文里「@的时候」这种写法会被误认成
+  // 文件路径（文件不存在 → 蓝色虚线芯片）。这里注册一条 order 更小的规则，
+  // 把「不像路径的 @」盖回普通文字。判据与抢位原理见 running-apps/at-rule.ts。
+  guarded(ctx, 'running apps @ guard', () => { applyAtGuard(ctx) })
   guarded(ctx, 'download card styles', injectDownloadStyles)
   // 共享活动抽屉：思考与工具调用的详情面板（body 级宿主，只挂一次）。
   guarded(ctx, 'activity drawer', mountActivityDrawer)
@@ -456,6 +462,19 @@ export {
 } from './running-apps/data.ts'
 export { injectRunningAppsStyles, RUNNING_APPS_STYLE_ID } from './running-apps/styles.ts'
 export { applyRunningAppsSource } from './running-apps/index.tsx'
+/**
+ * 「@ 不是路径」的判据（纯逻辑）：供冒烟直接对拍。
+ *
+ * 判据错了不会报错，只会让普通中文变成蓝色芯片、或让真正的文件路径退化成
+ * 普通文字 —— 两种都只能靠断言钉住。
+ */
+export {
+  looksLikePath,
+  nextPathCandidate,
+  buildGuardRule,
+  applyAtGuard,
+  GUARD_RULE_ID,
+} from './running-apps/at-rule.ts'
 export { sliderFillText, checklistFillText, tabsFillText, pianoFillText } from './iu/IuCard.tsx'
 /**
  * 裸路径链接化：供 smoke 直接断言「手写反斜杠图片路径会被修正」。

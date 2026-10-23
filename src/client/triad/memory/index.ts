@@ -1,7 +1,11 @@
 /**
  * dsh-memory browser half：官方 `main` 工作台页 + 侧边栏「全局面板」菜单行
- * （`sidebar.panellist`），以及 composer 输入框左端的两枚注入开关
- * （conversation.input.left：记忆注入 / 内置提示词通道）。
+ * （`sidebar.panellist`）。
+ *
+ * composer 输入框左端的两枚注入开关（记忆注入 / 内置提示词通道）已先后删除
+ * （2026-10-15 删内置提示词、2026-10-23 删记忆注入），本文件不再向
+ * conversation.input.left 注册任何东西；开关能力保留在大盘设置抽屉里。
+ *
  * 全部数据走 host 的 /api/dsh-memory/* HTTP 路由（纯 fetch——无 typert、
  * 无 DSH 源码改动）。
  *
@@ -17,12 +21,10 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { MemoryPanel, BrainIcon } from './Panel.js'
-import { MemoryToggle } from './Toggle.js'
 import { createMemoryApi, type MemoryApi } from './api.js'
 import { en, NS, zh, type MemoryLocaleKey } from './locales.js'
 import { registerPanelSeat } from '../panel-seat.js'
 
-export type { MemoryToggleProps } from './Toggle.js'
 export type { MemoryPanelProps, MemoryTab } from './Panel.js'
 export type { MemoryLocaleKey } from './locales.js'
 export type { MemoryApi, MemoryEntryView, MemoryKind, ProjectView, ChangeView } from './api.js'
@@ -55,18 +57,13 @@ export function applyMemoryClient(ctx: ClientContext): void {
   const panelApi: MemoryApi = createMemoryApi()
 
   // 独立主页面已并入统一工作台（见 hub/seat.ts）
-  // composer 输入框工具行左端只剩**记忆注入**一枚开关（order 99）。
   //
-  // 2026-10-15 用户要求「对话框的给删了，并把设置放到 Seeker 旁边」：原先紧邻的
-  // 第二枚「内置提示词通道」按钮（order 98 / id dsh-memory-builtin-toggle）连同
-  // BuiltinToggle 组件整块删除，它的 9 个开关迁到 Seeker 右栏的「大盘设置」抽屉
-  // （kr-chat/KrPanelSettings.tsx），入口是顶栏 Seeker 标签右侧那枚齿轮。
-  // 座位号 98 从此空缺 —— 不回收给别的按钮，免得与用户既有的肌肉记忆打架。
-  ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
-    name: 'conversation.input.left',
-    id: 'dsh-memory-inject-toggle',
-    order: 99,
-    locale: NS,
-    inject: () => panelApi,
-  }, MemoryToggle))
+  // composer 输入框工具行左端的注入开关**已全部下线**：
+  //   · order 98 / dsh-memory-builtin-toggle（内置提示词通道卡）—— 2026-10-15 删，
+  //     9 个开关迁到 Seeker 右栏「大盘设置」抽屉（kr-chat/KrPanelSettings.tsx）；
+  //   · order 99 / dsh-memory-inject-toggle（记忆注入卡）—— 2026-10-23 删，
+  //     用户原话「算了这个对话框内的记忆开关给删掉吧」。
+  // 记忆注入的开关能力本身没丢：同一份 /inject-state 契约仍由大盘设置抽屉读写，
+  // 那边复用本文件的 normalizeInjectState / FALLBACK_INJECT_STATE。
+  // 座位号 98 / 99 从此空缺 —— 不回收给别的按钮，免得与用户既有的肌肉记忆打架。
 }

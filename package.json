@@ -85,7 +85,7 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "smoke": "node scripts/smoke-client.mjs && node scripts/smoke-host.mjs && node scripts/smoke-triad-client.mjs && node scripts/smoke-triad-host.mjs && node scripts/test-session-isolation.mjs && node scripts/test-browser-on-demand.mjs && node scripts/test-mail-two-phase.mjs && node scripts/test-mail-channel.mjs && node scripts/test-html-card-width.mjs && node scripts/test-mail-drawer.mjs && node scripts/test-settings-card.mjs && node scripts/test-running-apps.mjs",
+    "smoke": "node scripts/smoke-client.mjs && node scripts/smoke-host.mjs && node scripts/smoke-triad-client.mjs && node scripts/smoke-triad-host.mjs && node scripts/test-session-isolation.mjs && node scripts/test-browser-on-demand.mjs && node scripts/test-mail-two-phase.mjs && node scripts/test-mail-channel.mjs && node scripts/test-html-card-width.mjs && node scripts/test-mail-drawer.mjs && node scripts/test-settings-card.mjs && node scripts/test-running-apps.mjs && node scripts/test-at-guard.mjs",
     "smoke:client": "node scripts/smoke-client.mjs",
     "smoke:host": "node scripts/smoke-host.mjs",
     "smoke:triad-client": "node scripts/smoke-triad-client.mjs",
@@ -100,7 +100,8 @@
     "test:browser-activity": "node scripts/test-browser-activity.mjs",
     "test:browser-flag": "node scripts/test-browser-flag.mjs",
     "test:html-card-width": "node scripts/test-html-card-width.mjs",
-    "test:running-apps": "node scripts/test-running-apps.mjs"
+    "test:running-apps": "node scripts/test-running-apps.mjs",
+    "test:at-guard": "node scripts/test-at-guard.mjs"
   },
   "engines": {
     "node": ">=22"

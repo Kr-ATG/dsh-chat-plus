@@ -3,7 +3,7 @@
  *
  * 挂载五个模块，每个独立 try/catch，一个失败不拖垮其他：
  *
- *  - memory     → 官方 main 页 + sidebar.panellist 菜单行 + composer inject toggle
+ *  - memory     → 官方 main 页 + sidebar.panellist 菜单行（composer 注入开关已全部下线）
  *  - usage      → 侧边栏导航行 + 用量紧凑卡片（唯一保留的自绘浮层入口）
  *  - skills     → 官方 main 页 + sidebar.panellist 菜单行 + `/` slash source + skill tool row
  *  - mail       → 官方 main 页 + sidebar.panellist 菜单行（Agent Mail 三栏工作台）
@@ -47,8 +47,8 @@ export function applyTriadClient(ctx: ClientContext): void {
   safe('responsive styles', (c) => { c.effect(injectResponsiveStyles, 'dsh-chat-plus: triad responsive styles') }, ctx)
   // 统一工作台（记忆、能力、用量、画廊）
   safe('workbench', applyWorkbenchSeat, ctx)
-  // 输入框左侧提示词与记忆注入开关
-  safe('memory toggles', applyMemoryClient, ctx)
+  // 记忆模块：只剩 locale 字典注册（composer 注入开关已全部下线，见 memory/index.ts）
+  safe('memory locale', applyMemoryClient, ctx)
   // 斜杠命令与技能工具行源
   safe('skills source', applySkillSource, ctx)
 }

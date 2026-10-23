@@ -56,19 +56,12 @@ export const zh = {
   addPinned: '置顶',
   selectProject: '请选择项目',
   sensitiveConfirm: '内容包含疑似敏感信息（token/密钥等）。仍要保存吗？保存后注入上下文可能被模型读取，风险自担。',
-  injectOn: '记忆注入：开',
-  injectOff: '记忆注入：关',
-  // 「记忆注入」卡只管记忆：内置提示词通道（中文优先 / 对话内流程图）
-  // 已拆到 composer 工具行的另一枚按钮，归属由那张卡的标题说。
-  injectCardTitle: '记忆注入',
-  injectThisSession: '本会话注入',
+  // composer 那张「记忆注入」悬浮卡（injectOn / injectOff / injectCardTitle /
+  // injectThisSession / injectOverrideTag / injectFollowDefault / injectCardFoot /
+  // injectStateOn / injectStateOff）已于 2026-10-23 随组件删除，文案一并清掉。
+  // 下面两条仍被「大盘设置」抽屉的默认开关行使用，保留。
   injectDefaultOn: '默认开启',
   injectDefaultHint: '作用于新会话与未单独设置的会话',
-  injectOverrideTag: '已单独设置',
-  injectFollowDefault: '跟随默认',
-  injectCardFoot: '关闭后本会话不再注入记忆；记忆库本身不受影响。',
-  injectStateOn: '开',
-  injectStateOff: '关',
   zhInjectOn: '中文记忆注入：开',
   zhInjectOff: '中文记忆注入：关',
   zhInjectLabel: '中文优先',
@@ -370,17 +363,8 @@ export const en = {
   addPinned: 'Pin',
   selectProject: 'Select a project',
   sensitiveConfirm: 'This content looks like sensitive credentials (token/key). Save anyway? Injected memories may be read by the model — you take the risk.',
-  injectOn: 'Memory injection: on',
-  injectOff: 'Memory injection: off',
-  injectCardTitle: 'Memory injection',
-  injectThisSession: 'This session',
   injectDefaultOn: 'On by default',
   injectDefaultHint: 'Applies to new sessions and those without an override',
-  injectOverrideTag: 'Overridden',
-  injectFollowDefault: 'Follow default',
-  injectCardFoot: 'Off stops injecting memories into this session; the store itself is untouched.',
-  injectStateOn: 'On',
-  injectStateOff: 'Off',
   zhInjectOn: 'Chinese memory injection: on',
   zhInjectOff: 'Chinese memory injection: off',
   zhInjectLabel: 'Chinese first',

@@ -1016,6 +1016,72 @@ header:has([role='tablist']) [class*='_titleRow'] > [class*='_headerCorner'] {
   order: 4;
 }
 
+/* ── 0.2.1-rc.3 起：标签行外面又多包了一层 .tabs 容器 ─────────────────────
+   rc.2 的形状是 header > .tabs[role=tablist] > button（tablist 自己就是
+   header 的 flex item，上面那组 order 规则直接命中它）。
+
+   rc.3 改成：
+     header > .tabs                       ← 新容器，宽度 100%、flex-wrap、gap 16/20
+                ├─ .viewTabs[role=tablist]  ← tablist 降级成内层
+                └─ .viewsMoreAnchor > button ← 官方新增的「…」更多菜单
+
+   旧规则因此全部错位，实测两处塌陷：
+     1. order 打在 .viewTabs 上，而 .tabs 自己吃默认 order:0 —— 它排在
+        .titleCluster（order:1）之前，加上官方 width:100%，整条标签行抢到
+        标题左边并把标题挤到最右；
+     2. .viewTabs 继承到 order:2，官方「…」是 order:0 —— 「…」被排到
+        Seeker 左边，读起来像它才是第一个标签。
+
+   这里把「容器」和「tablist」两层分开处理：容器接管原来 tablist 的
+   order / 外边距，tablist 退回容器内的自然顺序。选择器比上面那条长一级，
+   优先级更高，rc.2 上不匹配（rc.2 没有 _tabs 这层），两版可以共存。 */
+/* 容器必须是「占满剩余空间 + 内容右对齐」而不是「宽度贴内容」。
+   原因：官方用它当量尺 ——
+     visibleViewLimit = max(1, floor((container.clientWidth - 48) / 120))
+   容器一旦收缩到内容宽（约 200px），限额就掉到 1，只剩「对话」露脸，
+   Seeker 和轨迹全被塞进「…」菜单（实测踩到）。占满剩余空间时限额够大，
+   三个标签都露脸，同时 justify-content:flex-end 让它们仍然贴住工具区，
+   不会像官方原版那样左对齐、中间留一大片空。 */
+header:has([role='tablist']) [class*='_tabs']:not([role='tablist']) {
+  order: 2;
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  justify-content: flex-end;
+  margin: 0 18px 0 0;
+  padding-left: 0;
+  gap: 0;
+  align-items: center;
+  flex-wrap: nowrap;
+  animation: dsh-header-tabs-in .3s cubic-bezier(.2, .8, .2, 1) both;
+}
+
+/* 标题区在 rc.3 下不再抢剩余空间：它按内容宽，剩余宽度全给标签容器，
+   标签右对齐贴住工具区 —— 视觉仍是「标题在左、标签在右」，但容器量尺够宽，
+   官方那个 visibleViewLimit 就不会把标签塞进「…」菜单。
+   选择器用 :not([role='tablist']) 与 rc.2 区分（rc.2 的 .tabs 本身就是 tablist）。 */
+header:has([class*='_tabs']:not([role='tablist'])) [class*='_titleCluster'] {
+  flex: 0 1 auto;
+}
+
+/* 容器内的 tablist：回到自然顺序（官方「…」排在它后面），
+   标签之间的间距仍由这里的 gap 统一给。 */
+header:has([role='tablist']) [class*='_tabs']:not([role='tablist']) > [role='tablist'] {
+  order: 0;
+  flex: none;
+  gap: 22px;
+  margin: 0;
+  padding-left: 0;
+  flex-wrap: nowrap;
+}
+
+/* 官方「…」按钮：明确排在标签之后，并补上与标签 gap 同宽的左间距
+   （容器 gap 已归零，不补的话它会贴着「轨迹」）。 */
+header:has([role='tablist']) [class*='_tabs']:not([role='tablist']) > :not([role='tablist']) {
+  order: 1;
+  margin-left: 22px;
+}
+
 @keyframes dsh-header-tabs-in {
   from { opacity: 0; transform: translateY(-3px); }
   to { opacity: 1; transform: none; }

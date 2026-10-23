@@ -207,27 +207,8 @@ export const css = {
   settingsFoot: 'dsh-memory-settings-foot',
   skeleton: 'dsh-memory-skeleton',
   skeletonRow: 'dsh-memory-skeleton-row',
-  toggle: 'dsh-memory-toggle',
-  toggleOn: 'dsh-memory-toggle-on',
-  toggleOff: 'dsh-memory-toggle-off',
-  toggleWrap: 'dsh-memory-toggle-wrap',
-  // ── 对话框注入开关的悬浮卡片 ──
-  injectCard: 'dsh-memory-inject-card',
-  injectCardOn: 'dsh-memory-inject-card-on',
-  injectHead: 'dsh-memory-inject-head',
-  injectTitle: 'dsh-memory-inject-title',
-  injectTag: 'dsh-memory-inject-tag',
-  injectTagOn: 'dsh-memory-inject-tag-on',
-  injectTagOff: 'dsh-memory-inject-tag-off',
-  injectRow: 'dsh-memory-inject-row',
-  injectRowLead: 'dsh-memory-inject-row-lead',
-  injectMain: 'dsh-memory-inject-main',
-  injectLabel: 'dsh-memory-inject-label',
-  injectHint: 'dsh-memory-inject-hint',
-  injectBadge: 'dsh-memory-inject-badge',
-  injectFollow: 'dsh-memory-inject-follow',
-  injectFoot: 'dsh-memory-inject-foot',
-  injectRowOn: 'dsh-memory-inject-row-on',
+  // 注：composer 注入开关（toggle* / inject* 共 20 个键）已随组件删除，
+  // 键与规则一并清掉。开关本身还在，它用下面的 switch。
 } as const
 
 const STYLE_ID = 'dsh-memory-styles'
@@ -896,109 +877,20 @@ const SHEET = `
 
 /* ── 徽标（禁用 / 废弃 / 作用域） ─────────────────────────────────── */
 
-/* ── 注入开关（composer 工具行）：iconButton 规格 ─────────────────── */
-/* wrap 包住按钮与卡片：卡片是其 DOM 后代，按钮↔卡片间移动不丢 hover。 */
-/* composer 上的两枚注入按钮：中性黑白，与它们各自的卡片同一套色阶。
-   开 = 主文字色（主题深浅自动反色），关 = 三级字色。 */
-.dsh-memory-toggle-wrap{position:relative;display:inline-flex}
-.dsh-memory-toggle{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;border-radius:var(--m-r-chip);padding:0;background:transparent;cursor:pointer;color:var(--dsw-alias-label-tertiary,#9ca3af);box-sizing:border-box;transition:background .15s ease,color .15s ease}
-.dsh-memory-toggle:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(65,118,230,.07))}
-.dsh-memory-toggle-on{color:var(--dsw-alias-label-primary,#1f2329)}
-.dsh-memory-toggle-off{color:var(--dsw-alias-label-tertiary,#9ca3af);opacity:.55}
-
 /* ── focus 规范 ───────────────────────────────────────────────────── */
+/* 注：composer 注入开关（.dsh-memory-toggle*）与它的悬浮卡片（.dsh-memory-inject-*）
+   已于 2026-10-23 按用户要求整块删除，样式一并清掉。开关能力仍在——它住在大盘
+   设置抽屉里（kr-chat/KrPanelSettings.tsx），用的是本文件保留的 .dsh-memory-switch。 */
 .dsh-memory-tool-btn:focus-visible,.dsh-memory-icon-action:focus-visible,
 .dsh-memory-entry-card:focus-visible,.dsh-memory-entry-row:focus-visible,.dsh-memory-chip:focus-visible,
 .dsh-memory-related-card:focus-visible,.dsh-memory-history-link:focus-visible,.dsh-memory-change-more:focus-visible,
-/* ── 对话框大脑按钮的悬浮卡片：本会话开关 + 默认开关 ─────────────────
-   卡片挂在按钮 wrap 内（同 AI 浏览器 gate），落在 .dsh-memory-panel
-   作用域之外，故自带一份 --m-* 变量（开关等子元素复用面板样式，否则会
-   拿到未定义的 var）。常驻 DOM + visibility 过渡：hidden 时不参与命中，
-   鼠标划过其区域无误触；显隐走 160ms 位移+淡入。 */
-.dsh-memory-inject-card{
-  --m-primary:var(--dsw-alias-state-business-primary,#4176e6);
-  --m-text:var(--dsw-alias-label-primary,#1f2329);
-  --m-text-2:var(--dsw-alias-label-secondary,#5b6068);
-  --m-text-3:var(--dsw-alias-label-tertiary,#81858c);
-  --m-border:var(--dsw-alias-border-l1,rgba(0,0,0,.08));
-  /* 卡片自身的底色：开关打开时圆点要用它，才能在深色主题下是"黑点白轨"而不是
-     一枚永远的白点（白点在深色轨道上会糊掉）。 */
-  --m-card-bg:var(--dsw-static-neutral-bluish-00,#fff);
-  position:absolute;left:-4px;bottom:calc(100% + 10px);z-index:1150;width:272px;box-sizing:border-box;padding:10px 12px 9px;
-  border:1px solid var(--m-border);border-radius:var(--m-r-card);
-  background:var(--dsw-static-neutral-bluish-00,#fff);
-  box-shadow:var(--dsw-shadow-lv3,0 10px 34px rgba(15,23,42,.18));
-  font-family:inherit;color:var(--m-text);text-align:left;
-  opacity:0;visibility:hidden;transform:translateY(6px) scale(.985);pointer-events:none;
-  transition:opacity .16s ease,transform .16s cubic-bezier(.2,.8,.2,1),visibility 0s linear .16s}
-.dsh-memory-inject-card-on{
-  opacity:1;visibility:visible;transform:none;pointer-events:auto;
-  transition:opacity .16s ease,transform .16s cubic-bezier(.2,.8,.2,1),visibility 0s}
-html[data-dsh-glass] .dsh-memory-inject-card{background:var(--dsw-static-neutral-bluish-00,#fff);backdrop-filter:none;-webkit-backdrop-filter:none}
-body[data-ds-dark-theme] .dsh-memory-inject-card{background:var(--dsw-static-neutral-bluish-1000,#16181d);--m-card-bg:var(--dsw-static-neutral-bluish-1000,#16181d)}
-.dsh-memory-inject-head{display:flex;align-items:center;gap:var(--m-sp-2);padding-bottom:7px;border-bottom:1px solid var(--m-border)}
-.dsh-memory-inject-title{display:inline-flex;align-items:center;gap:var(--m-sp-2);font-size:var(--m-fs-body);font-weight:600;color:var(--m-text-2)}
-/* 记忆注入的状态标签：中性灰阶。开=二级字色 + 淡底，关=三级字色 + 更淡的底。
-   （原先用主题蓝，整张卡被染成蓝色调，已按要求去掉。） */
-.dsh-memory-inject-tag{margin-left:auto;padding:1px 7px;border-radius:var(--m-r-pill);font-size:var(--m-fs-caption);font-weight:600;line-height:16px}
-.dsh-memory-inject-tag-on{background:color-mix(in srgb,var(--m-text) 9%,transparent);color:var(--m-text-2)}
-.dsh-memory-inject-tag-off{background:color-mix(in srgb,var(--m-text-3) 14%,transparent);color:var(--m-text-3)}
-/* 内置提示词通道卡：五条通道，其中「团队协作」带一段较长的副说明。
-   原先 238px 时那段说明被压成 5 行、其余四行光秃，卡片高度与节奏都被单行撑歪；
-   拉宽到 336px 后说明稳定落在 2 行内，与记忆卡（272px）仍差一档，两张卡挨在
-   一起时宽度差本身就是一条无声的分组线。max-width 兜住窄屏，避免浮层顶出视口。 */
-/* 行内顶对齐：无副说明的行看不出差别（main 高度就是标签高度），带副说明的行则
-   让开关停在标签那一行，一列开关扫过去在同一条水平线上——居中会让长说明把那枚
-   开关单独顶到行中央，破坏整列的对齐。 */
-.dsh-memory-inject-row{display:flex;align-items:flex-start;gap:var(--m-sp-3);padding:9px 0;transition:background .15s ease,opacity .2s ease,transform .22s cubic-bezier(.2,.8,.2,1)}
-/* 悬停：极淡的底，让"这一行能点"被看见，又不与开态的底色混淆（开态更深一档）。 */
-.dsh-memory-inject-row:hover{background:color-mix(in srgb,var(--m-text-3) 7%,transparent);border-radius:var(--m-r-ctrl)}
-.dsh-memory-inject-row+.dsh-memory-inject-row{border-top:1px dashed var(--m-border)}
-/* 每组第一行：上方已经有组标题，不再叠一条虚线，否则组标题与首行之间多一道割裂。 */
-.dsh-memory-inject-row.dsh-memory-inject-row-lead{border-top:none}
-.dsh-memory-inject-main{display:flex;flex-direction:column;gap:var(--m-sp-1);min-width:0;flex:1;padding-right:2px}
-/* 标签行高与开关高度对齐：19px 的标签 + 22px 的开关，靠 1.5px 负外边距把开关
-   中线压回标签中线，顶对齐后仍然"看着是同一行"。 */
-.dsh-memory-inject-label{display:inline-flex;align-items:center;gap:var(--m-sp-2);font-size:var(--m-fs-body);font-weight:500;line-height:19px;color:var(--m-text)}
-.dsh-memory-inject-hint{font-size:var(--m-fs-caption);line-height:15px;color:var(--m-text-3)}
-.dsh-memory-inject-row>.dsh-memory-switch{margin-top:1.5px}
-.dsh-memory-inject-badge{padding:0 5px;border-radius:var(--m-r-chip);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#e8a33d) 20%,transparent);color:var(--dsw-alias-state-warn-primary,#e8a33d);font-size:var(--m-fs-caption);font-weight:600;line-height:15px}
-.dsh-memory-inject-follow{display:block;width:100%;margin:2px 0 4px;padding:5px 8px;box-sizing:border-box;border:1px dashed var(--m-border);border-radius:var(--m-r-ctrl);background:transparent;color:var(--m-text-2);font-family:inherit;font-size:var(--m-fs-meta);line-height:16px;cursor:pointer;transition:border-color .15s ease,color .15s ease,background .15s ease}
-.dsh-memory-inject-follow:hover{border-color:var(--m-text-3);color:var(--m-text);background:color-mix(in srgb,var(--m-text-3) 9%,transparent)}
-.dsh-memory-inject-foot{margin:2px 0 0;font-size:var(--m-fs-caption);line-height:15px;color:var(--m-text-3)}
-
-/* ── 行与分组（内置通道 / 记忆注入 统一一套行） ───────────────────────
-   以前三条内置通道是「每行一只圆角盒子 + 描边 + 外发光」，下面两行记忆开关却是
-   裸行 + 虚线分隔——同一张卡里两种排版，盒子之间还夹着渐变分隔线，272px 的宽度
-   被切成一摞小卡片，视觉碎、行高对不齐。现在两组共用同一套行：裸行 + 虚线
-   分隔 + 右侧开关，组与组之间由一枚极轻的小标题分开。
-
-   选中态改由「极淡主色底」承担：描边、外发光、左侧竖条都撤了（竖条此前已按
-   要求删过一次），开关本身的蓝/灰已经足够说清开合，底色只补一层几乎察觉不到的
-   暖意，让一列开关扫过去时开的那几枚不显得孤立。 */
-/* 开态不再铺任何底色（原先是一层淡蓝，会把整列开关染成蓝色调）。
-   状态由开关本身承担：开 = 主文字色实心轨道 + 反色圆点，关 = 淡灰轨道。 */
-.dsh-memory-inject-row-on{background:transparent}
-
-/* ── 展开动效：卡片先到位，内容慢一拍浮现 ─────────────────────────────
-   卡片本体只有 160ms 的位移+淡入（上面），五条通道的行若跟它同时出现，整块
-   像是"啪"地贴上来的。这里给行加一段错开的浮现，延迟由行自己带的 --row-i
-   决定（SwitchRow 内联写入，不数 nth-child——卡片里插一行就会错位）；收起时
-   不设延迟、立即淡出，否则会看到内容赖着不走。记忆卡同样吃这套（共用 inject-row）。 */
-.dsh-memory-inject-card .dsh-memory-inject-row,
-.dsh-memory-inject-card .dsh-memory-inject-foot{
-  opacity:0;transform:translateY(4px);
-  transition:opacity .18s ease,transform .22s cubic-bezier(.2,.8,.2,1),background .15s ease}
-.dsh-memory-inject-card-on .dsh-memory-inject-row,
-.dsh-memory-inject-card-on .dsh-memory-inject-foot{opacity:1;transform:none}
-.dsh-memory-inject-card-on .dsh-memory-inject-row{transition-delay:calc(var(--row-i,0) * 18ms)}
-/* 组标题比它下面那一行早一拍（80ms vs 行自己的 --row-i 档位），先见标题再见内容，
-   与卡片里其余各组的阅读顺序一致。 */
-.dsh-memory-inject-card-on .dsh-memory-inject-foot{transition-delay:110ms}
-@media (prefers-reduced-motion:reduce){.dsh-memory-inject-card,.dsh-memory-inject-card-on{transition:none}
-  .dsh-memory-inject-card .dsh-memory-inject-row,.dsh-memory-inject-card .dsh-memory-inject-foot{opacity:1;transform:none;transition:none}
-  .dsh-memory-inject-card-on .dsh-memory-inject-row,.dsh-memory-inject-card-on .dsh-memory-inject-foot{transition-delay:0ms}}
-.dsh-memory-switch:focus-visible,.dsh-memory-toggle:focus-visible{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 35%,transparent)}
+.dsh-memory-switch:focus-visible{
+  /* 2026-10-23 顺带修掉一处历史破损：这条选择器列表原先以逗号结尾、后面直接接
+     .dsh-memory-inject-card{，于是卡片样式成了这些 focus 选择器的规则体 —— 列出的
+     九类元素从来没拿到过 focus 样式。卡片删掉后把规则体补成本来想要的焦点环。 */
+  outline:none;
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 35%,transparent)
+}
 
 /* ── 窄屏适配 ─────────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
