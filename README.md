@@ -42,6 +42,7 @@ bundles 层，不用手改配置文件。
 | 让 AI 直接给个能点的小工具 / 可视化 / 演示页 | 正文里写 ` ```html ` 围栏 → [HTML 卡片](#html-沙箱卡片能跑真-htmljs) |
 | 让 AI 画流程图 / 架构图 / 时序图 | 正文里写 ` ```html ` 围栏，手写内联 SVG → [HTML 卡片](#html-沙箱卡片能跑真-htmljs) |
 | 快速取值换算 / 对比 / 清单，不要长篇大论 | 输入框发 `/iu 开头` → [iu 原生卡片](#iu-原生交互卡片) |
+| 让 AI 知道「我现在开着什么」 | 输入框打 `@` → [运行中的程序](#运行中的程序-打--直接挑窗口) |
 | 给不会编程的人看「这轮做了什么」 | 右栏**操作面板**卡，中文人话时间线 |
 | 让 AI 记住我的偏好和身份 | 工作台**记忆** |
 | 管 API Key / 代理 / 生图模型 | 官方设置弹窗 → [供应商](#供应商中心设置--供应商) |
@@ -205,6 +206,33 @@ document.getElementById('b').onclick = () => { document.getElementById('v').text
 ### 可交互卡片（proto-tabs）
 
 ` ```tabs ` 围栏 → 可点的页签卡片，适合并列展示几套方案。
+
+### 运行中的程序：打 @ 直接挑窗口
+
+输入框打 `@`，候选里除了官方的文件 / 会话，最上面多一组 **「运行中的程序」** —— 你此刻
+真的开着的窗口，每条带**真实进程图标** + 窗口标题，右侧一行灰字是程序名（浏览器窗口写
+`Chrome` / `Edge`）。前台窗口排第一，最小化的排最后。
+
+选中后草稿里落一枚 `@ 窗口标题` 的芯片，**模型收到的是结构化上下文**：
+
+```text
+[运行中的程序] 程序：chrome；窗口标题：Example Domain - Google Chrome；
+路径：C:\Program Files (x86)\Google\Chrome\Application\chrome.exe；状态：当前前台窗口
+```
+
+于是「帮我把这个页面整理成笔记」「这个报错窗口是什么问题」这类话不用再说程序名 —— 指一下就够。
+
+**怎么采集的**：host 半身用一个**常驻 PowerShell 子进程**枚举可见顶层窗口（标题 / 进程 /
+图标 / 前台 / 最小化），暴露只读路由 `GET /api/chat-flow/running-apps`。首次冷启动约
+600~700ms，之后每次往返 **2~4ms**（客户端还有 30s 缓存 + 后台刷新）。
+
+**过滤掉什么**：托盘浮层、输入法候选窗、`Progman` / `Shell_TrayWnd` 这类桌面外壳、
+Chrome 的「翻译此页？」气泡、`TextInputHost` 等系统提示宿主 —— 都有实测依据，见
+`src/running-apps/collect.ts` 的注释。
+
+**失败面**：采集器不可用时整组静默消失，官方的文件 / 会话候选照常工作，界面上不报错。
+宿主被强杀（任务管理器结束进程 / 崩溃）时，采集器由 C# 看门狗线程 `TerminateProcess`
+自我终止，不会在机器上留下孤儿 `pwsh`。
 
 ---
 
@@ -766,6 +794,7 @@ src/
 │   ├── triad/                  工作台（记忆 / 用量 / SKILL / 画廊）与邮箱面板
 │   ├── tools-gate/             工具闸门
 │   ├── browser-flag/           浏览器操作标志（会话行右端的呼吸图标）
+│   ├── running-apps/           「@ 运行中的程序」@ 源 + 图标组件 + 样式（数据层纯判据可测）
 │   ├── sidebar-doc/            侧边栏文档预览（pdf / Office 接管）
 │   ├── sidebar-media/          侧边栏音视频预览（原生 video / audio）
 │   └── sidebar/                documentPreviews 就绪等待（官方服务晚于插件 apply）
@@ -775,6 +804,7 @@ src/
 ├── browser/                    Chrome 进程管理（启动 / CDP）
 ├── browser-on-demand/          浏览器按需拉起（调用时启动 + 空闲关停）
 ├── browser-activity/           浏览器活动观测（会话级活动表 + 只读路由）
+├── running-apps/               「运行中的程序」采集（常驻 PowerShell 子进程 + 只读路由）
 ├── spill/                      spill 准入 + 生图落盘（materialize 路由）
 ├── office/                     Office / PDF 页图与 PDF 渲染
 └── shot/                       截图引擎（无头浏览器）

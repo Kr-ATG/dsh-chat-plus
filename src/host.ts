@@ -53,6 +53,7 @@ import { applyMailHost } from './mail/index.ts'
 import { applyToolsGate } from './tools-gate/index.ts'
 import { applyBrowserOnDemand } from './browser-on-demand/index.ts'
 import { applyBrowserActivity } from './browser-activity/index.ts'
+import { applyRunningApps } from './running-apps/index.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
 // 「用默认浏览器 / 默认应用打开文件」（2026-10-21）：纯判定面导出给冒烟。
 // 这三条（路径绝对化基准 / 可执行类型拒绝 / 浏览器命令解析）判错了都不会抛错，
@@ -84,6 +85,15 @@ export type { BrowserOnDemandConfig, OwnershipMarker } from './browser-on-demand
 // 接缝诊断（SESSION_SOURCES / sessionSourceOfExecution / DebugBuffer）也一并导出：
 // 真实运行时若取不到 sessionId，症状是「图标永远不亮且毫无报错」，这几项是唯一
 // 能直接指认接缝断在哪条路径上的手段。
+export {
+  applyRunningApps,
+  collectRunningApps,
+  disposeRunningApps,
+  handleRunningAppsRoute,
+  RUNNING_APPS_ROUTE,
+  __test as runningAppsTest,
+} from './running-apps/index.ts'
+export type { RunningAppsSnapshot, RunningAppWindow } from './running-apps/types.ts'
 export {
   applyBrowserActivity,
   BrowserActivityTracker,
@@ -394,6 +404,24 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
   } catch (error) {
     ctx.logger?.warn?.(
       `[dsh-chat-plus] browser-activity failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+    )
+  }
+
+
+  // ── 「@ 运行中的程序」采集（2026-10-23）─────────────────────────────────
+  // 枚举可见顶层窗口（标题 / 进程 / 图标），暴露只读路由
+  // GET /api/chat-flow/running-apps 给客户端 @ 菜单用。
+  //
+  // 采集走一个**常驻 PowerShell 子进程**：每次新 spawn 要 ~1000ms（其中
+  // 600~700ms 是 PowerShell 冷启动），常驻后一次往返只要 2~4ms。用户打 @
+  // 时菜单必须立刻有东西。卸载时由模块内部 effect 把子进程 kill 掉。
+  //
+  // 同样单独兜底：延迟注入回调里抛错会从 apply 冒出去、中断后面所有 inject。
+  try {
+    applyRunningApps(ctx as never)
+  } catch (error) {
+    ctx.logger?.warn?.(
+      `[dsh-chat-plus] running-apps failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
     )
   }
 }

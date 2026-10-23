@@ -28,6 +28,7 @@ import { injectDiagramStyles } from './diagram/styles.ts'
 import { injectHtmlEmbedStyles } from './html-embed/styles.ts'
 import { injectIuStyles } from './iu/styles.ts'
 import { applyIuSlash } from './iu/slash.ts'
+import { applyRunningAppsSource } from './running-apps/index.tsx'
 import { injectProtoStyles } from './proto/styles.ts'
 import { injectDownloadStyles } from './download/styles.ts'
 import { DownloadCard } from './download/DownloadCard.tsx'
@@ -174,6 +175,14 @@ export function apply(ctx: ClientContext): void {
   // `/iu` 斜杠指令：把「出卡片」从模型的判断变成用户的显式命令。
   // 与内置提示词通道互补——那条只让模型「知道能力存在」，这条是硬要求。
   guarded(ctx, 'iu slash source', () => { applyIuSlash(ctx) })
+  // 「@ 运行中的程序」：打 @ 时除了官方文件/会话候选，再列出此刻真的开着的
+  // 窗口（带进程图标 + 窗口标题）。数据来自 host 半身常驻 PowerShell 采集器
+  // （/api/chat-flow/running-apps，2~4ms 一次），客户端 2s 缓存。
+  //
+  // 为什么不自己重写菜单：官方 ui-input-trigger 的候选管线已经处理了键盘上下、
+  // 回车、点选、hover、高亮、滚动、无障碍——重写就是抄一份官方实现，官方改版
+  // 就跟着坏。这里只注册一个 @ 源 + 一个自定义图标组件。
+  guarded(ctx, 'running apps @ source', () => { applyRunningAppsSource(ctx) })
   guarded(ctx, 'download card styles', injectDownloadStyles)
   // 共享活动抽屉：思考与工具调用的详情面板（body 级宿主，只挂一次）。
   guarded(ctx, 'activity drawer', mountActivityDrawer)
@@ -425,6 +434,28 @@ export { findOpenFence, openFenceTail } from '../shared/fence-scan.ts'
  */
 export { IU_KIND_MAP, IU_KIND_NAMES, IU_KINDS } from './iu/kinds/registry.ts'
 export { iuSlashTest } from './iu/slash.ts'
+/**
+ * 「@ 运行中的程序」的纯判据（匹配打分 / 排序 / 副标题 / 引用编解码 / 序列化）。
+ *
+ * 这几条判错了都不会报错：排序歪了用户只是找不到东西，序列化歪了模型拿到
+ * 一堆看不懂的 id——只能靠断言钉住。
+ */
+export {
+  RUNNING_APPS_SOURCE,
+  RUNNING_APPS_MENTION_PREFIX,
+  RUNNING_APPS_ROUTE,
+  parseRunningApps,
+  scoreApp,
+  rankApps,
+  appSubtitle,
+  appLabel,
+  appRef,
+  parseAppRef,
+  serializeAppRef,
+  fetchRunningApps,
+} from './running-apps/data.ts'
+export { injectRunningAppsStyles, RUNNING_APPS_STYLE_ID } from './running-apps/styles.ts'
+export { applyRunningAppsSource } from './running-apps/index.tsx'
 export { sliderFillText, checklistFillText, tabsFillText, pianoFillText } from './iu/IuCard.tsx'
 /**
  * 裸路径链接化：供 smoke 直接断言「手写反斜杠图片路径会被修正」。

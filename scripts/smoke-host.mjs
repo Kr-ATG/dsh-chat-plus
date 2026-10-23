@@ -275,8 +275,11 @@ else pass('deferred webServer callback executed')
 // browser-activity 是 2026-10-20 新增：会话行 / 标题栏「浏览器操作中」标志的
 // 数据源（只读轮询）。它注册在插件自己的延迟注入里，与其它路由同生共死，
 // 所以计数一并 +1 —— 漏注册的表现是「图标永远不亮」，只能靠计数断言钉住。
-if (registered.length !== 9) {
-  fail(`expected exactly 9 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
+// running-apps 是 2026-10-23 新增：「@ 运行中的程序」候选的数据源（只读）。
+// 它同样注册在自己的延迟注入里，漏注册的表现是「@ 里看不到任何窗口」，
+// 而界面上不会有任何报错 —— 计数断言是唯一能钉住它的地方。
+if (registered.length !== 10) {
+  fail(`expected exactly 10 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
 } else {
   const exacts = registered.filter(spec => spec?.kind === 'exact')
   const prefix = registered.filter(spec => spec?.kind === 'prefix')
@@ -290,6 +293,8 @@ if (registered.length !== 9) {
     fail('missing open-file route (exact /api/chat-flow/open-file)')
   } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/tools-gate')) {
     fail('missing tools-gate route (exact /api/chat-flow/tools-gate)')
+  } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/running-apps')) {
+    fail('missing running-apps route (exact /api/chat-flow/running-apps)')
   } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/browser-activity')) {
     fail('missing browser-activity route (exact /api/chat-flow/browser-activity)')
   } else {

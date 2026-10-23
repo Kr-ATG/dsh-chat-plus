@@ -418,6 +418,9 @@ const expectedStyles = [
   // 首 token 平均平铺读数（src/client/stats-ttft/styles.ts）：只定分隔与入场，
   // 字号颜色全部继承官方 pill。apply 阶段随桥一起注入。
   'dsh-stats-ttft-styles',
+  // 「@ 运行中的程序」（src/client/running-apps/styles.ts）：候选行里真实进程
+  // 图标的尺寸/圆角/入场，以及前台窗口那枚小圆点。apply 阶段随 @ 源一起注入。
+  'dsh-running-apps-styles',
   // 浏览器标志（src/client/browser-flag/styles.ts）：会话行右端的浏览器图标
   // （::before + mask 呼吸）。2026-10-20 新增、2026-10-22 从行首挪到行右端，
   // 与 host 半身的 /api/chat-flow/browser-activity 配对。
