@@ -2843,7 +2843,6 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 @keyframes kr-subs-spin {
   to { transform: rotate(360deg); }
 }
-}
 
 /* 名字是这一行的主体：主文字色 + 500 字重，长了省略（完整名字在 title 里）。 */
 .kr-subs-row__label {
@@ -2943,7 +2942,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   font-size: var(--kr-fs-11-5, 11.5px);
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
-  transition: background-color .12s ease, color .12s ease;
+  transition: background-color var(--kr-dur-tap) linear, color var(--kr-dur-fade) linear;
 }
 
 .kr-subs-more:hover {
@@ -2969,7 +2968,8 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
     · 「已完成」是**一个可折叠的分区入口** —— 有底色、整条可点、带 chevron，
       读起来是"这下面还收着一摞"，而不是列表结尾的省略号。
 
-   两个标题都用同一套字号轴（11px 档），否则放大档里它们会比行文字还小。 */
+   两个标题都用同一套字号轴，且与同卡的「展开其余 N 个」「空态说明」同档（11.5px）：
+   分区标题要是比它下面那个展开按钮还小，读起来就成了按钮的注脚。 */
 
 .kr-subs-group {
   display: flex;
@@ -2978,7 +2978,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   min-width: 0;
   padding: 2px 8px 3px;
   /* 段标题：跟随字号轴（见「字号轴」段）。 */
-  font-size: var(--kr-fs-11, 11px);
+  font-size: var(--kr-fs-11-5, 11.5px);
   line-height: calc(15px + var(--dsh-content-font-delta, 0px) * 1.4);
   font-variant-numeric: tabular-nums;
 }
@@ -2990,11 +2990,17 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   letter-spacing: .2px;
 }
 
-/* 呼吸点：与行内转圈的节奏同源（1.4s），读作"这两处说的是同一件事"。 */
+/*
+ * 呼吸点：**故意跟行内转圈不是同一个节奏**。
+ *
+ * 转圈（1s linear）说的是"这一行在动"，它要跟秒表一起走，快而匀；呼吸点（1.4s
+ * 缓入缓出）说的是"这一整段在跑"，慢半拍才不跟行内那颗打架 —— 两处同频会读成
+ * 一个发抖的界面。宽高同样挂字号轴：放大字号时它还钉 5px，就成了一条细缝。
+ */
 .kr-subs-group__dot {
   flex: none;
-  width: 5px;
-  height: 5px;
+  width: calc(5px + var(--dsh-content-font-delta, 0px) * 0.35);
+  height: calc(5px + var(--dsh-content-font-delta, 0px) * 0.35);
   border-radius: 50%;
   background: currentColor;
   animation: kr-pulse 1.4s var(--kr-ease-loop) infinite;

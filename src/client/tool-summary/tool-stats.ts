@@ -155,9 +155,17 @@ export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '--'
   const seconds = ms / 1000
   if (seconds < 1) return `${Math.round(ms)}ms`
-  if (seconds < 60) return `${seconds.toFixed(1)}s`
-  const minutes = Math.floor(seconds / 60)
-  const rest = Math.round(seconds - minutes * 60)
+  /*
+   * 先整体四舍五入到整秒，再拆分钟。
+   *
+   * 旧写法是分钟取 floor、余下秒数各自 round —— 119.6s 于是拆成 1m 60s
+   * （截图上真的出现过「1m 60s」），59.96s 也会显示成 60.0s。
+   * 两种都是同一类进位错误：分与秒必须从同一个已取整的总量里拆。
+   */
+  const total = Math.round(seconds)
+  if (total < 60) return `${seconds.toFixed(1)}s`
+  const minutes = Math.floor(total / 60)
+  const rest = total % 60
   return `${minutes}m ${rest.toString().padStart(2, '0')}s`
 }
 

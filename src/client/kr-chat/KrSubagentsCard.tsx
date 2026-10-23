@@ -53,11 +53,14 @@
  *    色弱视角下都成立。行内那枚「进行中 / 已结束」文字随之撤掉：分区已经说了
  *    一遍，每行再说一遍只是噪声（用户 2026-10-23 同意）。
  *
- * 没有进行中的行时**不折叠**（那时折叠带只会把卡掏空），直接平铺；但「已完成 N」
- * 这条段标题仍然在 —— 它是分区标签，不是折叠开关。判据见 `doneFoldable`。
+ * 没有进行中的行时**不折叠**（那时折叠带只会把卡掏空），直接平铺，并且
+ * **「已完成 N」这条标题整条不出现**：全部已结束的卡里，卡头读数已经写明
+ * 「全部结束」，再挂一条对勾 + 淡字的标题只会被读成第 N+1 行 —— 它形状和下面
+ * 每一行一样，而分区标题的意义是把两段分开，只剩一段就没得可分。判据见
+ * `doneFoldable`。
  */
 
-import { memo, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { useHeightAnimation, useMotionAllowed } from '../motion-utils.ts'
 import { formatDuration } from '../tool-summary/tool-stats.ts'
@@ -69,6 +72,12 @@ import { openSubagentSession, type SubagentCatalogView, type SubagentRow } from 
  * 6 行 ≈ 6 × 26px = 156px，与「产出物」卡同一档：两张卡都可能一屏十几条，
  * 露太多就把上面的任务卡挤出视口。超出部分由底部「展开其余 N 个」承接。
  */
+/**
+ * 已结束分区展开体的 id：折叠带按钮用它做 aria-controls。
+ * 固定值即可 —— 右栏同一时刻只挂一张子智能体卡（见 KrAgentPanel 的卡片座位）。
+ */
+const DONE_BODY_ID = 'kr-subs-done-body'
+
 const MAX_VISIBLE = 6
 /** 被右栏挤压时（记忆卡常驻底部触发自适应降档）收一档。 */
 const MAX_VISIBLE_SQUEEZED = 4
@@ -145,7 +154,8 @@ function SubagentLine({ row, index, onOpen, failed }: {
         {/* 状态图标：**形状即状态**（2026-10-23 第二轮）。
             跑着的是主色转圈，结束的是灰对勾 —— 只靠颜色与深浅在右栏里读不出来
             （用户点名「看不出来，不明显」），形状差在 10px、灰度截图、色弱视角下
-            都成立。三种形态共用同一格，避免行内布局跳动。 */}
+            都成立。两态共用同一格（12px 的方块槽，跟着字号轴缩放），切状态时
+            行内布局不跳动。 */}
         <span className="kr-subs-row__icon" aria-hidden>
           {row.running ? (
             <svg className="kr-subs-row__spin" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -265,6 +275,24 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
   // 放在 doneOpen 之后：hook 顺序必须稳定，而它的入参由上面那一行决定。
   const { ref: doneRef, present: donePresent } = useHeightAnimation(doneRows.length > 0 && doneOpen, motion)
 
+  /*
+   * 从「全部结束」切回「又有人开跑」时，把展开态**固化**下来。
+   *
+   * 全部已结束时 doneFoldable 为 false，doneOpen 恒为 true（平铺，整卡都是已结束的行）。
+   * 那一刻 doneOverride 还是 undefined；等新派出的子智能体出现，doneFoldable 变回 true，
+   * doneOpen 就回落成默认的 false —— 用户眼前那一摞已完成行**无声消失**，而他什么都没点。
+   * 所以在这个边沿把 doneOverride 落成 true：用户看到的是「已结束的那摞留在原地，
+   * 上面多了一行正在跑的」，而不是列表突然被抽走半截。
+   */
+  const prevRunningRef = useRef(runningRows.length)
+  useEffect(() => {
+    const prev = prevRunningRef.current
+    prevRunningRef.current = runningRows.length
+    if (prev === 0 && runningRows.length > 0 && doneRows.length > 0 && doneOverride === undefined) {
+      setDoneOverride(true)
+    }
+  }, [runningRows.length, doneRows.length, doneOverride])
+
   const onOpen = (row: SubagentRow): void => {
     if (openSubagentSession(row)) return
     setBlocked(true)
@@ -362,7 +390,7 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
                 <>
                   <div className="kr-subs-group kr-subs-group--run">
                     <span className="kr-subs-group__dot" aria-hidden />
-                    <span className="kr-subs-group__label">正在执行</span>
+                    <span className="kr-subs-group__label">正在执行</span>{' '}
                     <span className="kr-subs-group__count">{runningRows.length}</span>
                   </div>
                   <div className="kr-subs-list">
@@ -370,19 +398,25 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
                       <SubagentLine key={row.id} row={row} index={index} onOpen={onOpen} failed={blocked} />
                     ))}
                   </div>
+                  {/*
+                   * 「展开其余 N 个」**留在进行中分区里面**（2026-10-23 收尾）。
+                   * 它原先渲染在两个分区之外、紧贴着下面那条有底色的「已完成」折叠带，
+                   * 读起来像"展开已完成那摞"的按钮 —— 而它展开的是还卡在上限之外的
+                   * 进行中行。归属写进结构里，就不用再靠文案解释。
+                   */}
+                  {hiddenCount > 0 && (
+                    <button
+                      type="button"
+                      className="kr-subs-more"
+                      onClick={() => { setShowAll(true) }}
+                    >
+                      <span>展开其余 {hiddenCount} 个</span>
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="m4.4 6.2 3.6 3.6 3.6-3.6" />
+                      </svg>
+                    </button>
+                  )}
                 </>
-              )}
-              {hiddenCount > 0 && (
-                <button
-                  type="button"
-                  className="kr-subs-more"
-                  onClick={() => { setShowAll(true) }}
-                >
-                  <span>展开其余 {hiddenCount} 个</span>
-                  <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="m4.4 6.2 3.6 3.6 3.6-3.6" />
-                  </svg>
-                </button>
               )}
 
               {/*
@@ -405,18 +439,28 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
                * 意义是「把两段分开」，只剩一段时它没有可分的东西。
                */}
               {doneRows.length > 0 && (
-                <div className="kr-subs-done" data-foldable={doneFoldable || undefined}>
+                <div className="kr-subs-done">
                   {doneFoldable ? (
                     <button
                       type="button"
                       className="kr-subs-group kr-subs-group--done kr-subs-group--toggle"
                       aria-expanded={doneOpen}
+                      /*
+                       * 展开体带 inert/aria-hidden 收起，所以必须给按钮一个程序化的
+                       * 指向：读屏用户按下它之后要知道自己展开了哪一块。
+                       * id 用固定值 —— 右栏同一时刻只有这一张子智能体卡。
+                       *
+                       * 只在展开体真的在 DOM 里时才挂：收起动画结束后展开体整块卸载
+                       * （useHeightAnimation 的 present），此时若仍留着 aria-controls，
+                       * 就是一个指向不存在元素的悬空 IDREF。
+                       */
+                      aria-controls={donePresent ? DONE_BODY_ID : undefined}
                       onClick={() => { setDoneOverride(!doneOpen) }}
                     >
                       <svg className="kr-subs-group__tick" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                         <path d="m3.4 8.5 3.1 3.1 6-6.6" />
                       </svg>
-                      <span className="kr-subs-group__label">已完成</span>
+                      <span className="kr-subs-group__label">已完成</span>{' '}
                       <span className="kr-subs-group__count">{doneRows.length}</span>
                       <svg
                         width="11"
@@ -437,6 +481,7 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
                   {donePresent && (
                     <div
                       ref={doneRef}
+                      id={DONE_BODY_ID}
                       className="kr-subs-done__body"
                       data-open={doneOpen || undefined}
                       aria-hidden={!doneOpen}

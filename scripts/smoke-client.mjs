@@ -1439,6 +1439,29 @@ if (krEnabled) {
   //      + byId）—— 上一版读 items / subagentsByParent 这两个不存在的键，
   //      目录永远停在「未加载」，用户截图里那句自相矛盾的话就是这么来的。
   if (krEnabled) {
+    /**
+     * 样式表花括号平衡（2026-10-23 收尾加）。
+     *
+     * 这一轮真的在 @keyframes 后面多出过一个孤立 `}`：styles.ts 从那一行开始深度变
+     * -1，紧随其后的 .kr-subs-row__label 会带着非法前导选择器解析、在 Chrome 里整条
+     * 被丢弃（省略号 / 字重一起失效）—— 而整份冒烟全绿，因为没有任何一条在验语法。
+     * 剥离注释与字符串后逐字符计数，堵住这一类静默错误。
+     */
+    const bracesBalanced = (src) => {
+      const bare = src
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/'(?:[^'\\]|\\.)*'/g, "''")
+        .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+      let depth = 0
+      for (const ch of bare) {
+        if (ch === '{') depth += 1
+        else if (ch === '}') {
+          depth -= 1
+          if (depth < 0) return false
+        }
+      }
+      return depth === 0
+    }
     const subsSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrSubagentsCard.tsx'), 'utf8')
     const catSrc0 = readFileSync(resolve(ROOT, 'src/client/kr-chat/subagent-catalog.ts'), 'utf8')
     // 操作面板源码在本块与下面几块都要读，提到这里声明（下面几块共用同一份）。
@@ -1462,8 +1485,13 @@ if (krEnabled) {
       fail('子智能体目录必须由 KrAgentPanel 单点订阅（两张卡各订一次 = 各开一条 interval + 各发一份 RPC）')
     } else if (!/subagentCatalog=\{subagentCatalog\}/.test(agentSrc)) {
       fail('操作面板那枚计数必须拿到同一份目录（单点订阅、向下传）')
-    } else if (!/rows\.map\(\(row, index\) => \(/.test(subsSrc) && !/visible\.map\(\(row, index\) => \(/.test(subsSrc)) {
-      fail('子智能体卡必须**有几个就几行**（一行一个，逐行渲染）')
+    } else if (
+      // 两段各渲一份：进行中走 visible、已结束走 doneVisible。
+      // 只验其中一份的话，另一段被删成空容器也照样通过 —— 而折叠带展开就是空的。
+      !/visible\.map\(\(row, index\) => \(/.test(subsSrc) ||
+      !/doneVisible\.map\(\(row, index\) => \(/.test(subsSrc)
+    ) {
+      fail('子智能体卡必须**有几个就几行**（进行中 visible / 已结束 doneVisible 各一份，逐行渲染）')
     } else if (!/className="kr-subs-row__main"[\s\S]{0,400}?onClick=\{\(\) => \{ onOpen\(row\) \}\}/.test(subsSrc)) {
       fail('每一行必须是可点的跳转入口（整行一个 button，点了 openSubagentSession）')
     } else if (!/kr-subs-group--toggle/.test(subsSrc) || !/kr-subs-done__body/.test(subsCode)) {
@@ -1477,22 +1505,32 @@ if (krEnabled) {
       //   ② 行首图标用形状差（转圈 vs 对勾），不依赖颜色与动画。
       !/kr-subs-group--run/.test(subsSrc) ||
       !/className="kr-subs-group__label">正在执行</.test(subsSrc) ||
-      !/className="kr-subs-group__label">已完成</.test(subsSrc)
+      !/className="kr-subs-group__label">已完成</.test(subsSrc) ||
+      // 打包 CSS 侧也要验：上面那条主色标题靠「主色 + 呼吸点 + kr-pulse」三样才成立，
+      // 而这三样只写样式、源码里 grep 不到，删掉后源码断言依旧全绿。
+      !/kr-subs-group--run/.test(code) ||
+      !/kr-subs-group__dot/.test(code) ||
+      !/@keyframes kr-pulse/.test(code)
     ) {
       fail('子智能体必须分「正在执行 / 已完成」两段并各带段标题（用户点名状态看不出来）')
     } else if (
       !/kr-subs-row__spin/.test(subsSrc) ||
       !/kr-subs-row__icon/.test(subsSrc) ||
-      !/kr-subs-row__spin/.test(code)
+      !/kr-subs-row__spin/.test(code) ||
+      // 结束态那枚对勾：只验转圈分支的话，删掉对勾后已结束行会变成行首空白，
+      // 而"形状即状态"里的另一半就没了。
+      !/d="m3\.4 8\.5 3\.1 3\.1 6-6\.6"/.test(subsSrc)
     ) {
       fail('行首必须是形状状态图标（进行中转圈 / 已结束对勾），不能退回只有一颗点')
     } else if (
       // 行内那枚「进行中 / 已结束」文字已撤：分区标题说过一遍，每行再说一遍是噪声。
       // 但状态必须仍在无障碍面 —— aria-label 里要带。
       /kr-subs-row__state/.test(subsCode) ||
-      !/进行中' : '已结束/.test(subsSrc)
+      !/进行中' : '已结束/.test(subsSrc) ||
+      // 悬停说明（title）是视觉用户唯一的文字来源，aria-label 只服务读屏 —— 两处都得带状态。
+      !/row\.running \? '进行中 · 点一下跳过去看' : '已结束 · 点一下跳过去看'/.test(subsCode)
     ) {
-      fail('行内状态文字必须撤掉（分区已交代），但 aria-label 里必须仍带状态')
+      fail('行内状态文字必须撤掉（分区已交代），但 aria-label 与 title 里都必须仍带状态')
     } else if (
       // 折叠区必须是**连续的尾块**：先按 running 分组、再进行中在前已结束在后，
       // 否则收起时中间被抽走几行、下面的行往上跳。
@@ -1506,15 +1544,25 @@ if (krEnabled) {
       !/className="kr-subs-group__count">\{doneRows\.length\}/.test(subsSrc)
     ) {
       fail('已完成折叠带必须带计数（收起态可见，读者要知道下面收着几个）')
-    } else if (!/aria-expanded=\{doneOpen\}/.test(subsSrc)) {
-      fail('已完成折叠带必须给 aria-expanded（读屏用户要知道这块是开是合）')
     } else if (
-      // 没有进行中的行时不该再挂折叠**按钮**：那时折叠只会把卡掏空。
-      // 但段标题本身仍在（它是分区标签，不是开关）—— 见下面的 else 分支。
-      !/doneFoldable = runningRows\.length > 0 && doneRows\.length > 0/.test(subsCode) ||
-      !/\{doneFoldable \? \(/.test(subsSrc)
+      !/aria-expanded=\{doneOpen\}/.test(subsSrc) ||
+      // 展开体带 inert / aria-hidden，读屏用户按完按钮要知道自己展开了哪一块；
+      // 收起后展开体整块卸载，所以属性本身要跟着 donePresent 出现/消失（否则是悬空 IDREF）。
+      !/aria-controls=\{donePresent \? DONE_BODY_ID : undefined\}/.test(subsSrc) ||
+      !/id=\{DONE_BODY_ID\}/.test(subsSrc)
     ) {
-      fail('已完成分区只在「上面还有进行中」时才可折叠，否则退化成静态分区标签（平铺）')
+      fail('已完成折叠带必须给 aria-expanded 与 aria-controls（读屏用户要知道这块是开是合、开了哪一块）')
+    } else if (
+      // 没有进行中的行时**整条标题不渲染**（2026-10-23 收尾）：那时折叠只会把卡掏空，
+      // 而挂一条对勾 + 淡字的静态标题又会被读成第 N+1 行（形状和下面每一行一样）。
+      // 判据是 doneFoldable，两个分支必须一个 button、一个 null —— 都做成 button
+      // 就会有一个按不动的假按钮。
+      !/doneFoldable = runningRows\.length > 0 && doneRows\.length > 0/.test(subsCode) ||
+      !/\{doneFoldable \? \(/.test(subsSrc) ||
+      !/\) : null\}/.test(subsCode) ||
+      /data-foldable=/.test(subsCode)
+    ) {
+      fail('已完成分区只在「上面还有进行中」时才可折叠；全部结束时整条标题不渲染（只平铺行）')
     } else if (!/openSubagentSession/.test(subsSrc) || !/uiWorkspace/.test(catSrc0)) {
       fail('跳转必须走官方 uiWorkspace.openSession（与官方子智能体目录点一行同一条链路）')
     } else if (!/projectionsBySession/.test(catSrc0) || !/subagentCatalog/.test(catSrc0)) {
@@ -1530,6 +1578,8 @@ if (krEnabled) {
       fail('子智能体目录必须直接是整场会话口径（useSubagentCatalog 结果不再被轮次窗口包一层）')
     } else if (!/spawnsSubagents\(callName\(/.test(agentSrc)) {
       fail('子智能体卡的「正在读取」判定必须扫**会话全部**工具节点（与目录同粒度，不能只看本轮）')
+    } else if (!bracesBalanced(readFileSync(resolve(ROOT, 'src/client/kr-chat/styles.ts'), 'utf8'))) {
+      fail('styles.ts 花括号必须平衡（这一轮出过@keyframes 后多一个孤立 }，会让紧随的规则整条被浏览器丢弃，而冒烟全绿）')
     } else {
       pass('子智能体独立成卡：有几个几行 + 整行可点跳转 + 数据源读真实快照形状')
     }
