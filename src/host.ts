@@ -47,6 +47,7 @@ import { validateHtmlCardTool } from './validate-card/index.ts'
 import { applyOpenPathRoutes } from './open-path/index.ts'
 import { applyOpenFileRoutes } from './open-file/index.ts'
 import { applyOfficePreview } from './office/index.ts'
+import { applyFontRoutes } from './fonts/index.ts'
 import { applyTriadHost } from './triad/host.ts'
 import { applyProviderHub, providerHubServices } from './provider/index.ts'
 import { applyMailHost } from './mail/index.ts'
@@ -55,6 +56,7 @@ import { applyBrowserOnDemand } from './browser-on-demand/index.ts'
 import { applyBrowserActivity } from './browser-activity/index.ts'
 import { applyRunningApps } from './running-apps/index.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
+export { applyFontRoutes, FONT_ROUTE } from './fonts/index.ts'
 // 「用默认浏览器 / 默认应用打开文件」（2026-10-21）：纯判定面导出给冒烟。
 // 这三条（路径绝对化基准 / 可执行类型拒绝 / 浏览器命令解析）判错了都不会抛错，
 // 只会表现为「点了没反应」或「打开了不相干的东西」，只能断言。
@@ -276,6 +278,12 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
     applyOpenPathRoutes(webCtx)
     // 「用默认应用打开文件」修复（2026-10-21）：见 src/open-file/index.ts。
     applyOpenFileRoutes(webCtx)
+    // 界面字体资产（/api/chat-flow/fonts/*）：把随包的霞鹜新致宋 woff2 与许可
+    // 原文吐给浏览器。字体不内联进 client 产物——5.0MB 的资产若内联，从不切字体
+    // 的用户也要白下载一次。
+    //
+    // 2026-10-14 曾随「界面字体」整块下线，2026-10-25 按用户要求装回来。
+    applyFontRoutes(webCtx)
     // Office / PDF 页图与 PDF 渲染（/api/chat-flow/office/*）：画廊 ppt/word 缩略图、
     // 产出物弹窗内联预览、官方侧边栏 ppt/word 接管三处共用。挂载时顺带校正
     // process.env.TEMP —— 官方 office-to-pdf 的 LibreOffice 转换要求 scratch 落在

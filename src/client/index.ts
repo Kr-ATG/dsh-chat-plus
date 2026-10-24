@@ -55,6 +55,7 @@ import { applyProviderClient } from './provider/index.ts'
 import { applyToolsGateClient } from './tools-gate/index.tsx'
 import { applyBrowserFlagClient } from './browser-flag/index.ts'
 import { applySidebarDocument } from './sidebar-doc/index.tsx'
+import { applyUiFont } from './ui-font/index.ts'
 import { applySidebarMedia } from './sidebar-media/index.tsx'
 import { buildActivityGrid, activityColor, ACTIVITY_COLUMNS } from './triad/usage/dashboard/ActivityGrid.js'
 import { setClientCtx } from './client-ctx.ts'
@@ -164,6 +165,17 @@ export function apply(ctx: ClientContext): void {
   // 登记根上下文：右栏「打开工作区预览」与正文文件提及都靠它读跨插件服务
   // （ctx.get('sidebarRight') / ctx.get('sessions')），见 client-ctx.ts。
   setClientCtx(ctx as unknown as { get?(name: string): any })
+
+  // ── 界面字体（最早应用）──────────────────────────────────────────────
+  // 用户选中的字体必须**先于**其它一切挂载生效：它只改几个根 CSS 变量
+  // （--dsh-font-family-text/-code 是官方 0.2.1 的可写槽位，--dsw-font-family /
+  // --ds-font-family-code 是消费值；官方 body 与 markdown 全部字号 token 都从
+  // 它们派生）。放在最前面是为了让首帧就用上所选字体，少一次「先用系统字体、
+  // 再闪成所选字体」的跳变。
+  //
+  // 2026-10-14 曾整块下线（理由：与官方「更多字体设置」重复、多背 5MB webfont），
+  // 2026-10-25 按用户要求装回来 —— 恢复时发现变量层变了，详见 ui-font/font.ts 头注释。
+  guarded(ctx, 'ui font', () => { applyUiFont(ctx) })
 
   // 样式：工具聚合（dts__）、思考/流卡（dtt__）两枚 + 截图面板（tsh__）独立
   // <style>，幂等注入。
@@ -489,6 +501,16 @@ export { linkifyFilePaths, promoteStandaloneImagePath, encodePathForMarkdown } f
 export { assembleHtmlDocument, BRIDGE_TO_HOST, BRIDGE_TO_FRAME, MAX_FRAME_HEIGHT, MIN_FRAME_HEIGHT } from './html-embed/bridge.ts'
 export { KIT_CSS, needsKit } from './html-embed/kit.ts'
 export { buildRuntime, needsRuntime, RUNTIME_PARTS } from './html-embed/runtime.ts'
+/**
+ * 界面字体：选项表与覆盖 CSS 的纯逻辑，供 smoke 直接钉住。
+ *
+ * 这几条错了都不会报错：默认档写错就静默换了用户的字体；字体栈漏掉通用回退
+ * 会在缺字时掉成浏览器默认衬线；webfont 路径写错则「加载失败」只能靠肉眼发现；
+ * 只写下层变量（--dsw-font-family）而漏掉上层槽位（--dsh-font-family-text）
+ * 会变成「字体加载成功但界面没变」——0.2.1 恢复时踩过，必须被断言钉死。
+ */
+export { FONT_OPTIONS, DEFAULT_FONT_ID, fontOptionOf, fontOverrideCss, fontFileUrl } from './ui-font/index.ts'
+export { uiFontTest } from './ui-font/index.ts'
 /**
  * 总结卡外观开关：纯逻辑（读写 + body 属性 + 订阅），供 smoke 直接钉住。
  *
