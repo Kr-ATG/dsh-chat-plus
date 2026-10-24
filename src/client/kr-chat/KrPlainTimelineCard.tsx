@@ -91,23 +91,56 @@ const LIST_MAX_ROWS_SQUEEZED = 9
  * 不是"每秒闪一下"的装饰，而更像"她这轮歇着的时候在做什么"。
  */
 const IDLE_PHRASES: readonly string[] = ['休息中', '吃饭中', '小憩中', '晒太阳']
-/** 刚发出消息、还没有任何动作时的一句话。 */
-const THINKING_PHRASE = '在思考中'
+
+/*
+ * 空闲文案**按真实时间**选（2026-10-25 用户要求：「这几个状态要根据时间来」）。
+ *
+ * 时段划分按中国日常作息，而不是机械四等分：
+ *   00–05 休息中   （这个点在睡觉，说"晒太阳"是胡说）
+ *   05–09 晒太阳   （起床后那段）
+ *   09–11 小憩中
+ *   11–13 吃饭中   （唯一一个真跟吃饭绑定的时段）
+ *   13–17 晒太阳
+ *   17–19 小憩中
+ *   19–24 休息中
+ *
+ * 边界左闭右开：11 点整算吃饭中，13 点整算晒太阳。
+ * 不按"每 6 小时轮一个"那种均分 —— 凌晨 3 点显示"晒太阳"会立刻暴露这是假状态。
+ *
+ * 四个词全都用得上，但**用哪个由钟点决定**，不由随机或计数决定：抬头看一眼
+ * 卡头，它和你此刻的时间对得上。
+ */
+const IDLE_SLOTS: ReadonlyArray<readonly [number, number, string]> = [
+  [0, 5, '休息中'],
+  [5, 9, '晒太阳'],
+  [9, 11, '小憩中'],
+  [11, 13, '吃饭中'],
+  [13, 17, '晒太阳'],
+  [17, 19, '小憩中'],
+  [19, 24, '休息中'],
+]
 
 /**
- * 本轮该显示哪句空闲文案。
+ * 按当前时间挑一句空闲文案。
  *
- * 索引取会话内稳定的整数（已完成的动作数）而不是随机或时间：同一轮里反复渲染
- * 得到同一个结果（不会闪），下一轮自然换一个（读起来像"她歇够了又去干别的"）。
+ * 取**本地时间**（用户看的是自己墙上的钟，不是 UTC）。传入 now 是为了让这个
+ * 函数可测：组件里传 new Date()，测试里传固定时刻，不必 mock 全局 Date。
  *
- * @param seed - 会话内稳定的整数。
- * @returns 空闲短语。
+ * @param now - 当前时刻。
+ * @returns 该时段对应的空闲短语。
  */
-function idlePhraseFor(seed: number): string {
-  const list = IDLE_PHRASES
-  const index = Math.abs(Math.trunc(seed)) % list.length
-  return list[index] ?? list[0]
+export function idlePhraseFor(now: Date): string {
+  const hour = now.getHours()
+  for (const slot of IDLE_SLOTS) {
+    const start = slot[0]
+    const end = slot[1]
+    const phrase = slot[2]
+    if (hour >= start && hour < end) return phrase
+  }
+  return IDLE_PHRASES[0] ?? '休息中'
 }
+/** 刚发出消息、还没有任何动作时的一句话。 */
+const THINKING_PHRASE = '在思考中'
 
 export interface KrPlainTimelineCardProps {
   readonly timeline: PlainTimeline
@@ -341,6 +374,22 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
    * 收起态也是右栏最省高度的那一档，能给上面的子智能体与下面的任务概览让位。
    */
   const [open, setOpen] = useState(false)
+  /*
+   * 分钟级时钟滴答：只服务卡头那句按时间段变化的空闲文案。
+   *
+   * 为什么需要它：空闲文案按钟点选（见 IDLE_SLOTS），而组件不会因为时间流逝
+   * 自己重渲染 —— 用户在 19:59 打开页面、挂到 20:30，卡头会一直停在「小憩中」。
+   * 一分钟一次重算足够（时段边界都是整点），而且**只在没在跑时才需要**：
+   * 运行中卡头显示的是动作，与钟点无关。
+   *
+   * 60s 一次 setState 的代价可以忽略（这一个组件，一次极轻的重渲染）。
+   */
+  const [clockTick, setClockTick] = useState(() => Date.now())
+  useEffect(() => {
+    if (running) return undefined
+    const timer = window.setInterval(() => { setClockTick(Date.now()) }, 60_000)
+    return () => { window.clearInterval(timer) }
+  }, [running])
   const motion = useMotionAllowed(true)
   const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(open, motion)
 
@@ -395,10 +444,15 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   /*
    * 卡头上唯一那一行动作：**当前正在做的事**。
    *
-   * 取值口径（三条，顺序即优先级）：
+   * 取值口径（两条，顺序即优先级）：
    *  1. 有一条 running → 就是它（同时只可能有一条，模型是串行执行的）；
-   *  2. 没有 running 但本轮还在跑 → 取最后一条（刚做完、正在起下一步）；
-   *  3. 本轮已收口 → 取最后一条（"最后一件事"比"什么都没显示"有用）。
+   *  2. 没有 running 但**本轮还在跑** → 取最后一条（刚做完、正在起下一步）；
+   *  3. **本轮已收口 → null**，卡头回到空闲文案（休息中 / 吃饭中 / 小憩中 / 晒太阳）。
+   *
+   * 第 3 条是 2026-10-25 用户点名改的：「结束之后怎么不[变]回去呢」。原先收口后
+   * 卡头会一直挂着**最后一条动作**（截图里那句「收口任务清单」），读起来像"她还在
+   * 干这件事"——而事实上她已经停下了。最后做了什么，展开时间线就能看到；卡头
+   * 回答的是"此刻在干嘛"，不是"刚才干了啥"。
    *
    * 用**完整时间线**（timeline.steps）而不是收敛后的 steps：简要档会把成功的
    * 文件操作整类砍掉，若此刻正在改文件，卡头就会空着——而"正在改文件"恰恰
@@ -411,28 +465,28 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
       const step = all[i]
       if (step !== undefined && step.status === 'running') return step
     }
+    // 收口了：不再显示最后一条，交给卡头的空闲文案。
+    if (!running) return null
     return all[all.length - 1] ?? null
-  }, [timeline.steps])
+  }, [timeline.steps, running])
 
   /*
-   * 卡头「没在干活」时显示哪一句（见文件顶部的 IDLE_PHRASES 说明）。
+   * 卡头「没在干活」时显示哪一句（见文件顶部的 IDLE_SLOTS 说明）。
    *
-   * 三档按顺序判：
+   * 两档按顺序判：
    *  1. **正在跑但一个动作都还没有** → 「在思考中」。
-   *     这是用户点名的那段空窗：消息发出去、模型在思考、还没调工具，卡头不能
-   *     还挂着「休息中」—— 她明明已经在处理了。
-   *     判据 `running && empty`：running 来自面板的 currentRunning（本轮在跑），
-   *     empty 表示时间线里一条动作都没有。两个同时成立才是「刚发出去」。
-   *  2. **没在跑** → 轮换的拟人化文案（休息中 / 吃饭中 / 小憩中 / 晒太阳）。
-   *  3. 其余（在跑、也有动作）→ currentAction 会取到最后一条，走正常分支，
-   *     不在这里。
+   *     消息发出去、模型在思考、还没调工具，卡头不能还挂着「休息中」——
+   *     她明明已经在处理了。判据 running && empty。
+   *  2. **没在跑** → 按**真实时间**选一句（休息中 / 吃饭中 / 小憩中 / 晒太阳）。
    *
-   * seed 用动作数：同一轮里稳定（不闪），换一轮自然换一个说法。
+   * 时间来自 clockTick：跨时段时文案要自己换掉（19:59 → 20:00 从「小憩中」
+   * 变「休息中」），否则用户得刷新页面才看到对的钟点。分钟级滴答足够 ——
+   * 时段边界全是整点，一分钟的误差看不出来。
    */
   const idleLine = useMemo(() => {
     if (running && empty) return THINKING_PHRASE
-    return idlePhraseFor(timeline.steps.length)
-  }, [running, empty, timeline.steps.length])
+    return idlePhraseFor(new Date(clockTick))
+  }, [running, empty, clockTick])
 
   return (
     <div className="kr-card kr-card--plain" data-empty={empty || undefined}>
@@ -444,8 +498,9 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
        *  · 不再有「详细 / 简要」两枚常驻按钮 —— 它俩在这个尺寸下是最吵的元素，
        *    而且默认档就是简要，多数人从不切换。现在整个卡头都可点，点一下展开
        *    完整时间线（内含切档按钮与全部历史）。
-       *  · 动作行**只显示一条**（当前进行中优先，没有进行中就是最后一条），
-       *    新动作把它顶掉。这是用户点名要的：不堆流水，只看此刻。
+       *  · 动作行**只显示一条**（当前进行中优先），新动作把它顶掉；本轮收口后
+       *    回到空闲文案（休息中 / 吃饭中 / 小憩中 / 晒太阳，按钟点选）。
+       *    这是用户点名要的：不堆流水，只看此刻。
        */}
       <div
         className="kr-card__header kr-plain-head"
@@ -454,11 +509,13 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
         tabIndex={0}
         aria-expanded={open}
         /*
-         * 读屏文案与视觉同步：hideVerb 那族读 detail（视觉上也只有 detail），
-         * 否则读屏用户会听到一句屏幕上根本没有的「在电脑上操作」，对不上号。
+         * 读屏文案与视觉同步：卡头显示什么，读屏就念什么。
+         *   · 有动作 → hideVerb 那族读 detail（视觉上也只有 detail），否则读 verb；
+         *   · 没动作 → 念那句空闲文案（休息中 / 吃饭中… / 在思考中），
+         *     而不是一句屏幕上根本没有的「暂无动作」。
          */
         aria-label={`操作面板 · ${currentAction === null
-          ? '暂无动作'
+          ? idleLine
           : (currentAction.hideVerb === true && currentAction.detail !== undefined && currentAction.detail !== ''
             ? currentAction.detail
             : currentAction.verb)}${open ? '（已展开时间线）' : ''}`}

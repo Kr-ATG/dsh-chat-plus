@@ -1659,6 +1659,24 @@ if (krEnabled) {
       fail('卡头必须有「当前动作」这一行')
     } else if (/\.kr-plain-view\b/.test(cardSrc)) {
       fail('卡头不该再挂简要/详细按钮（点击整块卡头就是展开详细）')
+    } else if (!/const IDLE_SLOTS: ReadonlyArray<readonly \[number, number, string\]> = \[/.test(cardSrc)) {
+      /*
+       * 空闲文案必须**按真实时间**选（2026-10-25 用户：「这几个状态要根据时间来」）。
+       *
+       * 时段表是核心：四个词都得在表里出现，且必须是 IDLE_SLOTS 这种
+       * [start, end, phrase] 形状 —— 只写一个数组、按计数或随机轮，等于没做。
+       */
+      fail('空闲文案必须按时间段选（IDLE_SLOTS 表：休息中 / 吃饭中 / 小憩中 / 晒太阳）')
+    } else if (!/export function idlePhraseFor\(now: Date\): string/.test(cardSrc)) {
+      fail('idlePhraseFor 必须吃一个 Date（可测；用全局 Date 就没法断言时段边界）')
+    } else if (!/if \(!running\) return null/.test(cardSrc)) {
+      /*
+       * 收口后必须回到空闲文案（2026-10-25 用户：「结束之后怎么不[变]回去呢」）。
+       *
+       * 原先 currentAction 在收口后会取最后一条动作，卡头于是长期挂着「收口任务
+       * 清单」这类句子 —— 读起来像她还在干这件事。现在收口返回 null，走空闲文案。
+       */
+      fail('本轮收口后卡头必须回到空闲文案（currentAction 在 !running 时返回 null）')
     } else if (!/const IDLE_PHRASES: readonly string\[\] = \['休息中', '吃饭中', '小憩中', '晒太阳'\]/.test(cardSrc)) {
       /*
        * 卡头空闲文案（2026-10-25 用户要求）：「不要显示等待本轮开始，显示休息中、

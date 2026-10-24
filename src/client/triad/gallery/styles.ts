@@ -304,10 +304,10 @@ const SHEET = `
 /* 不用 content-visibility:auto：滚动时分组进出视口会触发整组重布局 + 组内
    lazy 图集中加载，实测掉到 43fps 且伴随 longtask 卡顿；去掉后 280+fps。
    屏外成本改由 img loading=lazy 单独承担。 */
-.tg-day{position:relative;padding-left:22px;margin-bottom:14px;animation:tg-day-in 340ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
+.tg-day{position:relative;padding-left:22px;margin-bottom:2px;animation:tg-day-in 340ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
 @keyframes tg-day-in{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}
 /* 竖轨：自上而下生长 */
-.tg-day::before{content:"";position:absolute;left:5px;top:4px;bottom:-14px;width:2px;border-radius:1px;background:var(--dsw-alias-border-l2,rgba(127,127,127,.18));transform-origin:top;animation:tg-rail-grow 520ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
+.tg-day::before{content:"";position:absolute;left:5px;top:4px;bottom:-2px;width:2px;border-radius:1px;background:var(--dsw-alias-border-l2,rgba(127,127,127,.18));transform-origin:top;animation:tg-rail-grow 520ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
 .tg-day:last-child::before{bottom:auto;height:22px}
 @keyframes tg-rail-grow{from{transform:scaleY(0);opacity:0}to{transform:scaleY(1);opacity:1}}
 /* 日期头：钉住 + 节点 */
@@ -342,6 +342,21 @@ const SHEET = `
 .tg-card--tile .tg-card__count{opacity:1;transform:none;top:7px;left:7px;height:17px;padding:0 8px;font-size:10px}
 /* 徽标撤走后快捷点回到角上（原 top:30px 是为了给它让位） */
 .tg-card--tile .tg-card__peek{right:7px;bottom:auto;top:7px;width:24px;height:24px;border-radius:8px}
+/* 单卡删除钮（2026-10-24）：hover / 聚焦浮现，落在右下角，与右上角的预览眼不抢位。
+   第一次点变成红底「删除?」，再点一次才真删 —— 所以确认态必须有足够宽的尺寸，
+   否则文字挤不下会被裁掉。 */
+.tg-card__del{position:absolute;right:8px;bottom:8px;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border-radius:8px;color:#fff;background:rgba(15,17,23,.72);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(8px);opacity:0;transform:translateY(4px) scale(.94);transition:opacity 180ms ease,transform 220ms cubic-bezier(.2,.8,.2,1),background 160ms ease,border-color 160ms ease,width 180ms cubic-bezier(.2,.8,.2,1);cursor:pointer;z-index:3;font-family:inherit}
+.tg-card:hover .tg-card__del,.tg-card:focus-within .tg-card__del{opacity:1;transform:translateY(0) scale(1)}
+.tg-card__del:hover{background:rgba(220,60,60,.9);border-color:rgba(255,255,255,.36)}
+.tg-card__del:active{transform:scale(.92)}
+.tg-card__del[data-armed="true"]{width:auto;min-width:52px;padding:0 9px;background:rgba(214,48,48,.96);border-color:rgba(255,255,255,.5);box-shadow:0 0 0 2px rgba(214,48,48,.22)}
+.tg-card__del-text{font-size:11px;font-weight:600;line-height:1;white-space:nowrap;letter-spacing:.02em}
+.tg-card__del svg{pointer-events:none}
+/* 方格里：缩略图占满整块、下缘是文件名，没有"右下角"可用 ——
+   两枚按钮并排挂在缩略图顶部：预览眼贴右（7px），删除在它左边（37px）。
+   确认态向左撑开，不会盖住眼睛。 */
+.tg-card--tile .tg-card__del{right:37px;bottom:auto;top:7px;width:24px;height:24px;border-radius:8px}
+.tg-card--tile .tg-card__del[data-armed="true"]{min-width:50px;padding:0 8px}
 /* 文件名常驻缩略图下方（不 hover 也看得见） */
 .tg-tile__meta{display:flex;flex-direction:column;gap:2px;padding:7px 3px 3px;min-width:0}
 .tg-tile__name{font-size:12px;font-weight:500;line-height:17px;color:var(--dsw-alias-label-primary,#eee);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

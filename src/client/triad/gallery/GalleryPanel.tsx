@@ -566,6 +566,13 @@ interface CardProps {
   readonly onPreview: (item: GalleryItem) => void
   /** 缩略图确认读不到时上报路径（面板把该条目从清单里剔掉）。 */
   readonly onUnresolvable?: (path: string) => void
+  /**
+   * 单独删除这一条（卡片右上角那枚垃圾桶，2026-10-24 用户要求）。
+   * 不传就不渲染这枚按钮（轮播等场景用不上）。
+   */
+  readonly onDelete?: (item: GalleryItem) => void
+  /** 这一条正处在「再点一次才真删」的确认态。 */
+  readonly deleteArmed?: boolean
   /** 手机相册式方格：只留正方形缩略图，名字/类别沉到 hover 浮层。 */
   readonly compact?: boolean
   /**
@@ -591,7 +598,7 @@ const GalleryCardThumb = ({ item, now, onUnresolvable }: {
     : <FileThumb item={item} now={now} thumbClass="tg-card__thumb" onUnresolvable={onUnresolvable} />
 )
 
-const GalleryCard = ({ item, index, sessionTitle, now, onOpen, onPreview, onUnresolvable, compact = false, outMs }: CardProps): JSX.Element => {
+const GalleryCard = ({ item, index, sessionTitle, now, onOpen, onPreview, onUnresolvable, onDelete, deleteArmed = false, compact = false, outMs }: CardProps): JSX.Element => {
   // generated 条目的原始名是 spill 容器的 .txt 文件名，上屏前换成内容类型名。
   const shownName = displayNameOf(item)
   const leaving = outMs !== undefined
@@ -638,6 +645,35 @@ const GalleryCard = ({ item, index, sessionTitle, now, onOpen, onPreview, onUnre
         <circle cx="12" cy="12" r="2.6" />
       </svg>
     </span>
+    {/*
+      单卡删除（2026-10-24 用户要求）：hover / 聚焦时浮现在卡片右上角。
+      与工具条上的「按分类删除」是两条独立路径 —— 那里一次清一整类，这里只清这一条。
+
+      第一次点**只进确认态**（按钮原地变成红底 + 「删除?」），再点一次才真删；
+      确认态由面板统一持有（deleteArmed），所以鼠标移开、移回来时它不会自己消失，
+      也不会出现「一张卡片已经确认、另一张也显示确认」的错位。点别处 / Esc 取消。
+
+      span 而不是 button：卡片本体就是 <button>，button 不能嵌套 button。
+    */}
+    {onDelete !== undefined && (
+      <span
+        className="tg-card__del"
+        role="button"
+        aria-label={deleteArmed ? `确认删除 ${shownName}，不可恢复` : `删除 ${shownName}`}
+        title={deleteArmed ? '再点一次即从磁盘删除（不可恢复）' : '删除这一项…'}
+        data-armed={deleteArmed ? 'true' : undefined}
+        aria-disabled={leaving ? true : undefined}
+        onClick={(event) => {
+          if (leaving) return
+          event.stopPropagation()
+          onDelete(item)
+        }}
+      >
+        {deleteArmed
+          ? <span className="tg-card__del-text">删除?</span>
+          : <TrashIcon size={12} />}
+      </span>
+    )}
     {compact ? (
       <span className="tg-tile__meta">
         <span className="tg-tile__name" title={shownName}>{shownName}</span>
@@ -742,6 +778,16 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
    * 收掉了（芯片在 busy 态）；把「要不要显示错误」和「现在能不能点」塞进同一个
    * 枚举会让这几个独立事实互相覆盖。
    */
+  /**
+   * 单卡删除的确认态（2026-10-24）：指向「再点一次就真删」的那一条。
+   *
+   * 与分类删除的 delConfirmId 刻意分成两份 state：两者都可能在屏幕上同时存在
+   * （芯片亮着「删除 N 项？」时，卡片上的垃圾桶也能点），但它们的取消判据、
+   * 自动回退时长、目标集合完全不同。塞进同一个枚举只会互相覆盖。
+   */
+  const [delItemPath, setDelItemPath] = useState<string | null>(null)
+  /** 单卡删除请求在飞的路径（同一时刻可能只有一条，用 Set 是为了将来放开并发）。 */
+  const [delItemBusy, setDelItemBusy] = useState<ReadonlySet<string>>(() => new Set())
   const [delConfirmId, setDelConfirmId] = useState<GalleryKind | null>(null)
   const [delBusyKind, setDelBusyKind] = useState<GalleryKind | null>(null)
   const [delLeave, setDelLeave] = useState<ReadonlyMap<string, number>>(() => new Map())
@@ -1089,6 +1135,91 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
     }
     setLightboxIndex(visible.indexOf(item))
   }, [visible, sessionById])
+
+  /* ── 单卡删除（2026-10-24）─────────────────────────────────────────── */
+
+  /** 取消单卡删除的确认态（点别处 / Esc / 再点一次之后都要先收）。 */
+  const cancelItemDel = useCallback(() => { setDelItemPath(null) }, [])
+
+  /**
+   * 点卡片右上角那枚垃圾桶。
+   *
+   * 两拍：**第一次只进确认态**，第二次才真删。这里删的是磁盘文件、不可逆，
+   * 而这张卡片只有 180px 宽，误触概率比工具条上的芯片高得多 —— 所以必须
+   * 有一道就地确认，而不是弹系统对话框（那会把浏览节奏打断）。
+   *
+   * 确认态**不设自动回退**：用户的视线就在这张卡上，一秒钟都没移开；
+   * 自动收回反而会让「我刚点了确认、怎么没删」变成一次静默失败。
+   * 取消出口是点别处 / Esc / 再点一次别的东西。
+   *
+   * 删除成功后与分类删除走同一个出口（rememberGone + 重新拉一次索引），
+   * 所以工具条上的分类计数会同步减一，不会出现「卡片没了、数字还在」。
+   */
+  const runItemDel = useCallback(async (item: GalleryItem): Promise<void> => {
+    if (delItemBusy.has(item.path)) return
+    if (delItemPath !== item.path) {
+      // 第一次点：进确认态（同时收掉别处的确认态，屏幕上永远只有一个「删除?」）。
+      setDelError(null)
+      setDelItemPath(item.path)
+      return
+    }
+    // 第二次点：真删。
+    setDelItemPath(null)
+    setDelItemBusy((prev) => new Set(prev).add(item.path))
+    setDelError(null)
+    const generation = delGenRef.current
+    // 先播退场动画再发请求：与分类删除同一套节奏（单条就是 0 延迟 + 260ms）。
+    setDelLeave(new Map([[item.path, 0]]))
+    await new Promise<void>((resolvePromise) => {
+      const timer = window.setTimeout(resolvePromise, delAnimationMs(1))
+      delTimersRef.current.push(timer)
+    })
+    if (!mounted.current) { setDelItemBusy((prev) => { const next = new Set(prev); next.delete(item.path); return next }); return }
+
+    const result = await deleteGalleryPaths([item.path])
+    if (!mounted.current) return
+
+    const failedPaths = new Set((result.failed ?? []).map((entryFail) => entryFail.path))
+    const removed = result.ok === true || (result.deleted ?? 0) > 0
+      ? (failedPaths.has(item.path) ? [] : [item.path])
+      : []
+    rememberGone(removed)
+
+    setDelLeave(new Map())
+    setDelItemBusy((prev) => { const next = new Set(prev); next.delete(item.path); return next })
+
+    if (removed.length > 0) {
+      if (delGenRef.current === generation) void load(false)
+      return
+    }
+    const first = (result.failed ?? [])[0]
+    setDelError(first !== undefined
+      ? `「${displayNameOf(item)}」没删掉：${humanDeleteReason(first.error)}`
+      : `「${displayNameOf(item)}」没删掉：${result.message ?? '删除失败'}`)
+  }, [delItemBusy, delItemPath, rememberGone, load])
+
+  // 点别处 / Esc → 收回单卡确认态。判据与分类确认态同构：点在**另一枚**垃圾桶上
+  // 不算「别处」（那一枚会自己进确认态，收掉旧的正是我们要的）。
+  useEffect(() => {
+    if (delItemPath === null) return undefined
+    const onPointer = (event: MouseEvent) => {
+      const target = event.target as Node
+      const hit = target instanceof Element ? target.closest('.tg-card__del') : null
+      const owner = hit?.closest('.tg-card') as HTMLElement | null
+      // 卡片自身的 title 是绝对路径 —— 用它判「点的是不是这一张」，
+      // 避免再往 DOM 上挂一份冗余的 data-path。
+      if (owner?.getAttribute('title') !== delItemPath) setDelItemPath(null)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDelItemPath(null)
+    }
+    document.addEventListener('mousedown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [delItemPath])
 
   /* ── 分类删除的执行（2026-10-16）───────────────────────────────────── */
 
@@ -1656,6 +1787,8 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
                     onOpen={openItem}
                     onPreview={previewItem}
                     onUnresolvable={hideUnresolvable}
+                    onDelete={(target) => { void runItemDel(target) }}
+                    deleteArmed={delItemPath === item.path}
                     compact
                     outMs={delLeave.get(item.path)}
                   />
@@ -1677,6 +1810,8 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
                 onOpen={openItem}
                 onPreview={previewItem}
                 onUnresolvable={hideUnresolvable}
+                onDelete={(target) => { void runItemDel(target) }}
+                deleteArmed={delItemPath === item.path}
                 outMs={delLeave.get(item.path)}
               />
             ))}
