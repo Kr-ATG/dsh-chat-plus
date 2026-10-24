@@ -2197,6 +2197,95 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   cursor: pointer;
   user-select: none;
   min-width: 0;
+  /* 右上角那两枚动作按钮的定位基准（见 .kr-plain-head__tools）。 */
+  position: relative;
+}
+
+/*
+ * ══ 卡头右上角的两枚动作按钮（2026-10-25 用户要求搬到这里）════════════════
+ *
+ * 「大盘设置」齿轮与「邮箱」信封，原先由 kr-chat-controller / mail-drawer 以
+ * 裸 DOM 注入**顶栏标签行**（紧贴 Seeker 标签右侧）。用户原话：「这两个图标都
+ * 移动到操作面板的右上角去」—— 顶栏是全局导航（对话 / 轨迹 / 标签），这两枚
+ * 都是**本大盘**的动作，放在大盘自己的卡头上才归位。
+ *
+ * ## 为什么绝对定位
+ *
+ * 卡头是竖排居中的（立绘 / 名字 / 状态），按钮要贴在**右上角**而不是参与竖排 ——
+ * 参与的话会把立绘挤偏、把居中关系破坏掉。绝对定位让它们悬在角上，不占布局。
+ *
+ * ## 为什么默认半透明、悬停才实
+ *
+ * 它们不是卡头的主角（主角是鲸鱼娘和当前状态）。常态 opacity .55 够看见、
+ * 不抢注意力；指针移上去或键盘聚焦才到 1 并浮出底色 —— 与右栏其它工具按钮
+ * 同一套克制口径。
+ */
+.kr-plain-head__tools {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  /* 卡头整块是折叠热区，按钮自己接管指针事件。 */
+  z-index: 1;
+}
+
+.kr-plain-head__tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  opacity: .55;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    opacity var(--kr-dur-fade) linear,
+    background-color var(--kr-dur-tap) linear,
+    color var(--kr-dur-tap) linear,
+    transform var(--kr-dur-tap) var(--kr-ease-out);
+}
+
+.kr-plain-head__tool:hover {
+  opacity: 1;
+  background: var(--kr-hover-bg);
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-plain-head__tool:active {
+  transform: scale(.92);
+}
+
+.kr-plain-head__tool:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--kr-accent);
+  outline-offset: -2px;
+}
+
+/* 打开态：主色常亮（与顶栏那版同一语义：这两枚是开关，开着要看得出来）。 */
+.kr-plain-head__tool[data-open="true"] {
+  opacity: 1;
+  color: var(--kr-accent);
+}
+
+.kr-plain-head__tool[data-open="true"]:hover {
+  background: color-mix(in srgb, var(--kr-accent) 12%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-plain-head__tool {
+    transition: opacity .12s linear, background-color .12s linear, color .12s linear;
+  }
+  .kr-plain-head__tool:active {
+    transform: none;
+  }
 }
 
 /*

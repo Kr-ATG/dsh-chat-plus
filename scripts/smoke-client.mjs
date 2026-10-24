@@ -4745,8 +4745,9 @@ if (krEnabled) {
     //    那棵 flex 子树里根本没有它们，absolute 反而是错的（会相对 body 定位
     //    但又不跟随视口）。
     //
-    //    顶栏齿轮 `.kr-panel-settings-btn` 的约束**没变**：它在官方标签行里，
-    //    必须留在文档流 —— 写成 absolute 会飘出标签行。
+    //    齿轮与邮箱按钮**已搬到操作面板卡头右上角**（2026-10-25 用户要求）。
+    //    它们不再是顶栏里的文档流节点，而是卡头内的绝对定位按钮组
+    //    （.kr-plain-head__tools）—— 见下面第 10 条那组断言。
     for (const cls of ['kr-settings__scrim', 'kr-settings']) {
       const rule = new RegExp('\\.' + cls + '\\s*\\{([^}]*)\\}').exec(code)?.[1] ?? ''
       if (rule === '') {
@@ -4761,13 +4762,25 @@ if (krEnabled) {
     if (!/createPortal\(/.test(src)) {
       fail('KrPanelSettings 必须 createPortal 到 body（留在右栏子树里卡片最宽只能盖住右栏，且被 overflow:hidden 裁掉）')
     }
-    const gearRule = /\.kr-panel-settings-btn\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
-    if (gearRule === '') {
-      fail('未找到 .kr-panel-settings-btn 样式规则（顶栏齿轮无样式）')
-    } else if (/position:\s*absolute/.test(gearRule)) {
-      fail('.kr-panel-settings-btn 必须留在文档流（absolute 会让它飘出官方标签行）')
-    } else if (!/flex:\s*none/.test(gearRule)) {
-      fail('.kr-panel-settings-btn 需要 flex:none（否则会被标签行压扁）')
+    /*
+     * 齿轮/邮箱按钮的新位置（2026-10-25 用户：「这两个图标都移动到操作面板的
+     * 右上角去」）。
+     *
+     * 判据三条，缺一条就说明它们没真的搬过去：
+     *  · .kr-plain-head__tools 存在且绝对定位（卡头是竖排居中，按钮不能参与竖排）；
+     *  · 卡头本身是 position:relative（否则绝对定位会相对别处）；
+     *  · 两枚按钮共用 .kr-plain-head__tool（尺寸/悬停/打开态都挂在这个类上）。
+     */
+    const toolsRule = /\.kr-plain-head__tools\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
+    const headRule = /\.kr-plain-head\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
+    if (toolsRule === '') {
+      fail('未找到 .kr-plain-head__tools（齿轮与邮箱按钮没搬到卡头右上角）')
+    } else if (!/position:\s*absolute/.test(toolsRule)) {
+      fail('.kr-plain-head__tools 必须绝对定位（卡头是竖排居中，参与布局会把立绘挤偏）')
+    } else if (!/position:\s*relative/.test(headRule)) {
+      fail('.kr-plain-head 必须是 position:relative（右上角按钮组的定位基准）')
+    } else if (!/\.kr-plain-head__tool\s*\{/.test(code)) {
+      fail('未找到 .kr-plain-head__tool（两枚按钮的尺寸与打开态样式）')
     }
     // 遮罩平时不能拦点击：大盘上所有卡片都要点得到。
     const scrimRule = /\.kr-settings__scrim\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
@@ -4860,19 +4873,31 @@ if (krEnabled) {
       pass('大盘设置：「工作区记忆」走普通排版 + 组说明写「按工作区」这条共性')
     }
 
-    // 10) 入口位置：齿轮注入到顶栏标签行、紧跟 Seeker（用户 2026-10-15 点名要求）。
-    //     这是本轮最核心的诉求，且**不会报错**：位置写错只是"按钮跑到别的地方去"。
+    // 10) 入口位置：齿轮与邮箱按钮在**操作面板卡头右上角**（2026-10-25 用户要求
+    //     「这两个图标都移动到操作面板的右上角去」）。
+    //
+    //     历史：2026-10-15 曾点名放到顶栏 Seeker 标签右侧，靠裸 DOM 注入 + 每 250ms
+    //     同步位置 + 量几何反推官方 tablist 的 flex gap 才塞进去。搬到自己的卡头之后
+    //     那整套成本归零 —— 但**必须留一句清理**摘掉旧 bundle 残留的顶栏按钮，
+    //     否则页面上会出现两组一样的图标。
     const ctrl = readFileSync(resolve(ROOT, 'src/client/kr-chat/kr-chat-controller.tsx'), 'utf8')
-    if (!/id = 'kr-panel-settings-btn'/.test(ctrl) && !/id\s*=\s*'kr-panel-settings-btn'/.test(ctrl)) {
-      fail('controller 未注入顶栏设置按钮（kr-panel-settings-btn）')
-    } else if (!/insertAdjacentElement\('afterend', btn\)/.test(ctrl)) {
-      fail('设置按钮必须插在 Seeker 标签**之后**（afterend）——插到别处就不是"Seeker 旁边"')
-    } else if (!/getElementById\('kr-chat-tab-btn'\)/.test(ctrl)) {
-      fail('设置按钮的定位锚点必须是 Seeker 标签（kr-chat-tab-btn）')
+    // 本作用域里 cardSrc 指的是别的文件，这里自己读一份操作面板源码。
+    const plainCardSrcHere = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrPlainTimelineCard.tsx'), 'utf8')
+    if (!/id="kr-panel-settings-btn"/.test(plainCardSrcHere) || !/id="kr-mail-btn"/.test(plainCardSrcHere)) {
+      fail('齿轮与邮箱按钮必须在 KrPlainTimelineCard 卡头里渲染（id 沿用旧版，e2e 按它找节点）')
+    } else if (!/removeLegacyHeaderButtons/.test(ctrl)) {
+      fail('controller 必须清理旧版顶栏按钮（热重载后会出现两组一样的图标）')
+    } else if (!/closest\('header \[role="tablist"\]'\)/.test(ctrl)) {
+      /*
+       * ⚠ 清理的判据必须是「在不在顶栏里」，不能只看 id —— 新按钮沿用同一对 id，
+       * 单纯 getElementById 会把刚渲染好的新按钮一起删掉，表现为「卡头右上角什么都没有」。
+       * 这一条是踩过的坑，钉住。
+       */
+      fail('清理旧顶栏按钮必须按「在不在 header tablist 里」判断（只看 id 会误删新按钮）')
     } else if (!/getPanelSettingsStore|panel-settings-store/.test(ctrl)) {
       fail('controller 必须经共享 store 与抽屉联动（否则点了不开/关不掉）')
     } else {
-      pass('大盘设置入口：顶栏齿轮紧跟 Seeker 标签 + 经共享 store 联动抽屉')
+      pass('大盘设置入口：齿轮+邮箱在操作面板卡头右上角（id 沿用）+ 旧顶栏按钮按位置清理')
     }
 
     // 11) 共享 store 的跨 bundle 共享语义：live reload 会让模块级单例分叉，

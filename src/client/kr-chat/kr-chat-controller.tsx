@@ -17,7 +17,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { getKrChatStore } from './kr-chat-store.ts'
 import { getPanelSettingsStore } from './panel-settings-store.ts'
 import { getMailDrawerStore } from './mail-drawer-store.ts'
-import { applyMailButtonState, mountMailDrawer, syncMailButton } from './mail-drawer.tsx'
+import { mountMailDrawer } from './mail-drawer.tsx'
 import { KrAgentPanel } from './KrAgentPanel.tsx'
 import { activityStore } from '../tool-summary/activity-drawer.tsx'
 import { getCurrentChatSnapshot, latestChatSessionId, leaveCurrentChatSession, subscribeLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
@@ -192,10 +192,46 @@ function syncKrTab(tablist: HTMLElement): void {
   // 官方/KR 标签，一个常驻面板不需要再挂一个"要不要它"的开关——那枚按钮反而
   // 让人以为右栏是可选的。收起/展开相关代码（syncKrPanelToggle、KR_PANEL_ICON、
   // store.panelOpen 与 .kr-panel-toggle 样式）一并删干净。
-  syncPanelSettingsButton(tablist)
-  // 邮箱按钮紧跟在齿轮右侧（用户 2026-10-15 要求把邮箱入口搬到设置旁边）。
-  // 必须在 syncPanelSettingsButton 之后调用 —— 它依赖齿轮已在位才能定位自己。
-  syncMailButton(tablist)
+  /*
+   * ── 齿轮与邮箱按钮**已搬到操作面板卡头右上角**（2026-10-25）──────────────
+   *
+   * 用户原话：「这两个图标都移动到操作面板的右上角去」。它们现在由
+   * KrPlainTimelineCard 以 React 直接渲染（见 .kr-plain-head__tools），
+   * 开合仍走 panel-settings-store / mail-drawer-store 这两个跨 bundle 共享 store，
+   * 所以抽屉那边一行都不用改。
+   *
+   * 这里保留一句**清理**：热重载或旧 bundle 残留的顶栏按钮必须摘掉，否则页面上
+   * 会出现两组一模一样的图标（一组在顶栏、一组在卡头），点哪个都开同一个抽屉，
+   * 用户会以为坏了。
+   *
+   * 为什么不再注入：那套做法的全部复杂度（建节点、每 250ms 同步位置、量几何反推
+   * 官方 tablist 的 flex gap）都只是为了把按钮塞进**别人的** DOM。搬到自己的卡头
+   * 之后这些成本直接归零。
+   */
+  removeLegacyHeaderButtons()
+}
+
+/**
+ * 摘掉旧版注入在**顶栏标签行**里的两枚按钮（幂等，找不到就是没事）。
+ *
+ * ⚠ 判据必须是「它在不在顶栏里」，不能只看 id —— 新按钮沿用同一对 id
+ * （e2e 按 id 找节点），单纯 getElementById 会把**刚渲染好的新按钮**一起删掉，
+ * 表现为「卡头右上角什么都没有」。
+ *
+ * 顶栏的判据用 closest('header [role="tablist"]')：旧按钮是直接插进那个
+ * tablist 的，而新按钮在右栏卡头里，永远匹配不上。
+ */
+function removeLegacyHeaderButtons(): void {
+  for (const id of ['kr-panel-settings-btn', 'kr-mail-btn']) {
+    try {
+      const el = document.getElementById(id)
+      if (el === null) continue
+      if (el.closest('header [role="tablist"]') === null) continue
+      el.remove()
+    } catch {
+      /* 节点已被别处摘走：无事可做 */
+    }
+  }
 }
 
 /**
@@ -229,11 +265,19 @@ function syncPanelSettingsButton(tablist: HTMLElement): void {
     btn.className = 'kr-panel-settings-btn'
     btn.title = '大盘设置'
     btn.setAttribute('aria-label', '大盘设置')
-    // 纯内联 SVG（与 KrPanelSettings 的 GearIcon 同形状）：这里是裸 DOM，
-    // 拿不到那个 React 组件，自带一份字符串。
-    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-      + '<circle cx="8" cy="8" r="2.1" />'
-      + '<path d="M8 1.7v1.7M8 12.6v1.7M1.7 8h1.7M12.6 8h1.7M3.55 3.55l1.2 1.2M11.25 11.25l1.2 1.2M12.45 3.55l-1.2 1.2M4.75 11.25l-1.2 1.2" />'
+    /*
+     * 齿轮图标（2026-10-25 修正形状）。
+     *
+     * 旧版是「一个圆 + 八根向外的短线」，用户截图反馈「设置的图标不对」——
+     * 那画的其实是**太阳/辐条**，不是齿轮：齿轮的特征是**外缘有一圈齿**，
+     * 而发散线之间是空的，扫一眼只会读成"亮度/主题"这类图标。
+     *
+     * 现在用一条闭合 path 画出 8 个齿的外缘（齿与齿之间凹进去），中心再挖一个
+     * 圆孔 —— 这是齿轮图标的通用画法，与官方设置图标同一套视觉语言。
+     */
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<circle cx="8" cy="8" r="2.2" />'
+      + '<path d="M8 1.35l1.1 1.65 1.95-.5.5 1.95L13.2 5.55l-.5 1.95 1.65 1.1-1.65 1.1.5 1.95-1.95.5-.5 1.95-1.95-.5L8 14.65l-1.1-1.65-1.95.5-.5-1.95-1.65-1.1 1.65-1.1-.5-1.95 1.95-.5.5-1.95 1.95.5z" />'
       + '</svg>'
     btn.onclick = (e) => {
       e.stopPropagation()
@@ -376,39 +420,14 @@ export function mountKrChatController(): void {
   const disposers: Array<() => void> = []
 
   /*
-   * 设置按钮的打开态**即时**跟随 store，不等 250ms 轮询。
+   * 齿轮与邮箱按钮的「打开态即时跟随」两段订阅**已删除**（2026-10-25）。
    *
-   * 轮询只在 syncKrTab 里对齐属性，最坏会有 250ms 的视觉延迟 —— 用户点齿轮、
-   * 按钮要过一小会儿才亮起来，抽屉与按钮像两个不同步的东西。这里直接订阅：
-   * 变化即改属性。订阅本身很便宜（一个 Set 回调），且不重建节点。
-   */
-  {
-    const settings = getPanelSettingsStore()
-    const off = settings.subscribe(() => {
-      if (!owns()) return
-      const el = document.getElementById('kr-panel-settings-btn')
-      if (el === null) return
-      const open = settings.open
-      setAttrIfDiff(el, 'data-open', open ? 'true' : 'false')
-      setAttrIfDiff(el, 'aria-expanded', open ? 'true' : 'false')
-    })
-    disposers.push(off)
-  }
-
-  /*
-   * 邮箱按钮同理：打开态即时跟随它自己的共享 store，不等 250ms 轮询。
+   * 它们服务的对象是顶栏那两枚裸 DOM 按钮 —— 按钮不在 React 树里，只能靠订阅
+   * store 手动改 data-open 属性。现在这两枚按钮搬到了操作面板卡头、由 React
+   * 直接渲染，开合态走 useSyncExternalStore，React 自己保证同步。
    *
-   * 与设置按钮是**两份独立的 store**（mail-drawer-store），所以邮箱卡片与设置
-   * 抽屉各自独立开合 —— 共用一份的话，打开邮箱会把大盘设置一起顶出来。
+   * 留着这两段只会每 250ms 去 getElementById 一个已经不存在的节点。
    */
-  {
-    const mail = getMailDrawerStore()
-    const off = mail.subscribe(() => {
-      if (!owns()) return
-      applyMailButtonState()
-    })
-    disposers.push(off)
-  }
 
   // 全局事件委托：监听原生「对话」与「轨迹」按钮的点击事件，同步 activeTab 状态
   const onTabClick = (e: MouseEvent): void => {

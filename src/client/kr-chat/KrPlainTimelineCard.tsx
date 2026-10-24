@@ -46,6 +46,8 @@ import {
   subscribeBrowserFlag,
 } from '../browser-flag/store.ts'
 import { activateBrowserWindow } from '../browser-flag/activate.ts'
+import { getPanelSettingsStore } from './panel-settings-store.ts'
+import { getMailDrawerStore } from './mail-drawer-store.ts'
 
 /**
  * 「简要 / 详细」两档**已整块删除**（2026-10-24 用户点名：「点击就是详细不需要简要了」）。
@@ -390,6 +392,35 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
    *
    * 60s 一次 setState 的代价可以忽略（这一个组件，一次极轻的重渲染）。
    */
+  /*
+   * 卡头右上角的两枚动作按钮（2026-10-25 用户要求搬到这里）。
+   *
+   * 它们原先由 kr-chat-controller 以裸 DOM 注入**顶栏标签行**（紧贴 Seeker 标签
+   * 右侧）。用户原话：「这两个图标都移动到操作面板的右上角去」—— 理由很直接：
+   * 顶栏是全局导航（对话 / 轨迹 / 标签），这两枚都是**本大盘**的动作，放在大盘
+   * 自己的卡头上才归位。
+   *
+   * 改用 React 渲染而不是继续 DOM 注入：这张卡本来就是我们的 React 树，正常渲染
+   * 即可 —— 不必再建节点、不必再每 250ms 同步位置、也不必再量几何反推间距
+   * （mail-drawer 里那套 alignMailButtonToGear 就是为了抵消官方 tablist 的
+   * flex gap，搬到这里之后整个问题消失）。
+   *
+   * 开合状态仍走原来那两个跨 bundle 的共享 store（抽屉本体在别处订阅它们），
+   * 所以这里只是**换渲染位置**，不动数据面。
+   */
+  const settingsStore = getPanelSettingsStore()
+  const settingsOpen = useSyncExternalStore(
+    (cb) => settingsStore.subscribe(cb),
+    () => settingsStore.open,
+    () => settingsStore.open,
+  )
+  const mailStore = getMailDrawerStore()
+  const mailOpen = useSyncExternalStore(
+    (cb) => mailStore.subscribe(cb),
+    () => mailStore.open,
+    () => mailStore.open,
+  )
+
   const [clockTick, setClockTick] = useState(() => Date.now())
   useEffect(() => {
     if (running) return undefined
@@ -710,6 +741,69 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
             )} */}
           </span>
         )}
+
+        {/*
+         * 卡头右上角的两枚动作按钮（2026-10-25 用户要求搬到这里）。
+         *
+         * 原先它们在**顶栏标签行**（裸 DOM 注入，紧贴 Seeker 标签右侧）。用户原话：
+         * 「这两个图标都移动到操作面板的右上角去」—— 顶栏是全局导航，而这两枚都是
+         * 本大盘的动作，放在大盘自己的卡头上才归位。
+         *
+         * ## 为什么 stopPropagation
+         *
+         * 整个卡头是折叠热区（点一下展开时间线）。按钮必须拦住冒泡，否则点齿轮
+         * 会顺带把时间线也展开 —— 那是两个完全不同的意图。
+         *
+         * ## 无障碍
+         *
+         * 卡头本身是 role="button"，里面再嵌按钮在 ARIA 上是合法的（button 里不能
+         * 套 button，但这里外层是 div[role=button]，内层是真 button，读屏能分开）。
+         * 用真 button 而不是 span：键盘可达、自带 :active / :focus-visible。
+         */}
+        <div className="kr-plain-head__tools">
+          <button
+            type="button"
+            /* id 沿用顶栏那版：e2e（test-settings-card / test-mail-drawer）按它找节点。 */
+            id="kr-panel-settings-btn"
+            className="kr-plain-head__tool"
+            title="大盘设置"
+            aria-label="大盘设置"
+            aria-expanded={settingsOpen}
+            data-open={settingsOpen || undefined}
+            onClick={(event) => {
+              event.stopPropagation()
+              settingsStore.toggle()
+            }}
+          >
+            {/*
+             * 齿轮（2026-10-25 修正形状）：旧版是「圆 + 八根发散线」，那是太阳/辐条
+             * 而不是齿轮 —— 用户截图反馈「设置的图标不对」。现在用闭合 path 画 8 个
+             * 齿的外缘，中心留圆孔，与官方设置图标同一套语言。
+             */}
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="8" cy="8" r="2.2" />
+              <path d="M8 1.35l1.1 1.65 1.95-.5.5 1.95L13.2 5.55l-.5 1.95 1.65 1.1-1.65 1.1.5 1.95-1.95.5-.5 1.95-1.95-.5L8 14.65l-1.1-1.65-1.95.5-.5-1.95-1.65-1.1 1.65-1.1-.5-1.95 1.95-.5.5-1.95 1.95.5z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            id="kr-mail-btn"
+            className="kr-plain-head__tool"
+            title="邮箱"
+            aria-label="邮箱"
+            aria-expanded={mailOpen}
+            data-open={mailOpen || undefined}
+            onClick={(event) => {
+              event.stopPropagation()
+              mailStore.toggle()
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="1.6" y="3.2" width="12.8" height="9.6" rx="1.6" />
+              <path d="M2.2 4.4 8 8.6l5.8-4.2" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {bodyPresent && (

@@ -781,13 +781,19 @@ function SettingsRow({
   )
 }
 
-/** 齿轮图标：卡片标题用（顶栏那枚触发按钮在 kr-chat-controller 里以裸 DOM 注入，
- *  它自带一份同形状的 SVG 字符串 —— 那边不是 React 树，拿不到这个组件）。 */
+/**
+ * 齿轮图标：卡片标题用（顶栏那枚触发按钮在 kr-chat-controller 里以裸 DOM 注入，
+ * 它自带一份同形状的 SVG 字符串 —— 那边不是 React 树，拿不到这个组件）。
+ *
+ * 2026-10-25 修正形状：旧版是「圆 + 八根发散线」，那是太阳/辐条而不是齿轮。
+ * 现在用闭合 path 画 8 个齿的外缘，中心留圆孔 —— 与官方设置图标同一套语言。
+ * ⚠ 改这里必须同步改 kr-chat-controller 的 syncPanelSettingsButton（两份字符串）。
+ */
 function GearIcon({ size = 15 }: { readonly size?: number }): JSX.Element {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="8" cy="8" r="2.1" />
-      <path d="M8 1.7v1.7M8 12.6v1.7M1.7 8h1.7M12.6 8h1.7M3.55 3.55l1.2 1.2M11.25 11.25l1.2 1.2M12.45 3.55l-1.2 1.2M4.75 11.25l-1.2 1.2" />
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="8" r="2.2" />
+      <path d="M8 1.35l1.1 1.65 1.95-.5.5 1.95L13.2 5.55l-.5 1.95 1.65 1.1-1.65 1.1.5 1.95-1.95.5-.5 1.95-1.95-.5L8 14.65l-1.1-1.65-1.95.5-.5-1.95-1.65-1.1 1.65-1.1-.5-1.95 1.95-.5.5-1.95 1.95.5z" />
     </svg>
   )
 }
