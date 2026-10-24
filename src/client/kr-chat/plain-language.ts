@@ -522,11 +522,25 @@ const EXACT: Readonly<Record<string, Rule>> = {
   grep: { verb: '搜索内容', icon: 'search', detail: (a) => clip(str(a, 'pattern', 'query') ?? '', MAX_DETAIL) },
   search: { verb: '搜索内容', icon: 'search', detail: (a) => clip(str(a, 'query', 'pattern') ?? '', MAX_DETAIL) },
 
-  // ── 终端 ───────────────────────────────────────────────────────────
-  // 刻意不取 command：命令行原文不是「人话」，只进 tech 由用户主动展开看。
-  pwsh: { verb: '在终端执行命令', icon: 'terminal', detail: (a) => clip(str(a, 'description') ?? '', MAX_DETAIL) },
-  bash: { verb: '在终端执行命令', icon: 'terminal', detail: (a) => clip(str(a, 'description') ?? '', MAX_DETAIL) },
-  exec_command: { verb: '在终端执行命令', icon: 'terminal', detail: (a) => clip(str(a, 'description') ?? '', MAX_DETAIL) },
+  /*
+   * ── 终端 ─────────────────────────────────────────────────────────────
+   *
+   * 刻意不取 command：命令行原文不是「人话」，只进 tech 由用户主动展开看。
+   *
+   * 动词改过一版（2026-10-25 用户点名）：「在终端执行命令」原样印在卡头上，
+   * 用户的原话是这种话语不要出现 —— 那是**机器视角**的说法（"有个终端、在里面
+   * 敲了条命令"），而这张卡的读者只关心"它在电脑上做了什么"。
+   *
+   * 现在统一说「在电脑上操作」：普通用户读得懂、不涉及任何工具概念，而且与
+   * 「操作电脑」（cua_* 那族）在语义上并不冲突 —— 后者是看屏幕点鼠标的姿势，
+   * 前者是让电脑干活，两者在时间线上本来就不常相邻。
+   *
+   * 细节仍取 description：模型写的那句话往往正是人话（「推送并确认最终状态」），
+   * 卡头上就是「在电脑上操作 · 推送并确认最终状态」。
+   */
+  pwsh: { verb: '在电脑上操作', icon: 'terminal', detail: (a) => clip(str(a, 'description') ?? '', MAX_DETAIL) },
+  bash: { verb: '在电脑上操作', icon: 'terminal', detail: (a) => clip(str(a, 'description') ?? '', MAX_DETAIL) },
+  exec_command: { verb: '在电脑上操作', icon: 'terminal', detail: (a) => clip(str(a, 'description') ?? '', MAX_DETAIL) },
 
   // ── 元信息 / 协作 ──────────────────────────────────────────────────
   // 这一段几乎全是"改变了什么"：派子任务、记记忆、交付文件、改清单，用户都得知道。
@@ -540,8 +554,12 @@ const EXACT: Readonly<Record<string, Rule>> = {
   schedule_update: { verb: '调整定时任务', icon: 'bolt', impact: 'write' },
   schedule_delete: { verb: '删除定时任务', icon: 'bolt', impact: 'write' },
   schedule_list: { verb: '查看定时任务', icon: 'bolt' },
-  workflow: { verb: '执行 workflow', icon: 'spark', impact: 'write', detail: (a) => clip(str(a, 'name', 'description') ?? '', MAX_DETAIL) },
-  ralph: { verb: '执行 workflow', icon: 'spark', impact: 'write', detail: (a) => clip(str(a, 'name', 'description') ?? '', MAX_DETAIL) },
+  /*
+   * workflow / ralph 原先是「执行 workflow」—— 卡头上直接挂一个英文词，同样属于
+   * 用户点名不要的那种"技术话语"。改说「执行自动流程」：语义不变、读得懂。
+   */
+  workflow: { verb: '执行自动流程', icon: 'spark', impact: 'write', detail: (a) => clip(str(a, 'name', 'description') ?? '', MAX_DETAIL) },
+  ralph: { verb: '执行自动流程', icon: 'spark', impact: 'write', detail: (a) => clip(str(a, 'name', 'description') ?? '', MAX_DETAIL) },
 }
 
 /**
@@ -549,7 +567,7 @@ const EXACT: Readonly<Record<string, Rule>> = {
  *
  * 这类调用有个特别之处：它派出去的子智能体不是它的 subCalls（subCalls 是
  * Code Dispatch「工具里再调工具」那条通道），而是各自独立的 session。所以在
- * 时间线上它是一条孤零零的「执行 workflow」，用户完全看不到底下有几个子智能体、
+ * 时间线上它是一条孤零零的「执行自动流程」，用户完全看不到底下有几个子智能体、
  * 各自在干什么——只能自己跑去顶栏的子智能体目录里翻。标记出这类步骤后，
  * 卡片会给它挂一个子智能体区块（见 subagent-catalog.ts）。
  */
@@ -578,7 +596,8 @@ const PATTERNS: ReadonlyArray<readonly [RegExp, Rule]> = [
   [/write|edit|patch|replace/, { verb: '修改文件', icon: 'fileEdit', impact: 'write', fileOp: true }],
   [/delete|remove|unlink|rm$/, { verb: '删除文件', icon: 'trash', impact: 'write', fileOp: true }],
   [/search|grep|find|query/, { verb: '搜索', icon: 'search' }],
-  [/shell|bash|exec|command|pwsh|run_code/, { verb: '在终端执行命令', icon: 'terminal' }],
+  // 终端兜底：与上面 EXACT 那三条同一口径（理由见「终端」那一段注释）。
+  [/shell|bash|exec|command|pwsh|run_code/, { verb: '在电脑上操作', icon: 'terminal' }],
   [/download|fetch|curl|wget/, { verb: '下载文件', icon: 'download', impact: 'write' }],
   [/image|picture|draw|render/, { verb: '生成图片', icon: 'image', impact: 'write' }],
 ]

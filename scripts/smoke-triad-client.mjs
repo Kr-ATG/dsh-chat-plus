@@ -563,8 +563,13 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   }
 
   // 原始命令行绝不上屏：只进 tech。
+  //
+  // 动词口径（2026-10-25 用户点名）：**别说「在终端执行命令」**。那句是机器视角
+  // （"有个终端、在里面敲了条命令"），而这张卡给不会编程的人看，他只关心"它在
+  // 电脑上做了什么"。统一说「在电脑上操作」。断言钉死它，防止有人觉得"终端更准确"
+  // 又改回去。
   const sh = toPlainStep({ toolName: 'pwsh', args: { command: 'Get-ChildItem -Recurse C:\\secret', description: '列出目录' }, argsRaw: '{"command":"Get-ChildItem -Recurse C:\\\\secret","description":"列出目录"}', status: 'done' })
-  if (sh.verb !== '在终端执行命令' || sh.detail !== '列出目录') fail(`pwsh must use the description, got ${sh.verb} · ${sh.detail}`)
+  if (sh.verb !== '在电脑上操作' || sh.detail !== '列出目录') fail(`pwsh must say 在电脑上操作 + use the description, got ${sh.verb} · ${sh.detail}`)
   else if (sh.verb.includes('Get-ChildItem') || (sh.detail ?? '').includes('secret')) fail('the raw command must never reach the headline')
   else if (sh.tech?.name !== 'pwsh' || !String(sh.tech?.args ?? '').includes('Get-ChildItem')) fail('the raw command must stay reachable through the technical detail')
   else pass('pwsh keeps the raw command out of the headline but reachable in tech')
