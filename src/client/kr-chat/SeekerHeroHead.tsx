@@ -59,10 +59,22 @@ function idlePhraseFor(now: Date): string {
 /**
  * 新对话页的卡头内容。
  *
- * 只订阅三样：浏览器标志（可能正在操作浏览器）、齿轮/邮箱开合（按钮要亮）、
- * 一分钟时钟（空闲文案跨时段要换）。没有"当前动作"——新对话还没有动作。
+ * ## 运行态由外部传入（2026-10-25 修正）
+ *
+ * 上一版在这里自己开了个 400ms interval 读 DOM 判断"本轮在不在跑" —— 而
+ * kr-chat-controller **本来就有 250ms 的 syncDom 轮询**在调 syncSeekerHeroHead。
+ * 同一个状态两套轮询是纯浪费：两倍定时器、两倍 DOM 查询，而且两个来源可能短暂
+ * 不一致（一个已更新、一个还没）。
+ *
+ * 现在只保留控制器那一条：它每 250ms 算好 running 传进来，组件只管渲染。
+ *
+ * ## 为什么它必须感知运行态（用户：「为什么总是在休息中」）
+ *
+ * 用户在新对话页发出第一条消息后、首条回复落定前，这块卡头原先一直挂着「休息中」
+ * （它只显示按钟点选的空闲文案）。看起来像"她根本没在干活"。现在本轮在跑时显示
+ * 「在思考中」（主色 + 呼吸点，与操作面板卡头同一句话）。
  */
-function SeekerHeroHead(): ReactElement {
+function SeekerHeroHead({ running }: { readonly running: boolean }): ReactElement {
   const [clockTick, setClockTick] = useState(() => Date.now())
   useEffect(() => {
     const timer = window.setInterval(() => { setClockTick(Date.now()) }, 60_000)
@@ -77,10 +89,14 @@ function SeekerHeroHead(): ReactElement {
   const browserOn = browserEntry !== undefined
     && (browserEntry.active > 0 || browserEntry.lingering === true)
 
+  const thinking = running
+  const idleLine = thinking ? THINKING_PHRASE : idlePhraseFor(new Date(clockTick))
+
   return (
     <div className="kr-hero-head">
       <SeekerHead
-        idleLine={idlePhraseFor(new Date(clockTick))}
+        idleLine={idleLine}
+        thinking={thinking}
         browserEntry={browserEntry}
         browserOn={browserOn}
       />
@@ -88,19 +104,24 @@ function SeekerHeroHead(): ReactElement {
   )
 }
 
+/** 「在思考中」——与操作面板卡头同一句话（见 KrPlainTimelineCard 的 THINKING_PHRASE）。 */
+const THINKING_PHRASE = '在思考中'
+
 /** 跨 bundle 共享的挂载句柄（live reload 后旧根不能重复 createRoot）。 */
 const HOST_KEY = '__dshSeekerHeroHeadHost__'
 
 interface HeroHeadHost {
   root: Root | null
   container: HTMLElement | null
+  /** 上次已交给 React 根的 running 值（变化时才重渲染，见 syncSeekerHeroHead）。 */
+  lastRunning?: boolean
 }
 
 function getHost(): HeroHeadHost {
   const holder = window as unknown as Record<string, unknown>
   const existing = holder[HOST_KEY] as HeroHeadHost | undefined
   if (existing && typeof existing === 'object') return existing
-  const created: HeroHeadHost = { root: null, container: null }
+  const created: HeroHeadHost = { root: null, container: null, lastRunning: undefined }
   holder[HOST_KEY] = created
   return created
 }
@@ -108,9 +129,14 @@ function getHost(): HeroHeadHost {
 /**
  * 同步新对话页的卡头（幂等，由 kr-chat-controller 每 250ms 调一次）。
  *
+ * **不再自己开轮询**：运行态由调用方算好传进来（见 SeekerHeroHead 的注释）。
+ * 控制器那 250ms 的 syncDom 已经把「是否显示 + 是否在跑」都算清了，这里只负责
+ * 挂载与渲染。
+ *
  * @param shouldShow - 当前是否处于「空白新会话 + Seeker 视图」。
+ * @param running - 本轮是否正在跑（控制器算好，与右栏大盘同一口径）。
  */
-export function syncSeekerHeroHead(shouldShow: boolean): void {
+export function syncSeekerHeroHead(shouldShow: boolean, running = false): void {
   if (typeof document === 'undefined') return
   const host = getHost()
 
@@ -157,6 +183,8 @@ export function syncSeekerHeroHead(shouldShow: boolean): void {
       try { host.root.unmount() } catch { /* 已卸载 */ }
       host.root = null
     }
+    // 根换了 → 上次的 running 记录作废，新根必须渲染一次。
+    host.lastRunning = undefined
   }
 
   // 位置：composerStack 的前一个兄弟（会话切换 / 官方重渲染后可能被搬走）。
@@ -167,6 +195,23 @@ export function syncSeekerHeroHead(shouldShow: boolean): void {
 
   if (host.root === null) {
     host.root = createRoot(container)
-    host.root.render(<SeekerHeroHead />)
+    host.root.render(<SeekerHeroHead running={running} />)
+    host.lastRunning = running
+    return
+  }
+
+  /*
+   * running 变化时**重渲染**。
+   *
+   * 这个根是 createRoot 手动挂的，不像普通 React 树那样由父组件驱动 —— 不主动
+   * render 的话，控制器算出 running 变了、卡头还停在旧文案上（正是"总是休息中"
+   * 的另一种成因）。
+   *
+   * 只在**值真的变了**才 render：250ms 一次无条件 render 会让整棵卡头每 250ms
+   * 重跑一遍（立绘、SVG、动画声明全部重算），没必要。
+   */
+  if (host.lastRunning !== running) {
+    host.lastRunning = running
+    host.root.render(<SeekerHeroHead running={running} />)
   }
 }

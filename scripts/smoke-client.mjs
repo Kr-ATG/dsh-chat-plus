@@ -1735,6 +1735,22 @@ if (krEnabled) {
       fail('缺新对话页卡头（SeekerHeroHead.tsx 的 syncSeekerHeroHead）')
     } else if (!/\.kr-hero-head/.test(code)) {
       fail('client bundle 缺 .kr-hero-head 样式（新对话页卡头会没有居中与入场动效）')
+    } else if (!/function SeekerHeroHead\(\{ running \}: \{ readonly running: boolean \}\)/.test(
+      readFileSync(resolve(ROOT, 'src/client/kr-chat/SeekerHeroHead.tsx'), 'utf8'))) {
+      /*
+       * 新对话页卡头必须**感知本轮运行态**（2026-10-25 用户：「为什么总是在休息中」）。
+       *
+       * 它原先只显示按钟点选的空闲文案 —— 用户在新对话页发出第一条消息后、首条
+       * 回复落定前，这块卡头仍挂着「休息中」，看起来像"她根本没在干活"。
+       *
+       * 运行态**由控制器传进来**（running prop），组件自己不轮询：
+       * kr-chat-controller 本来就有 250ms 的 syncDom 轮询在调 syncSeekerHeroHead，
+       * 同一个状态再开一套 400ms 定时器是纯浪费（两倍 DOM 查询、两个来源可能不一致）。
+       */
+      fail('新对话页卡头必须接收 running prop（运行态由控制器 250ms 轮询传入，组件不自开定时器）')
+    } else if (!/export function isCurrentTurnRunning/.test(
+      readFileSync(resolve(ROOT, 'src/client/kr-chat/turn-state.ts'), 'utf8'))) {
+      fail('回合状态判据必须抽成独立模块（turn-state.ts），否则 controller 与 Hero 卡头循环依赖')
     } else if (!/\.kr-plain-head__name\s*\{[^}]*font-size:\s*max\(13px, calc\(var\(--dsh-content-font-size/.test(code)) {
       /*
        * 卡头文字字号 = **DSH 正文 +2**（2026-10-25 用户：「文字浏览器图标都跟随 dsh

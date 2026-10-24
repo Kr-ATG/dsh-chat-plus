@@ -19,6 +19,7 @@ import { getPanelSettingsStore } from './panel-settings-store.ts'
 import { getMailDrawerStore } from './mail-drawer-store.ts'
 import { mountMailDrawer } from './mail-drawer.tsx'
 import { syncSeekerHeroHead } from './SeekerHeroHead.tsx'
+import { isCurrentTurnRunning, resolveLatestTurn } from './turn-state.ts'
 import { KrAgentPanel } from './KrAgentPanel.tsx'
 import { activityStore } from '../tool-summary/activity-drawer.tsx'
 import { getCurrentChatSnapshot, latestChatSessionId, leaveCurrentChatSession, subscribeLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
@@ -52,46 +53,6 @@ interface KrControllerHandle {
   /** 本实例的 DOM 同步函数；旧实例可经它转发，避免持有过期闭包。 */
   syncDom: () => void
   dispose: () => void
-}
-
-/**
- * 当前会话的最新轮次号。
- *
- * 空白新会话没有任何 navigation 条目，此时返回 1（面板随即走空态），
- * 绝不能沿用上一会话遗留的轮次号。数据源优先取实时快照，其次 DOM。
- */
-function resolveLatestTurn(): number {
-  const snap = getCurrentChatSnapshot()
-  const snapTurns = snap?.navigation?.current?.map((n: any) => n.turn).filter((n: any) => typeof n === 'number' && n > 0) || []
-  if (snapTurns.length > 0) return Math.max(...snapTurns)
-  const domTurns = typeof document !== 'undefined'
-    ? Array.from(document.querySelectorAll('[data-chat-turn]'))
-      .map(el => parseInt(el.getAttribute('data-chat-turn') || '0', 10))
-      .filter(n => Number.isFinite(n) && n > 0)
-    : []
-  return domTurns.length > 0 ? Math.max(...domTurns) : 1
-}
-
-/**
- * 回合是否仍在执行。以 snapshot.timeline 的 start/end 为事实源，避免活动卡
- * 正在播放 1.18s 退场动画时，DOM 仍有节点就把右侧大盘误判为 running。
- * 只有旧 host 读不到 timeline 时才回退到「active 卡 / assistant running」DOM。
- */
-function isCurrentTurnRunning(turn: number): boolean {
-  const snap = getCurrentChatSnapshot()
-  try {
-    const turns = snap?.timeline?.turns
-    const timing = turns?.get ? turns.get(turn) : turns?.[turn]
-    if (typeof timing?.start?.time === 'number') {
-      return typeof timing.end?.time !== 'number'
-    }
-  } catch { /* 旧 snapshot 形状回退 DOM */ }
-  if (typeof document === 'undefined') return false
-  return Boolean(
-    document.querySelector('.kr-agent-mini-shell[data-active="true"] .kr-agent-mini-card')
-    || document.querySelector('[data-turn-process] [data-running="true"]')
-    || document.querySelector('.dtt__assistant[data-running="true"]'),
-  )
 }
 
 /**
@@ -590,7 +551,14 @@ export function mountKrChatController(): void {
      * 就在操作面板卡里），这里必须同时摘掉，否则页面上会同时出现两张一模一样的卡头。
      */
     try {
-      syncSeekerHeroHead(isKr && !hasConversationContent())
+      /*
+       * running 由这里算好传下去（控制器本来就有 250ms 的 syncDom 轮询，
+       * 卡头组件不再自己开定时器）。判据与右栏大盘完全同一口径。
+       */
+      syncSeekerHeroHead(
+        isKr && !hasConversationContent(),
+        isCurrentTurnRunning(Math.max(1, resolveLatestTurn())),
+      )
     } catch (error) {
       console.warn('[kr-chat] hero head sync failed', error)
     }
