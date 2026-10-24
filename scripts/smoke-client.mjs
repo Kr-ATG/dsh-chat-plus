@@ -1687,6 +1687,19 @@ if (krEnabled) {
         + '点了要能切到那个窗口')
     } else if (!/export async function activateBrowserWindow/.test(readFileSync(resolve(ROOT, 'src/client/browser-flag/activate.ts'), 'utf8'))) {
       fail('缺 activateBrowserWindow（POST /api/chat-flow/activate-window 的客户端封装）')
+    } else if (!/\.kr-card--subs\s*\{[^}]*background:\s*transparent/.test(code)
+      || !/\.kr-card--subs\s*\{[^}]*border:\s*0/.test(code)
+      || !/\.kr-card--subs\s*\{[^}]*box-shadow:\s*none/.test(code)) {
+      /*
+       * 子智能体**不套卡片外框**（2026-10-25 用户：「子智能体不要卡片包裹」）。
+       *
+       * 底色 / 描边 / 圆角 / 投影 四样必须全部抹掉 —— 只抹一两样的话，剩下的会
+       * 让它仍然读成一张卡，用户看到的还是被包着。
+       *
+       * 同时必须保住固定 5 行高度（height 断言在上一条）：去外框只动视觉，
+       * 不动盒子尺寸。高度一旦丢，下面那张操作面板立刻又开始跳。
+       */
+      fail('子智能体卡必须去掉卡片外框（background:transparent + border:0 + box-shadow:none）')
     } else if (!/const browserOn = browserActive \|\| \(running && browserSticky\)/.test(cardSrc)) {
       /*
        * 「只要 ego 没收口就不要消失」（2026-10-25 用户要求）。
