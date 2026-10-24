@@ -54,13 +54,20 @@ export interface DshTaskItem {
   readonly status: 'pending' | 'in_progress' | 'completed'
 }
 
-/** 任务清单的数据口径（由 KrAgentPanel 的三级回退判定，见其 tasksView memo）。 */
-export type TaskSource = 'turn' | 'live' | 'session' | 'none'
+/**
+ * 任务清单的数据口径（由 KrAgentPanel 的 tasksView memo 判定）。
+ *
+ * 2026-10-24 起只剩三条：'turn'（本轮快照里的 todo_write / submitted-plan）、
+ * 'session'（**仅在看历史轮次时**回溯到会话最近一次清单，卡片挂「会话清单」小标）、
+ * 'none'（空）。原来的 'live'（官方 todos 投影，按会话累积）已整条删除 ——
+ * 它会让「刚发出新一轮」的那一屏挂着上一轮的清单，正是用户报的那个现象。
+ */
+export type TaskSource = 'turn' | 'session' | 'none'
 
 export interface TaskOverviewCardProps {
   readonly tasks: readonly DshTaskItem[]
   readonly isRunning?: boolean
-  /** 'session' = 跨轮次回退到会话最近一次清单；其余口径不标注。 */
+  /** 'session' = 回溯到会话最近一次清单（只在看历史轮次时出现，卡片给出小标）。 */
   readonly source?: TaskSource
 }
 
@@ -226,6 +233,14 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
    * 进度说明是**纯文字**，不再是一枚带底色的徽标（按用户要求）：卡片标题行
    * 右侧挂一枚胶囊，右栏每张卡各挂一枚，三张并排时是一列色块，噪声比信息
    * 本身大。文字弱一级（.kr-card__meta）即可，扫读时不会和标题抢。
+   */
+  /*
+   * 空态文案：本轮还没有任务（2026-10-24 复核过）。
+   *
+   * 这一句现在会准确出现在「刚发出新一轮、模型还没写 todo」的那一屏 —— 取数口径
+   * 收紧之后就只剩本轮真实清单，再没有跨轮次回退来填它。所以文案不必改成
+   * 「本次对话还没有任务」（那是旧口径下的说法，暗示了跨轮次），"本轮"才是这张卡
+   * 实际回答的范围。
    */
   const progressMeta = empty ? (
     '本轮还没有任务'

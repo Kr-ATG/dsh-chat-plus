@@ -1,24 +1,33 @@
 /**
- * dsh-chat-plus — 「操作面板」卡（右栏大盘滚动区的最后一张卡）。
+ * dsh-chat-plus — 「操作面板」卡（右栏大盘滚动区的一张卡）。
  *
- * 读者是**不会编程的普通用户**。这张卡只回答两件事：
- *   · **已经做了什么** —— 来自工具调用事实，由 plain-language 翻成中文人话；
- *   · **准备做什么**   —— 来自模型在思考里自己播报的 `下一步：…`。
+ * 读者是**不会编程的普通用户**。2026-10-24 起这张卡换了形态（用户点名要的）：
  *
- * 刻意不做的三件事：
+ *     鲸鱼娘立绘
+ *       Seeker
+ *       ▶ 打开网页  携程旅行网 · 机票          ← 只有这一行，新动作把它顶掉
+ *
+ * 也就是说它从「一列按时间读的流水」变成了**一张状态卡**：卡上永远只有
+ * 当前正在做的那一件事，不堆历史。为什么这样更好：
+ *  · 用户抬头扫一眼就知道"现在在干嘛"，不需要在读 13 行之后再自己找进行中的那条；
+ *  · 卡片高度恒定（头像 + 名字 + 一行），右栏不会因为动作流增长而反复变高，
+ *    下面的「任务概览 / 产出物 / 记忆」几张卡的位置就稳了。
+ *
+ * 历史去哪了：**没删，默认收起**（2026-10-24 按用户要求「操作面板默认不展开」）。
+ * 展开后仍是原来那份完整时间线（失败人话原因、条目长度上限全部保留），点卡头
+ * 即可切 —— 收起态那一行只回答"此刻在干嘛"，历史是点开才看的东西。
+ *
+ * 卡头那一行的**耗时读数已隐藏**（同一天，用户「那一行的秒数给隐藏」）；展开后
+ * 时间线里每行自己那枚耗时原样保留（「里面的不隐藏」）。
+ *
+ * 刻意不做的三件事（沿用）：
  *  1. 不显示工具函数名、参数名、原始命令行、完整文件路径——那些只在点开
  *     单条时的二级技术信息里出现；
  *  2. 不做「同一动作聚合计数」——browser_click 点了 20 次，「点了 20 次」
  *     本身就是事实，折叠成一行会把它抹掉；
  *  3. 不自己算进度百分比——进行中 / 已完成 / 失败三个计数已经够了。
  *
- * 实时性：列表用 useSteppedFollow 跟随，新步骤贴底；用户上滚即截停，滚回
- * 底部自动恢复。与思考过程卡同一套手感。
- *
- * 子智能体（`subagent` / `workflow` 派出去的那些）**不在这张卡里列**：
- * 它们是独立会话，缩进挂在某一步下面会被读成"这一步的内部细节"，还会把一列按
- * 时间读的流水截成一段一段。2026-10-08 起它们有自己的卡（KrSubagentsCard），
- * 这里只在派生那一步留一枚计数徽标（「派出 3 个子智能体」）。
+ * 头像（鲸鱼娘）见 WhalePortrait.tsx：位图分层，尾巴单独摇。
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -26,42 +35,30 @@ import type { CSSProperties, ReactElement } from 'react'
 import { useHeightAnimation, useMotionAllowed, useSteppedFollow } from '../motion-utils.ts'
 import { formatDuration } from '../tool-summary/tool-stats.ts'
 import type { PlainIconKey, PlainStep } from './plain-language.ts'
-import { condenseSteps, countOf, stripCount, type PlainStepView, type PlainTimeline } from './plain-timeline.ts'
+import type { PlainTimeline } from './plain-timeline.ts'
 import type { SubagentCatalogView } from './subagent-catalog.ts'
 import { workspaceCwdOf } from '../client-ctx.ts'
 import { tryOpenInSidebar } from '../open-preview.ts'
+import { WhalePortrait } from './WhalePortrait.tsx'
 
 /**
- * 详细/简要的落盘键。换个键名就会丢用户上次的偏好，改动时留意。
+ * 「简要 / 详细」两档**已整块删除**（2026-10-24 用户点名：「点击就是详细不需要简要了」）。
  *
- * 带 `_v2` 后缀：默认档从「详细」改成「简要」，而旧键里存着的是上一版留下的
- * 偏好（多数人从没按过，值是默认的 full）。不换键的话这批人会被旧值钉在详细档，
- * 新功能对他们等于没生效。换键时顺手清掉旧的。
- */
-const VIEW_STORAGE_KEY = 'dsh.kr_chat.plain_view_v2'
-const VIEW_STORAGE_KEY_LEGACY = 'dsh.kr_chat.plain_view'
-
-/**
- * 读上次的选择；读不到（首次访问 / 隐私模式禁用存储）一律回**简要**。
+ * 旧形态：卡头挂两枚常驻按钮切档，默认简要（把成功的文件操作与已解决的失败收敛掉）。
+ * 现在：卡上**永远只有一行当前动作**（原简要档的极致形态），点开就是**完整详细
+ * 时间线** —— 一步不省、每条都带图标与耗时。
  *
- * ��认简要而不是详细：这张卡的读者是普通用户，他明确说过"不在意你干了啥"，
- * 而 80% 以上的步骤都是翻文件/看网页这类 read——默认给详细等于每次都先砸给
- * 他一屏噪音、再让他自己动手关掉。想看全的人自己按一下"详细"，那是一个主动
- * 意图；反过来（默认详细、要收敛）是把收敛的活儿推给用户。
+ * 为什么这个组合比两档切换更合理：
+ *  · 折叠态已经足够克制（一行），不再需要"简要"这个中间档；
+ *  · 展开的意图很明确 —— 用户点开就是要看全部，再让他二次选择"要不要收敛"是多余的一步；
+ *  · 少一个持久化偏好 = 少一处"升级后默认值失效"的坑。
+ *
+ * 旧的两个 localStorage 键一并清掉：留着只会在用户下次打开时读到一份没人再消费的值。
  */
-function readStoredView(): PlainStepView {
-  try {
-    localStorage.removeItem(VIEW_STORAGE_KEY_LEGACY)
-    return localStorage.getItem(VIEW_STORAGE_KEY) === 'full' ? 'full' : 'brief'
-  } catch {
-    return 'brief'
-  }
-}
-function writeStoredView(view: PlainStepView): void {
-  try {
-    localStorage.setItem(VIEW_STORAGE_KEY, view)
-  } catch { /* ignore */ }
-}
+try {
+  localStorage.removeItem('dsh.kr_chat.plain_view')
+  localStorage.removeItem('dsh.kr_chat.plain_view_v2')
+} catch { /* 隐私模式下忽略 */ }
 
 /**
  * 列表视口最大行数：6 → 8 → **13**（用户按实际观感定的档，8 → 13 是「再加 100px」：
@@ -90,7 +87,7 @@ export interface KrPlainTimelineCardProps {
    * 传 null = 目录还没落地，计数那枚徽标直接显示「派出子任务」。
    *
    * 口径是会话累计（2026-10-23）：目录不再按轮次裁剪，这枚计数说「这场对话一共
-   * 派出去几个」，与下面那张子智能体卡逐行列出的是同一批 —— 两处数字必须对得上，
+   * 派出去几个」，与上面那张子智能体卡逐行列出的是同一批 —— 两处数字必须对得上，
    * 否则读者会以为卡里漏了东西。
    */
   readonly subagentCatalog?: SubagentCatalogView | null
@@ -204,7 +201,7 @@ function OpenFileChip({ step, sessionId }: {
   )
 }
 
-function StepRow({ step, index, subagentCount, brief, sessionId }: {
+function StepRow({ step, index, subagentCount, sessionId }: {
   readonly step: PlainStep
   readonly index: number
   /**
@@ -216,40 +213,26 @@ function StepRow({ step, index, subagentCount, brief, sessionId }: {
    * 这里只留一枚计数，说清"这一步派了几个"，要跳过去看在下面那张卡上。
    */
   readonly subagentCount: number | null
-  /** 简要（纪要）模式：不要图标，动词写回文字里。 */
-  readonly brief: boolean
   /** 当前会话 id：点「预览」时用它构造文件地址。 */
   readonly sessionId: string | null
 }): ReactElement {
   /*
-   * 一句话 = **动词 + 对象**。
+   * 一句话 = **对象**（拿不到对象时才退回动词）。
    *
-   * 详细模式下图标已经说了"是哪类动作"，文字只留对象（「plain-language.ts」）就够；
-   * 简要模式没有图标，动词就没人说了——一行光写"plain-language.ts"用户根本读不出
-   * 是改了它还是读了它。所以 brief 时把动词补回文字（`修改 plain-language.ts`），
-   * 靠文字里的间隔号断句，不再靠图标承担。
+   * 行首那枚图标已经说了"是哪类动作"，文字再重复"修改文件""查看文件"就是
+   * 把图标说的话抄一遍——扫一列下来全是重复句。所以这里只留对象
+   * （「plain-language.ts」）。
    *
-   * brief 下再拆成三段：动词、对象、次数。原来三者是同一个 span 的同一串字，
-   * 读起来「修改文件」重、「triad-modal-animation.ts · 共 7 次」轻——那不是配色
-   * 故意做的层次，只是 CJK 笔画密而拉丁字形细，视觉重量天然压在前半截，
-   * 文件名与次数被顺带压到了"看不清"。拆开后各自有独立的字重与尺寸：
-   * 动词最重、对象同色略轻、次数提为彩色药丸。层次是排出来的，不是撞出来的。
-   *
-   * 折叠时 `condenseSteps` 会在 detail 尾部贴「· 共 N 次」（对象为空时整条
-   * 就是「共 N 次」），这里按同一条分隔规则拆开：分隔符随次数药丸走，不再
-   * 把「共 N 次」混在对象字符串中间。
+   * 2026-10-24：原来还有一套"简要模式"的三段式排版（动词 + 对象 + 次数药丸），
+   * 随简要档一起删掉了。现在展开就是详细，视觉上只有这一种行。
    */
-  const base = brief ? stripCount(step.detail) : step.detail
-  const title = brief
-    ? (base === undefined || base === '' ? step.verb : `${step.verb} ${base}`)
-    : (base === undefined || base === '' ? step.verb : base)
-  const count = brief && step.detail !== undefined ? countOf(step.detail) : null
+  const base = step.detail
+  const title = base === undefined || base === '' ? step.verb : base
   const failed = step.status === 'failed'
   return (
     <div
       className="kr-plain-step"
       data-status={step.status}
-      data-brief={brief ? 'true' : undefined}
       data-nested={step.spawnsSubagents === true ? 'true' : undefined}
       // 错峰入场：只对靠后的若干条错开，卡片整体不拖出一段长尾。
       style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
@@ -259,26 +242,11 @@ function StepRow({ step, index, subagentCount, brief, sessionId }: {
        *
        * 原来行首是「状态槽 + 类别图标」两列，而状态槽 99% 的行是空盒——一整列
        * 14px 空白只为等那一条红叉，已整列删除。
-       *
-       * **简要模式整枚不画**（brief 时不渲染）：那一列已经只剩三行里程碑与一条
-       * 报错，图标在纪念要里是纯噪声——用户读的是「改了什么 / 出了什么事」，不是
-       * 「这属于哪类工具」。省下的一列让文字从卡缘起，句子读起来是一整句而不是
-       * 「图标 + 半个词」。失败由行文字本身的红色与那枚人话原因药丸承担。
        */}
-      {!brief && (
-        <span className="kr-plain-step__icon" data-failed={failed ? 'true' : undefined} aria-hidden>
-          <Icon name={step.icon} />
-        </span>
-      )}
-      {brief ? (
-        <span className="kr-plain-step__title" title={title}>
-          <span className="kr-plain-step__verb">{step.verb}</span>
-          {base !== undefined && base !== '' && <span className="kr-plain-step__object">{base}</span>}
-          {count !== null && <span className="kr-plain-step__count">{count}</span>}
-        </span>
-      ) : (
-        <span className="kr-plain-step__title" title={title}>{title}</span>
-      )}
+      <span className="kr-plain-step__icon" data-failed={failed ? 'true' : undefined} aria-hidden>
+        <Icon name={step.icon} />
+      </span>
+      <span className="kr-plain-step__title" title={title}>{title}</span>
       {/*
        * 失败原因：**人话**那一句，不是原始报错。
        *
@@ -306,12 +274,12 @@ function StepRow({ step, index, subagentCount, brief, sessionId }: {
           className="kr-plain-step__subcount"
           /*
             * 计数口径是**整场会话**（2026-10-23 起，目录不再按轮次裁剪）：这场
-            * 对话一共派出去几个，就是几个，与下面「子智能体」卡逐行列出的是同一
+            * 对话一共派出去几个，就是几个，与上面「子智能体」卡逐行列出的是同一
             * 批。两处数字必须一致——徽标说 5 个、卡里只列 2 行，读者会以为卡漏了。
             */
           title={subagentCount === null
-            ? '正在读取子智能体清单；读完可在下面「子智能体」卡里逐个点进去看'
-            : `本次对话派出 ${subagentCount} 个子智能体；在下面「子智能体」卡里点一行即跳过去看`}
+            ? '正在读取子智能体清单；读完可在上面「子智能体」卡里逐个点进去看'
+            : `本次对话派出 ${subagentCount} 个子智能体；在上面「子智能体」卡里点一行即跳过去看`}
         >
           {subagentCount === null ? '派出子任务' : `派出 ${subagentCount} 个子智能体`}
         </span>
@@ -327,36 +295,25 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   sessionId = null,
   subagentCatalog = null,
 }: KrPlainTimelineCardProps) {
-  // 默认展开：这张卡挂在滚动区最末尾，收起等于把它藏到视线之外。
-  const [open, setOpen] = useState(true)
+  /*
+   * 默认**收起**（2026-10-24 按用户要求）。
+   *
+   * 上一版是默认展开，理由是"它挂在滚动区最末尾，收起等于把它藏到视线之外"。
+   * 但卡头那三行（立绘 / Seeker / 当前动作）本来就是这张卡的主视图——用户点名
+   * 「操作面板默认不展开」，说明他要的就是"扫一眼当前在干嘛"，要看历史自己点开。
+   * 收起态也是右栏最省高度的那一档，能给上面的子智能体与下面的任务概览让位。
+   */
+  const [open, setOpen] = useState(false)
   const motion = useMotionAllowed(true)
   const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(open, motion)
 
   /*
-   * 详细 / 简要：默认**简要**（见 readStoredView 的理由），选择落盘记住。
-   */
-  const [view, setView] = useState<PlainStepView>(() => readStoredView())
-  /**
-   * 直接定档并落盘。两枚按钮各写清自己的档位，就不需要"在两档间来回拨"的 toggle。
+   * 展开后显示的就是**完整详细时间线**：不收敛、不过滤、一步不省。
    *
-   * 落盘**不能**写在 setState 的 updater 里：updater 必须保持纯函数（React 并发
-   * 模式下可能调用它两次、也可能不调用，副作用就会时有时无）。所以 updater 只做
-   * 纯状态变更，写盘放在它外面。ref 记着当前档，用来判断"值真的变了"——不能拿
-   * 磁盘值比：controller 每 250ms 重渲染一次，磁盘值与此刻 state 可能不同步。
+   * 「简要」这一档已经整块删掉（见文件顶部的说明）：折叠态那一行本身就是最克制
+   * 的呈现，用户点开卡片就是要看全部。所以这里直接吃 timeline.steps。
    */
-  const viewRef = useRef(view)
-  const setViewDirect = useCallback((next: PlainStepView) => {
-    if (viewRef.current === next) return
-    viewRef.current = next
-    setView(next)
-    writeStoredView(next)
-  }, [])
-
-  const brief = view === 'brief'
-  const steps = useMemo(
-    () => (brief ? condenseSteps(timeline.steps) : timeline.steps),
-    [brief, timeline.steps],
-  )
+  const steps = timeline.steps
 
   /*
    * 子智能体目录**不在这里订阅**（2026-10-08 起）：数据由 KrAgentPanel 单点订阅
@@ -397,17 +354,49 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
 
   const empty = timeline.steps.length === 0
   const maxRows = squeezed ? LIST_MAX_ROWS_SQUEEZED : LIST_MAX_ROWS
-  // 折叠了多少：给切换按钮做 tooltip，也让"简要"模式下的收敛量可核对。
-  const hiddenCount = timeline.steps.length - steps.length
+
+  /*
+   * 卡头上唯一那一行动作：**当前正在做的事**。
+   *
+   * 取值口径（三条，顺序即优先级）：
+   *  1. 有一条 running → 就是它（同时只可能有一条，模型是串行执行的）；
+   *  2. 没有 running 但本轮还在跑 → 取最后一条（刚做完、正在起下一步）；
+   *  3. 本轮已收口 → 取最后一条（"最后一件事"比"什么都没显示"有用）。
+   *
+   * 用**完整时间线**（timeline.steps）而不是收敛后的 steps：简要档会把成功的
+   * 文件操作整类砍掉，若此刻正在改文件，卡头就会空着——而"正在改文件"恰恰
+   * 是最该显示的一条。这里要的是"此刻在干嘛"，不是"纪要"。
+   */
+  const currentAction = useMemo<PlainStep | null>(() => {
+    const all = timeline.steps
+    if (all.length === 0) return null
+    for (let i = all.length - 1; i >= 0; i -= 1) {
+      const step = all[i]
+      if (step !== undefined && step.status === 'running') return step
+    }
+    return all[all.length - 1] ?? null
+  }, [timeline.steps])
 
   return (
-    <div className="kr-card kr-card--plain" data-empty={empty || undefined} data-view={view}>
+    <div className="kr-card kr-card--plain" data-empty={empty || undefined}>
+      {/*
+       * 卡头：竖排「鲸鱼娘立绘 / 名字 / 当前动作」。
+       *
+       * 与旧版（横向图标 + 标题 + 详细切档）的差别：
+       *  · 头像位给的是**活物**（WhalePortrait，尾巴会摇），不是一枚线条图标；
+       *  · 不再有「详细 / 简要」两枚常驻按钮 —— 它俩在这个尺寸下是最吵的元素，
+       *    而且默认档就是简要，多数人从不切换。现在整个卡头都可点，点一下展开
+       *    完整时间线（内含切档按钮与全部历史）。
+       *  · 动作行**只显示一条**（当前进行中优先，没有进行中就是最后一条），
+       *    新动作把它顶掉。这是用户点名要的：不堆流水，只看此刻。
+       */}
       <div
-        className="kr-card__header"
+        className="kr-card__header kr-plain-head"
         onClick={() => { setOpen((value) => !value) }}
         role="button"
         tabIndex={0}
         aria-expanded={open}
+        aria-label={`操作面板 · ${currentAction === null ? '暂无动作' : currentAction.verb}${open ? '（已展开时间线）' : ''}`}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()
@@ -415,72 +404,37 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
           }
         }}
       >
-        <span className="kr-card__icon">
-          {/*
-           * 「一串按时间发生的动作」：左侧竖线 + 三个节点 + 右侧递减的短线。
-           *
-           * 换掉原来的八向光芒（那是从"思考/灵感"那儿借来的，与这张卡讲的事
-           * 无关），也刻意避开和另外几张卡撞形：任务概览是横向清单、思考过程是
-           * 灯泡、工具调用是扳手、记忆是大脑。这张卡讲的是「模型按顺序做了哪几
-           * 件事」，时间线/序列是唯一诚实的图形语言。
-           */}
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M4.2 3v10" />
-            <circle cx="4.2" cy="4.6" r="1.35" />
-            <circle cx="4.2" cy="8" r="1.35" />
-            <circle cx="4.2" cy="11.4" r="1.35" />
-            <path d="M8.4 4.6h4.4M8.4 8h3.4M8.4 11.4h2.2" />
-          </svg>
-        </span>
-        <span className="kr-card__title">操作面板</span>
-        {/*
-         * 详细 / 简要 切换（卡头右上角）。
-         *
-         * 读者是普通用户：他不在意模型翻了多少个文件、点了几次屏幕，只关心「改了
-         * 哪些东西」「出了什么事」。简要模式据此把连续的查看动作收敛成一行，只留
-         * 写/改/删、失败与进行中（判定见 plain-timeline 的 condenseSteps）。
-         *
-         * 形态：两枚并列的小按钮，各带一枚图形（等宽三横线=详细，递减两横线=简
-         * 要），当前档用**主文字色 + 一枚淡底色圆角块**标出。放弃上一版的滑块：
-         * 滑块在 440px 宽的右栏里要占 66px，且"滑块停在哪"这件事在扫读时要盯一
-         * 眼才读得出；两枚按钮各写清自己的名字，扫读零成本，宽度也省一半。
-         *
-         * stopPropagation 是必须的——整行 header 都是折叠热区，不拦住的话点切换
-         * 会顺带把卡片收起。
-         */}
-        <div className="kr-plain-view" role="group" aria-label="操作面板显示密度">
-          <button
-            type="button"
-            className="kr-plain-view__btn"
-            data-active={view === 'brief' ? 'true' : undefined}
-            aria-pressed={view === 'brief'}
-            title="简要：只看改了东西、失败与进行中，其余查看动作收敛成一行"
-            onClick={(event) => { event.stopPropagation(); setViewDirect('brief') }}
-          >
-            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-              <path d="M2.2 4.4h5.6" />
-              <path d="M2.2 9.6h9.6" />
-            </svg>
-            <span>简要</span>
-          </button>
-          <button
-            type="button"
-            className="kr-plain-view__btn"
-            data-active={view === 'full' ? 'true' : undefined}
-            aria-pressed={view === 'full'}
-            title={hiddenCount > 0
-              ? `详细：看每一步做了什么（简要模式下可折叠 ${hiddenCount} 步）`
-              : '详细：看每一步做了什么'}
-            onClick={(event) => { event.stopPropagation(); setViewDirect('full') }}
-          >
-            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-              <path d="M2.2 2.9h9.6" />
-              <path d="M2.2 7h9.6" />
-              <path d="M2.2 11.1h9.6" />
-            </svg>
-            <span>详细</span>
-          </button>
-        </div>
+        <WhalePortrait size={92} motion={motion} />
+        <span className="kr-plain-head__name">Seeker</span>
+        {currentAction === null ? (
+          <span className="kr-plain-head__idle">{empty ? '等待本轮开始' : '已收口'}</span>
+        ) : (
+          <span className="kr-plain-head__act" data-status={currentAction.status}>
+            <span className="kr-plain-head__ic" aria-hidden>
+              <Icon name={currentAction.icon} />
+            </span>
+            <span className="kr-plain-head__verb">{currentAction.verb}</span>
+            {currentAction.detail !== undefined && currentAction.detail !== '' && (
+              <span className="kr-plain-head__detail">{currentAction.detail}</span>
+            )}
+            {/*
+             * 卡头这一行的耗时**不显示**（2026-10-24 按用户要求）。
+             *
+             * 注意范围：只藏**卡头这一行**（收起态唯一可见的那一行）的秒数。
+             * 展开后时间线里每一行自己那枚耗时（.kr-plain-step__time，见 StepRow）
+             * 原样保留 —— 用户原话是「那一行的秒数给隐藏，里面的不隐藏」，
+             * 「里面」指的正是展开后的明细行。删错一处就会让明细失去耗时读数。
+             */}
+            {/*
+             * ⚠ 上面那段注释是给读代码的人看的；真正生效的是下面这段注释掉的
+             * 渲染。保留注释而不是删掉整块，是因为这枚读数只差一个开关就能回来
+             * （用户的口径常变，删了就得重写一遍同构的 JSX）。
+             */}
+            {/* {currentAction.durationMs !== undefined && currentAction.durationMs > 40 && (
+              <span className="kr-plain-head__time">{formatDuration(currentAction.durationMs)}</span>
+            )} */}
+          </span>
+        )}
       </div>
 
       {bodyPresent && (
@@ -505,6 +459,7 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
            * 渲染出口，而模型每一步都要多写一行。相关注入规则、composer 那枚
            * 「操作面板」开关、extractIntent / nowLabel 一并移除。
            */}
+
 
           {empty ? (
             <div className="kr-plain-empty">本轮还没有执行动作</div>
@@ -533,7 +488,6 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
                   step={step}
                   index={index}
                   subagentCount={step.spawnsSubagents === true ? subagentCount : null}
-                  brief={brief}
                   sessionId={sessionId}
                 />
               ))}

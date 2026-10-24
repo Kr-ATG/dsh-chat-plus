@@ -2140,6 +2140,215 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   padding-bottom: 11px;
 }
 
+/* ══ 操作面板 · 卡头（2026-10-24 竖排形态） ══════════════════════════════
+
+   结构：鲸鱼娘立绘 / Seeker / 一行当前动作。
+
+   为什么竖排：用户点名要的（对照一张「头像 · 名字 · 状态」的参考图）。横排把
+   头像、名字、动作挤在一行里，440px 右栏下动作文字只能分到一半宽度，
+   「在输入框里填写 出发地 上海」这种就会被截成「在输入框里填…」。竖排之后
+   动作行独占一整行，反而是更省宽度的排法。
+
+   整块是折叠热区（沿用旧卡头语义），点一下展开完整时间线。 */
+.kr-plain-head {
+  /* 竖排：三段垂直居中 */
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  /* 旧 .kr-card__header 是 row + gap:6，这里整块覆盖 */
+  padding: 2px 0 1px;
+  cursor: pointer;
+  user-select: none;
+  min-width: 0;
+}
+
+/* 名字：与立绘同宽居中。字号跟官方字号轴走（见「字号轴」段）。 */
+.kr-plain-head__name {
+  margin-top: 3px;
+  font-size: var(--kr-fs-title, 13px);
+  font-weight: 650;
+  letter-spacing: .01em;
+  color: var(--dsw-alias-label-primary);
+  line-height: 1.3;
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 当前动作：**只有一行**，新动作把它顶掉（不做历史堆叠）。 */
+.kr-plain-head__act {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 2px;
+  /* 高度锁死：动作换行时卡片不抖，右栏下面几张卡的位置也不会跳 */
+  height: calc(22px + var(--dsh-content-font-delta, 0px));
+  max-width: 100%;
+  min-width: 0;
+  font-size: var(--kr-fs-12, 12px);
+  line-height: 1.4;
+}
+
+.kr-plain-head__ic {
+  flex: none;
+  display: flex;
+  color: var(--dsw-alias-label-tertiary);
+  transition: color var(--kr-dur-fade) linear;
+}
+
+.kr-plain-head__act[data-status="running"] .kr-plain-head__ic {
+  color: var(--kr-accent, #3d94cf);
+}
+
+.kr-plain-head__act[data-status="failed"] .kr-plain-head__ic {
+  color: var(--kr-bad, #e5484d);
+}
+
+/* 动词：弱一档，说明"在做什么" */
+.kr-plain-head__verb {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 500;
+}
+
+/* 对象：主文字色，是这一行里最该被读到的部分 */
+.kr-plain-head__detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 耗时：等宽数字，贴在最右 */
+.kr-plain-head__time {
+  flex: none;
+  font-size: var(--kr-fs-10-5, 10.5px);
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 没有动作时的兜底行（本轮未开始 / 已收口） */
+.kr-plain-head__idle {
+  margin-top: 2px;
+  height: calc(22px + var(--dsh-content-font-delta, 0px));
+  display: flex;
+  align-items: center;
+  font-size: var(--kr-fs-12, 12px);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* ══ 鲸鱼娘立绘 ══════════════════════════════════════════════════════════
+
+   位图分层（见 WhalePortrait.tsx）：整张立绘 + 单独一层尾鳍。
+   容器固定尺寸、内部舞台用 transform:scale() 缩放 —— 两层严格对位。 */
+.kr-whale {
+  position: relative;
+  flex: none;
+  /* 舞台缩到容器尺寸后会溢出，必须裁掉（否则会盖住卡片正文） */
+  overflow: hidden;
+  /* 立绘底部自然收尖，给一点柔和的落地感 */
+  filter: drop-shadow(0 6px 14px rgba(60, 110, 170, .16));
+  transition: filter var(--kr-dur-fade) var(--kr-ease-soft);
+}
+
+.kr-card:hover .kr-whale {
+  filter: drop-shadow(0 8px 18px rgba(60, 110, 170, .24));
+}
+
+.kr-whale__stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.kr-whale__sway {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 97%;
+  animation: kr-whale-sway 4.6s cubic-bezier(.42, 0, .58, 1) infinite;
+}
+
+@keyframes kr-whale-sway {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  33%      { transform: translateY(-2.6px) rotate(-.4deg); }
+  70%      { transform: translateY(1.5px) rotate(.35deg); }
+}
+
+.kr-whale__body {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 尾鳍：绕根部（左上角）摇 —— 这张卡上唯一"活着"的大动作 */
+.kr-whale__tail {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transform-origin: 2% 3%;
+  animation: kr-whale-tail 2.7s cubic-bezier(.42, 0, .58, 1) infinite;
+}
+
+@keyframes kr-whale-tail {
+  0%   { transform: rotate(-7deg) translateY(1.2px); }
+  25%  { transform: rotate(1.2deg) translateY(-2.8px); }
+  50%  { transform: rotate(7.5deg) translateY(0); }
+  75%  { transform: rotate(-.6deg) translateY(2.4px); }
+  100% { transform: rotate(-7deg) translateY(1.2px); }
+}
+
+/* 头顶冒泡：纯 CSS，不占素材体积 */
+.kr-whale__bubbles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.kr-whale__bubbles i {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, #fff, rgba(150, 210, 245, .55));
+  border: .5px solid rgba(110, 185, 230, .5);
+  animation: kr-whale-bubble 4s ease-in-out infinite;
+}
+
+@keyframes kr-whale-bubble {
+  0%   { opacity: 0; transform: translateY(8px) scale(.4); }
+  22%  { opacity: .9; }
+  70%  { opacity: .7; }
+  100% { opacity: 0; transform: translateY(-26px) scale(1.05); }
+}
+
+/* 关动效：宿主或调用方显式关掉（截图、reduced-motion） */
+.kr-whale[data-motion="off"] .kr-whale__sway,
+.kr-whale[data-motion="off"] .kr-whale__tail,
+.kr-whale[data-motion="off"] .kr-whale__bubbles i {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-whale__sway,
+  .kr-whale__tail,
+  .kr-whale__bubbles i {
+    animation: none;
+  }
+}
+
+
 /* 原 .kr-card--plain[data-empty] .kr-card__badge 规则已删：徽标整体取消，
    空态下不再有任何底色需要中和。 */
 
@@ -2725,9 +2934,86 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
    与逐行样式一并删除：同一份信息不该有两套排版，而独立成卡之后那个位置的
    唯一职责只剩一枚计数徽标（.kr-plain-step__subcount，仍在）。 */
 
+/*
+ * ══ 「子智能体」卡：**固定 5 行**窗口（2026-10-24 用户最终定稿）══════════════
+ *
+ * 这一轮试过四种形态，用户最后确认的是固定 5 行：
+ *   ① 定高 10 行 → 「没有显示那么多行的情况下不要卡片留这么多」；
+ *   ② 封顶 10 行自适应（max-height）→ 卡高仍随行数变，排在它下面的操作面板
+ *      照样上下跳；
+ *   ③ 把操作面板搬出滚动区钉在顶部 → 位置死了，但排到了这张卡上面，用户看到的
+ *      是「怎么跑到最上面去了」；
+ *   ④ **固定 5 行**（这一段）= 卡高与内容多少彻底无关。
+ *
+ * 为什么用 height 而不是 max-height：这张卡存在的唯一目的是给紧贴其下的
+ * 「操作面板」一个**恒定位置**。max-height 让卡高随行数变，那个目的就落空了。
+ * 代价是行数不足 5 行时下方留白 —— 用户已经在这两者之间明确选了「恒定」。
+ *
+ * 行高变量 --kr-subs-row-h 与行本体的 min-height 同源（都挂在卡根上）：字号调到
+ * 22 时行变高，窗口跟着长高，「5 行」在任何字号档下都精确是 5 行 —— 写死
+ * 145px 的话，放大字号会让窗口里露出 4 行半。
+ */
 .kr-card--subs {
+  /* 行盒高度 = 行本体的 min-height（见 .kr-subs-row__main），同一处定义。 */
+  --kr-subs-row-h: calc(28px + var(--dsh-content-font-delta, 0px) * 1.3333);
+  /* 窗口里同时显示的行数。改这里就是改"这张卡永远占几行"。 */
+  --kr-subs-rows: 5;
   padding-bottom: 10px;
 }
+
+/*
+ * 固定窗口：高度恒等于 5 行行高盒（外加 4 条 1px 行间隙，与 .kr-subs-list 的
+ * gap 一致），内容多少都不改变它。溢出在窗口内部滚动。
+ *
+ * overscroll-behavior: contain 让滚到头的滚动链停在这里 —— 否则继续滚会把外层
+ * 右栏一起带着走，操作面板正好在窗口下面，读起来就是"我在滚子智能体，怎么整栏
+ * 都动了"。
+ */
+.kr-subs-window {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  height: calc(var(--kr-subs-rows, 5) * var(--kr-subs-row-h, 28px) + 4px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* 内距只留右 2px 给滚动条，别的地方贴着卡的内距（12px）走，与其它卡对齐。 */
+  padding-right: 2px;
+}
+
+/* 读取中：窗口里只有这一行，不居中也不用留白——它只是一行事实说明。 */
+
+/*
+ * ══ 占位态：没有子智能体时不显示，但**位置照留**（2026-10-25 用户要求）═════
+ *
+ * 用户原话：「没有子智能体时不上移」。
+ *
+ * 这是在前两轮要求之间取的交集：
+ *  · 「没有子智能体的时候也不要显示」→ 不能有可见内容；
+ *  · 「不上移」→ 下面那张操作面板的位置不能变。
+ *
+ * 做法：整卡 visibility:hidden。**不能用 display:none** —— 那会把盒子整个抽掉、
+ * 高度归零，正是要消除的那个位移。visibility:hidden 保留盒子与全部尺寸
+ * （卡头 + 固定 5 行窗口），只是不画出来。
+ *
+ * 为什么高度一定对得上：占位态复用的是**同一套结构与同一套类名**，不是另画一个
+ * 高 5 行的空白 div。写死高度的话，改字号（--kr-subs-row-h 跟着变）或改卡头样式
+ * 时两边就会分叉 —— 而分叉的表现不是报错，是"操作面板又开始跳了"。
+ *
+ * 交互与无障碍在组件侧已经一起关掉（inert + aria-hidden + 卡头不接 role/tabIndex），
+ * 所以这个不可见盒子既点不到、也读不到。
+ */
+.kr-card--subs[data-placeholder] {
+  visibility: hidden;
+  /* 占位态不该在悬停时浮起（它本该"不存在"）：否则鼠标划过那块空白会看到
+     边框变色、阴影加深，等于把占位这件事暴露出来。 */
+  transform: none;
+  box-shadow: none;
+}
+
+/* 滚动条：与右栏其它滚动区同一套细条（伪元素那组在文件下方统一声明，
+   这里只把本窗口并入选择器组即可，见 .kr-subs-window::-webkit-scrollbar）。 */
 
 /* 展开体：高度补间由 useHeightAnimation 的 WAAPI 接管（写内联 height +
    overflow），这里只排版，绝不写 height，否则和内联样式打架。 */
@@ -2782,8 +3068,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   width: 100%;
   min-width: 0;
   /* 行高随官方字号轴一起缩放（见「字号轴」段）：写死 28px 时放大档会把两行
-     文字夹住。min-height 与行高同一系数。 */
-  min-height: calc(28px + var(--dsh-content-font-delta, 0px) * 1.3333);
+     文字夹住。这里读的是卡根上的 --kr-subs-row-h —— 定高窗口要按它算 10 行
+     的高度，两处必须是同一个值，写两份迟早会分叉。 */
+  min-height: var(--kr-subs-row-h, calc(28px + var(--dsh-content-font-delta, 0px) * 1.3333));
   padding: 4px 8px;
   border: 0;
   border-radius: 6px;
@@ -2926,34 +3213,12 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   color: var(--dsw-alias-label-caption);
 }
 
-/* 「展开其余 N 个」：与产出物卡同款（那张卡也是这么收敛长列表的）。 */
-.kr-subs-more {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  width: 100%;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  font-family: inherit;
-  /* 「展开其余 N 个」：跟随字号轴（见「字号轴」段）。 */
-  font-size: var(--kr-fs-11-5, 11.5px);
-  color: var(--dsw-alias-label-tertiary);
-  cursor: pointer;
-  transition: background-color var(--kr-dur-tap) linear, color var(--kr-dur-fade) linear;
-}
-
-.kr-subs-more:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.07));
-  color: var(--dsw-alias-label-secondary);
-}
-
-.kr-subs-more:focus-visible {
-  outline: 2px solid var(--kr-accent);
-  outline-offset: -2px;
-}
+/*
+ * .kr-subs-more 整套已删（2026-10-24 定高窗口后）：窗口自己就能滚，看不见的行
+ * 往下滚一行就是，「展开其余 N 个」是同一件事的第二个出口，按下去还会把读者
+ * 刚滚到的位置整段跳掉。产出物卡那枚同类按钮（.kr-out-more）不受影响 ——
+ * 那张卡仍是「列出前几行 + 展开」，没有自己的滚动窗口。
+ */
 
 /* ══ 两段分区标题（2026-10-23 第二轮）══════════════════════════════════
    用户点名「正在执行和已结束看不出来，不明显」——第一版只有行内一颗 6px 的点和
@@ -3351,8 +3616,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   height: calc(12px + var(--dsh-content-font-delta, 0px) * 0.9);
 }
 
-/* 下面两枚的呈现属性是 11px（两张卡的「展开其余 N」）。 */
-.kr-subs-more svg,
+/* 呈现属性是 11px 的那枚（产出物卡的「展开其余 N」）。
+   ——原先这里还有 .kr-subs-more svg：子智能体卡改成 10 行定高窗口后，
+   那枚按钮与它的样式一起删了（窗口自己能滚，不需要第二套展开入口）。 */
 .kr-out-more svg {
   width: calc(11px + var(--dsh-content-font-delta, 0px) * 0.8);
   height: calc(11px + var(--dsh-content-font-delta, 0px) * 0.8);
@@ -3594,6 +3860,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 .kr-reasoning-view::-webkit-scrollbar,
 .kr-plain-list::-webkit-scrollbar,
 .kr-memory__list::-webkit-scrollbar,
+.kr-subs-window::-webkit-scrollbar,
 .kr-panel__memory-dock .kr-tools-list::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -3603,6 +3870,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 .kr-reasoning-view::-webkit-scrollbar-track,
 .kr-plain-list::-webkit-scrollbar-track,
 .kr-memory__list::-webkit-scrollbar-track,
+.kr-subs-window::-webkit-scrollbar-track,
 .kr-panel__memory-dock .kr-tools-list::-webkit-scrollbar-track {
   background: transparent;
 }
@@ -3611,6 +3879,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 .kr-reasoning-view::-webkit-scrollbar-thumb,
 .kr-plain-list::-webkit-scrollbar-thumb,
 .kr-memory__list::-webkit-scrollbar-thumb,
+.kr-subs-window::-webkit-scrollbar-thumb,
 .kr-panel__memory-dock .kr-tools-list::-webkit-scrollbar-thumb {
   background-color: var(--kr-scrollbar-thumb);
   /*
@@ -3627,6 +3896,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 .kr-reasoning-view::-webkit-scrollbar-thumb:hover,
 .kr-plain-list::-webkit-scrollbar-thumb:hover,
 .kr-memory__list::-webkit-scrollbar-thumb:hover,
+.kr-subs-window::-webkit-scrollbar-thumb:hover,
 .kr-panel__memory-dock .kr-tools-list::-webkit-scrollbar-thumb:hover {
   background-color: var(--kr-scrollbar-thumb-hover);
 }
@@ -3635,6 +3905,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 .kr-reasoning-view::-webkit-scrollbar-corner,
 .kr-plain-list::-webkit-scrollbar-corner,
 .kr-memory__list::-webkit-scrollbar-corner,
+.kr-subs-window::-webkit-scrollbar-corner,
 .kr-panel__memory-dock .kr-tools-list::-webkit-scrollbar-corner {
   background: transparent;
 }
@@ -3651,6 +3922,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   .kr-reasoning-view,
   .kr-plain-list,
   .kr-memory__list,
+  .kr-subs-window,
   .kr-panel__memory-dock .kr-tools-list {
     scrollbar-width: thin;
     scrollbar-color: var(--kr-scrollbar-thumb) transparent;
@@ -3664,6 +3936,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   .kr-reasoning-view::-webkit-scrollbar-thumb,
   .kr-plain-list::-webkit-scrollbar-thumb,
   .kr-memory__list::-webkit-scrollbar-thumb,
+  .kr-subs-window::-webkit-scrollbar-thumb,
   .kr-panel__memory-dock .kr-tools-list::-webkit-scrollbar-thumb {
     background-color: CanvasText;
   }
@@ -3674,6 +3947,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   .kr-reasoning-view::-webkit-scrollbar-thumb,
   .kr-plain-list::-webkit-scrollbar-thumb,
   .kr-memory__list::-webkit-scrollbar-thumb,
+  .kr-subs-window::-webkit-scrollbar-thumb,
   .kr-panel__memory-dock .kr-tools-list::-webkit-scrollbar-thumb {
     transition: none;
   }

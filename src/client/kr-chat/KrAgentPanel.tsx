@@ -16,7 +16,6 @@ import { usePanelSqueezed } from './use-adaptive-rows.ts'
 import { ShotPanel } from '../shot/Panel.tsx'
 import { collectMessages, deriveCurrentDialogueTitle, type ShotRange, type ShotMessage } from '../shot/collect.ts'
 import { useModalClose } from '../modal-animation.ts'
-import { getLiveDshTodos, subscribeLiveDshTodos } from './kr-todo-bridge.ts'
 import { buildPlainTimeline } from './plain-timeline.ts'
 import { spawnsSubagents } from './plain-language.ts'
 import { KrPlainTimelineCard } from './KrPlainTimelineCard.tsx'
@@ -186,11 +185,17 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     return actStore.subscribe(() => setActTick((t) => t + 1))
   }, [actStore])
 
-  // 监听官方 todos 实时投影更新
-  const [todoTick, setTodoTick] = useState(0)
-  useEffect(() => {
-    return subscribeLiveDshTodos(() => setTodoTick((t) => t + 1))
-  }, [])
+  /*
+   * 官方 todos 投影的订阅**已在本面板移除**（2026-10-24）。
+   *
+   * 它原先只做一件事：给任务概览的 live 回退提供重算滴答。取数口径收紧成
+   * 「只认本轮快照里真实出现过的清单」之后，live todos 不再是任何一张卡的数据源，
+   * 这个订阅就只剩「每次投影变化让整个大盘重渲染一遍」这一个副作用。
+   *
+   * 数据侧、会话隔离那一套（kr-todo-bridge 的 owner 校验与发布指纹）**原样保留**：
+   * test-session-isolation.mjs 仍在测它们，也仍可能在别处被消费；这里只是不再
+   * 从面板读它。
+   */
 
   /*
    * 数据源：优先从 latestChatSnapshot 实时提取，回退到 actStore.get。
@@ -435,37 +440,57 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     }
   }), [tools, now])
 
-  // 任务数据源提取：优先使用本轮已记录的 todo_write / submitted-plan，当前未结轮次可回退到 live todos；
-  // 均为空时跨轮次回溯获取会话最近有效的任务清单，绝不误显“本轮还没有任务”。
-  // source 记录走了哪条路：'turn'（本轮快照）/ 'live'（官方 todos 投影）/
-  // 'session'（会话回溯）/ 'none'（空）。卡片用它做口径标注——回溯到别的轮次
-  // 的清单时给一枚「会话清单」小标，避免用户误以为看到的是本轮任务。
+  /*
+   * 任务数据源：**只认本轮快照里真实出现过的清单**（2026-10-24 收紧）。
+   *
+   * 用户原话：「发送新的对话时任务概览应该是空的才对」。
+   *
+   * 原先这里是三级回退，其中两条在「刚发出新一轮」的那一屏都在说谎：
+   *  · **live（官方 todos 投影）** —— 它按**会话累积**，新一轮开始时它仍然是
+   *    上一轮那份清单（官方要等模型真的写新 todo 才换）。拿它填「本轮任务」，
+   *    等于把上一轮的任务摆在新一轮头上；
+   *  · **整场会话回溯** —— 同一种错误，只是版本更旧。
+   * 于是用户发一条新消息，任务卡上立刻挂着一份与本次提问毫无关系的清单。
+   *
+   * 现在的口径（两条，按顺序）：
+   *  1. 本轮快照里有 todo_write / submitted-plan → 就是它（source: 'turn'）；
+   *  2. 其余 → **空**（source: 'none'），卡片显示「本轮还没有任务」。
+   *
+   * 唯一的例外是**用户主动查看历史轮次**（isViewingHistory）：那时问的是
+   * 「那一轮发生了什么」，回溯本会话此前的清单才成立，卡片会挂一枚「会话清单」
+   * 小标说明口径。看最新轮次时永远不回溯 —— 最新轮次的真相只有它自己。
+   *
+   * ⚠ 别为了「切换会话时任务卡别空着」把 live 回退加回来。那个老问题（2026-10-05）
+   * 的真实修法在 kr-todo-bridge 的**发布指纹**与回填里，不在面板的取数口径上；
+   * 在面板这一层放开回退，只会把上一轮的清单请回来。
+   *
+   * ── 一个附带的边界：**这一轮其实已经收口了，但我们还在按它显示** ────────
+   *
+   * 新一轮刚发出的那一两秒里，官方 navigation.current 还没把新轮挂上，于是
+   * effectiveLatestTurn 仍停在上一轮 —— 而那一轮的 turnData 是完整的（含它
+   * 自己写的清单、含 turnEnd）。此刻 currentRunning 已经是 true，卡片就会把
+   * 上一轮的清单当成「本轮任务」摆出来。
+   *
+   * 判据：正在跑 + 手上这轮的 turnEnd 有值 = 这一轮已经结束了，不可能是正在跑
+   * 的那一轮，说明 displayTurn 滞后。此时按空处理，等 navigation 更新后自然恢复。
+   *
+   * 不用它做别的判断：轮次正常收口后 currentRunning 变 false，条件不成立，
+   * 收口后的清单照常显示（那正是用户要看的「这次做完了什么」）。
+   */
+  const turnIsStaleWhileRunning = currentRunning && turnData?.turnEnd !== undefined
+
   const tasksView = useMemo<{ tasks: readonly DshTaskItem[]; source: TaskSource }>(() => {
-    if (turnData?.tasks && turnData.tasks.length > 0) {
+    if (turnData?.tasks && turnData.tasks.length > 0 && !turnIsStaleWhileRunning) {
       return { tasks: turnData.tasks, source: 'turn' }
     }
-    if (!isViewingHistory) {
-      const live = getLiveDshTodos()
-      if (live && live.length > 0) {
-        return {
-          tasks: live.map((item, idx) => ({
-            id: `live-${idx}`,
-            content: item.content,
-            status: item.status,
-          })),
-          source: 'live',
-        }
-      }
-    }
+    if (!isViewingHistory) return { tasks: [], source: 'none' }
     /*
-     * 回溯口径是**整场会话最近一次**，不再限制在 displayTurn 之前。
+     * 查看历史轮次时的回溯口径是**整场会话最近一次**（不传 upToTurn）。
      *
-     * 原实现传 `displayTurn`（截止到当前查看的轮次），于是点开一个**自己没写过
-     * todo** 的历史轮次时回溯不到任何清单，任务卡直接翻成「本轮还没有任务」——
-     * 用户看到的就是「一切换轮次/会话，任务信息就没了」。可任务卡回答的是
-     * 「这次对话在推进什么」，那是**跨轮次持续**的事实：切到第 1 轮去看当时干了
-     * 什么，不代表当前推进中的清单应该消失。有本轮的优先用本轮的，没有就退回
-     * 会话最近一次。
+     * 传 displayTurn（截止到当前查看的轮次）时，点开一个**自己没写过 todo** 的
+     * 历史轮次会回溯不到任何清单，任务卡直接翻成空态 —— 用户看到的就是
+     * 「一切换轮次任务信息就没了」。看历史时给它「这场对话最近一次清单」更可读，
+     * 而且卡片上那枚「会话清单」小标已经声明了这不是本轮的东西。
      */
     const snap = getCurrentChatSnapshot()
     if (snap) {
@@ -475,7 +500,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
       }
     }
     return { tasks: [], source: 'none' }
-  }, [turnData, isViewingHistory, todoTick, snapTick, displayTurn])
+  }, [turnData, isViewingHistory, turnIsStaleWhileRunning, snapTick, displayTurn])
   const tasks = tasksView.tasks
 
 
@@ -915,24 +940,38 @@ export const KrAgentPanel = memo(function KrAgentPanel({
          * 仍保留 store.setSelectedTurn 的能力，只是入口不再常驻占位。
          */}
 
-        {/* 任务概览卡片：常驻，无任务时给一行低对比度空态。
-            source 传三级回退的口径（turn/live/session），卡片据此决定是否
-            标注「会话清单」——回溯数据不该被误读成本轮任务。 */}
-        <KrTaskOverviewCard tasks={tasks} isRunning={currentRunning} source={tasksView.source} />
+        {/*
+         * 子智能体卡：滚动区**第一张**，紧随其下就是「操作面板」（2026-10-24 定稿）。
+         *
+         * 用户三次点名要操作面板「固定位置」，最终确认的形态是：**操作面板排在这张卡
+         * 下面 + 这张卡固定 5 行**。位置恒定靠的就是这 5 行 —— 有 3 个子智能体也只
+         * 占 5 行（第 6 个起在窗口内滚动），有 8 个也只占 5 行，所以下面的操作面板
+         * 永远停在同一位置。
+         *
+         * 唯一的例外是**一个子智能体都没有**：这张卡整张不渲染（用户点名要的），
+         * 操作面板此时上移 5 行。这个取舍是用户明确选的 —— 他觉得一张只有空窗的
+         * 卡比这 5 行的位移更碍眼。
+         */}
+        {KR_SUBAGENTS_CARD_VISIBLE && (
+          <KrSubagentsCard
+            catalog={subagentCatalog}
+            spawning={spawnedInSession}
+          />
+        )}
 
-        {/* 思考过程卡已从右栏移出，改为贴在 KR 对话流里（见 ThinkingStepNodeView
-            挂的 KrReasoningCard inline 模式）：思考与它对应的回答是同一件事的
-            两半，分两栏摆就得来回对照才读得完整。thinking 文本在本面板仍要留
-            一份——操作面板的「接下来」预告要从里面抽播报句。 */}
-
-        {/* 人话行动流（「操作面板」卡）。给不懂技术的用户看的一张：「已经做了什么」
-            来自工具调用事实，「准备做什么」来自模型自己播报的预告。原先下面还挂
-            着一张技术视角的「工具调用」卡，两张卡讲的是同一批事件，现已按用户
-            要求整块移除，工具细节统一收进本卡每条末尾的「技术细节」折叠。
-
-            后缀 plainTimelineOn 是**运行时**展示开关（「大盘设置 → 展示」里那枚），
-            与构建开关 KR_PLAIN_TIMELINE_CARD_VISIBLE 叠加：构建开关决定这张卡还
-            存不存在，运行时开关决定用户此刻要不要看。两个都开才渲染。 */}
+        {/*
+         * 人话行动流（「操作面板」卡）。给不懂技术的用户看的一张：「已经做了什么」
+         * 来自工具调用事实，「准备做什么」来自模型自己播报的预告。
+         *
+         * 位置：**紧贴子智能体卡之下**（那张卡定高 5 行，所以这张卡的位置恒定）。
+         * 曾试过把它整块移出滚动区钉在面板顶部 —— 位置是死了，但排到了子智能体卡
+         * 上面，用户看到的是「怎么跑到最上面去了」。现在按阅读顺序排：
+         * 子智能体（谁在干活）→ 操作面板（我干了什么）→ 任务概览（计划）→ 产出物。
+         *
+         * 后缀 plainTimelineOn 是**运行时**展示开关（「大盘设置 → 展示」里那枚），
+         * 与构建开关 KR_PLAIN_TIMELINE_CARD_VISIBLE 叠加：构建开关决定这张卡还
+         * 存不存在，运行时开关决定用户此刻要不要看。两个都开才渲染。
+         */}
         {KR_PLAIN_TIMELINE_CARD_VISIBLE && plainTimelineOn && (
           <KrPlainTimelineCard
             timeline={plainTimeline}
@@ -943,21 +982,19 @@ export const KrAgentPanel = memo(function KrAgentPanel({
           />
         )}
 
-        {/* 子智能体卡：**独立一张**（用户 2026-10-08 点名要的形态）。
-            原先它是操作面板某一步下面的缩进小块，读起来像"这一步的内部细节"，
-            而事实是"这一步派出去几个各自独立干活的会话"。现在有几个就几行，
-            一行一个，点一行即跳到那个子会话（官方 uiWorkspace.openSession）。
-            位置在操作面板之下、产出物之上：操作面板说"我干了什么"，它说
-            "我派出去的那些在干什么"，产出物是最后落地的成品。 */}
-        {KR_SUBAGENTS_CARD_VISIBLE && (
-          <KrSubagentsCard
-            catalog={subagentCatalog}
-            spawning={spawnedInSession}
-            squeezed={panelSqueezed}
-          />
-        )}
+        {/* 任务概览卡片：常驻，无任务时给一行低对比度空态。
+            source 由 KrAgentPanel 的 tasksView 判定（turn / session / none）：
+            只有**看历史轮次**时才会是 session，卡片据此标注「会话清单」小标。
+            本轮没写 todo 时就是空 —— 用户 2026-10-24：「发送新的对话时任务概览
+            应该是空的才对」。 */}
+        <KrTaskOverviewCard tasks={tasks} isRunning={currentRunning} source={tasksView.source} />
 
-        {/* 产出物卡：会话累计的成品清单（操作面板之下，滚动区最后一张）。
+        {/* 思考过程卡已从右栏移出，改为贴在 KR 对话流里（见 ThinkingStepNodeView
+            挂的 KrReasoningCard inline 模式）：思考与它对应的回答是同一件事的
+            两半，分两栏摆就得来回对照才读得完整。thinking 文本在本面板仍要留
+            一份——操作面板的「接下来」预告要从里面抽播报句。 */}
+
+        {/* 产出物卡：会话累计的成品清单（滚动区最后一张）。
             与上面那张的分工是「过程 vs 结果」——操作面板回答"中间做了哪些动作"，
             这张回答"最后落地了哪些文件"。整行可点，点一下即在右栏打开预览。
             口径是整个会话而非本轮，所以不看 displayTurn（理由见上面 outputs 的注释）。

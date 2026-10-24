@@ -830,7 +830,12 @@ if (krEnabled) {
   }
 }
 // 头像菜单不能留在 turn-process 固定高度 / overflow:hidden 的子树里；必须 portal 到 body。
-if (!code.includes('avatarMenuPosition') || !code.includes('.kr-agent-avatar-menu {\n  position: fixed;')) {
+//
+// 2026-10-24 起改查**组件源码**而不是 bundle：那张「Seeker 正在分析…」活动卡已按
+// 用户要求从对话流撤掉（TurnProcessShadowView 不再挂 KrActivityCardGate），组件
+// 本体与样式全部保留以便随时恢复 —— 所以它不再出现在产物里，但实现仍然必须正确。
+const liveCardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrLiveActivityCard.tsx'), 'utf8')
+if (!liveCardSrc.includes('avatarMenuPosition') || !code.includes('.kr-agent-avatar-menu {\n  position: fixed;')) {
   fail('client bundle is missing the body-portaled Agent avatar menu')
 } else {
   pass('Agent avatar menu is body-portaled with fixed positioning')
@@ -851,14 +856,16 @@ if (!code.includes('avatarMenuPosition') || !code.includes('.kr-agent-avatar-men
 // 逐字延时（kr-agent-mini-char-in）则光带宽度≈动画时长、窄了就必然快。
 // 注意：不能全 bundle 禁 background-clip —— tool-summary 的 .dts__process 忙碌
 // 微光（本插件自己的旧折叠行，KR 模式下不显示）本来就用它，不在本次范围内。
-if (!code.includes('useCrossfadeText')
-  || !code.includes('kr-agent-mini-action-stack')
+//
+// 断言对象是**组件源码**（cardSrc）而非 bundle：活动卡已不挂载，产物里没有它。
+if (!liveCardSrc.includes('useCrossfadeText')
+  || !liveCardSrc.includes('kr-agent-mini-action-stack')
   || !code.includes('kr-agent-action-in')
   || !code.includes('kr-agent-action-out')
-  || !/"data-phase": \w+\.exiting \? "out" : "in"/.test(code)
-  || !code.includes('kr-agent-dots')
-  // 三颗 <i> 必须真在产物里：jsx("span", { className: "kr-agent-dots", ... children: [ jsx("i", {}) ...
-  || !/className: "kr-agent-dots"[^)]*children: \[\s*\/\* @__PURE__ \*\/ \(0, \w+\.jsx\)\("i", \{\}\)/.test(code)
+  || !/data-phase=\{layer\.exiting \? 'out' : 'in'\}/.test(liveCardSrc)
+  || !liveCardSrc.includes('kr-agent-dots')
+  // 三颗 <i> 必须是三个独立元素（源码里的 <i /><i /><i /> 形态）。
+  || !/className="kr-agent-dots"[\s\S]{0,80}?<i \/><i \/><i \/>/.test(liveCardSrc)
   || code.includes('kr-agent-text-sweep')
   || code.includes('kr-agent-caret')
   || code.includes('kr-agent-mini-dot')
@@ -1613,44 +1620,47 @@ if (krEnabled) {
       pass('行首无空槽 + 标题行只剩标题（失败由图标角标承担）')
     }
 
-    // 简要模式不画图标、动词写回文字。
-    if (!/data-brief=\{brief \? 'true' : undefined\}/.test(cardSrc)) {
-      fail('简要模式必须打 data-brief（无图标排布靠它选样式）')
-    } else if (!/\{!brief && \(/.test(cardSrc)) {
-      fail('简要模式必须整枚跳过 .kr-plain-step__icon 的渲染')
-    } else if (!/<span className="kr-plain-step__verb">\{step\.verb\}<\/span>/.test(cardSrc)) {
-      // 断言渲染结果而不是变量名：早先查的是 `const label = brief`，那是实现
-      // 细节，拆成三段 span 后变量名一变断言就误报，而「动词进文字」这件事
-      // 其实一直是对的。改查动词那一枚 span 真的被渲染出来。
-      fail('简要模式必须把动词写回文字（没图标时"plain-language.ts"分不出改还是读）')
-    } else if (!/<span className="kr-plain-step__object">\{base\}<\/span>/.test(cardSrc)) {
-      fail('简要模式的对象（文件名等）必须是独立的一段，词重量级不同但同色可读')
-    } else if (!/<span className="kr-plain-step__count">\{count\}<\/span>/.test(cardSrc)) {
-      fail('折叠次数必须从对象字符串里拆出来单独排（混在一起会被一起压成小字）')
-    } else if (!/\.kr-plain-step__count \{/.test(code)) {
-      fail('.kr-plain-step__count 缺少样式，药丸会退回无背景的裸文字')
-    } else if (!/\.kr-plain-step\[data-brief="true"\]\[data-status="failed"\]/.test(code)) {
-      fail('简要模式的失败行必须仍有可见标记（左缘 2px 红条）')
+    // 简要 / 详细两档已整块删除（2026-10-24 用户要求：「点击就是详细不需要简要了」）。
+    //
+    // 现在的口径：**折叠态只有一行当前动作，展开就是完整详细时间线**。所以这里
+    // 反过来断言「简要档确实不存在」——残留任何一处都会让 UI 与代码说法不一致。
+    if (/data-brief=/.test(cardSrc)) {
+      fail('简要档已删除，卡片里不该再有 data-brief 分支')
+    } else if (/brief=\{brief\}|useState<PlainStepView>|condenseSteps\(/.test(cardSrc)) {
+      fail('简要档已删除，不该再引用 brief 状态 / condenseSteps')
+    } else if (!/<span className="kr-plain-step__title" title=\{title\}>\{title\}<\/span>/.test(cardSrc)) {
+      fail('详细时间线的行标题必须直接渲染 title（对象优先，无对象回退动词）')
     } else {
-      pass('简要模式无图标、动词入句、失败有红条')
+      pass('简要档已删除：展开即完整详细时间线（无 brief 分支残留）')
     }
 
-    // 详细/简要切换：卡头右上角两枚按钮，点了不能连带收起卡片（整行 header
-    // 都是折叠热区，少了 stopPropagation 就会一点两变），且**默认档必须是简要**。
-    const viewBtnCount = (cardSrc.match(/className="kr-plain-view__btn"/g) ?? []).length
-    if (viewBtnCount !== 2) {
-      fail('操作面板卡头右上角必须有「详细」「简要」两枚按钮（现在只有一枚）')
-    } else if (!/className="kr-plain-view__btn"[\s\S]{0,400}?stopPropagation\(\); setViewDirect\('brief'\)/.test(cardSrc)
-      || !/className="kr-plain-view__btn"[\s\S]{0,400}?stopPropagation\(\); setViewDirect\('full'\)/.test(cardSrc)) {
-      fail('两枚档位按钮都必须 stopPropagation（整行 header 是折叠热区）')
-    } else if (!/useState<PlainStepView>\(\(\) => readStoredView\(\)\)/.test(cardSrc)) {
-      fail('详细/简要必须是组件状态并落盘（dsh.kr_chat.plain_view_v2）')
-    } else if (!/localStorage\.getItem\(VIEW_STORAGE_KEY\) === 'full' \? 'full' : 'brief'/.test(cardSrc)) {
-      fail('默认档必须是「简要」（只有显式存了 full 才回详细）')
-    } else if (!/\.kr-plain-view__btn\[data-active="true"\]/.test(code)) {
-      fail('档位按钮的激活态样式缺失（.kr-plain-view__btn[data-active="true"]）')
+    // 默认折叠 + 卡头耗时隐藏（2026-10-24 用户两次点名）：
+    //   · 「操作面板默认不展开」→ 初始 open 必须是 false；
+    //   · 「那一行的秒数给隐藏，里面的不隐藏」→ 卡头 .kr-plain-head__time 的渲染
+    //     必须已注释掉，而明细行 .kr-plain-step__time 的渲染**必须还在**。
+    // 第二句是这个断言真正防的东西：两句一起读很容易把两处耗时都删了，而删掉
+    // 明细那枚会让展开后的每一行失去耗时读数（用户说的"里面的"）。
+    if (!/const \[open, setOpen\] = useState\(false\)/.test(cardSrc)) {
+      fail('操作面板必须默认收起（用户：「操作面板默认不展开」），初始 open 应为 false')
+    } else if (/^\s*\{currentAction\.durationMs !== undefined/m.test(cardSrc.replace(/\{\/\*[\s\S]*?\*\/\}/g, ''))) {
+      fail('卡头那一行的耗时必须隐藏（用户：「那一行的秒数给隐藏」）')
+    } else if (!/<span className="kr-plain-step__time">\{formatDuration\(step\.durationMs\)\}<\/span>/.test(cardSrc)) {
+      fail('明细行里的耗时必须保留（用户：「里面的不隐藏」）—— 展开后每行都要有耗时读数')
     } else {
-      pass('操作面板卡头带详细/简要双按钮（默认简要 / 不误触折叠）')
+      pass('操作面板默认收起 + 卡头耗时已隐藏、明细行耗时保留')
+    }
+
+    // 卡头形态：竖排「鲸鱼娘立绘 / 名字 / 一行当前动作」，点一下展开全部。
+    if (!/className="kr-plain-head__name">Seeker</.test(cardSrc)) {
+      fail('操作面板卡头必须显示名字（Seeker）')
+    } else if (!/WhalePortrait size=\{/.test(cardSrc)) {
+      fail('操作面板卡头必须挂鲸鱼娘立绘（WhalePortrait）')
+    } else if (!/kr-plain-head__act/.test(cardSrc)) {
+      fail('卡头必须有「当前动作」这一行')
+    } else if (/\.kr-plain-view\b/.test(cardSrc)) {
+      fail('卡头不该再挂简要/详细按钮（点击整块卡头就是展开详细）')
+    } else {
+      pass('操作面板卡头：鲸鱼娘 + 名字 + 一行当前动作（点击展开详细）')
     }
 
     // 子智能体目录的三态语义：**未加载 ≠ 确实为空**。把「还没读到」说成
@@ -1662,10 +1672,37 @@ if (krEnabled) {
       fail('未加载态必须有独立文案，不能复用「这次没有派生独立的子智能体」')
     } else if (/这次没有派生独立的子智能体/.test(subsCode)) {
       fail('卡上不得再出现「这次没有派生独立的子智能体」这句结论（空目录只说明我们还没读到）')
-    } else if (!/rows\.length === 0 && !spawning\) return null/.test(subsCode)) {
-      fail('这次会话确实没有子智能体时整张卡不该出现（常驻空卡只在右栏白占高度）')
+    } else if (!/const placeholder = rows\.length === 0 && !spawning/.test(subsCode)
+      || !/data-placeholder=\{placeholder \|\| undefined\}/.test(subsSrc)) {
+      /*
+       * 2026-10-25 用户定稿：「没有子智能体时不上移」。这条与 2026-10-24 的
+       * 「没有子智能体的时候也不要显示」**必须同时满足**，做法是**不可见占位**：
+       *   · data-placeholder + visibility:hidden → 视觉上不存在（不显示）；
+       *   · 盒子保留、结构与真实卡同一套 → 高度精确相等（不上移）。
+       *
+       * ⚠ 别改回 return null：那会让下面的操作面板上移——正是用户这次要修的。
+       * ⚠ 也别改成 display:none：盒子被抽掉，高度归零，效果同 return null。
+       */
+      fail('没有子智能体时必须**不可见占位**（placeholder + data-placeholder），'
+        + '既不能显示、也不能让下面的操作面板上移')
+    } else if (!/kr-subs-window/.test(subsSrc) || !/--kr-subs-rows:\s*5/.test(code)) {
+      fail('子智能体卡必须是固定 5 行窗口（.kr-subs-window + --kr-subs-rows: 5）')
+    } else if (!/\.kr-card--subs\[data-placeholder\]\s*\{[^}]*visibility:\s*hidden/.test(code)) {
+      fail('占位态必须用 visibility:hidden（不能用 display:none —— 盒子被抽掉后高度归零，'
+        + '下面的操作面板照样上移）')
+    } else if (!/height:\s*calc\(var\(--kr-subs-rows,\s*5\)[\s\S]{0,80}?\)/.test(code)) {
+      /*
+       * 必须是 height，不能是 max-height —— 这一条是本轮的关键取舍。
+       *
+       * 这张卡存在的唯一目的是给紧贴其下的「操作面板」一个**恒定位置**：
+       * max-height 会让卡高随行数变，那个目的就落空了（2026-10-24 实测过一轮，
+       * 用户当场反馈「位置还是变来变去」）。代价是行数不足 5 行时下方留白，
+       * 用户在这两者之间明确选了「恒定」。
+       */
+      fail('子智能体窗口必须用 height 固定（不是 max-height）：'
+        + '卡高必须与行数无关，否则下面的操作面板会跟着跳')
     } else {
-      pass('子智能体目录：真实快照形状为主 + 未加载/为空分层 + 无内容不渲染')
+      pass('子智能体目录：真实快照形状为主 + 未加载/为空分层 + 封顶 10 行自适应窗口')
     }
   }
 
@@ -1836,7 +1873,7 @@ if (krEnabled) {
   }
 }
 
-// ── 产出物卡（会话累计的成品清单，挂在操作面板之下） ─────────────────────
+// ── 产出物卡（会话累计的成品清单，滚动区最后一张） ───────────────────────
 //
 // 这张卡有四条**形态契约**，缺一条就从「点一下就看见」退化成「看着一堆文件名」：
 //  1. 整行即入口 —— 行本身是 button，**没有**行内「预览」小按钮（多一枚只是把
@@ -1910,8 +1947,21 @@ if (krEnabled) {
     fail('挂载方必须用 outputs.items.length > 0 拦住空态下的产出物卡（没产出就不出现）')
   } else if (!/KrOutputsCard[\s\S]{0,600}?squeezed=\{panelSqueezed\}/.test(outputsPanelSrc)) {
     fail('右栏挤压时必须把 squeezed 传给产出物卡（默认露出条数降一档）')
-  } else if (!/KrPlainTimelineCard[\s\S]{0,1200}?<KrSubagentsCard[\s\S]{0,800}?<KrOutputsCard/.test(outputsPanelSrc)) {
-    fail('右栏卡片顺序必须是 操作面板 → 子智能体 → 产出物（过程 → 派出去的 → 成品）')
+  } else if (!/<KrSubagentsCard[\s\S]{0,1200}?<KrPlainTimelineCard[\s\S]{0,1500}?<KrTaskOverviewCard[\s\S]{0,1500}?<KrOutputsCard/.test(outputsPanelSrc)) {
+    /*
+     * 2026-10-24 第四轮定稿的顺序：子智能体 → 操作面板 → 任务概览 → 产出物。
+     *
+     * 「操作面板位置恒定」这件事**完全由前一站保证**：子智能体卡固定 5 行，
+     * 卡高与内容无关，所以紧贴其下的操作面板永远停在同一位置。这条顺序断言
+     * 与上一条 height 断言是一对，缺任何一个「恒定」都不成立：
+     *   · 没有 height 固定 → 子智能体多几个，操作面板就往下挪几行；
+     *   · 不在子智能体下面 → 上面换成任何会变高的卡（比如任务概览），照样挪。
+     *
+     * 唯一允许的位移：一个子智能体都没有时那张卡整张不渲染，操作面板上移 5 行。
+     * 那是用户明确选的取舍（「没有子智能体的时候也不要显示」）。
+     */
+    fail('右栏滚动区卡片顺序必须是 子智能体 → 操作面板 → 任务概览 → 产出物'
+      + '（操作面板必须在固定 5 行的子智能体卡正下方，位置才恒定）')
   } else if (typeof mod.canShowInSidebar !== 'function') {
     fail('client bundle 必须导出 canShowInSidebar（点击分流判据要能被离线断言）')
   } else {
@@ -1927,8 +1977,12 @@ if (krEnabled) {
      */
     const yes = [
       'a.png', 'a.jpg', 'a.jpeg', 'a.webp', 'a.bmp', 'a.ico', 'a.svg', 'a.gif',
-      'a.mp4', 'a.webm', 'a.mov', 'a.mkv', 'a.m4v', 'a.avi',
-      'a.mp3', 'a.wav', 'a.flac', 'a.aac', 'a.ogg', 'a.m4a',
+      // 媒体：只列**实测浏览器真能解码**的容器（2026-10-24 Chromium 154 灌真实
+      // 文件逐个验证）。avi / wma 不在这里 —— 它们的播放器能挂出来，但一帧都解
+      // 不出（三种 MIME 声明全 SRC_NOT_SUPPORTED），留在 yes 等于断言「黑播放器
+      // 也算能看」。它们归 no。
+      'a.mp4', 'a.webm', 'a.mov', 'a.mkv', 'a.m4v',
+      'a.mp3', 'a.wav', 'a.flac', 'a.aac', 'a.ogg', 'a.m4a', 'a.opus',
       'a.md', 'a.markdown', 'a.txt',
       'a.doc', 'a.docx', 'a.odt', 'a.pdf',
       'a.csv', 'a.tsv', 'a.xls', 'a.xlsx', 'a.ods',
@@ -1946,6 +2000,10 @@ if (krEnabled) {
       'a.zip', 'a.7z', 'a.rar', 'a.tar', 'a.gz', 'a.bz2', 'a.xz',
       // 既没注册也不在 UNVIEWABLE、落纯文本兜底后 not-text
       'a.blend', 'a.fbx', 'a.glb', 'a.3ds', 'a.stl', 'a.ply',
+      // 浏览器解不了的媒体容器（2026-10-24 实测：播放器能挂出来，一帧都解不出）。
+      // avi = Video for Windows，wma = Windows Media Audio，三种 MIME 声明全失败。
+      // 判成 external 才是「点开就看见」—— 系统播放器本来就能放。
+      'a.avi', 'a.wma',
       // 没有扩展名 / 空串
       'noext', '',
     ]
@@ -1975,15 +2033,79 @@ if (krEnabled) {
       // 另一个 realm 的构造器，instanceof 恒为 false（实测过一次，报"全漏"）。
       // 用 Array.from 转成数组再比对，跨 realm 稳妥。
       const pluginExt = new Set(Array.from(mod.PLUGIN_RENDERED_EXT ?? []))
-      const missing = claimed.filter((ext) => !pluginExt.has(ext))
+      const undecodable = new Set(Array.from(mod.BROWSER_UNDECODABLE_MEDIA_EXT ?? []))
+      /*
+       * 「渲染器接管了」与「判据算它能展示」是**两件有意分开的事**。
+       *
+       * 2026-10-24 之前这里断的是 claimed ⊆ pluginExt（同源）。加入 avi / wma
+       * 之后这条不成立，改断 claimed ⊆ (pluginExt ∪ undecodable)：
+       *  · 渲染器**必须**接管 avi / wma —— 官方把它们列进 UNVIEWABLE，不接管的话
+       *    用户从文件树点开时连播放器都没有、没有任何重试或转交入口；
+       *  · 但判据**不该**把它们算成「能正常展示」—— 实测浏览器一帧都解不出，
+       *    送进侧栏只会得到一个黑格子。它们交系统默认应用，这才是好的落点。
+       *
+       * 额外钉住两条反向断言：这两个后缀必须真的在 undecodable 里；实测能播的
+       * mkv / mov 不许被塞进去（塞进去等于把好文件推去外部程序）。
+       */
+      const covered = new Set([...pluginExt, ...undecodable])
+      const missing = claimed.filter((ext) => !covered.has(ext))
       if (missing.length > 0) {
-        fail('sidebar-display 的 PLUGIN_RENDERED_EXT 漏了接管渲染器的扩展名：' + missing.join(', ')
-          + '（判据与渲染器必须同源，漏一个就会"能看却被推去外部程序"）')
+        fail('sidebar-display 既没把接管渲染器的扩展名算进 PLUGIN_RENDERED_EXT，'
+          + '也没把它标进 BROWSER_UNDECODABLE_MEDIA_EXT：' + missing.join(', ')
+          + '（每个被接管的扩展名都必须有明确落点，否则判据与渲染器漂移）')
+      } else if (!undecodable.has('avi') || !undecodable.has('wma')) {
+        fail('avi / wma 必须标进 BROWSER_UNDECODABLE_MEDIA_EXT（2026-10-24 Chromium 154 '
+          + '灌真实文件实测：三种 MIME 声明全部 SRC_NOT_SUPPORTED，容器不在解码面里）')
+      } else if (undecodable.has('mkv') || undecodable.has('mov')) {
+        fail('mkv / mov 实测能解码（mkv 声明 video/x-matroska 可播、mov 声明 video/mp4 可播），'
+          + '不得标进 BROWSER_UNDECODABLE_MEDIA_EXT')
       } else if (!pluginExt.has('ods')) {
         fail('ods 必须由插件接管（host 引擎本来就支持，官方 UNVIEWABLE 挡着 —— 不接管只能看空态）')
       } else {
-        pass('产出物卡：整行可点 + SVG 类型缩略图 + 无代码文件 + 无产出时整卡不挂载，位置在操作面板与子智能体卡之下')
+        pass('产出物卡：整行可点 + SVG 类型缩略图 + 无代码文件 + 无产出时整卡不挂载（滚动区最后一张）')
         pass('点击分流判据：' + yes.length + ' 类能侧栏展示 / ' + no.length + ' 类交系统默认（含 ods 接管、大小写与反斜杠路径）')
+        /*
+         * 侧栏渲染器的**失败态第二出口**（2026-10-24）。
+         *
+         * 用户原话：「不支持侧边栏预览的用系统默认方式打开」。分流判据只覆盖
+         * 「点开之前就知道展不了」的那一半；另一半是**点开之后才发现展不了**
+         * —— 引擎没装、格式转换失败、容器解码面覆盖不到。那时如果失败态只有
+         * 一枚「重试」，用户就被关在一个只会循环报错的格子里，而磁盘上的文件
+         * 明明双击就能看。两个渲染器都要有这条出口，缺一个就少一半场景：
+         *  · sidebar-doc 管 pdf / Office / ods；
+         *  · sidebar-media 管视频 / 音频。
+         */
+        const docRendererSrc = readFileSync(resolve(ROOT, 'src/client/sidebar-doc/index.tsx'), 'utf8')
+        const mediaRendererSrc = readFileSync(resolve(ROOT, 'src/client/sidebar-media/index.tsx'), 'utf8')
+        const hasExit = (text) => /用系统默认应用打开/.test(text) && /openOutputFile\(openTarget\)/.test(text)
+        if (!hasExit(docRendererSrc)) {
+          fail('sidebar-doc 的失败态必须有「用系统默认应用打开」出口（openOutputFile(openTarget)）：'
+            + '引擎不可用 / 转换失败时，用户需要交给他自己的 Office 打开，而不是只剩重试')
+        } else if (!hasExit(mediaRendererSrc)) {
+          fail('sidebar-media 的失败态必须有「用系统默认应用打开」出口（openOutputFile(openTarget)）：'
+            + '容器解码不了时，重试一万次还是同一个结果，必须能交给系统播放器')
+        } else if (!/const openTarget = parsed === null[\s\S]{0,220}?resolveWorkspacePath\(workspaceCwdOf\(parsed\.sessionId\), parsed\.path\)/.test(mediaRendererSrc)
+          || !/const openTarget = parsed === null[\s\S]{0,220}?resolveWorkspacePath\(workspaceCwdOf\(parsed\.sessionId\), parsed\.path\)/.test(docRendererSrc)) {
+          fail('失败态出口必须先把侧栏地址里的相对路径折成绝对（resolveWorkspacePath(cwd, path)）—— '
+            + '直接发相对路径会被 host 的 resolveTarget 拒掉')
+        } else if (!/onError=\{onMediaError\}/.test(mediaRendererSrc)
+          || !/const onMediaError = useCallback/.test(mediaRendererSrc)) {
+          /*
+           * 第二出口的**触发条件**：播放器真解码失败时必须转 failed 态。
+           *
+           * 只加按钮不接 error 事件等于白加 —— ready 判定只看 HEAD 探测成功，
+           * 那只证明文件读得到，不证明浏览器解得出。avi / wma 会一路走到 ready：
+           * 播放器挂出来、UI 正常、画面全黑、没有任何按钮（2026-10-24 之前的实际形态）。
+           */
+          fail('sidebar-media 的播放器必须挂 onError 并转到 failed 态（onMediaError）：'
+            + '不接解码失败事件，第二出口永远不会出现 —— 用户只能对着黑画面')
+        } else if (!/媒体.*解不了|浏览器解不了这个容器/.test(mediaRendererSrc)) {
+          fail('onMediaError 必须把 SRC_NOT_SUPPORTED 说成人话（「浏览器解不了这个容器」），'
+            + '而不是只弹一个通用失败')
+        } else {
+          pass('侧栏渲染器失败态：两个渲染器都有「用系统默认应用打开」第二出口（绝对路径 + openOutputFile）')
+          pass('媒体解码失败：<video>/<audio> 挂 onError → failed 态（否则第二出口永远不出现）')
+        }
       }
     }
   }
@@ -2516,7 +2638,9 @@ if (krEnabled) {
     // [容器选择器（用于报错文案）, 覆盖规则必须匹配的正则]
     ['产出物缩略图 .kr-out-row__thumb', /\.kr-out-row__thumb svg\s*\{[^}]*calc\([^)]*--dsh-content-font-delta/],
     ['子智能体箭头 .kr-subs-row__go', /\.kr-subs-row__go svg/],
-    ['「展开其余 N」两处', /\.kr-subs-more svg/],
+    // 「展开其余 N」只剩产出物卡一处：子智能体卡改成 10 行定高窗口后，
+    // 它那枚按钮与 .kr-subs-more 整套样式一起删了（窗口自己能滚）。
+    ['产出物「展开其余 N」.kr-out-more', /\.kr-out-more svg/],
     ['产出物右栏箭头 .kr-out-row__go', /\.kr-out-row__go svg/],
   ]
   for (const [label, re] of SVG_MUST_SCALE) {
@@ -2535,12 +2659,12 @@ if (krEnabled) {
    * 还原」。本轮就把 chevron 的 11 写成了 12，实测默认档量到 12px 才发现。
    */
   const svgBase12 = /\.kr-subs-row__go svg,\s*\.kr-out-row__go svg\s*\{\s*width:\s*calc\(12px/.test(axisSrc)
-  const svgBase11 = /\.kr-subs-more svg,\s*\.kr-out-more svg\s*\{\s*width:\s*calc\(11px/.test(axisSrc)
+  const svgBase11 = /\.kr-out-more svg\s*\{\s*width:\s*calc\(11px/.test(axisSrc)
   if (!svgBase12) {
     axisReasons.push('跳转箭头与产出物右栏箭头 svg 的基准必须是 12px（与 JSX 呈现属性一致）')
   }
   if (!svgBase11) {
-    axisReasons.push('「展开其余 N」的 svg 基准必须是 11px（与 JSX 呈现属性一致）')
+    axisReasons.push('产出物「展开其余 N」的 svg 基准必须是 11px（与 JSX 呈现属性一致）')
   }
 
   if (axisReasons.length > 0) {
@@ -2878,6 +3002,28 @@ if (krEnabled) {
   }
   if (!/collectLatestSessionTasks\(snap\)/.test(panelSrc2)) {
     reasons.push('任务回溯口径必须是整场会话（传 displayTurn 会让没写过 todo 的历史轮次翻空）')
+  }
+  /*
+   * 5. **任务清单只认本轮，看最新轮次时绝不回溯**（2026-10-24 用户报
+   *    「发送新的对话时任务概览应该是空的才对」）。
+   *
+   * 复发路径有三条，逐条钉住：
+   *   a. live 回退（官方 todos 投影按会话累积，新一轮开始时仍是上一轮那份）；
+   *   b. 整场会话回溯被放到"看最新轮次"的分支里；
+   *   c. 有人为了"切会话时任务卡别空着"把 a/b 之一加回来。
+   */
+  if (/getLiveDshTodos/.test(panelSrc2) || /source: 'live'/.test(panelSrc2)) {
+    reasons.push('任务概览不得再回退到 live todos（按会话累积：新一轮刚发出时它仍是上一轮清单）')
+  }
+  if (!/if \(!isViewingHistory\) return \{ tasks: \[\], source: 'none' \}/.test(panelSrc2)) {
+    reasons.push('看最新轮次且本轮没写清单时必须返回空（用户：「发送新的对话时任务概览应该是空的才对」）'
+      + '；只有看历史轮次才允许回溯到会话最近一次清单')
+  }
+  // 回溯必须待在 isViewingHistory 判据之后：写在其前就是无条件回退。
+  const histIdx = panelSrc2.indexOf("if (!isViewingHistory) return { tasks: [], source: 'none' }")
+  const backIdx = panelSrc2.indexOf('collectLatestSessionTasks(snap)')
+  if (histIdx < 0 || backIdx < 0 || backIdx < histIdx) {
+    reasons.push('会话回溯必须排在「看最新轮次就返回空」之后（写在前面等于无条件回退）')
   }
   /*
    * 4. **跨会话归属校验**（2026-10-10 用户报「新对话还显示上个对话的任务概览」）。

@@ -9,8 +9,24 @@
  *  2. 操作面板是一列按时间读的流水，块一多就把流水截断成一段一段；
  *  3. 看不到全貌：同一轮派了两批，就是两个不相邻的小块。
  *
- * 现在它是自己的一张卡：**有几个子智能体就几行**，一行一个，点一行就跳过去看
+ * 现在它是自己的一张卡：**几个子智能体就几行**，一行一个，点一行就跳过去看
  * 那个子会话（走官方 `uiWorkspace.openSession`，与官方目录里点一行同一条链路）。
+ *
+ * ## 固定 5 行窗口（2026-10-24 用户最终定稿）
+ *
+ * 这一轮试过四种形态，用户最后确认的是**固定 5 行**：
+ *   ① 定高 10 行 → 「没有显示那么多行的情况下不要卡片留这么多」；
+ *   ② 封顶 10 行自适应 → 卡高仍随行数变，排在它下面的操作面板跟着跳；
+ *   ③ 把操作面板搬出滚动区钉在顶部 → 位置死了，但排到了这张卡上面，
+ *      用户看到的是「怎么跑到最上面去了」；
+ *   ④ **固定 5 行**（现在这个）= 卡高与内容多少彻底无关。
+ *
+ * 5 行是「恒定」与「别占太多地方」的折中：有 3 个子智能体时它占 5 行（多出
+ * 的空间留白），有 8 个时还是 5 行（第 6 个起在窗口内滚动）。**卡高恒定，所以
+ * 紧贴其下的「操作面板」永远停在同一位置** —— 那正是用户三次点名要的东西。
+ *
+ * 行高与窗口高度同源（--kr-subs-row-h，随官方字号轴缩放）：字号调到 22 时
+ * 「5 行」跟着长高，任何字号档下都精确是 5 行行高盒。
  *
  * ## 一张卡只回答两件事
  *
@@ -28,12 +44,15 @@
  * 拿不到的信息一律空着：子智能体此刻在调什么工具、说了什么，client 侧没有这份
  * 数据（那是子会话的消息投影，只有点开才有）。这跟"假装它没在干活"是两件事。
  *
- * ## 什么时候不出现
+ * ## 什么时候不出现（2026-10-24 第二轮回归）
  *
- * 这次会话一个子智能体都没有、也从没派生过时**整张卡不渲染** —— 任务 /
- * 操作面板 / 产出物三张卡是"这场对话一定有的东西"，子智能体不是；常驻一张空卡
- * 只会在右栏白占一行高度。真有派生动作但目录还没落地时给一行「正在读取」，
- * 那是**事实**（我们确实还没读到），不是「这次没有」（那是我们不知道的结论）。
+ * 用户原话：「没有子智能体的时候也不要显示」。所以这张卡又回到**按需出现**：
+ * 这次会话一个子智能体都没有、也从没派生过时整张卡不渲染。
+ *
+ * 中间试过让它常驻（为了"操作面板位置绝对不动"），代价是一张空卡长期占着右栏
+ * 顶部 —— 用户明确否决了那个代价。真有派生动作但目录还没落地时仍占一行
+ * 「正在读取」，那是**事实**（我们确实还没读到），不是「这次没有」
+ * （那是我们不知道的结论）。
  *
  * ## 两段分区 + 各自的段标题（2026-10-23 第二轮）
  *
@@ -44,19 +63,20 @@
  *
  * **为什么又改一轮**：第一版只有行内那颗 6px 点和「进行中 / 已结束」一个词来分状态，
  * 用户在真实右栏里看不出区别（他原话：「正在执行和已结束看不出来，不明显」）。
- * 现在两段的区别由**结构**承担，而不是靠一颗点的深浅：
+ * ## 固定窗口里的两段分区（2026-10-24）
  *
- *  · **段标题**：「正在执行 2」是主色 + 呼吸点的小标题；「已完成 2」是一条带对勾
- *    的整块折叠带（有底色，点一下展开）。读者不用逐行比对，扫一眼卡就知道
- *    上面这摞在跑、下面这摞跑完了。
- *  · **行内图标**：跑着的转圈、结束的打勾 —— 形状差异，缩到 10px、灰度截图、
- *    色弱视角下都成立。行内那枚「进行中 / 已结束」文字随之撤掉：分区已经说了
- *    一遍，每行再说一遍只是噪声（用户 2026-10-23 同意）。
+ * 两段的区别仍由**结构**承担（段标题 + 行内形状图标），但两段各自的展开体都
+ * 收进**同一个 5 行窗口**里滚动：窗口高度是「几个就几行」那版的反面 ——
+ * 它固定，所以下面的操作面板不会被子智能体的增减推走。
  *
- * 没有进行中的行时**不折叠**（那时折叠带只会把卡掏空），直接平铺，并且
- * **「已完成 N」这条标题整条不出现**：全部已结束的卡里，卡头读数已经写明
- * 「全部结束」，再挂一条对勾 + 淡字的标题只会被读成第 N+1 行 —— 它形状和下面
- * 每一行一样，而分区标题的意义是把两段分开，只剩一段就没得可分。判据见
+ * 两段各自往窗口里投什么，按「这一屏该看见什么」定：
+ *  · **进行中摊开**（占满窗口），这正是这张卡存在的理由；
+ *  · **已完成收进折叠带**，点开才占窗口。
+ *
+ * 没有进行中的行时**不折叠**（那时折叠带只会把卡掏空），已结束的行直接摊在
+ * 窗口里，并且 **「已完成 N」这条标题整条不出现**：全部已结束的卡里，卡头读数
+ * 已经写明「全部结束」，再挂一条对勾 + 淡字的标题只会被读成第 N+1 行 —— 它形状
+ * 和下面每一行一样，而分区标题的意义是把两段分开，只剩一段就没得可分。判据见
  * `doneFoldable`。
  */
 
@@ -67,20 +87,19 @@ import { formatDuration } from '../tool-summary/tool-stats.ts'
 import { openSubagentSession, type SubagentCatalogView, type SubagentRow } from './subagent-catalog.ts'
 
 /**
- * 默认露出的行数。
- *
- * 6 行 ≈ 6 × 26px = 156px，与「产出物」卡同一档：两张卡都可能一屏十几条，
- * 露太多就把上面的任务卡挤出视口。超出部分由底部「展开其余 N 个」承接。
- */
-/**
  * 已结束分区展开体的 id：折叠带按钮用它做 aria-controls。
  * 固定值即可 —— 右栏同一时刻只挂一张子智能体卡（见 KrAgentPanel 的卡片座位）。
  */
 const DONE_BODY_ID = 'kr-subs-done-body'
 
-const MAX_VISIBLE = 6
-/** 被右栏挤压时（记忆卡常驻底部触发自适应降档）收一档。 */
-const MAX_VISIBLE_SQUEEZED = 4
+/*
+ * 窗口固定 5 行 —— 行数由 CSS 的 `--kr-subs-rows`（.kr-card--subs 上）决定，
+ * 不是这里的常量。第 6 行起在窗口内部滚动。
+ *
+ * **行不在这里裁**：原先那套「默认露出 6 行 + 超出的收进『展开其余 N 个』」
+ * 随窗口一起撤掉。窗口自己能滚，看不见的行往下滚一行就是；再留一枚展开按钮，
+ * 等于给同一件事配两个出口，按下去还会把读者刚滚到的位置整段跳掉。
+ */
 
 /** 官方同款紧凑 token 计数（千 / 百万），只是不引它的 i18n。 */
 function formatTokens(value: number): string {
@@ -111,7 +130,14 @@ export interface KrSubagentsCardProps {
    * 否则切到新一轮会出现「目录有行、卡却被判空」的错位。
    */
   readonly spawning: boolean
-  /** 右栏是否已被挤压：露出的行数降一档。 */
+  /**
+   * 右栏是否已被挤压。
+   *
+   * **定高窗口下这个值不再改变卡的高度**（2026-10-24）：窗口恒为 10 行，是用户
+   * 点名要的"永远占 10 行"。挤压时降一档露出条数的那套做法随「按条数折叠」一起
+   * 撤掉了 —— 一旦卡高随挤压变，操作面板又会跟着挪，正是本轮要消除的东西。
+   * 参数留着只为不改挂载方的调用面与冒烟断言。
+   */
   readonly squeezed?: boolean
 }
 
@@ -201,20 +227,9 @@ function SubagentLine({ row, index, onOpen, failed }: {
 export const KrSubagentsCard = memo(function KrSubagentsCard({
   catalog,
   spawning,
-  squeezed = false,
 }: KrSubagentsCardProps) {
-  // 默认展开：这张卡只在真有子智能体时出现，出现即是要看的东西。
+  // 默认展开：这张卡常驻右栏，内容即是要看的东西。
   const [open, setOpen] = useState(true)
-  const [showAll, setShowAll] = useState(false)
-  /**
-   * 已结束分区是否「展开其余」。
-   *
-   * 会话口径（2026-10-23）之后这张卡不再按轮次裁剪，一场长对话跑下来已结束的
-   * 行可能有十几个。折叠条只负责「收起来」，展开后同样要有上限 —— 否则一点开
-   * 就把右栏整段占满，上面的进行中行被顶出视口。所以展开态也走 maxRows 一档，
-   * 超出部分交给同一枚「展开其余 N 个」。
-   */
-  const [doneShowAll, setDoneShowAll] = useState(false)
   /**
    * 已结束分区是否展开。
    *
@@ -238,7 +253,6 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
   const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(open, motion)
 
   const rows = catalog.rows
-  const maxRows = squeezed ? MAX_VISIBLE_SQUEEZED : MAX_VISIBLE
   /*
    * 进行中在前、已结束在后（两边各自保持目录给的创建顺序）。
    *
@@ -248,17 +262,19 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
    */
   const runningRows = useMemo(() => rows.filter((row) => row.running), [rows])
   const doneRows = useMemo(() => rows.filter((row) => !row.running), [rows])
-  const visible = useMemo(
-    () => (showAll ? runningRows : runningRows.slice(0, maxRows)),
-    [runningRows, showAll, maxRows],
-  )
-  const hiddenCount = runningRows.length - visible.length
-  /** 已结束分区实际渲染的行（展开后仍受 maxRows 约束，见 doneShowAll）。 */
-  const doneVisible = useMemo(
-    () => (doneShowAll ? doneRows : doneRows.slice(0, maxRows)),
-    [doneRows, doneShowAll, maxRows],
-  )
-  const doneHiddenCount = doneRows.length - doneVisible.length
+  /*
+   * 两段各自渲染的行：**全量**。
+   *
+   * 不在这里按条数裁剪（2026-10-24）：卡的高度由 CSS 的 10 行窗口决定，
+   * DOM 里该有多少行就渲染多少行，超出的靠窗口内滚动看 —— 裁掉又不给入口，
+   * 第 11 个子智能体就永远点不到了。（原先那套「露出 6 行 + 展开其余 N 个」
+   * 是配合"卡高随内容变"的，窗口化之后不再需要。）
+   *
+   * 进行中永远排在上面（这是这张卡的意义）。已结束折叠时展开体整块卸载
+   * （donePresent 为 false），不会有"看不见却还挂着动画"的节点。
+   */
+  const visible = runningRows
+  const doneVisible = doneRows
 
   /**
    * 这一堆已结束的行**值不值得折叠**。
@@ -300,14 +316,29 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
   }
 
   /*
-   * 什么时候整张卡不渲染。
+   * 什么时候**只占位、不显示**（2026-10-25 用户定稿）。
    *
-   * 判据是「有没有东西可说」，不是「state 是不是 ready」：
-   *  · 有行 → 渲染（ready 是唯一能带出行的状态）；
-   *  · 没行但本会话有过派生动作 → 渲染一行「正在读取子智能体…」（目录还没落地）；
-   *  · 其余 → null。这次会话确实没有子智能体，不该在右栏白占一行高度。
+   * 用户原话：「没有子智能体时不上移」。这句话把前后两轮的要求接上了：
+   *  · 2026-10-24「没有子智能体的时候也不要显示」→ 卡上不能有可见内容；
+   *  · 现在「不上移」→ 下面那张「操作面板」的位置不能变。
+   *
+   * 两条只能靠**不可见占位**同时满足：这次会话确实没有子智能体时，仍然渲染
+   * 一张**结构性**的卡（卡头 + 固定 5 行窗口，与外层真实卡片同一套结构，所以
+   * 高度精确相等），但整张卡 visibility:hidden + aria-hidden + 不接交互。
+   * 视觉上它不存在，位置上它还在 —— 操作面板于是纹丝不动。
+   *
+   * 为什么不用「高度写死的空白 div」：卡片高度由卡头行高、字号轴缩放、gap 一起
+   * 决定，写死一个数只会在改字号或改卡头时对不上（而且对不上时没有任何报错，
+   * 只表现成"操作面板又开始跳了"）。复用同一套结构 = 高度天然一致。
+   *
+   * 真正有内容时（含「正在读取」那种目录还没落地的中间态）走正常渲染。
    */
-  if (rows.length === 0 && !spawning) return null
+  const placeholder = rows.length === 0 && !spawning
+
+  /** 没行时唯一的那一行说明（占位态里不可见，但保留结构以维持高度）。 */
+  const emptyLine = catalog.state === 'error'
+    ? '子智能体清单读不到（会话服务未就绪）'
+    : '正在读取子智能体…'
 
   /*
    * 标题右侧的读数。折叠之后**已结束的那部分也必须出现在读数里** ——
@@ -318,23 +349,42 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
    * 也与操作面板「派出 N 个子智能体」那枚徽标一致 —— 三处对不上，读者就会
    * 以为卡里漏了东西。
    */
-  const meta = rows.length === 0
-    ? '读取中'
-    : doneRows.length === 0
-      ? `${rows.length} 个 · 全部进行中`
-      : runningRows.length === 0
-        ? `${rows.length} 个 · 全部结束`
-        : `${rows.length} 个 · ${runningRows.length} 个进行中`
+  const meta = placeholder
+    ? '暂无'
+    : rows.length === 0
+      ? '读取中'
+      : doneRows.length === 0
+        ? `${rows.length} 个 · 全部进行中`
+        : runningRows.length === 0
+          ? `${rows.length} 个 · 全部结束`
+          : `${rows.length} 个 · ${runningRows.length} 个进行中`
 
   return (
-    <div className="kr-card kr-card--subs" data-empty={rows.length === 0 || undefined}>
+    /*
+     * 占位态（placeholder）：整张卡**视觉上不存在**，但结构、高度、外边距全部
+     * 照旧 —— 下面那张操作面板因此不上移（用户 2026-10-25：「没有子智能体时不上移」）。
+     *
+     * 三件套一起关：
+     *  · aria-hidden：读屏用户不该听到一张空卡；
+     *  · inert：焦点掉不进去（卡头是个 role=button 的可折叠热区）；
+     *  · data-placeholder：样式表的 visibility 规则挂在这个属性上。
+     * 用 visibility 而不是 display:none —— 后者会把盒子整个抽掉，高度归零，
+     * 正好是我们要消除的那个位移。
+     */
+    <div
+      className="kr-card kr-card--subs"
+      data-empty={rows.length === 0 || undefined}
+      data-placeholder={placeholder || undefined}
+      aria-hidden={placeholder || undefined}
+      {...(placeholder ? { inert: '' } : {})}
+    >
       <div
         className="kr-card__header"
-        onClick={() => { setOpen((value) => !value) }}
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        onKeyDown={(event) => {
+        onClick={placeholder ? undefined : () => { setOpen((value) => !value) }}
+        role={placeholder ? undefined : 'button'}
+        tabIndex={placeholder ? undefined : 0}
+        aria-expanded={placeholder ? undefined : open}
+        onKeyDown={placeholder ? undefined : (event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()
             setOpen((value) => !value)
@@ -360,7 +410,11 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
         <span className="kr-card__meta">{meta}</span>
       </div>
 
-      {bodyPresent && (
+      {/*
+       * 占位态必须**连 body 一起渲染**：高度由卡头 + 5 行窗口构成，少了 body 就只剩
+       * 一个卡头，高度对不上，操作面板照样上移。
+       */}
+      {(bodyPresent || placeholder) && (
         <div
           ref={bodyRef}
           className="kr-subs-body"
@@ -368,148 +422,133 @@ export const KrSubagentsCard = memo(function KrSubagentsCard({
           aria-hidden={!open}
           {...(!open ? { inert: '' } : {})}
         >
-          {rows.length === 0 ? (
-            // 目录还没落地。**不能说"这次没有派生独立的子智能体"** —— 那是我们
-            // 并不知道的结论，而上面操作面板里正摆着一条「派出子任务」。
-            <div className="kr-subs-empty">
-              {catalog.state === 'error' ? '子智能体清单读不到（会话服务未就绪）' : '正在读取子智能体…'}
-            </div>
-          ) : (
-            <>
-              {/*
-               * 进行中分区：卡的上半段永远是「谁还在跑」。
-               *
-               * 段标题「正在执行 N」是这一轮（2026-10-23 第二轮）的关键改动：
-               * 状态原先只靠行内一颗 6px 点区分，用户看不出区别。段标题把
-               * 「上面这摞在跑」变成**结构事实**——主色 + 呼吸点 + 计数，扫一眼
-               * 卡头下方就知道此刻有几个活的。
-               *
-               * 一行都没有时整段（含标题）不渲染：空段只会多一道杠。
-               */}
-              {visible.length > 0 && (
-                <>
-                  <div className="kr-subs-group kr-subs-group--run">
-                    <span className="kr-subs-group__dot" aria-hidden />
-                    <span className="kr-subs-group__label">正在执行</span>{' '}
-                    <span className="kr-subs-group__count">{runningRows.length}</span>
-                  </div>
-                  <div className="kr-subs-list">
-                    {visible.map((row, index) => (
-                      <SubagentLine key={row.id} row={row} index={index} onOpen={onOpen} failed={blocked} />
-                    ))}
-                  </div>
-                  {/*
-                   * 「展开其余 N 个」**留在进行中分区里面**（2026-10-23 收尾）。
-                   * 它原先渲染在两个分区之外、紧贴着下面那条有底色的「已完成」折叠带，
-                   * 读起来像"展开已完成那摞"的按钮 —— 而它展开的是还卡在上限之外的
-                   * 进行中行。归属写进结构里，就不用再靠文案解释。
-                   */}
-                  {hiddenCount > 0 && (
-                    <button
-                      type="button"
-                      className="kr-subs-more"
-                      onClick={() => { setShowAll(true) }}
-                    >
-                      <span>展开其余 {hiddenCount} 个</span>
-                      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="m4.4 6.2 3.6 3.6 3.6-3.6" />
-                      </svg>
-                    </button>
-                  )}
-                </>
-              )}
-
-              {/*
-               * 已结束分区（用户 2026-10-23 点名：完工的收进「Show more」）。
-               *
-               * 为什么折叠的是**结束的那一堆**而不是列表尾巴：结束的行不再变化，
-               * 它们只是"已经交割完的事实"；把它们摊在上面，正在跑的那两行就被
-               * 一路挤到卡底 —— 而这张卡存在的意义恰恰是"谁还在跑"。所以固定
-               * 顺序是 进行中 → 已完成(折叠)。
-               *
-               * **这一轮（2026-10-23 第二轮）的关键变化**：段标题从「N 个已结束」
-               * 一行淡灰文字，改成一条**带对勾、有底色、能点的整块折叠带**。
-               * 旧形态读起来像列表结尾的省略号，读者根本意识不到「下面还收着一摞」；
-               * 新形态是一个明确的分区标签：对勾图标 + 「已完成 N」 + chevron，
-               * 与上面那条主色的「正在执行 N」形成对照。
-               *
-               * 不可折叠时（上面没有进行中的行）**整条标题不渲染**：那是「全部
-               * 已结束」的卡，卡头读数已经写明，再挂一条「已完成 N」只会被读成
-               * 第 N+1 行（对勾 + 淡字的形状和下面每一行一样）。分区标题存在的
-               * 意义是「把两段分开」，只剩一段时它没有可分的东西。
-               */}
-              {doneRows.length > 0 && (
-                <div className="kr-subs-done">
-                  {doneFoldable ? (
-                    <button
-                      type="button"
-                      className="kr-subs-group kr-subs-group--done kr-subs-group--toggle"
-                      aria-expanded={doneOpen}
-                      /*
-                       * 展开体带 inert/aria-hidden 收起，所以必须给按钮一个程序化的
-                       * 指向：读屏用户按下它之后要知道自己展开了哪一块。
-                       * id 用固定值 —— 右栏同一时刻只有这一张子智能体卡。
-                       *
-                       * 只在展开体真的在 DOM 里时才挂：收起动画结束后展开体整块卸载
-                       * （useHeightAnimation 的 present），此时若仍留着 aria-controls，
-                       * 就是一个指向不存在元素的悬空 IDREF。
-                       */
-                      aria-controls={donePresent ? DONE_BODY_ID : undefined}
-                      onClick={() => { setDoneOverride(!doneOpen) }}
-                    >
-                      <svg className="kr-subs-group__tick" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="m3.4 8.5 3.1 3.1 6-6.6" />
-                      </svg>
-                      <span className="kr-subs-group__label">已完成</span>{' '}
-                      <span className="kr-subs-group__count">{doneRows.length}</span>
-                      <svg
-                        width="11"
-                        height="11"
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.7"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                        className="kr-subs-group__chevron"
-                      >
-                        <path d="m4.4 6.2 3.6 3.6 3.6-3.6" />
-                      </svg>
-                    </button>
-                  ) : null}
-                  {donePresent && (
-                    <div
-                      ref={doneRef}
-                      id={DONE_BODY_ID}
-                      className="kr-subs-done__body"
-                      data-open={doneOpen || undefined}
-                      aria-hidden={!doneOpen}
-                      {...(!doneOpen ? { inert: '' } : {})}
-                    >
-                      <div className="kr-subs-list">
-                        {doneVisible.map((row, index) => (
-                          <SubagentLine key={row.id} row={row} index={index} onOpen={onOpen} failed={blocked} />
-                        ))}
-                      </div>
-                      {doneHiddenCount > 0 && (
-                        <button
-                          type="button"
-                          className="kr-subs-more"
-                          onClick={() => { setDoneShowAll(true) }}
-                        >
-                          <span>展开其余 {doneHiddenCount} 个</span>
-                          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <path d="m4.4 6.2 3.6 3.6 3.6-3.6" />
-                          </svg>
-                        </button>
-                      )}
+          {/*
+           * 封顶窗口：**max-height = 10 行行高盒**，内容少就按内容收。
+           *
+           * 「上限 10 行」与「别预先留白」是两句话、两件事：定高（height）能保证
+           * 操作面板绝对不动，代价是只有 1 行时也挂着 9 行空气——用户明确不要
+           * 那个。max-height 保留上限，行少时卡高跟着内容走。溢出在窗口内部滚动，
+           * overscroll-behavior: contain 让滚到头的滚动链停在这里，不再把外层
+           * 右栏一起带着走。
+           */}
+          <div className="kr-subs-window">
+            {rows.length === 0 ? (
+              <div className="kr-subs-empty">{emptyLine}</div>
+            ) : (
+              <>
+                {/*
+                 * 进行中分区：卡的上半段永远是「谁还在跑」。
+                 *
+                 * 段标题「正在执行 N」：状态原先只靠行内一颗 6px 点区分，用户
+                 * 看不出区别。段标题把「上面这摞在跑」变成**结构事实**——主色 +
+                 * 呼吸点 + 计数，扫一眼卡头下方就知道此刻有几个活的。
+                 *
+                 * 一行都没有时整段（含标题）不渲染：空段只会多一道杠。
+                 */}
+                {visible.length > 0 && (
+                  <>
+                    <div className="kr-subs-group kr-subs-group--run">
+                      <span className="kr-subs-group__dot" aria-hidden />
+                      <span className="kr-subs-group__label">正在执行</span>{' '}
+                      <span className="kr-subs-group__count">{runningRows.length}</span>
                     </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
+                    <div className="kr-subs-list">
+                      {visible.map((row, index) => (
+                        <SubagentLine key={row.id} row={row} index={index} onOpen={onOpen} failed={blocked} />
+                      ))}
+                    </div>
+                    {/*
+                     * 「展开其余 N 个」已撤（2026-10-24 定高窗口后）。
+                     *
+                     * 它原本在这里展开"卡在上限之外"的进行中行。窗口化之后，超出
+                     * 的行本来就在**窗口里**，往下滚一行就是 —— 再留一枚按钮，等于
+                     * 给"看不见第 11 行"这件事配两个出口，而且按下去会换掉窗口内容
+                     * （读者刚滚到的位置整段跳掉）。滚动条是这里唯一诚实的出口。
+                     */}
+                  </>
+                )}
+
+                {/*
+                 * 已结束分区（用户 2026-10-23 点名：完工的收进「Show more」）。
+                 *
+                 * 为什么折叠的是**结束的那一堆**而不是列表尾巴：结束的行不再变化，
+                 * 它们只是"已经交割完的事实"；把它们摊在上面，正在跑的那两行就被
+                 * 一路挤到卡底 —— 而这张卡存在的意义恰恰是"谁还在跑"。所以固定
+                 * 顺序是 进行中 → 已完成(折叠)。
+                 *
+                 * **这一轮（2026-10-23 第二轮）的关键变化**：段标题从「N 个已结束」
+                 * 一行淡灰文字，改成一条**带对勾、有底色、能点的整块折叠带**。
+                 * 旧形态读起来像列表结尾的省略号，读者根本意识不到「下面还收着一摞」；
+                 * 新形态是一个明确的分区标签：对勾图标 + 「已完成 N」 + chevron，
+                 * 与上面那条主色的「正在执行 N」形成对照。
+                 *
+                 * 不可折叠时（上面没有进行中的行）**整条标题不渲染**：那是「全部
+                 * 已结束」的卡，卡头读数已经写明，再挂一条「已完成 N」只会被读成
+                 * 第 N+1 行（对勾 + 淡字的形状和下面每一行一样）。分区标题存在的
+                 * 意义是「把两段分开」，只剩一段时它没有可分的东西。
+                 */}
+                {doneRows.length > 0 && (
+                  <div className="kr-subs-done">
+                    {doneFoldable ? (
+                      <button
+                        type="button"
+                        className="kr-subs-group kr-subs-group--done kr-subs-group--toggle"
+                        aria-expanded={doneOpen}
+                        /*
+                         * 展开体带 inert/aria-hidden 收起，所以必须给按钮一个程序化的
+                         * 指向：读屏用户按下它之后要知道自己展开了哪一块。
+                         * id 用固定值 —— 右栏同一时刻只有这一张子智能体卡。
+                         *
+                         * 只在展开体真的在 DOM 里时才挂：收起动画结束后展开体整块卸载
+                         * （useHeightAnimation 的 present），此时若仍留着 aria-controls，
+                         * 就是一个指向不存在元素的悬空 IDREF。
+                         */
+                        aria-controls={donePresent ? DONE_BODY_ID : undefined}
+                        onClick={() => { setDoneOverride(!doneOpen) }}
+                      >
+                        <svg className="kr-subs-group__tick" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="m3.4 8.5 3.1 3.1 6-6.6" />
+                        </svg>
+                        <span className="kr-subs-group__label">已完成</span>{' '}
+                        <span className="kr-subs-group__count">{doneRows.length}</span>
+                        <svg
+                          width="11"
+                          height="11"
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.7"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                          className="kr-subs-group__chevron"
+                        >
+                          <path d="m4.4 6.2 3.6 3.6 3.6-3.6" />
+                        </svg>
+                      </button>
+                    ) : null}
+                    {donePresent && (
+                      <div
+                        ref={doneRef}
+                        id={DONE_BODY_ID}
+                        className="kr-subs-done__body"
+                        data-open={doneOpen || undefined}
+                        aria-hidden={!doneOpen}
+                        {...(!doneOpen ? { inert: '' } : {})}
+                      >
+                        <div className="kr-subs-list">
+                          {doneVisible.map((row, index) => (
+                            <SubagentLine key={row.id} row={row} index={index} onOpen={onOpen} failed={blocked} />
+                          ))}
+                        </div>
+                        {/* 「展开其余 N 个」同样撤掉：窗口本来就在滚（理由见进行中那一段）。 */}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
