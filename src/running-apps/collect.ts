@@ -484,20 +484,61 @@ function powershellExe(): string {
 }
 
 /**
- * 采集脚本的 -EncodedCommand 形式（base64 UTF-16LE）。
+ * 引导器：命令行上只传这一小段（base64 UTF-16LE，长度恒定 ~588 字符）。
  *
- * 为什么不用 `-Command -` 从 stdin 灌脚本（踩过）：stdin 模式下 PowerShell
- * 逐行读「命令」，整段脚本里的中文注释与多行 C# here-string 会被拆错，
- * 表现为**部分过滤条件静默失效**（实测：文件方式跑出 4 条，stdin 方式跑出
- * 6 条，多出的是本该被过滤掉的浮层窗口与输入法宿主）。
- * 也不用临时 .ps1 文件：会留残留，且杀软对落地脚本的扫描会拖慢首次启动。
- * -EncodedCommand 把整段脚本作为一个参数传进去，编码与行结构都不再是问题。
+ * ## 为什么不再把整段脚本塞进 -EncodedCommand（2026-10-25 修）
+ *
+ * Windows 的 `CreateProcess` 命令行上限是 **32767 字符**。`-EncodedCommand`
+ * 要求 UTF-16LE 再 base64，体积是原文的 **2.67 倍**：
+ *
+ *   脚本 13680 字符 → base64 36552 字符 → 总命令行 35627 → 超限 2860
+ *
+ * 超限时 `spawn` **同步抛 ENAMETOOLONG**，而 `ensureCollector()` 的 `catch`
+ * 把它吞成 `return null`，对外只表现为 `{"ok":false,"error":"collector unavailable"}`
+ * ——没有堆栈、没有日志，症状是「@ 菜单里永远没有『运行中的程序』那一组」，
+ * 且连「点浏览器图标把窗口拉到前台」一起失效（两条路由共用这个采集器）。
+ *
+ * 这个坑随提交 902a34c（窗口激活）引入：脚本从 11645 涨到 13680 字符，
+ * 恰好越过上限。阈值换算：脚本字符数 > **12288** 就会超（32767/2.67-参数）。
+ *
+ * ## 为什么是这个方案
+ *
+ *  - 不再用 `-Command -` 整段灌 stdin（踩过）：stdin 模式下 PowerShell 逐行
+ *    读「命令」，中文注释与多行 C# here-string 会被拆错，表现为**部分过滤条件
+ *    静默失效**（实测文件方式 4 条、逐行 stdin 方式 6 条，多出浮层窗口与输入法宿主）。
+ *  - 不用临时 .ps1 文件：会留残留，且杀软对落地脚本的扫描拖慢首次启动。
+ *  - 现在脚本本体走 **stdin 的一行 base64(UTF-8)**：单行、纯 ASCII、无换行，
+ *    上面「逐行拆命令」的坑不成立（引导器用 `Invoke-Expression` 一次求值整段），
+ *    体积也不受命令行上限约束；命令行长度恒定，与脚本多大无关。
+ *
+ * 传输顺序：先写脚本行，再写 `PARENT <pid>`（握手与命令复用同一条 stdin）。
  */
+const BOOTSTRAP_SCRIPT = [
+  '$ErrorActionPreference = "SilentlyContinue"',
+  '$line = [Console]::In.ReadLine()',
+  'if ($null -eq $line) { exit 0 }',
+  '$src = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($line))',
+  'Invoke-Expression $src',
+].join('\n')
+
 let encodedCache: string | null = null
-function encodedCollector(): string {
+function encodedBootstrap(): string {
   if (encodedCache !== null) return encodedCache
-  encodedCache = Buffer.from(COLLECTOR_SCRIPT, 'utf16le').toString('base64')
+  encodedCache = Buffer.from(BOOTSTRAP_SCRIPT, 'utf16le').toString('base64')
   return encodedCache
+}
+
+/**
+ * 采集脚本本体的一行传输形态（base64 UTF-8）。
+ *
+ * 用 UTF-8 而非 UTF-16LE：脚本里的中文注释只占原文大小，且纯 ASCII 传输
+ * 不会被 stdin 的代码页影响（引导器按 UTF-8 显式解码）。
+ */
+let scriptCache: string | null = null
+function encodedCollectorScript(): string {
+  if (scriptCache !== null) return scriptCache
+  scriptCache = Buffer.from(COLLECTOR_SCRIPT, 'utf8').toString('base64')
+  return scriptCache
 }
 
 /** 杀掉常驻进程（退出 / 崩溃 / 超时）。 */
@@ -544,7 +585,7 @@ function ensureCollector(): ChildProcessWithoutNullStreams | null {
   if (state.disposed) return null
   let proc: ChildProcessWithoutNullStreams
   try {
-    proc = spawn(powershellExe(), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodedCollector()], {
+    proc = spawn(powershellExe(), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodedBootstrap()], {
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
@@ -570,14 +611,20 @@ function ensureCollector(): ChildProcessWithoutNullStreams | null {
     settlePending({ ok: false, error: 'collector exited' })
   })
   /*
-   * 把本进程 PID 告诉采集器，让它装宿主看门狗（见 C# WatchParent 的注释）。
+   * 握手两步，顺序不能反：
+   *  1. 第一行是采集脚本本体（base64 UTF-8），引导器读到它才 Invoke-Expression，
+   *     之后 `[Console]::In.ReadLine()` 才开始读 PARENT / PROBE / ACTIVATE。
+   *  2. 再告诉它本进程 PID，让它装宿主看门狗（见 C# WatchParent 的注释）。
    *
-   * 为什么由 Node 传而不是让 PowerShell 自己查 ParentProcessId：
+   * 为什么由 Node 传 PID 而不是让 PowerShell 自己查 ParentProcessId：
    * -EncodedCommand 模式下 pwsh 会先起一个短命的中间宿主，脚本查到的
    * 「父进程」是那个中间宿主，它派发完命令就退出 —— 采集器会立刻自杀。
    * 这里传的 process.pid 是真正的 DSH 宿主进程。
+   *
+   * 两次写都容错：管道已断说明子进程当场就退了，下次请求重建即可。
    */
   try {
+    proc.stdin.write(encodedCollectorScript() + '\n')
     proc.stdin.write('PARENT ' + process.pid + '\n')
   } catch { /* 管道已断，下次重建 */ }
   return proc
