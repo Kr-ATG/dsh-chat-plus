@@ -575,6 +575,7 @@ New-Item -ItemType Junction -Path "$env:USERPROFILE\.dsh\profiles\web\node_modul
 
 ### 设置里能改的
 
+- **设置 → 通用 → 界面字体**：整站字体两档下拉（**微软雅黑** / **霞鹜新致宋**）。默认微软雅黑零下载；选霞鹜新致宋时从本插件的 host 路由按需拉一次 4.99 MB 全字集 woff2（之后走 immutable 缓存），下拉框旁会显示「加载中 5.0 MB」或「加载失败，已回退系统字体」。选择存 localStorage，首帧即生效（不等 React 挂载，不会先闪一下系统字体）。与官方「更多字体设置」并存：你在官方那边显式填了正文字体时以官方为准
 - **设置 → 供应商**：上面那一节的全部内容
 - **输入框左侧**：工具闸门
 - **Seeker 标签右侧的齿轮（大盘设置）**：提示词通道六条（含 step 纪律）+ 工作区记忆一条 + 展示三条（含总结卡外框开关，关掉后总结卡不留边框与阴影，退回纯正文）
@@ -863,6 +864,7 @@ src/
 │   ├── running-apps/           「@ 运行中的程序」@ 源 + 图标组件 + 样式（数据层纯判据可测）
 │   ├── sidebar-doc/            侧边栏文档预览（pdf / Office 接管）
 │   ├── sidebar-media/          侧边栏音视频预览（原生 video / audio）
+│   ├── ui-font/                界面字体（设置 → 通用 的两档下拉 + 覆盖 CSS 变量）
 │   └── sidebar/                documentPreviews 就绪等待（官方服务晚于插件 apply）
 ├── mail/                       邮箱 host（路由 / CLI 封装 / 注入通道）
 ├── provider/                   供应商 host（代理 / 密钥环 / 搜索）
@@ -872,6 +874,7 @@ src/
 ├── browser-activity/           浏览器活动观测（会话级活动表 + 只读路由）
 ├── running-apps/               「运行中的程序」采集（常驻 PowerShell 子进程 + 只读路由）
 ├── spill/                      spill 准入 + 生图落盘（materialize 路由）
+├── fonts/                      界面字体资产路由（/api/chat-flow/fonts/*，woff2 + 许可）
 ├── office/                     Office / PDF 页图与 PDF 渲染
 └── shot/                       截图引擎（无头浏览器）
 ```
