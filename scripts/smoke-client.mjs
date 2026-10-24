@@ -1674,6 +1674,19 @@ if (krEnabled) {
       fail('浏览器标志必须挂在 Seeker 名字右侧（.kr-plain-head__name-row 里的 .kr-plain-head__browser）')
     } else if (!/\.kr-plain-head__browser/.test(code)) {
       fail('client bundle 缺 .kr-plain-head__browser 样式（图标会是一坨没尺寸的裸 SVG）')
+    } else if (!/<button[\s\S]{0,200}?className="kr-plain-head__browser"[\s\S]{0,400}?onClick=\{onBrowserClick\}/.test(cardSrc)) {
+      /*
+       * 浏览器标志必须**可点击**（2026-10-25 用户要求：「点击浏览器图标自动进入到
+       * ego 那个工作空间」）。
+       *
+       * 用 button 而不是 span + onClick：键盘可达、自带 :active/:focus-visible 语义、
+       * 读屏能认出这是个能按的东西。断言直接钉 button + onClick 两件，
+       * 退回 span 就会红。
+       */
+      fail('浏览器标志必须是可点击按钮（button.kr-plain-head__browser + onClick=onBrowserClick），'
+        + '点了要能切到那个窗口')
+    } else if (!/export async function activateBrowserWindow/.test(readFileSync(resolve(ROOT, 'src/client/browser-flag/activate.ts'), 'utf8'))) {
+      fail('缺 activateBrowserWindow（POST /api/chat-flow/activate-window 的客户端封装）')
     } else if (!/const browserOn = browserActive \|\| \(running && browserSticky\)/.test(cardSrc)) {
       /*
        * 「只要 ego 没收口就不要消失」（2026-10-25 用户要求）。

@@ -278,8 +278,12 @@ else pass('deferred webServer callback executed')
 // running-apps 是 2026-10-23 新增：「@ 运行中的程序」候选的数据源（只读）。
 // 它同样注册在自己的延迟注入里，漏注册的表现是「@ 里看不到任何窗口」，
 // 而界面上不会有任何报错 —— 计数断言是唯一能钉住它的地方。
-if (registered.length !== 10) {
-  fail(`expected exactly 10 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
+// activate-window 是 2026-10-25 新增：点操作面板那枚浏览器标志时把 ego 的窗口
+// 拉到前台（用户：「点击浏览器图标自动进入到ego那个工作空间」）。它挂在
+// running-apps 的延迟注入里、共用同一个常驻 PowerShell 采集器 —— 漏注册的表现
+// 是「点了图标没反应」，界面上同样没有任何报错，只能靠计数断言钉住。
+if (registered.length !== 11) {
+  fail(`expected exactly 11 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
 } else {
   const exacts = registered.filter(spec => spec?.kind === 'exact')
   const prefix = registered.filter(spec => spec?.kind === 'prefix')
@@ -297,6 +301,9 @@ if (registered.length !== 10) {
     fail('missing running-apps route (exact /api/chat-flow/running-apps)')
   } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/browser-activity')) {
     fail('missing browser-activity route (exact /api/chat-flow/browser-activity)')
+  } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/activate-window')) {
+    fail('missing activate-window route (exact /api/chat-flow/activate-window) —— '
+      + '点浏览器标志切到 ego 窗口就靠它，漏注册等于点了没反应')
   } else {
     pass('registered GET /api/chat-flow/generated-images (+ /materialize) + /open-path + /open-file + /tools-gate + /browser-activity (kind=exact)')
   }

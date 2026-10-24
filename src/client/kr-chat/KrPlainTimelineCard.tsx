@@ -45,6 +45,7 @@ import {
   getBrowserFlagEntry,
   subscribeBrowserFlag,
 } from '../browser-flag/store.ts'
+import { activateBrowserWindow } from '../browser-flag/activate.ts'
 
 /**
  * 「简要 / 详细」两档**已整块删除**（2026-10-24 用户点名：「点击就是详细不需要简要了」）。
@@ -458,6 +459,41 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   const browserOn = browserActive || (running && browserSticky)
 
   /*
+   * 点图标 → 把那个浏览器窗口拉到前台（2026-10-25 用户要求）。
+   *
+   * 用户原话：「点击浏览器图标自动进入到ego那个工作空间」。
+   *
+   * 为什么走本插件自己的路由而不是别的：
+   *  · 浏览器窗口是**独立桌面应用**（ego / Chrome），不是 DSH 的页面或会话 ——
+   *    client 侧没有任何官方 API 能切过去；
+   *  · host 侧已经有一个常驻 PowerShell 采集器（@ 运行中的程序在用），它本来就会
+   *    EnumWindows。加一条 ACTIVATE 命令就能顺带做窗口激活，不必再拉一个进程。
+   *
+   * 候选进程名从活动条目的 service/tool 推：ego-browser 背后的桌面进程是 ego，
+   * playwright-mcp 背后通常是 chrome。推不出来时退到 'ego'（用户的默认场景）。
+   * 服务端按序试，第一个成功的赢。
+   *
+   * 失败静默：点一下没反应，比弹一个"窗口激活失败"的错误好 —— 那枚图标本来就
+   * 只是个便利入口。
+   */
+  const browserBusyRef = useRef(false)
+  const onBrowserClick = useCallback((event: React.MouseEvent): void => {
+    // 卡头整块是折叠热区：点图标不该顺带把时间线展开/收起。
+    event.stopPropagation()
+    event.preventDefault()
+    if (browserBusyRef.current) return
+    browserBusyRef.current = true
+    const label = browserFlagTitle(browserEntry).toLowerCase()
+    const candidates = label.includes('playwright') || label.includes('chrome')
+      ? ['chrome', 'msedge', 'ego']
+      : ['ego', 'chrome', 'msedge']
+    void activateBrowserWindow(candidates).finally(() => {
+      // 给一点冷却：连点会把同一个窗口反复拽到前台（观感上像在抖）。
+      window.setTimeout(() => { browserBusyRef.current = false }, 600)
+    })
+  }, [browserEntry])
+
+  /*
    * 展开后显示的就是**完整详细时间线**：不收敛、不过滤、一步不省。
    *
    * 「简要」这一档已经整块删掉（见文件顶部的说明）：折叠态那一行本身就是最克制
@@ -604,18 +640,30 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
          */}
         <span className="kr-plain-head__name-row">
           <span className="kr-plain-head__name">Seeker</span>
+          {/*
+           * 可点击（2026-10-25 用户要求）：「点击浏览器图标自动进入到ego那个
+           * 工作空间」。用 button 而不是 span + onClick：
+           *  · 键盘可达（Tab 到、回车触发）；
+           *  · 自带 :active / :focus-visible 语义，不必手写；
+           *  · 读屏能认出"这是个能按的东西"。
+           *
+           * title 写清"点了会发生什么"（「点击切到 ego 窗口」），而不只是
+           * 陈述状态 —— 悬停提示是这枚按钮唯一能解释自己的地方。
+           */}
           {browserOn && (
-            <span
+            <button
+              type="button"
               className="kr-plain-head__browser"
-              title={browserFlagTitle(browserEntry)}
-              aria-hidden
+              title={`${browserFlagTitle(browserEntry)} · 点击切到窗口`}
+              aria-label={`${browserFlagTitle(browserEntry)}，点击切到那个窗口`}
+              onClick={onBrowserClick}
             >
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <circle cx="8" cy="8" r="6.25" />
                 <path d="M1.75 8h12.5" />
                 <path d="M8 1.75c1.7 1.8 2.6 3.9 2.6 6.25S9.7 12.45 8 14.25C6.3 12.45 5.4 10.35 5.4 8S6.3 3.55 8 1.75z" />
               </svg>
-            </span>
+            </button>
           )}
         </span>
         {currentAction === null ? (

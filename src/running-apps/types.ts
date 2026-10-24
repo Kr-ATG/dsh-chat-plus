@@ -24,6 +24,20 @@
 export const RUNNING_APPS_ROUTE = '/api/chat-flow/running-apps'
 
 /**
+ * 「把某个程序的窗口拉到前台」的路由（POST，2026-10-25）。
+ *
+ * 用途：操作面板那枚浏览器标志可点击 —— 点它直接跳回 ego 的窗口。
+ *
+ * 为什么是 POST：这是一条**会改变前台窗口**的副作用操作，不是读取。GET 会被
+ * 浏览器预取 / 缓存 / 链接预览触发，那意味着「用户还没点，ego 就被拽到前面」。
+ *
+ * 请求体：`{ "process": "ego" }`（进程名，不含 .exe）。
+ * 回包：`{ ok: boolean, activated: string }` —— activated 是真正被激活的进程名，
+ * 空串表示没找到窗口（客户端据此走兜底，不弹错）。
+ */
+export const RUNNING_APPS_ACTIVATE_ROUTE = '/api/chat-flow/activate-window'
+
+/**
  * 采集超时：超过这个时间直接返回 ok:false + 空列表，绝不让请求挂着。
  *
  * 正常采集是 2~4ms（常驻子进程一次往返），8 秒只用于兜住「子进程卡死」

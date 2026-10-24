@@ -623,6 +623,9 @@ const SHEET = `
   .glb-btn,.glb-nav,.glb-paged__step,.glb-paged__img,.glb-zoom__hint,.glb-zoom__reset{transition:none!important}
   .glb-spin,.glb-spin-inline{animation:none!important}
   .tg-day,.tg-day::before,.tg-day__head,.tg-day__dot,.tg-day__rule,.tg-time-pop,.tg-search__time-tag,.tg-time-bar{animation:none!important}
+  /* 时间轴格子的名称浮层（2026-10-25）：只关过渡，**不动 opacity / display** ——
+     hover 该浮现还是浮现，只是没有过渡帧。 */
+  .tg-tile__meta{transition:none!important}
   .tg-time-pop__preset,.tg-time-pop__apply,.tg-view__btn{transition:none!important}
   .tg-time-bar__icon{animation:none!important}
   /* 分类删除（2026-10-16）：只关动画与位移，**不动布局与可见性规则** ——

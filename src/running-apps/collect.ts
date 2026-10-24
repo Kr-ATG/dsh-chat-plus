@@ -233,6 +233,80 @@ public class DshRunningApps {
    * 必须用 TerminateProcess 而不是 Environment.Exit：后者会跑 AppDomain 的
    * ProcessExit 事件、等待前台线程，在 PowerShell 宿主里实测会被拖住而不退出。
    */
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern IntPtr GetLastActivePopup(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint attach, uint attachTo, bool fAttach);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr pid);
+  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+
+  /**
+   * 把指定进程名的**主窗口**拉到前台。
+   *
+   * 为什么按进程名而不是窗口句柄：客户端只拿得到「正在操作浏览器」这件事，
+   * 它不知道 ego 的窗口句柄（那个值每次重启都变，且不适合当持久契约）。
+   * 进程名（ego）是稳定的。
+   *
+   * 为什么不是简单的 SetForegroundWindow：Windows 有前台锁 —— 只有当调用进程
+   * 本身是前台进程时，SetForegroundWindow 才会真的生效；否则它只闪一下任务栏。
+   * 这里用 AttachThreadInput 把本线程挂到目标窗口线程的输入队列上，绕过那条
+   * 限制（这是 BringWindowToFront 类实现的通行做法）。
+   *
+   * 优先级：先挑**未最小化、且不是当前前台**的那个（避免"已经在前台却把别人
+   * 抢下来"），没有再退到任一未最小化窗口，最后才用最小化的（并 ShowWindow 还原）。
+   */
+  public static bool Activate(string processName) {
+    if (string.IsNullOrEmpty(processName)) return false;
+    var candidates = new List<IntPtr>();
+    IntPtr fg = GetForegroundWindow();
+    EnumWindows((h, l) => {
+      if (!IsWindowVisible(h)) return true;
+      int ex = GetWindowLong(h, -16);
+      if ((ex & 0x8) != 0) return true;
+      if (GetWindow(h, 4) != IntPtr.Zero) return true;
+      var sb = new StringBuilder(1024);
+      if (GetWindowText(h, sb, 1024) == 0) return true;
+      uint pidRaw;
+      GetWindowThreadProcessId(h, out pidRaw);
+      string pname = ProcName((int)pidRaw);
+      if (pname != null && string.Equals(pname, processName, StringComparison.OrdinalIgnoreCase)) {
+        candidates.Add(h);
+      }
+      return true;
+    }, IntPtr.Zero);
+
+    if (candidates.Count == 0) return false;
+
+    IntPtr target = IntPtr.Zero;
+    for (int i = 0; i < candidates.Count; i++) {
+      if (!IsIconic(candidates[i]) && candidates[i] != fg) { target = candidates[i]; break; }
+    }
+    if (target == IntPtr.Zero) {
+      for (int i = 0; i < candidates.Count; i++) {
+        if (!IsIconic(candidates[i])) { target = candidates[i]; break; }
+      }
+    }
+    if (target == IntPtr.Zero) {
+      target = candidates[0];
+      ShowWindow(target, 9); /* SW_RESTORE */
+    }
+
+    try {
+      uint targetThread = GetWindowThreadProcessId(target, IntPtr.Zero);
+      uint curThread = GetCurrentThreadId();
+      bool attached = false;
+      if (targetThread != 0 && targetThread != curThread) {
+        attached = AttachThreadInput(curThread, targetThread, true);
+      }
+      ShowWindow(target, 5); /* SW_SHOW */
+      SetForegroundWindow(target);
+      if (attached) AttachThreadInput(curThread, targetThread, false);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   public static void WatchParent(int parentPid) {
     if (parentPid <= 0) return;
     var t = new System.Threading.Thread(() => {
@@ -286,6 +360,18 @@ while ($true) {
   if ($line.StartsWith("PARENT ")) {
     $ParentPid = [int]$line.Substring(7)
     [DshRunningApps]::WatchParent($ParentPid)
+    continue
+  }
+  # ACTIVATE <进程名>：把那个进程的主窗口拉到前台（点浏览器标志时用）。
+  # 回一行最小 JSON，与 PROBE 共用同一套 END_MARK 分隔。
+  if ($line.StartsWith("ACTIVATE ")) {
+    $procName = $line.Substring(9).Trim()
+    $okAct = $false
+    try { $okAct = [DshRunningApps]::Activate($procName) } catch { $okAct = $false }
+    $actPayload = [pscustomobject]@{ ok = $okAct; activate = $procName }
+    [Console]::Out.WriteLine(($actPayload | ConvertTo-Json -Compress))
+    [Console]::Out.WriteLine("<<<DSH-APPS-END>>>")
+    [Console]::Out.Flush()
     continue
   }
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -451,15 +537,23 @@ function ensureCollector(): ChildProcessWithoutNullStreams | null {
   return proc
 }
 
-/** 跑一次探测。失败一律返回 ok:false，绝不抛。 */
-function probe(): Promise<RawProbeResult> {
+/**
+ * 往常驻进程发一条命令并等一行回包。
+ *
+ * 抽出来是因为现在有两条命令（PROBE / ACTIVATE），而「同一时刻只允许一个
+ * 挂起回包」「超时就杀进程重建」这两条纪律必须一模一样 —— 复制一份迟早分叉。
+ *
+ * @param line - 要写进 stdin 的整行命令（不含换行）。
+ * @returns 回包；失败一律 ok:false，绝不抛。
+ */
+function sendCommand(line: string): Promise<RawProbeResult> {
   return new Promise<RawProbeResult>((resolve) => {
     const proc = ensureCollector()
     if (proc === null) {
       resolve({ ok: false, error: 'collector unavailable' })
       return
     }
-    // 同一时刻只允许一个探测：常驻进程是单线程串行处理 stdin 的，
+    // 同一时刻只允许一个挂起命令：常驻进程是单线程串行处理 stdin 的，
     // 并发写两行会让两个回包错配。
     if (state.pending !== null) settlePending({ ok: false, error: 'superseded' })
     const timer = setTimeout(() => {
@@ -469,11 +563,42 @@ function probe(): Promise<RawProbeResult> {
     }, RUNNING_APPS_TIMEOUT_MS)
     state.pending = { resolve, timer }
     try {
-      proc.stdin.write('PROBE\n')
+      proc.stdin.write(line + '\n')
     } catch {
       settlePending({ ok: false, error: 'collector stdin closed' })
     }
   })
+}
+
+/** 跑一次探测。失败一律返回 ok:false，绝不抛。 */
+function probe(): Promise<RawProbeResult> {
+  return sendCommand('PROBE')
+}
+
+/**
+ * 把某个进程的主窗口拉到前台（点操作面板那枚浏览器标志时用）。
+ *
+ * 进程名来自浏览器活动表里的 service/tool（如 ego / playwright-mcp），但真正
+ * 要激活的是**那个 CLI 背后的桌面应用**：ego-browser 的窗口进程名是 ego。
+ * 所以这里吃的是「候选进程名列表」，逐个试，第一个成功的赢。
+ *
+ * 全部失败时返回 false，调用方据此走兜底（不弹错、不假装成功）。
+ *
+ * @param names - 候选进程名（不含 .exe，大小写不敏感）。
+ * @returns 是否真的激活了某个窗口。
+ */
+export async function activateProcessWindow(names: readonly string[]): Promise<boolean> {
+  for (const name of names) {
+    const trimmed = name.trim()
+    if (trimmed === '') continue
+    try {
+      const result = await sendCommand('ACTIVATE ' + trimmed)
+      if (result.ok === true) return true
+    } catch {
+      /* 单个候选失败不影响其它候选 */
+    }
+  }
+  return false
 }
 
 /** 把一个原始窗口条目归一化成契约类型（形状不对就丢弃）。 */

@@ -2259,18 +2259,55 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
  * 「加载中」，而它表达的是「正在进行」，稳定的慢呼吸才不会让右栏看起来在闪。
  * 尺寸比原来那枚（14px）小一档：这里紧挨 13px 的名字，14px 会显得比名字还重。
  */
+/*
+ * 可点击的浏览器标志（2026-10-25 用户要求：「点击浏览器图标自动进入到 ego
+ * 那个工作空间」）。
+ *
+ * 从 span 改成 button 之后，UA 样式必须全部抹掉 —— 灰色底、内边距、系统字体
+ * 在这里都是错的，它承载的是一枚 13px 的图标。同时要给它**明确的交互反馈**：
+ *  · 悬停：底色浮现 + 轻微放大（说明"这里能按"）；
+ *  · 按下：缩到 0.92（触感，与右栏其它按钮同一套节奏）；
+ *  · 键盘焦点：主色焦点环（WCAG 2.4.7，整卡是折叠热区，键盘用户必须看得出
+ *    焦点落在图标上还是卡头上）。
+ */
 .kr-plain-head__browser {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6);
-  height: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6);
+  /* 内距给一点点：13px 的图标直接当按钮太小，点到边缘容易落空。 */
+  padding: 3px;
+  margin: -3px;
+  width: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6 + 6px);
+  height: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6 + 6px);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
   color: var(--kr-accent);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color var(--kr-dur-tap) linear,
+    transform var(--kr-dur-tap) var(--kr-ease-out);
   animation:
     kr-plain-browser-in var(--kr-dur-row) var(--kr-ease-out) backwards,
     kr-plain-browser-breathe 1.6s ease-in-out .22s infinite;
   will-change: opacity;
+}
+
+.kr-plain-head__browser:hover {
+  background: color-mix(in srgb, var(--kr-accent) 12%, transparent);
+  transform: scale(1.08);
+}
+
+.kr-plain-head__browser:active {
+  transform: scale(.92);
+}
+
+.kr-plain-head__browser:focus-visible {
+  outline: 2px solid var(--kr-accent);
+  outline-offset: 1px;
 }
 
 .kr-plain-head__browser svg {
@@ -2294,6 +2331,12 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   .kr-plain-head__browser {
     animation: none;
     opacity: 1;
+    transition: background-color .12s linear;
+  }
+  /* 放大/缩小的触感关掉，但悬停底色保留 —— 它不参与动画，是"能按"的静态线索。 */
+  .kr-plain-head__browser:hover,
+  .kr-plain-head__browser:active {
+    transform: none;
   }
 }
 
