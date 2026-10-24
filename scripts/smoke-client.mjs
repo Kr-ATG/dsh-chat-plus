@@ -1674,6 +1674,19 @@ if (krEnabled) {
       fail('浏览器标志必须挂在 Seeker 名字右侧（.kr-plain-head__name-row 里的 .kr-plain-head__browser）')
     } else if (!/\.kr-plain-head__browser/.test(code)) {
       fail('client bundle 缺 .kr-plain-head__browser 样式（图标会是一坨没尺寸的裸 SVG）')
+    } else if (!/const browserOn = browserActive \|\| \(running && browserSticky\)/.test(cardSrc)) {
+      /*
+       * 「只要 ego 没收口就不要消失」（2026-10-25 用户要求）。
+       *
+       * 只认 store 的 active/尾迹时，一次调用结束 1.5s 后图标就灭 —— 而浏览器
+       * 进程还开着，模型只是在两次调用之间思考。判据必须是**粘滞**：本轮出现过
+       * 浏览器活动，就一直亮到本轮收口。
+       *
+       * ⚠ 别写成 browserActive || running：那会让每个正在跑的会话都亮图标，
+       *   哪怕它根本没碰过浏览器。
+       */
+      fail('浏览器标志必须粘滞到本轮收口（browserActive || (running && browserSticky)），'
+        + '不能只认单次调用，也不能无条件跟着 running 亮')
     } else if (!/kr-plain-head__act/.test(cardSrc)) {
       fail('卡头必须有「当前动作」这一行')
     } else if (/\.kr-plain-view\b/.test(cardSrc)) {

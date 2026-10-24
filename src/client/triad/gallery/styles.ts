@@ -359,10 +359,21 @@ const SHEET = `
    确认态向左撑开，不会盖住眼睛。 */
 .tg-card--tile .tg-card__del{right:37px;bottom:auto;top:7px;width:24px;height:24px;border-radius:8px}
 .tg-card--tile .tg-card__del[data-armed="true"]{min-width:50px;padding:0 8px}
-/* 文件名常驻缩略图下方（不 hover 也看得见） */
-.tg-tile__meta{display:flex;flex-direction:column;gap:2px;padding:7px 3px 3px;min-width:0}
-.tg-tile__name{font-size:12px;font-weight:500;line-height:17px;color:var(--dsw-alias-label-primary,#eee);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tg-tile__sub{font-size:10.5px;line-height:14px;color:var(--dsw-alias-label-tertiary,#7c828c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 文件名与时间：**不再常驻在缩略图下方**（2026-10-25 用户要求）——
+   默认整块隐去，格子就是一个干净的正方形缩略图；鼠标移上来（或键盘聚焦）时
+   以浮层形式淡入在缩略图**内部的下缘**，压在图上。
+   好处是同一屏能多放一整行内容：名字是"我要找的那一张吗"的确认信息，扫视时
+   靠图就够，需要确认时鼠标一停就有。
+   浮层自带自下而上的渐变底，压在任何亮度的图上都读得清（不用 backdrop-filter：
+   时间轴动辄上百个格子，各建 backdrop root 会让滚动掉帧，见上面徽标那段的实测）。 */
+.tg-tile__meta{position:absolute;left:0;right:0;bottom:0;z-index:2;display:flex;flex-direction:column;gap:1px;
+  padding:22px 10px 9px;min-width:0;pointer-events:none;
+  background:linear-gradient(to top,rgba(10,11,15,.88) 0%,rgba(10,11,15,.66) 46%,rgba(10,11,15,0) 100%);
+  opacity:0;transform:translateY(6px);
+  transition:opacity 180ms ease,transform 220ms cubic-bezier(.2,.8,.2,1)}
+.tg-card:hover .tg-tile__meta,.tg-card:focus-within .tg-tile__meta{opacity:1;transform:translateY(0)}
+.tg-tile__name{font-size:12px;font-weight:500;line-height:17px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.5)}
+.tg-tile__sub{font-size:10.5px;line-height:14px;color:rgba(255,255,255,.74);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.5)}
 
 /* ══ 预览弹窗（2026-10-19 重做）═════════════════════════════════════════
  *

@@ -418,7 +418,44 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
     () => getBrowserFlagEntry(sessionId ?? undefined),
     () => getBrowserFlagEntry(sessionId ?? undefined),
   )
-  const browserOn = browserEntry !== undefined && (browserEntry.active > 0 || browserEntry.lingering === true)
+  /*
+   * 图标什么时候亮：**ego 没收口就不灭**（2026-10-25 用户要求）。
+   *
+   * 用户原话：「只要ego没有收口就不要消失」。
+   *
+   * 原来只认 store 的 active > 0 || lingering：一次浏览器调用结束 1.5s 后图标
+   * 就灭，而真实场景里浏览器进程一直开着 —— 模型在两次调用之间思考、读快照、
+   * 决定下一步，那段空窗里图标会闪灭再亮，读起来像「浏览器关了」。1.5s 的尾迹
+   * 是为了把**相邻调用**缝成一段，但缝不住「模型想了 5 秒」这种间隔。
+   *
+   * 做法是**粘滞**：本轮里只要出现过一次浏览器活动，就一直亮到本轮收口。
+   * 用一个 ref 记「本轮是否用过浏览器」，而不是把 running 直接或进来 ——
+   * 后者会让每个正在跑的会话都亮图标，哪怕它根本没碰过浏览器。
+   *
+   * 收口时（running false）ref 不清：那时还要靠 store 的 active / 尾迹把最后
+   * 一次调用收完；等 store 也空了，browserOn 自然变 false。
+   * 会话切换（sessionId 变）才清 —— 那是另一个会话的账。
+   */
+  const browserActive = browserEntry !== undefined
+    && (browserEntry.active > 0 || browserEntry.lingering === true)
+  /*
+   * 「本会话本轮用过浏览器」的粘滞标记。
+   *
+   * 用 state + effect 而不是在渲染期写 ref：渲染期写 ref 在 React 严格模式下
+   * 会跑两次、并发渲染下还可能被丢弃（官方文档明确列为反模式）。这里的数据量
+   * 极小，一次 setState 的代价可以忽略。
+   *
+   * 值记的是 sessionId 而不是布尔：切会话时不需要额外的清理 effect —— 比较
+   * 「记的那个会话 === 当前会话」就自然把旧会话的账作废了。
+   */
+  const [browserSeenSession, setBrowserSeenSession] = useState<string | null>(null)
+  useEffect(() => {
+    if (browserActive && sessionId !== null && sessionId !== undefined) {
+      setBrowserSeenSession((prev) => (prev === sessionId ? prev : sessionId))
+    }
+  }, [browserActive, sessionId])
+  const browserSticky = sessionId !== null && sessionId !== undefined && browserSeenSession === sessionId
+  const browserOn = browserActive || (running && browserSticky)
 
   /*
    * 展开后显示的就是**完整详细时间线**：不收敛、不过滤、一步不省。
