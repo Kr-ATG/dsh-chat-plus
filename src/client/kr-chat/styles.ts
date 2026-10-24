@@ -2354,10 +2354,20 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   min-width: 0;
 }
 
-/* 名字：与立绘同宽居中。字号跟官方字号轴走（见「字号轴」段）。 */
+/*
+ * 名字：与立绘同宽居中。
+ *
+ * **字号 = DSH 正文 +2**（2026-10-25 用户要求：「文字浏览器图标都跟随 dsh 字号大
+ * 2 号」）。原先跟 --kr-fs-title（正文 −1），比正文还小一档 —— 而它是卡头里唯一
+ * 的"名字"，读起来该比正文更醒目。
+ *
+ * 写成 max(13px, calc(正文 + 2px)) 而不是 --kr-fs-* 档位：档位表是为正文密度设计的
+ * （−1 / −1.5 / −2 …），这里要的是**比正文大**，方向相反，不该硬塞进那张表。
+ * 下限 13px 保证小字号档下不至于缩到读不清。
+ */
 .kr-plain-head__name {
   margin-top: 0;
-  font-size: var(--kr-fs-title, 13px);
+  font-size: max(13px, calc(var(--dsh-content-font-size, 14px) + 2px));
   font-weight: 650;
   letter-spacing: .01em;
   color: var(--dsw-alias-label-primary);
@@ -2376,14 +2386,26 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   justify-content: center;
   gap: 5px;
   margin-top: 2px;
-  /* 高度锁死：动作换行时卡片不抖，右栏下面几张卡的位置也不会跳 */
-  height: calc(22px + var(--dsh-content-font-delta, 0px));
+  /* 高度锁死：动作换行时卡片不抖，右栏下面几张卡的位置也不会跳。
+     字号 +2 之后行高也要跟着抬（否则 16px 的行高会夹住 16px 的字）。 */
+  height: calc(24px + var(--dsh-content-font-delta, 0px));
   max-width: 100%;
   min-width: 0;
-  font-size: var(--kr-fs-12, 12px);
-  line-height: 1.4;
+  /* 字号 = DSH 正文 +2（与名字同一口径，见 .kr-plain-head__name）。 */
+  font-size: max(12px, calc(var(--dsh-content-font-size, 14px) + 2px));
+  line-height: 1.45;
 }
 
+/*
+ * 动作行的类别图标：**一律灰色**（2026-10-25 用户要求：「浏览器和 svg 都要用灰色」）。
+ *
+ * 原先 running 时染主色、failed 时染红色。改成统一灰之后：
+ *  · 这一行的"正在发生"由**文字本身**承担（动作名 + 对象），颜色不再是唯一线索；
+ *  · 卡头里唯一的彩色留给「在思考中」那句（主色 + 呼吸点）与焦点环 —— 它们才是
+ *    真正需要被一眼抓住的信号。
+ *
+ * 失败态仍保留红色：那是**异常**，不是"正在发生"的常态，两者不该一起被去色。
+ */
 .kr-plain-head__ic {
   flex: none;
   display: flex;
@@ -2391,8 +2413,10 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   transition: color var(--kr-dur-fade) linear;
 }
 
-.kr-plain-head__act[data-status="running"] .kr-plain-head__ic {
-  color: var(--kr-accent, #3d94cf);
+/* 图标尺寸跟随「DSH 正文 +2」（与名字同一口径）：15px 起，字号每涨 1px 图标涨 1px。 */
+.kr-plain-head__ic svg {
+  width: calc(15px + var(--dsh-content-font-delta, 0px));
+  height: calc(15px + var(--dsh-content-font-delta, 0px));
 }
 
 .kr-plain-head__act[data-status="failed"] .kr-plain-head__ic {
@@ -2446,16 +2470,32 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* 内距给一点点：13px 的图标直接当按钮太小，点到边缘容易落空。 */
+  /* 内距给一点点：图标直接当按钮太小，点到边缘容易落空。 */
   padding: 3px;
   margin: -3px;
-  width: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6 + 6px);
-  height: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6 + 6px);
+  /*
+   * 尺寸跟随「DSH 正文 +2」（与名字同一口径，2026-10-25 用户要求：「文字浏览器
+   * 图标都跟随 dsh 字号大 2 号」）：图标基准 15px，字号每涨 1px 图标跟着涨 1px。
+   * 加号前的 6px 是 padding 3px × 2 —— width 是 border-box 之外的 content 尺寸，
+   * 这里显式算进去，免得图标被 padding 挤小。
+   */
+  width: calc(15px + var(--dsh-content-font-delta, 0px) + 6px);
+  height: calc(15px + var(--dsh-content-font-delta, 0px) + 6px);
   border: 0;
   border-radius: 6px;
   background: transparent;
   font: inherit;
-  color: var(--kr-accent);
+  /*
+   * 灰色（2026-10-25 用户要求：「浏览器和 svg 都要用灰色」）。
+   *
+   * 原先用主色 --kr-accent：那是"正在发生"的信号色，而名字旁边这枚小图标只是
+   * 一个**状态标记**（她此刻在操作浏览器），不必和主色抢注意力 —— 主色留给
+   * 「正在执行」这类真正需要被看见的状态。
+   *
+   * 用 label-secondary 而不是 tertiary：它在浅色/深色下都比 tertiary 更稳，
+   * 而 tertiary 在浅色主题里几乎与背景同色（实测截图里读不出形状）。
+   */
+  color: var(--dsw-alias-label-secondary);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition:
@@ -2468,7 +2508,9 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 }
 
 .kr-plain-head__browser:hover {
-  background: color-mix(in srgb, var(--kr-accent) 12%, transparent);
+  /* 悬停底色跟着变灰：用主色底会让它一悬停就"亮成主色"，与常态的灰不是一套。 */
+  background: var(--kr-hover-bg);
+  color: var(--dsw-alias-label-primary);
   transform: scale(1.08);
 }
 
@@ -2477,6 +2519,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 }
 
 .kr-plain-head__browser:focus-visible {
+  /* 焦点环仍用主色：那是无障碍信号，不是装饰，必须最醒目。 */
   outline: 2px solid var(--kr-accent);
   outline-offset: 1px;
 }
@@ -2523,11 +2566,12 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
  */
 .kr-plain-head__idle {
   margin-top: 2px;
-  height: calc(22px + var(--dsh-content-font-delta, 0px));
+  height: calc(24px + var(--dsh-content-font-delta, 0px));
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: var(--kr-fs-12, 12px);
+  /* 字号 = DSH 正文 +2（与名字、动作行同一口径）。 */
+  font-size: max(12px, calc(var(--dsh-content-font-size, 14px) + 2px));
   color: var(--dsw-alias-label-tertiary);
   animation: kr-plain-idle-in var(--kr-dur-row) var(--kr-ease-out) backwards;
 }

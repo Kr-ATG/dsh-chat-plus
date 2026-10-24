@@ -1720,6 +1720,23 @@ if (krEnabled) {
       fail('缺新对话页卡头（SeekerHeroHead.tsx 的 syncSeekerHeroHead）')
     } else if (!/\.kr-hero-head/.test(code)) {
       fail('client bundle 缺 .kr-hero-head 样式（新对话页卡头会没有居中与入场动效）')
+    } else if (!/\.kr-plain-head__name\s*\{[^}]*font-size:\s*max\(13px, calc\(var\(--dsh-content-font-size/.test(code)) {
+      /*
+       * 卡头文字字号 = **DSH 正文 +2**（2026-10-25 用户：「文字浏览器图标都跟随 dsh
+       * 字号大 2 号」）。原先跟 --kr-fs-title（正文 −1），比正文还小一档 —— 而名字是
+       * 卡头里唯一的那个名字，该比正文醒目。
+       *
+       * 不能改用 --kr-fs-* 档位：那张表是为正文密度设计的（−1 / −1.5 / −2 …），
+       * 方向相反，硬塞进去只会得到「跟正文一样小」。
+       */
+      fail('卡头名字字号必须是 max(13px, calc(var(--dsh-content-font-size) + 2px))（DSH 正文 +2）')
+    } else if (!/\.kr-plain-head__browser\s*\{[^}]*color:\s*var\(--dsw-alias-label-secondary\)/.test(code)) {
+      /*
+       * 浏览器标志必须**灰色**（2026-10-25 用户：「浏览器和 svg 都要用灰色」）。
+       * 原先用主色 --kr-accent：那是「正在发生」的信号色，而这枚小图标只是状态标记，
+       * 不必和主色抢注意力。
+       */
+      fail('浏览器标志必须用灰色（color: var(--dsw-alias-label-secondary)），不能用主色')
     } else if (!/const browserOn = browserActive \|\| \(running && browserSticky\)/.test(cardSrc)) {
       /*
        * 「只要 ego 没收口就不要消失」（2026-10-25 用户要求）。
