@@ -7,9 +7,12 @@
  * 前缀），草稿直接变成一坨解释文字——这是「提示词优化不行」的根因。
  *
  * 本模块把模型输出收敛成「可直接发送的提示词正文」：
- *  1. 优先取最长的围栏代码块内容（解释文字通常在围栏之外）；
- *  2. 去掉首行的标签式小标题（「优化后的提示词：」等）；
- *  3. 去掉结尾的元信息段落（「主要改动」「说明」「注：」等）；
+ *  1. 取「答案围栏」——只有当围栏之外只剩标题 / 引导语时才认（围栏里如果是
+ *     用户草稿自带的代码块，绝不能拿它替掉正文）；
+ *  2. 去掉首行的标签式小标题（「优化后的提示词：」「【优化后的提示词】」等）；
+ *  3. 去掉结尾的元信息段落（「主要改动」「改写要点」等），但只认「标题行 +
+ *     空行 + 后续内容」的结构——正文里用户自己写的「备注：目标库是 PG14」
+ *     属于需求，不能删；
  *  4. 去掉整体包裹的引号 / 书名号。
  *
  * 纯函数、无副作用、不抛错：任何一步无法确定就保持原样——宁可少清理，
@@ -22,11 +25,20 @@ const FENCE_RE = /^[ \t]*(`{3,}|~{3,})[^\n]*\n([\s\S]*?)\n[ \t]*\1[ \t]*$/gm
 /** 单条围栏行（用于识别「只写了半个围栏」的残留）。 */
 const FENCE_LINE_RE = /^[ \t]*(?:`{3,}|~{3,})[^\n]*$/
 
-/** 首行标签式小标题（可带 markdown 强调 / 井号，后接冒号或独占一行）。 */
-const LABEL_RE = /^\s*[*_#>\s]*(?:优化后的?(?:提示词|prompt)|优化结果|改写后的?(?:提示词|prompt)|以下是[^\n]{0,20}(?:提示词|prompt)[^\n]{0,10}|optimi[sz]ed\s+prompt|rewritten\s+prompt|final\s+prompt)[*_\s]*[:：]?\s*$/i
+/**
+ * 首行标签式小标题：可被 markdown 记号 / 中文方括号书名号 / 空白包裹，
+ * 冒号后允许带一小段括号补充（「（可直接发送）」），整行不含正文。
+ */
+const LABEL_RE = /^\s*[*_#>*\s\u3010\u300c\u300e\u300a]*(?:优化后的?(?:提示词|prompt)|优化结果|改写后的?(?:提示词|prompt)|以下是[^\n]{0,20}(?:提示词|prompt)[^\n]{0,10}|optimi[sz]ed\s+prompt|rewritten\s+prompt|final\s+prompt)[*_\s\u3011\u300d\u300f\u300b]*(?:[（(][^）)]{0,16}[）)])?\s*[:：]?\s*$/i
 
-/** 结尾元信息段落的起始标记（命中即整段丢弃）。 */
-const TRAILING_META_RE = /^\s*[*_#>\s]*(?:主要(?:改动|变化|补充|优化|提升)|优化说明|改动说明|变更说明|说明|补充说明|注意事项|备注|注|why|changes?|notes?)\s*[:：]/i
+/**
+ * 结尾元信息段落的起始标记。
+ *
+ * 只认**标题行**形态：整行只有标签本身（可被 markdown 记号包裹、可带冒号），
+ * 且调用方还要求它独占一行、后面跟空行。正文里「备注：目标库是 PostgreSQL 14」
+ * 这类**用户自己写的约束**必须原样保留 —— 那是草稿的一部分，删掉就是改了需求。
+ */
+const TRAILING_META_RE = /^\s*[*_#>\s]*(?:主要(?:的)?(?:改动|变化|补充|优化|提升)|改写(?:要点|说明|思路)|优化(?:要点|说明)|改动(?:要点|说明)|变更(?:要点|说明)|说明|补充说明|注意事项|备注|why|changes?|notes?)\s*[:：]?\s*[*_\s]*$/i
 
 /** 成对包裹符号（左 → 右）。 */
 const WRAP_PAIRS: ReadonlyArray<readonly [string, string]> = [
@@ -39,23 +51,50 @@ const WRAP_PAIRS: ReadonlyArray<readonly [string, string]> = [
   ['\u300a', '\u300b'],
 ]
 
+/** 「短引导语」的长度上限（超过这条一律当作正文，不当作引导语）。 */
+const PREAMBLE_LINE_MAX = 40
+
+/** 围栏之外是否只剩标题 / 引导语 / 元信息，而没有正文段落。 */
+function looksLikePreambleOnly(text: string): boolean {
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (line === '') continue
+    if (/^[*_#>\s]*$/.test(line)) continue
+    if (/^[*_#]{1,6}\s/.test(line)) continue
+    if (/^[\u3010\u300c\u300e\u300a]/.test(line)) continue
+    if (/[:：]$/.test(line)) continue
+    if (LABEL_RE.test(line) || TRAILING_META_RE.test(line)) continue
+    if (FENCE_LINE_RE.test(line)) continue
+    // 短引导语（「好的，这是优化后的版本：」这类）；含句读或偏长的一律算正文。
+    if (line.length <= PREAMBLE_LINE_MAX && !/[。！？；]/.test(line)) continue
+    return false
+  }
+  return true
+}
+
 /**
- * 取最长围栏块内容；无围栏、或围栏只占全文很小一部分（更像示例片段而非正文）
- * 时返回 null。
+ * 取「答案围栏」的内容；没有可信的答案围栏时返回 null。
+ *
+ * 不能简单取最长围栏：用户草稿本身常带代码块（「帮我优化这段 SQL」），模型
+ * 保守改写时会把它原样留在正文里 —— 那时最长围栏是**代码片段**，取它等于把
+ * 整段提示词替换成几行 SQL。判据因此改成：围栏**之外**只剩标题 / 引导语 /
+ * 元信息（也就是「围栏恰好就是全部答案」），才认这个围栏。
  */
-function longestFence(text: string): string | null {
+function answerFence(text: string): string | null {
   let best: string | null = null
+  let bestOutside = ''
   FENCE_RE.lastIndex = 0
   let match: RegExpExecArray | null
   while ((match = FENCE_RE.exec(text)) !== null) {
-    const body = match[2] ?? ''
-    if (best === null || body.length > best.length) best = body
+    const body = (match[2] ?? '').trim()
+    if (body === '') continue
+    const outside = text.slice(0, match.index) + text.slice(match.index + match[0].length)
+    if (!looksLikePreambleOnly(outside)) continue
+    if (best === null || body.length > best.length) { best = body; bestOutside = outside }
   }
   if (best === null) return null
-  const trimmed = best.trim()
-  if (trimmed === '') return null
-  if (trimmed.length * 4 < text.trim().length) return null
-  return trimmed
+  if (!looksLikePreambleOnly(bestOutside)) return null
+  return best
 }
 
 /** 去掉首行的标签式小标题（最多剥两层：「**优化后的提示词**」+ 空行）。 */
@@ -88,9 +127,22 @@ function stripTrailingMeta(text: string): string {
   const blocks = text.split(/\n\s*\n/)
   if (blocks.length < 2) return text
   let end = blocks.length
-  while (end > 1 && TRAILING_META_RE.test(blocks[end - 1] ?? '')) end -= 1
+  while (end > 1 && isMetaBlock(blocks[end - 1] ?? '')) end -= 1
   if (end === blocks.length) return text
   return blocks.slice(0, end).join('\n\n').trimEnd()
+}
+
+/**
+ * 一个段落是不是「模型附赠的改动说明」。
+ *
+ * 两道闸门都过才算：① 首行是纯标签行（TRAILING_META_RE）；② 段内还有其他行
+ * （列表 / 解释）。只有标题没有内容的单行「备注」更可能是用户自己的正文，
+ * 不当作元信息 —— 少删永远比错删安全。
+ */
+function isMetaBlock(block: string): boolean {
+  const lines = block.split('\n')
+  if (!TRAILING_META_RE.test(lines[0] ?? '')) return false
+  return lines.slice(1).some(line => line.trim() !== '')
 }
 
 /**
@@ -115,7 +167,7 @@ function stripUnbalancedFence(text: string): string {
 export function cleanOptimized(raw: string): string {
   const base = typeof raw === 'string' ? raw.trim() : ''
   if (base === '') return ''
-  const fenced = longestFence(base)
+  const fenced = answerFence(base)
   let out = fenced ?? base
   out = stripLeadingLabel(out)
   // 围栏内容本身就是纯正文，元信息只可能出现在围栏之外。

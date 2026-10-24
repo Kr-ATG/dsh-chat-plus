@@ -37,6 +37,7 @@ export const css = {
   status: 'webui-po-status',
   statusBusy: 'webui-po-status-busy',
   statusError: 'webui-po-status-error',
+  statusWarn: 'webui-po-status-warn',
   actions: 'webui-po-actions',
   btn: 'webui-po-btn',
   btnPrimary: 'webui-po-btn-primary',
@@ -98,6 +99,8 @@ html[data-dsh-glass] .webui-po-panel{background:var(--webui-po-panel-surface);ba
 .webui-po-status{display:flex;align-items:center;gap:6px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}
 .webui-po-status-busy{color:var(--dsw-alias-state-business-primary)}
 .webui-po-status-error{color:var(--dsw-alias-state-error-primary)}
+/* 警告（截断 / 被中断）：正文仍可用，用 warn 色而非错误红，避免吓人 */
+.webui-po-status-warn{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-label-secondary))}
 
 .webui-po-option{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .webui-po-option-label{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}

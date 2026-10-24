@@ -32,7 +32,7 @@ import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-store'
 import {
   IconCloseOutlineRegular, IconLoadingOutlineRegular, IconRefreshOutlineRegular, IconSparkleRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { cleanOptimized, collapseToLine, previewOptimized } from '../../../provider/modules/prompt-optimize-clean.ts'
+import { cleanOptimized, previewOptimized } from '../../../provider/modules/prompt-optimize-clean.ts'
 import { css, ensureStyles } from './styles'
 
 /** 极简 cx 替代（上游 webui 用 clsx；本插件不引入第三方运行时依赖）。 */
@@ -74,12 +74,22 @@ interface StreamFrame {
   text?: string
   elapsedMs?: number
   partial?: boolean
+  /** 输出顶到 maxTokens 被截断：正文可能不完整，不能当完整结果直接发送。 */
+  truncated?: boolean
   message?: string
 }
 
 /** localStorage 键：上次选择的风格 / 「设为目标」开关。 */
 const STYLE_KEY = 'dsh-prompt-optimize:style'
 const TARGET_KEY = 'dsh-prompt-optimize:set-target'
+/**
+ * 「上次优化结果」缓存键前缀（按会话）。
+ *
+ * 之前面板一关结果就没了：用户点了优化、按 Esc 或点到外面，辛苦生成的正文
+ * 直接蒸发，既不能对比两档风格、也不能稍后再用。现在按会话留一份，重开面板
+ * 即可恢复（草稿没变时直接展示，不重复烧 token）。
+ */
+const CACHE_KEY_PREFIX = 'dsh-prompt-optimize:last:'
 
 /** 面板与图标之间的间距（px）。 */
 const PANEL_GAP = 10
@@ -97,6 +107,39 @@ function readStyle(): Style {
 /** 读「设为目标」开关（默认关：/goal 会创建长任务目标，不该是默认行为）。 */
 function readTarget(): boolean {
   try { return window.localStorage.getItem(TARGET_KEY) === '1' } catch { return false }
+}
+
+/** 一份可恢复的上次结果（原文 + 正文 + 风格）。 */
+interface CachedResult {
+  source: string
+  result: string
+  style: Style
+}
+
+/** 读某会话上次的结果；没有/损坏返回 null。 */
+function readCache(sessionId: string): CachedResult | null {
+  try {
+    const raw = window.localStorage.getItem(CACHE_KEY_PREFIX + sessionId)
+    if (raw === null) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null) return null
+    const record = parsed as Record<string, unknown>
+    if (typeof record.source !== 'string' || typeof record.result !== 'string') return null
+    if (record.result === '') return null
+    const style = record.style === 'concise' || record.style === 'detailed' ? record.style : 'balanced'
+    return { source: record.source, result: record.result, style }
+  } catch {
+    return null
+  }
+}
+
+/** 写某会话上次的结果（正文过长不缓存：localStorage 有配额，宁可丢缓存不能抛错）。 */
+function writeCache(sessionId: string, value: CachedResult | null): void {
+  try {
+    if (value === null) { window.localStorage.removeItem(CACHE_KEY_PREFIX + sessionId); return }
+    if (value.result.length > 20000) return
+    window.localStorage.setItem(CACHE_KEY_PREFIX + sessionId, JSON.stringify(value))
+  } catch { /* 配额满 / 隐私模式：缓存失效不影响主流程 */ }
 }
 
 /** 写 localStorage（失败静默：隐私模式下仍按内存值工作）。 */
@@ -137,6 +180,8 @@ export function PromptOptimizeButton({ available, directory, useInput, inputActi
   const [result, setResult] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  /** 非致命提示（截断 / 被中断）：正文仍可用，不是失败，别用红字吓人。 */
+  const [warn, setWarn] = useState('')
   const [elapsed, setElapsed] = useState('')
   const [anchor, setAnchor] = useState<DOMRect | null>(null)
 
@@ -179,6 +224,7 @@ export function PromptOptimizeButton({ available, directory, useInput, inputActi
     abortRef.current = controller
     setBusy(true)
     setError('')
+    setWarn('')
     setElapsed('')
     setStreamed('')
     setResult('')
@@ -224,7 +270,9 @@ export function PromptOptimizeButton({ available, directory, useInput, inputActi
             : cleanOptimized(acc)
           setResult(done)
           setElapsed(formatMs(frame.elapsedMs))
-          if (frame.partial === true) setError('生成被中断，下面是已完成的部分')
+          writeCache(sessionId, { source: text, result: done, style: nextStyle })
+          if (frame.partial === true) setWarn('生成被中断，下面是已完成的部分')
+          else if (frame.truncated === true) setWarn('输出达到长度上限，结果可能不完整，建议换「精简」风格或再点一次')
           return
         }
         if (frame.type === 'error') {
@@ -262,7 +310,8 @@ export function PromptOptimizeButton({ available, directory, useInput, inputActi
         if (partial === '') setError('已停止优化')
         else {
           setResult(partial)
-          setError('已停止 · 下面是已完成的部分')
+          writeCache(sessionId, { source: text, result: partial, style: nextStyle })
+          setWarn('已停止 · 下面是已完成的部分')
         }
       } else setError(message)
     } finally {
@@ -274,19 +323,36 @@ export function PromptOptimizeButton({ available, directory, useInput, inputActi
     }
   }, [directory, sessionId])
 
-  /** 打开面板：快照草稿并立即开始优化。 */
+  /**
+   * 打开面板：快照草稿并立即开始优化。
+   *
+   * 若上次关面板时留了结果、且草稿没变，就直接恢复它（不重复烧 token）；
+   * 草稿变了才重跑——此时旧结果对新草稿没有意义。
+   */
   const openPanel = useCallback((): void => {
     const draft = draftRef.current.trim()
     const rect = rootRef.current?.getBoundingClientRect() ?? null
     setAnchor(rect)
     setSource(draft)
     setStreamed('')
-    setResult('')
     setElapsed('')
-    setError(draft === '' ? '输入框是空的，先写点什么再优化' : '')
+    setError('')
+    setWarn('')
     setOpen(true)
-    if (draft !== '') void run(draft, style)
-  }, [run, style])
+    if (draft === '') {
+      setResult('')
+      setError('输入框是空的，先写点什么再优化')
+      return
+    }
+    const cached = readCache(sessionId)
+    if (cached !== null && cached.source === draft) {
+      setResult(cached.result)
+      setStyle(cached.style)
+      return
+    }
+    setResult('')
+    void run(draft, style)
+  }, [run, style, sessionId])
 
   /** 关闭面板（播完收起动画再卸载）。 */
   const closePanel = useCallback((): void => {
@@ -350,10 +416,19 @@ export function PromptOptimizeButton({ available, directory, useInput, inputActi
     if (source !== '') void run(source, next)
   }
 
-  /** 应用结果：写回草稿（可选包成 /goal 命令）并关闭面板。 */
+  /**
+   * 应用结果：写回草稿（可选包成 /goal 命令）并关闭面板。
+   *
+   * `/goal` 的 objective 只要求「非空字符串」，多行完全合法（parseCommand 保留
+   * rawInput 原文、Goal 域只做 trim）。所以这里**不再压平成单行**：压平会把
+   * 代码块围栏压成裸反引号混进句子、把列表并成一行，等于把刚优化好的提示词
+   * 再破坏一遍。目标是长任务时保留原有换行与结构，才是用户想要的东西。
+   */
   const apply = (): void => {
     if (result === '') return
-    inputActions.setDraft(setTarget ? `/goal ${collapseToLine(result)}` : result)
+    inputActions.setDraft(setTarget ? `/goal ${result}` : result)
+    // 已落到草稿，缓存没有价值了（否则下次重开面板会误以为「还是旧结果」）。
+    writeCache(sessionId, null)
     closePanel()
   }
 
@@ -440,16 +515,18 @@ export function PromptOptimizeButton({ available, directory, useInput, inputActi
             </div>
           </div>
 
-          <div className={cx(css.status, busy && css.statusBusy, error !== '' && css.statusError)}>
+          <div className={cx(css.status, busy && css.statusBusy, error !== '' && css.statusError, warn !== '' && css.statusWarn)}>
             {busy && <IconLoadingOutlineRegular size={16} className={css.spin} />}
             <span>
               {error !== ''
                 ? error
-                : busy
-                  ? '正在优化…'
-                  : result !== ''
-                    ? `已生成 ${String(result.length)} 字${elapsed === '' ? '' : ` · ${elapsed}`}`
-                    : '选择风格后点「重新优化」'}
+                : warn !== ''
+                  ? warn
+                  : busy
+                    ? '正在优化…'
+                    : result !== ''
+                      ? `已生成 ${String(result.length)} 字${elapsed === '' ? '' : ` · ${elapsed}`}`
+                      : '选择风格后点「重新优化」'}
             </span>
           </div>
 
