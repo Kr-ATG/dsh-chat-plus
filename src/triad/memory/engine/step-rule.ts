@@ -16,11 +16,22 @@
  * 实测 Promise.all 收益仅 0.76%（8 个文件 read：串行 320ms / 并行 262ms），
  * 而纯 JS 并行正常（sleep 600×2：1211ms → 609ms）——瓶颈在工具 dispatch 不在程序。
  *
- * 为什么必须带**反判据**：官方 PTC 设计笔记明确拒绝「把合并写死进框架」，理由是
- * 「coding agent 的 bash/read/edit 单调用本来就是最自然的形态，强制每个动作走
- * 程序会让常见情况变贵」。官方不写死是对的（依赖关系不可预知、审批与审计要保
- * 粒度、合并后输出可能被截断），但模型自己该合并时也没合并——这才是那 40.6%
- * 的来源。所以本通道只给判据，不给「尽量合并」这种会过度的指令。
+ * 为什么必须带**反判据**：
+ *
+ * 一、官方确实在框架层拒绝「强制合并」。出处是官方 Agent Note
+ * `.agents/notes/implemented/feature/2026-06-15-ptc.md` 的 Alternatives considered
+ * 一节（Always-exclusive 段），原文：
+ *   「a coding agent's bread-and-butter single calls (bash, read, edit) are already
+ *     ideal as native calls, and forcing every edit through a program taxes the
+ *     common case.」
+ * 注意这段话反对的是**强制所有动作都走程序**（always-exclusive 形态），也就是反对
+ * 过度合并；它**没有**列举「真依赖 / 独立审批 / 输出超限」这三种情况——那是本通道
+ * 按运行时语义自己补的判据，不要拿官方原话来为这三条具体条数背书。
+ * ⚠ 该笔记只存在于源码仓库；`@deepseek-ai/*` 安装包只发 README 与 lib，本地
+ * dsh-runtime 下查不到原文。改这段注释前请到仓库核对，别凭记忆引。
+ *
+ * 二、官方不写死是对的，但模型自己该合并时也没合并——这才是那 40.6% 的来源。
+ * 所以本通道只给判据，不给「尽量合并」这种会过度的指令。
  *
  * **文本长度本身要受约束**：首步注入后进历史，之后每步被 cacheRead 一次。
  * 判据同前：一句话若删掉后模型的做法不会变，它就是水分。
