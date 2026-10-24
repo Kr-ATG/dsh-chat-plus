@@ -2249,8 +2249,27 @@ if (krEnabled) {
     // shell/Python 形态，代码体写 fs.writeFileSync 会被证据 2 的闸门挡掉。
     fail('WRITE_INTENT_RE 必须认 Node 落盘 API（writeFileSync/createWriteStream…）：'
       + 'run_code 代码体的写入语义靠它们自证')
+  } else if (!/function anchoredTargets/.test(outputsSrc) || !/interface AnchoredTarget/.test(outputsSrc)) {
+    // 用户 2026-10-24 报的「产出物里没有 MP4」：视频合流那一轮的命令形态是
+    //   $V="D:\\…\\intro"  →  cd $V  →  ffmpeg -y -i output.mp4 … video_with_bgm.mp4
+    //   →  Copy-Item video_with_bgm.mp4 final_video.mp4 -Force
+    // 结果里只有 Get-ChildItem 的表（路径列被折掉，只剩 `280769947 final_video.mp4`），
+    // 命令里又全是**相对**文件名 —— 证据 1（落盘说明）没有、证据 2（结果里的绝对
+    // 路径 + 名字被写出）也空转，两个成品都没上卡。证据 3 补的就是这一环：命令里
+    // 写死的绝对目录当基准，配结果里的裸文件名。
+    fail('结果路必须有证据 3（anchoredTargets）：命令里写死的绝对目录 + 结果里的裸文件名。'
+      + '缺了它，cd 进目录后用相对文件名产出的成品（ffmpeg 合流、Copy-Item 改名）整批进不了卡')
+  } else if (!/BARE_NAME_RE/.test(outputsSrc) || !/'gim'/.test(outputsSrc)) {
+    // m flag 是硬要求：这条正则判的形态是**行尾**（`285670289 output.mp4`），没有 m
+    // 时 $ 只匹配整串末尾，除了最后一行以外一条都匹配不上 —— 实测几十行文件表
+    // 收不到一条裸名，证据 3 恒为空，等于没加。
+    fail('BARE_NAME_RE 必须带 m flag（多行模式）：它判的是行尾形态，否则只有整串最后一行能命中')
+  } else if (!/for \(const match of scrubbed\.matchAll\(BARE_NAME_RE\)\)/.test(outputsSrc)) {
+    // scan() 末尾强制 hasSeparator(path)，而证据 3 的输入按定义就是**裸文件名**
+    // （表格把路径列折掉了）。复用它等于每一条都在闸门处被丢掉，证据 3 恒为空。
+    fail('证据 3 不得复用 scan()：它的 hasSeparator 闸门会把裸文件名整类丢掉')
   } else {
-    pass('outputs.ts：参数/结果两路工具集分离 + spill 排除 + 落盘说明闸门 + 交付路径优先 + run_code/媒体豁免')
+    pass('outputs.ts：参数/结果两路工具集分离 + spill 排除 + 落盘说明闸门 + 交付路径优先 + run_code/媒体豁免 + 证据3 目录锚点')
   }
 }
 

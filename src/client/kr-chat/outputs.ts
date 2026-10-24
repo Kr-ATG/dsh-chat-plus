@@ -8,7 +8,9 @@
  *    与「操作面板」行内那枚预览入口同源，最准。
  *  · **结果路** —— 工具**返回文本**里出现的成品路径。模型跑脚本产出文件时
  *    （Blender 渲染、Python 画图、ffmpeg 导出），路径只出现在命令的输出里，
- *    参数里什么都没有 —— 这一路是这类产出的唯一来源。
+ *    参数里什么都没有 —— 这一路是这类产出的唯一来源。它内部有三道正向证据
+ *    （见 pathsFromResult）：落盘说明、文件名在命令里被写出、命令里的绝对目录
+ *    锚点 + 结果里的裸文件名。
  *
  * 三条刻意的取舍：
  *  1. **只认本地文件**：生图工具返回的 b64 / 远程 URL 不列。这张卡的全部价值是
@@ -171,6 +173,29 @@ const RESULT_PATH_RE = new RegExp(
   + PATH_BODY
   + '\\.(?:' + EXT_ALTERNATION + ')\\b)',
   'gi',
+)
+
+/**
+ * 结果文本里的**裸文件名**（不带任何分隔符），证据 3 用。
+ *
+ * 形态收窄成「**行尾，或后面只剩数字**」两种。理由：文件列表被表格工具截掉
+ * 路径列之后，只剩 `285670289 output.mp4` / `output.mp4 285670289` 这种行；
+ * 而正文里提到文件名的句子（`使用 output.mp4 文件`、`"present": ["final_video.mp4",`）
+ * 都不满足这个尾部形态 —— 后者尤其重要，JSON 里的路径数组整类不会被这里收。
+ *
+ * 左边界与 RESULT_PATH_RE 同一套白名单：正文里的 `x/output.mp4` 不能被从斜杠
+ * 之后切开收成裸名。字符类里排除 `:` 与两个分隔符，于是带盘符/带路径的行
+ * 天然匹配不上（那些归证据 2）。
+ */
+const BARE_NAME_RE = new RegExp(
+  "(?:^|[\\s\"'（(\\[，,;；])"
+  + "([^\\s\"'\u0060,;，。；、）)\\]}>|*?:/\\\\]+?"
+  + '\\.(?:' + EXT_ALTERNATION + '))'
+  + '(?=[\\s]*$|[\\s]+\\d+[\\s]*$)',
+  // m flag 是硬要求：这条正则判的是**行尾**形态（`285670289 output.mp4`），
+  // 没有 m 时 `$` 只匹配整串末尾，除了最后一行以外一条都匹配不上 —— 实测
+  // 视频那一轮的结果有几十行文件表，裸名一条都收不到。
+  'gim',
 )
 
 /**
@@ -446,6 +471,190 @@ function namesInCommand(command: string): ReadonlySet<string> {
   return names
 }
 
+/* ── 证据 3：命令里的绝对目录锚点 ───────────────────────────────────────── */
+
+/**
+ * 命令里**声明过的绝对目录** + 与之配对的成品文件名。
+ *
+ * 这是证据 3 的输入。存在的理由是一条实测断链（2026-10-24，视频合流那一轮）：
+ *
+ *   $V="D:\…\intro"
+ *   cd $V
+ *   ffmpeg -y -i output.mp4 … video_with_bgm.mp4
+ *   Copy-Item video_with_bgm.mp4 final_video.mp4 -Force
+ *
+ * 结果里只有 Get-ChildItem 的总表（"280769947 final_video.mp4"，表格把路径列
+ * 折成了省略号），命令里又全是**相对**文件名 —— 证据 1（落盘说明）没有，证据 2
+ * （结果里的绝对路径 + 名字在命令里被写出）也空转，于是两个成品都没上卡，
+ * 用户看到的就是「产出物里没有 MP4」。
+ *
+ * 补法：命令里既然**写死了绝对目录**（变量赋值 / cd / 参数里的绝对路径），
+ * 那个目录就是这些相对文件名的基准 —— 这是客户端此前唯一拿不到、而命令原文里
+ * 本来就带着的一份信息。拼出来的路径仍是**绝对路径**，不违反「相对路径整类
+ * 不收」的取舍：基准不再靠猜工作区，而是命令自己说的。
+ */
+interface AnchoredTarget {
+  /** 绝对目录（不带尾分隔符）。 */
+  readonly dir: string
+  /** 文件名（basename，原大小写）。 */
+  readonly name: string
+}
+
+/**
+ * 变量声明：$V="D:\dir" / out='D:/dir' / DIR=D:\dir。
+ *
+ * 三条限制都是防误伤：左侧名不能紧跟字母数字（避开 --out=… 这类参数）、
+ * 值必须像绝对目录（见 isAnchorDir）、长度封顶（正文里不会有超长路径）。
+ */
+const VAR_DECL_RE = /(?<![\w$-])(\$?)([A-Za-z_][\w]{0,63})\s*=\s*(?:"([^"\r\n]{1,260})"|'([^'\r\n]{1,260})'|([^\s;&|"']{1,200}))/g
+
+/** 切换当前目录的命令：cd / chdir / Set-Location / pushd / sl。 */
+const CD_RE = /(?:^|[\r\n;&|])\s*(?:cd|chdir|set-location|push-location|pushd|sl)\b[^\S\r\n]+(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\s;&|"'\r\n]+))/gi
+
+/** 命令里的 token：整段引号（含引号）或一段裸 token。 */
+const COMMAND_TOKEN_RE = /"[^"\r\n]*"|'[^'\r\n]*'|[^\s;&|"']+/g
+
+/**
+ * 一条路径是不是**目录**形态（决定它能不能当锚点）。
+ *
+ * 判据只有一条：绝对路径 + 末段非空。带不带扩展名**不参与判断** —— 实测那条
+ * 命令的锚点是 "video-studio/videos/dsh-chat-plus-intro"（无扩展名），而
+ * "D:\out\finals" 与 "D:\out\a.mp4" 在语法上无法区分该不该当目录。宁可多给
+ * 一个基准：拼出来的路径后面还有两道闸（文件名必须在命令里被写出、结果里必须
+ * 真的出现这个裸名），错的拼法根本走不到渲染层。
+ */
+function isAnchorDir(value: string): boolean {
+  const trimmed = value.trim().replace(/[/\\]+$/, '')
+  if (trimmed === '') return false
+  if (!/^[A-Za-z]:[/\\]/.test(trimmed) && !trimmed.startsWith('/')) return false
+  return trailingName(trimmed) !== ''
+}
+
+/** 把命令里的变量引用替换成已声明的值（未声明的原样保留）。 */
+function expandShellVars(text: string, vars: ReadonlyMap<string, string>): string {
+  if (vars.size === 0) return text
+  return text.replace(/\$\{?([A-Za-z_][\w]{0,63})\}?/g, (whole, name: string) => vars.get(name) ?? whole)
+}
+
+/** 剥掉 token 两侧的引号与尾随标点（"D:\a.mp4", → D:\a.mp4）。 */
+function cleanCommandToken(token: string): string {
+  let text = token.trim()
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    text = text.slice(1, -1).trim()
+  }
+  return text.replace(/[,.，。;；:：)\]】}》>]+$/, '').trim()
+}
+
+/** 最后一个分隔符之后的段（basename）。 */
+function trailingName(text: string): string {
+  return text.split(/[/\\]/).filter(Boolean).at(-1) ?? ''
+}
+
+/** 这条 basename 是否带**认得出的成品/源码扩展名**（证据 3 只认这类文件名）。 */
+function hasOutputExt(name: string): boolean {
+  return KIND_BY_EXT[extOf(name)] !== undefined
+}
+
+/** 绝对路径 → 父目录（不带尾分隔符）。 */
+function parentDirOf(path: string): string {
+  const cut = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'))
+  return cut <= 0 ? '' : path.slice(0, cut)
+}
+
+/** 目录 + 文件名拼成绝对路径（用目录自带的分隔符）。 */
+function joinAnchorPath(dir: string, name: string): string {
+  const base = dir.replace(/[/\\]+$/, '')
+  const sep = base.includes('\\') ? '\\' : '/'
+  return base + sep + name
+}
+
+/**
+ * 从命令原文取「绝对目录锚点 + 成品文件名」配对（证据 3 的唯一输入）。
+ *
+ * 按命令**书写顺序**推进两样状态：变量表（$V="D:\dir"）与当前目录（cd $V），
+ * 于是每个文件名 token 都能拿到它**当时的**基准目录 —— 命令顺序执行，取最终
+ * 目录会把前面几段写错位置的输出拼到错的目录里。
+ *
+ * 三个来源都算配对：
+ *  · token 本身就是**绝对路径**（"$V\x.mp4"、-o D:\out\a.png）→ 目录取其父目录；
+ *  · 裸文件名 + 已有当前目录（cd $V 之后的 video_with_bgm.mp4）；
+ *  · 含分隔符但前缀是未知变量 → 取 basename，仍按当前目录配。
+ *
+ * 没有当前目录、也没有绝对路径的裸文件名一律不收 —— 那种情况下基准不可知，
+ * 正是「相对路径整类不收」要挡的东西。写入语义（hasWriteIntent）是前置闸门：
+ * cd 进去跑 Get-ChildItem / git status / ls 的纯列表命令在这里就出局。
+ *
+ * @param command - 命令原文（命令行工具是 command，run_code 是 code）。
+ * @returns 配对清单（按首见顺序，同目录同名只留一条）。
+ */
+function anchoredTargets(command: string): AnchoredTarget[] {
+  if (command === '') return []
+  if (!hasWriteIntent(command)) return []
+  interface Step {
+    readonly index: number
+    readonly kind: 'assign' | 'cd'
+    readonly name?: string
+    readonly value?: string
+  }
+  const steps: Step[] = []
+  for (const match of command.matchAll(VAR_DECL_RE)) {
+    const value = (match[3] ?? match[4] ?? match[5] ?? '').trim()
+    if (!isAnchorDir(value)) continue
+    steps.push({ index: match.index ?? 0, kind: 'assign', name: match[2], value })
+  }
+  for (const match of command.matchAll(CD_RE)) {
+    const value = (match[1] ?? match[2] ?? match[3] ?? '').trim()
+    if (value === '') continue
+    steps.push({ index: match.index ?? 0, kind: 'cd', value })
+  }
+  steps.sort((a, b) => a.index - b.index)
+
+  const vars = new Map<string, string>()
+  let currentDir = ''
+  let cursor = 0
+  const out: AnchoredTarget[] = []
+  const seen = new Set<string>()
+
+  const declare = (dir: string, name: string): void => {
+    if (dir === '' || name === '') return
+    if (!hasOutputExt(name)) return
+    const key = dedupeKey(dir) + '|' + name.toLowerCase()
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push({ dir, name })
+  }
+
+  /** 把游标推进到 index（应用途经的变量声明与 cd）。 */
+  const advance = (index: number): void => {
+    while (cursor < steps.length && steps[cursor].index <= index) {
+      const step = steps[cursor]
+      cursor += 1
+      if (step.kind === 'assign') {
+        if (step.name !== undefined && step.value !== undefined) vars.set(step.name, step.value)
+        continue
+      }
+      if (step.value === undefined) continue
+      const resolved = expandShellVars(step.value, vars)
+      if (isAnchorDir(resolved)) currentDir = resolved.replace(/[/\\]+$/, '')
+    }
+  }
+
+  for (const match of command.matchAll(COMMAND_TOKEN_RE)) {
+    advance(match.index ?? 0)
+    const token = cleanCommandToken(expandShellVars(match[0], vars))
+    if (token === '') continue
+    if (/^[A-Za-z]:[/\\]/.test(token) || token.startsWith('/')) {
+      const name = trailingName(token)
+      if (name !== '' && hasOutputExt(name)) declare(parentDirOf(token), name)
+      continue
+    }
+    const name = trailingName(token)
+    if (name === '' || !hasOutputExt(name)) continue
+    if (currentDir !== '') declare(currentDir, name)
+  }
+  return out
+}
+
 /**
  * **中转临时路径**：工作区根下的 `_tmp/` 目录。
  *
@@ -668,13 +877,15 @@ function recordOf(value: unknown): Record<string, unknown> | null {
 /**
  * 结果文本里所有成品路径（按出现顺序，去重）。
  *
- * **两道正向证据，满足其一才收**：
+ * **三道正向证据，满足其一才收**：
  *  1. **落盘说明**（`Saved:` / `已保存到` / `Exported to`…）所在行及其下一行 ——
  *     脚本自己落盘时必然会打印这类说明；
  *  2. **文件名在命令原文里被显式写出** —— 兜住"路径由变量拼出来、结果里只剩
- *     `FullName : …` 字段"的那类命令（实测生成测试图那一轮就是这样）。
+ *     `FullName : …` 字段"的那类命令（实测生成测试图那一轮就是这样）；
+ *  3. **命令里写死的绝对目录 + 结果里的裸文件名** —— 兜住 `cd $V` 之后用相对
+ *     文件名、结果又被表格折成裸名的那一类（2026-10-24，见 anchoredTargets）。
  *
- * 两条合起来，`Get-ChildItem` / `ls -R` / `git status` 这类**列表命令**就完全
+ * 三条合起来，`Get-ChildItem` / `ls -R` / `git status` 这类**列表命令**就完全
  * 进不来了：它们的输出里全是已有文件（其中还包括别的会话生成的），而命令原文
  * 里一个具体文件名都没有 —— 这正是用户报的 BUG 的根因。
  *
@@ -757,6 +968,46 @@ export function pathsFromResult(text: string, command = ''): string[] {
       const base = (path.split(/[/\\]/).filter(Boolean).at(-1) ?? '').toLowerCase()
       if (base === '' || !declaredNames.has(base)) continue
       add(path)
+    }
+  }
+
+  /*
+   * 证据 3：结果里只剩**裸文件名**（表格把路径列折掉了），基准目录来自命令原文。
+   *
+   * 为什么证据 2 兜不住（2026-10-24 实测）：结果里根本没有绝对路径可供扫描，
+   * scan(DECLARED_PREFIX_RE) 一条都捞不到 —— 名字在命令里，但证据只认结果里的
+   * 盘符路径，于是整批 ffmpeg / Copy-Item 成品被漏掉。
+   *
+   * 三道门，缺一条都会把列表输出收进来：
+   *  · 锚点必须来自**写了绝对目录**的命令（anchoredTargets 内部已过 hasWriteIntent）；
+   *  · 裸文件名必须在结果里**以收窄形态出现**（行尾，或后面只剩数字）——
+   *    这正是"表格被折掉路径列"的形态，正文里的文件名引用不满足；
+   *  · 文件名必须与锚点配对（同一个 basename），拼出来仍是绝对路径。
+   *
+   * 不同名不配对：`cd $V` 之后命令里写的是 A，结果里出现 B（别的轮次或别的
+   * 目录留下的旧文件），拼出来就是一条点开是空白的路径。
+   */
+  const anchored = anchoredTargets(command)
+  if (anchored.length > 0) {
+    /*
+     * 这里**不能复用 scan()**：那个函数末尾强制要求 `hasSeparator(path)`，
+     * 而本证据的全部意义就是结果里只剩**裸文件名**（表格折掉了路径列）。
+     * 用 scan 的话每条裸名都会被那道闸门丢掉，证据 3 恒为空 —— 实测 2026-10-24
+     * 视频那一轮的 `285670289 output.mp4` 就是这样一条都收不到。
+     * 闸门本身不放松：下面仍要求这个裸名与命令里写出的 basename **完全同名**，
+     * 拼出来的路径才是可信的。
+     */
+    const bare = new Set<string>()
+    for (const match of scrubbed.matchAll(BARE_NAME_RE)) {
+      const captured = match[1]
+      if (captured === undefined || captured === '') continue
+      bare.add(captured.trim().toLowerCase())
+    }
+    if (bare.size > 0) {
+      for (const target of anchored) {
+        if (!bare.has(target.name.toLowerCase())) continue
+        add(joinAnchorPath(target.dir, target.name))
+      }
     }
   }
 
