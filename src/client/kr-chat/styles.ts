@@ -2280,26 +2280,35 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  /*
+   * 28px 而不是 24px（2026-10-25 用户反馈「设置被遮住了」）：16px 的实心齿轮放在
+   * 24px 里只剩 4px 边距，视觉上挤在一个看不见的小方块里；点击热区也太小。
+   */
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
   font: inherit;
-  color: var(--dsw-alias-label-tertiary);
+  /*
+   * 常态**不再压到 0.55 透明度**。
+   *
+   * 0.55 在浅色主题里等于把 tertiary 灰再打薄一半 —— 白底上几乎看不见，读起来
+   * 就像被什么盖住了（用户原话「设置被遮住了」）。现在常态就是完整的
+   * label-secondary：比 primary 弱一档，「不抢戏」由颜色本身承担，不靠透明度。
+   */
+  color: var(--dsw-alias-label-secondary);
+  opacity: 1;
   cursor: pointer;
-  opacity: .55;
   -webkit-tap-highlight-color: transparent;
   transition:
-    opacity var(--kr-dur-fade) linear,
     background-color var(--kr-dur-tap) linear,
     color var(--kr-dur-tap) linear,
     transform var(--kr-dur-tap) var(--kr-ease-out);
 }
 
 .kr-plain-head__tool:hover {
-  opacity: 1;
   background: var(--kr-hover-bg);
   color: var(--dsw-alias-label-primary);
 }
@@ -2309,14 +2318,12 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 }
 
 .kr-plain-head__tool:focus-visible {
-  opacity: 1;
   outline: 2px solid var(--kr-accent);
   outline-offset: -2px;
 }
 
-/* 打开态：主色常亮（与顶栏那版同一语义：这两枚是开关，开着要看得出来）。 */
+/* 打开态：主色（与顶栏那版同一语义：这两枚是开关，开着要看得出来）。 */
 .kr-plain-head__tool[data-open="true"] {
-  opacity: 1;
   color: var(--kr-accent);
 }
 
@@ -2326,7 +2333,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 
 @media (prefers-reduced-motion: reduce) {
   .kr-plain-head__tool {
-    transition: opacity .12s linear, background-color .12s linear, color .12s linear;
+    transition: background-color .12s linear, color .12s linear;
   }
   .kr-plain-head__tool:active {
     transform: none;

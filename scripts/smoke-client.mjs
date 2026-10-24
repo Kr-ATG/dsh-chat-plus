@@ -1737,6 +1737,20 @@ if (krEnabled) {
        * 不必和主色抢注意力。
        */
       fail('浏览器标志必须用灰色（color: var(--dsw-alias-label-secondary)），不能用主色')
+    } else if (!/\.kr-plain-head__tool\s*\{[^}]*opacity:\s*1/.test(code)) {
+      /*
+       * 两枚动作按钮的常态**不许再压透明度**（2026-10-25 用户：「设置被遮住了」）。
+       * 0.55 在浅色主题里等于把 tertiary 灰再打薄一半 —— 白底上几乎看不见。
+       */
+      fail('卡头动作按钮常态必须 opacity:1（0.55 在白底上几乎看不见，读起来像被盖住）')
+    } else if (!/\.kr-plain-head__tool\s*\{[^}]*width:\s*28px/.test(code)) {
+      fail('卡头动作按钮必须是 28px 热区（24px 里放 16px 图标只剩 4px 边距，太挤）')
+    } else if (!/viewBox="0 0 24 24" fill="currentColor"/.test(seekerHeadSrc) || !/fillRule="evenodd"/.test(seekerHeadSrc)) {
+      /*
+       * 齿轮必须是**实心** 8 齿（fill + fill-rule:evenodd 挖中心孔）。
+       * 前两版：① 圆+发散线（那是太阳）；② 描边闭合 path（小尺寸下糊成一圈锯齿）。
+       */
+      fail('齿轮必须是实心（fill=currentColor + fillRule=evenodd），描边版在小尺寸下会糊')
     } else if (!/const browserOn = browserActive \|\| \(running && browserSticky\)/.test(cardSrc)) {
       /*
        * 「只要 ego 没收口就不要消失」（2026-10-25 用户要求）。
