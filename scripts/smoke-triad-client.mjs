@@ -564,15 +564,21 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
 
   // 原始命令行绝不上屏：只进 tech。
   //
-  // 动词口径（2026-10-25 用户点名）：**别说「在终端执行命令」**。那句是机器视角
-  // （"有个终端、在里面敲了条命令"），而这张卡给不会编程的人看，他只关心"它在
-  // 电脑上做了什么"。统一说「在电脑上操作」。断言钉死它，防止有人觉得"终端更准确"
-  // 又改回去。
+  // 动词口径（2026-10-25 用户两次点名）：
+  //  ① 别说「在终端执行命令」—— 机器视角（"有个终端、在里面敲了条命令"）；
+  //  ② 也别印「在电脑上操作」—— 用户：「看 SVG 就能看出来」。
+  // 所以终端族打 hideVerb：卡片**不渲染这个词**，只留 detail。verb 仍在对象里
+  // （id 与 aria-label 用），但视觉上那行读作「⌗ 列出目录」。
+  //
+  // ⚠ 断言必须同时查 hideVerb 为 true：只查 verb 文本的话，渲染层把词又印回去
+  //   冒烟照样绿（这一轮真的踩过 —— verb 改了、卡片照旧显示）。
   const sh = toPlainStep({ toolName: 'pwsh', args: { command: 'Get-ChildItem -Recurse C:\\secret', description: '列出目录' }, argsRaw: '{"command":"Get-ChildItem -Recurse C:\\\\secret","description":"列出目录"}', status: 'done' })
-  if (sh.verb !== '在电脑上操作' || sh.detail !== '列出目录') fail(`pwsh must say 在电脑上操作 + use the description, got ${sh.verb} · ${sh.detail}`)
+  if (sh.hideVerb !== true || sh.detail !== '列出目录') fail(`pwsh must be hideVerb + use the description, got hideVerb=${String(sh.hideVerb)} · ${sh.detail}`)
+  // 同族兜底（工具名认不出来时走 PATTERNS）也要带上：否则只改 EXACT，漏一个又印回来。
+  else if (toPlainStep({ toolName: 'some_shell_runner', args: { description: '跑一下' }, status: 'done' }).hideVerb !== true) fail('the shell pattern fallback must also hideVerb')
   else if (sh.verb.includes('Get-ChildItem') || (sh.detail ?? '').includes('secret')) fail('the raw command must never reach the headline')
   else if (sh.tech?.name !== 'pwsh' || !String(sh.tech?.args ?? '').includes('Get-ChildItem')) fail('the raw command must stay reachable through the technical detail')
-  else pass('pwsh keeps the raw command out of the headline but reachable in tech')
+  else pass('pwsh: verb hidden (icon says it), description kept, raw command only in tech')
 
   const unknown = toPlainStep({ toolName: 'mcp__acme__do_the_thing', args: {}, status: 'done' })
   if (!unknown.verb.startsWith('执行 ')) fail(`unknown tools must fall back to 执行 X, got ${unknown.verb}`)

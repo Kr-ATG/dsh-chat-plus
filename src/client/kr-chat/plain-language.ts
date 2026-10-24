@@ -36,6 +36,23 @@ export interface PlainStep {
   readonly icon: PlainIconKey
   /** 动作短语，如「打开网页」「查看文件」。 */
   readonly verb: string
+  /**
+   * **这一行的动词不必显示**：图标已经把意思画出来了（2026-10-25 用户要求）。
+   *
+   * 用户原话：「也不要出现在电脑上操作因为看SVG就能看出来」。
+   *
+   * 判据只有一条：动词只是在**复述图标**、并且本身宽泛到不含具体对象时，它就是
+   * 噪声。终端那族最典型 —— 一行「⌗ 在电脑上操作 推送并确认最终状态」里，那枚
+   * 终端图标已经说了"这是让电脑干活"，动词只是把同一句话说长了一遍，还挤掉了
+   * 真正该读的那个对象（模型写的 description）。
+   *
+   * 与它相反的是一行里的**具体动词**：「打开网页 携程 · 机票」的「打开网页」
+   * 不能删 —— 图标只说了"网页"，"打开"这个动作是它没表达的。
+   *
+   * 只影响**显示**：verb 仍参与 id 生成、aria-label 与 durationText 之外的兜底
+   * （见 renderTaskRow / 卡头）。判空时用 {@link PlainStep.detail} 顶上去。
+   */
+  readonly hideVerb?: true
   /** 关键细节，如「携程 · 机票」「KrAgentPanel.tsx」。 */
   readonly detail?: string
   readonly status: PlainStatus
@@ -422,6 +439,13 @@ interface Rule {
    * **刻意不声明** —— 它们不是改本地文件，用户要求留在简要里。
    */
   readonly fileOp?: true
+  /**
+   * 这一行的动词不必显示（图标已表达，见 {@link PlainStep.hideVerb}）。
+   *
+   * 只给**动词纯粹复述图标**的那几条打：终端族（终端图标 = 让电脑干活，动词
+   * 「在电脑上操作」是同义反复）。
+   */
+  readonly hideVerb?: true
 }
 
 /**
@@ -527,20 +551,20 @@ const EXACT: Readonly<Record<string, Rule>> = {
    *
    * 刻意不取 command：命令行原文不是「人话」，只进 tech 由用户主动展开看。
    *
-   * 动词改过一版（2026-10-25 用户点名）：「在终端执行命令」原样印在卡头上，
-   * 用户的原话是这种话语不要出现 —— 那是**机器视角**的说法（"有个终端、在里面
-   * 敲了条命令"），而这张卡的读者只关心"它在电脑上做了什么"。
+   * **动词不上屏**（hideVerb，2026-10-25 用户第二次点名）。这一族改过两版：
+   *   ① 「在终端执行命令」→ 用户："这种话语不要出现"（机器视角，太技术）；
+   *   ② 「在电脑上操作」→ 用户："也不要出现，因为看 SVG 就能看出来"。
+   * ②说得更准：行首那枚终端图标已经表达了"让电脑干活"，动词只是把同一句话
+   * 说长一遍，还挤掉了真正该读的对象（模型写的 description）。
    *
-   * 现在统一说「在电脑上操作」：普通用户读得懂、不涉及任何工具概念，而且与
-   * 「操作电脑」（cua_* 那族）在语义上并不冲突 —— 后者是看屏幕点鼠标的姿势，
-   * 前者是让电脑干活，两者在时间线上本来就不常相邻。
+   * 所以这一族只留 detail：卡头读作「⌗ 推送并确认最终状态」，而不是
+   * 「⌗ 在电脑上操作 推送并确认最终状态」。verb 仍在对象里（id、aria-label 用）。
    *
-   * 细节仍取 description：模型写的那句话往往正是人话（「推送并确认最终状态」），
-   * 卡头上就是「在电脑上操作 · 推送并确认最终状态」。
+   * detail 仍取 description —— 模型写的那句话往往正是人话。
    */
-  pwsh: { verb: '在电脑上操作', icon: 'terminal', detail: (a) => clip(str(a, 'description') ?? '', MAX_DETAIL) },
-  bash: { verb: '在电脑上操作', icon: 'terminal', detail: (a) => clip(str(a, 'description') ?? '', MAX_DETAIL) },
-  exec_command: { verb: '在电脑上操作', icon: 'terminal', detail: (a) => clip(str(a, 'description') ?? '', MAX_DETAIL) },
+  pwsh: { verb: '在电脑上操作', icon: 'terminal', hideVerb: true, detail: (a) => clip(str(a, 'description') ?? '', MAX_DETAIL) },
+  bash: { verb: '在电脑上操作', icon: 'terminal', hideVerb: true, detail: (a) => clip(str(a, 'description') ?? '', MAX_DETAIL) },
+  exec_command: { verb: '在电脑上操作', icon: 'terminal', hideVerb: true, detail: (a) => clip(str(a, 'description') ?? '', MAX_DETAIL) },
 
   // ── 元信息 / 协作 ──────────────────────────────────────────────────
   // 这一段几乎全是"改变了什么"：派子任务、记记忆、交付文件、改清单，用户都得知道。
@@ -596,8 +620,8 @@ const PATTERNS: ReadonlyArray<readonly [RegExp, Rule]> = [
   [/write|edit|patch|replace/, { verb: '修改文件', icon: 'fileEdit', impact: 'write', fileOp: true }],
   [/delete|remove|unlink|rm$/, { verb: '删除文件', icon: 'trash', impact: 'write', fileOp: true }],
   [/search|grep|find|query/, { verb: '搜索', icon: 'search' }],
-  // 终端兜底：与上面 EXACT 那三条同一口径（理由见「终端」那一段注释）。
-  [/shell|bash|exec|command|pwsh|run_code/, { verb: '在电脑上操作', icon: 'terminal' }],
+  // 终端兜底：与上面 EXACT 那三条同一口径（含 hideVerb，理由见「终端」那段注释）。
+  [/shell|bash|exec|command|pwsh|run_code/, { verb: '在电脑上操作', icon: 'terminal', hideVerb: true }],
   [/download|fetch|curl|wget/, { verb: '下载文件', icon: 'download', impact: 'write' }],
   [/image|picture|draw|render/, { verb: '生成图片', icon: 'image', impact: 'write' }],
 ]
@@ -731,6 +755,13 @@ export function toPlainStep(input: PlainStepInput): PlainStep {
       detail = picked === undefined ? undefined : clip(picked, MAX_SHORT)
     }
   }
+  /*
+   * 动词不上屏、又没有 detail 时，**必须把动词挪进 detail**。
+   *
+   * 否则那一行会变成「⌗ （空）」—— 图标加一片空白，比多印一个词更糟。
+   * 判断放在这里而不是渲染层，是因为"这一行还剩什么可读"只有构造时才知道。
+   */
+  const hideVerb = rule?.hideVerb === true && detail !== undefined && detail !== ''
   // 收尾统一解一遍 JSON 转义：规则的 detail 与兜底取值都可能来自工具描述
   // （那是 JSON 编出来的），漏网的话卡片上会出现一串 \uXXXX。
   if (detail !== undefined) detail = unescapeUnicode(detail)
@@ -774,6 +805,7 @@ export function toPlainStep(input: PlainStepInput): PlainStep {
     ...(filePath !== undefined && filePath !== '' ? { filePath } : {}),
     // 文件操作标记：简要模式下这一整类不显示（理由见 PlainStep.fileOp）。
     ...(rule?.fileOp === true ? { fileOp: true as const } : {}),
+    ...(hideVerb ? { hideVerb: true as const } : {}),
     tech,
   }
 }

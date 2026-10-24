@@ -396,7 +396,15 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
         role="button"
         tabIndex={0}
         aria-expanded={open}
-        aria-label={`操作面板 · ${currentAction === null ? '暂无动作' : currentAction.verb}${open ? '（已展开时间线）' : ''}`}
+        /*
+         * 读屏文案与视觉同步：hideVerb 那族读 detail（视觉上也只有 detail），
+         * 否则读屏用户会听到一句屏幕上根本没有的「在电脑上操作」，对不上号。
+         */
+        aria-label={`操作面板 · ${currentAction === null
+          ? '暂无动作'
+          : (currentAction.hideVerb === true && currentAction.detail !== undefined && currentAction.detail !== ''
+            ? currentAction.detail
+            : currentAction.verb)}${open ? '（已展开时间线）' : ''}`}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()
@@ -413,7 +421,20 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
             <span className="kr-plain-head__ic" aria-hidden>
               <Icon name={currentAction.icon} />
             </span>
-            <span className="kr-plain-head__verb">{currentAction.verb}</span>
+            {/*
+             * 动词**按需显示**（hideVerb）。
+             *
+             * 用户原话：「也不要出现在电脑上操作因为看 SVG 就能看出来」。
+             * 行首那枚图标已经表达了这个动作属于哪一类，动词再复述一遍就只是
+             * 把同一句话说长，还挤掉了真正该读的对象。
+             *
+             * 只对**纯复述图标**的规则生效（终端族：⌗ 图标 = 让电脑干活，
+             * 「在电脑上操作」是同义反复）。具体动词照常显示 ——「打开网页
+             * 携程 · 机票」里的「打开网页」不能删，图标只说了"网页"。
+             */}
+            {currentAction.hideVerb !== true && (
+              <span className="kr-plain-head__verb">{currentAction.verb}</span>
+            )}
             {currentAction.detail !== undefined && currentAction.detail !== '' && (
               <span className="kr-plain-head__detail">{currentAction.detail}</span>
             )}
