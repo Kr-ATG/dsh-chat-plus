@@ -2,16 +2,26 @@
  * dsh-chat-plus — 浏览器标志的装配（client 半身）。
  *
  * 与 host 半身配对的只读观测：host 包装 tools/execute，把「哪些会话正在跑浏览器
- * 操作」通过 /api/chat-flow/browser-activity 吐出来，这里把它变成一个可见信号：
+ * 操作」通过 /api/chat-flow/browser-activity 吐出来，这里把它变成一个可见信号。
  *
- *  **会话列表行右端一枚呼吸的小浏览器图标**（DOM 属性注入，见 row-mark.ts）。
+ * ## 现在显示在哪（2026-10-25 搬迁）
  *
- * ## 为什么只在会话行、不做标题栏胶囊
+ * **右栏「操作面板」卡头，Seeker 文字右侧**。
  *
- * 2026-10-20 按用户要求定稿：胶囊（无论是标题栏最右的座位版，还是顶栏 Seeker
- * 左侧的裸 DOM 版）都太吵 —— 一块带底色描边的圆角块压在顶栏里，与官方的文字
- * 标签抢注意力。标志只保留「一枚安静的小图标」，位置在**行右端**（时间戳旁；
- * 2026-10-22 按用户要求从行首挪过来，行首那格还给会话状态点）。
+ * 它原先挂在**左侧会话列表那一行**的右端（DOM 属性注入 + 伪元素，见 row-mark.ts）。
+ * 用户原话：「这个球标志放在操作面板的 Seeker 文字右侧」—— 理由很直接：那枚图标
+ * 说的是「这个会话正在操作浏览器」，而操作面板正是这个会话的实时状态卡，它就该跟
+ * 当前动作待在一起；会话列表那一行是**导航**，不是状态。
+ *
+ * 所以本模块现在只负责**数据面**（轮询 + 快照 + 订阅），渲染交给
+ * KrPlainTimelineCard（它用 useSyncExternalStore 直接读 store）。
+ *
+ * ## 历史：为什么不再用 DOM 注入
+ *
+ * 原来必须用「属性 + 伪元素」是因为会话行由官方 React 渲染，插进去的节点会被
+ * diff 抹掉。搬到操作面板之后那个约束消失了 —— 操作面板是我们自己的 React 树，
+ * 正常渲染即可，不必再观察整棵 body、不必再往别人的行上打属性。row-mark.ts 与
+ * styles.ts 保留（含测试），只是不再挂载。
  *
  * ## 降级
  *
@@ -22,27 +32,23 @@
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import { mountBrowserFlagRows } from './row-mark.ts'
-import { injectBrowserFlagStyles } from './styles.ts'
 import {
   mountBrowserFlagPreview,
   startBrowserActivityPolling,
 } from './store.ts'
 
 /**
- * 装配：样式 + 轮询器 + window 预览入口 + 行标记观察器。
+ * 装配：轮询器 + window 预览入口。
  *
  * 每一步各自 try/catch：界面增强里最不该发生的是「加了一枚小图标，结果整个
  * 插件 apply 抛错」。
+ *
+ * **不再注入样式、也不再挂行标记观察器**：视觉已经搬到操作面板卡头（那边用
+ * kr-chat/styles.ts 的 .kr-plain-head__browser），左侧会话列表不再有任何改动。
+ * 这两步留着反而会往官方的会话行上打属性、注入一张用不到的样式表。
  */
 export function applyBrowserFlagClient(_ctx: ClientContext): void {
-  try {
-    injectBrowserFlagStyles()
-  } catch (error) {
-    console.warn('[dsh-chat-plus] 浏览器标志样式注入失败：', error)
-  }
-
-  // 一份全局轮询器（不是每行一个）：数据本来就是全量的，N 行 N 次请求没有意义。
+  // 一份全局轮询器（不是每个消费点一个）：数据本来就是全量的。
   try {
     startBrowserActivityPolling()
   } catch (error) {
@@ -54,11 +60,5 @@ export function applyBrowserFlagClient(_ctx: ClientContext): void {
     mountBrowserFlagPreview()
   } catch (error) {
     console.warn('[dsh-chat-plus] 浏览器标志预览入口挂载失败：', error)
-  }
-
-  try {
-    mountBrowserFlagRows()
-  } catch (error) {
-    console.warn('[dsh-chat-plus] 会话行标志观察器挂载失败：', error)
   }
 }

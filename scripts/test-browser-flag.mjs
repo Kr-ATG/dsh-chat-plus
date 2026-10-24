@@ -790,43 +790,33 @@ need(mod.FAST_POLL_MS === 1000 && mod.SLOW_POLL_MS === 5000 && mod.IDLE_ROUNDS_B
   }
   need(applyThrew === false, '装配：applyBrowserFlagClient 不抛（且不占任何座位）')
 
-  const style = headItems.find((node) => node.id === 'dsh-browser-flag-style')
-  need(style !== undefined, '装配：注入 <style id=dsh-browser-flag-style>')
-  need(mod.BROWSER_FLAG_STYLE_ID === 'dsh-browser-flag-style', '样式 id 与常量一致（幂等注入依赖它）')
-
-  const css = style?.textContent ?? ''
-  need(css.includes('data-dsh-browser-flag') && css.includes('::before'),
-    '样式：行标记走 ::before 伪元素（不插节点，React 重渲染抹不掉）')
-  need(css.includes('--dsw-alias-'), '样式：颜色走官方 --dsw-alias-* 变量（暗色自动跟随）')
-  need(css.includes('prefers-reduced-motion'), '样式：prefers-reduced-motion 兜底在位')
-  need(/animation:[^;}]*1\.6s/.test(css), '样式：活动期呼吸动画周期约 1.6s（不闪）')
-  need(/dsh-bflag-icon-in/.test(css) && /cubic-bezier/.test(css), '样式：行标记有滑入 + 缓动')
   /*
-   * 位置：图标必须落在**行右端**（用户 2026-10-22 要求「浏览器标志放在右侧」）。
-   * 判据是 inset-inline-end —— 写反了图标会跑到行首盖住状态点，而这既不报错
-   * 也不影响其它断言，只能靠这条钉住。
+   * ── 装配：**不再注入样式、不再挂行标记**（2026-10-25 搬迁）────────────────
+   *
+   * 那枚图标从「左侧会话列表行右端」搬到了**操作面板卡头、Seeker 文字右侧**。
+   * 于是本模块只剩数据面（轮询 + 快照 + 预览入口），视觉归 kr-chat/styles.ts 的
+   * .kr-plain-head__browser。
+   *
+   * 旧断言（绝对定位 / 行让位 padding / 让位宽度 / 行让位动效 / 样式注入幂等）
+   * 全部随那套 DOM 注入一起作废 —— 它们验的是"往官方行上打属性"那套实现，
+   * 而那套已经不挂了。留着只会让「已经搬走」变成永远红的断言。
+   *
+   * 现在要钉的是**反向**的两件事：
+   *   ① 装配不再注入样式（否则白挂一张用不到的表）；
+   *   ② 装配不再往会话行上打属性（否则会继续改官方列表的 DOM）。
    */
-  const iconRule = /\[data-dsh-browser-flag\]::before\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
-  need(/inset-inline-end:\s*6px/.test(iconRule), '样式：图标定位在行右端（inset-inline-end 6px，落在行尾 padding 区）')
-  need(!/inset-inline-start/.test(iconRule) && !/left:\s*0/.test(iconRule), '样式：图标不在行首（不写 inset-inline-start / left）')
-  need(/position:\s*absolute/.test(iconRule), '样式：图标脱离 flex 流（绝对定位），不挤标题与时间戳')
-  // 行让位：右端必须真的留出一格给图标，否则图标会压在时间戳上。
-  const rowRule = /\[data-row-key\^="session:"\]\[data-dsh-browser-flag\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
-  need(/padding-inline-end:\s*var\(--dsh-bflag-end-room\)/.test(rowRule),
-    '样式：有标志的行在右端让出一格（padding-inline-end 给图标腾位置）')
-  need(/--dsh-bflag-end-room:\s*28px/.test(css), '样式：让位宽度 = 14px 图标 + 6px 边距 + 8px 与时间戳的间隙')
-  need(/dsh-bflag-row-room/.test(css), '样式：行让位带过渡动效（时间戳被推开而不是瞬移）')
-  // 状态点必须**保留**：标志已挪到右侧，行首那格还给官方 spinner。
-  need(!/\[data-dsh-browser-flag\]\s*>\s*span:first-child\s*>\s*svg/.test(css),
-    '样式：不再淡出行首状态点（标志已挪到右侧，两者互不干扰）')
-  // 胶囊必须彻底不存在：样式、类名、座位一个都不能留。
-  need(!css.includes('dsh-bflag-pill') && !css.includes('dsh-bflag-tab'),
-    '样式：胶囊整块删除（用户明确说不好看）')
+  need(headItems.every((node) => node.id !== 'dsh-browser-flag-style'),
+    '装配：不再注入 dsh-browser-flag-style（视觉已搬到操作面板卡头）')
+  need(mod.BROWSER_FLAG_STYLE_ID === 'dsh-browser-flag-style',
+    '样式常量仍在（styles.ts 保留，只是不再挂载）')
+  const rowsTouched = [...sandbox.document.querySelectorAll('[data-row-key^="session:"]')]
+    .some((row) => row.hasAttribute('data-dsh-browser-flag'))
+  need(!rowsTouched, '装配：不再往官方会话行上打属性（列表 DOM 零改动）')
 
-  // 幂等：再装配一次不该出现第二份样式。
+  // 幂等：再装配一次不该多出任何 <style>。
   mod.applyBrowserFlagClient(ctx)
-  need(headItems.filter((node) => node.id === 'dsh-browser-flag-style').length === 1,
-    '装配：样式注入幂等（重复装配只有一份 <style>）')
+  need(headItems.filter((node) => node.id === 'dsh-browser-flag-style').length === 0,
+    '装配：重复装配也不注入样式（幂等且彻底不挂）')
   mod.stopBrowserActivityPolling()
   timers.clear()
 }

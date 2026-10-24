@@ -30,7 +30,7 @@
  * 头像（鲸鱼娘）见 WhalePortrait.tsx：位图分层，尾巴单独摇。
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import { useHeightAnimation, useMotionAllowed, useSteppedFollow } from '../motion-utils.ts'
 import { formatDuration } from '../tool-summary/tool-stats.ts'
@@ -40,6 +40,11 @@ import type { SubagentCatalogView } from './subagent-catalog.ts'
 import { workspaceCwdOf } from '../client-ctx.ts'
 import { tryOpenInSidebar } from '../open-preview.ts'
 import { WhalePortrait } from './WhalePortrait.tsx'
+import {
+  browserFlagTitle,
+  getBrowserFlagEntry,
+  subscribeBrowserFlag,
+} from '../browser-flag/store.ts'
 
 /**
  * 「简要 / 详细」两档**已整块删除**（2026-10-24 用户点名：「点击就是详细不需要简要了」）。
@@ -394,6 +399,28 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(open, motion)
 
   /*
+   * 浏览器操作标志：本会话此刻有没有在跑浏览器操作（2026-10-25 用户要求搬到这里）。
+   *
+   * 它原先挂在**左侧会话列表那一行**的右端（DOM 属性注入 + 伪元素，见
+   * browser-flag/row-mark.ts）。用户原话：「这个球标志放在操作面板的 Seeker 文字
+   * 右侧」—— 搬过来的理由很直接：那枚图标说的是「这个会话正在操作浏览器」，
+   * 而操作面板正是这个会话的实时状态卡，它就该跟当前动作待在一起；会话列表那一行
+   * 是**导航**，不是状态。
+   *
+   * 数据面完全复用：同一个 store、同一条轮询、同一份快照（subscribeBrowserFlag +
+   * getBrowserFlagEntry）。这里只换渲染位置，不新增任何请求。
+   *
+   * useSyncExternalStore 而不是 useEffect+setState：快照对象本身是稳定引用
+   * （只在真正变化时整张替换），正是这个 hook 的标准用法。
+   */
+  const browserEntry = useSyncExternalStore(
+    subscribeBrowserFlag,
+    () => getBrowserFlagEntry(sessionId ?? undefined),
+    () => getBrowserFlagEntry(sessionId ?? undefined),
+  )
+  const browserOn = browserEntry !== undefined && (browserEntry.active > 0 || browserEntry.lingering === true)
+
+  /*
    * 展开后显示的就是**完整详细时间线**：不收敛、不过滤、一步不省。
    *
    * 「简要」这一档已经整块删掉（见文件顶部的说明）：折叠态那一行本身就是最克制
@@ -527,7 +554,33 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
         }}
       >
         <WhalePortrait size={92} motion={motion} />
-        <span className="kr-plain-head__name">Seeker</span>
+        {/*
+         * 名字 + 浏览器标志（同一行）。
+         *
+         * 用户要求：「这个球标志放在操作面板的 Seeker 文字右侧」。名字与图标
+         * 并排，图标只在**本会话真的在跑浏览器操作**时出现（判据见上面的
+         * browserOn）—— 与它原来挂在会话列表行上时是同一份数据。
+         *
+         * title 里带工具名（「浏览器操作中 · playwright」），悬停即可知道在用什么；
+         * aria-hidden 让读屏不重复念一遍，因为卡头自己的 aria-label 已经说了
+         * 此刻在做什么。
+         */}
+        <span className="kr-plain-head__name-row">
+          <span className="kr-plain-head__name">Seeker</span>
+          {browserOn && (
+            <span
+              className="kr-plain-head__browser"
+              title={browserFlagTitle(browserEntry)}
+              aria-hidden
+            >
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="8" cy="8" r="6.25" />
+                <path d="M1.75 8h12.5" />
+                <path d="M8 1.75c1.7 1.8 2.6 3.9 2.6 6.25S9.7 12.45 8 14.25C6.3 12.45 5.4 10.35 5.4 8S6.3 3.55 8 1.75z" />
+              </svg>
+            </span>
+          )}
+        </span>
         {currentAction === null ? (
           <span className="kr-plain-head__idle" data-thinking={idleLine === THINKING_PHRASE || undefined}>
             {idleLine}

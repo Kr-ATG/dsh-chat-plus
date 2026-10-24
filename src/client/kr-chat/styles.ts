@@ -2162,9 +2162,30 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   min-width: 0;
 }
 
+/*
+ * 名字行：Seeker + 浏览器标志并排（2026-10-25 用户要求）。
+ *
+ * 标志原先挂在**左侧会话列表那一行**的右端（browser-flag/row-mark.ts 的 DOM
+ * 注入）。用户原话：「这个球标志放在操作面板的 Seeker 文字右侧」—— 那枚图标说
+ * 的是「这个会话正在操作浏览器」，而操作面板正是这个会话的实时状态卡，它就该跟
+ * 当前动作待在一起；会话列表那一行是导航，不是状态。
+ *
+ * 用 flex 居中而不是绝对定位：名字长度会变（字号轴缩放），绝对定位在窄栏里迟早
+ * 会压到名字上。gap 6px 是"并排但不相连"的最小距离。
+ */
+.kr-plain-head__name-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 3px;
+  max-width: 100%;
+  min-width: 0;
+}
+
 /* 名字：与立绘同宽居中。字号跟官方字号轴走（见「字号轴」段）。 */
 .kr-plain-head__name {
-  margin-top: 3px;
+  margin-top: 0;
   font-size: var(--kr-fs-title, 13px);
   font-weight: 650;
   letter-spacing: .01em;
@@ -2229,6 +2250,51 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   font-size: var(--kr-fs-10-5, 10.5px);
   color: var(--dsw-alias-label-tertiary);
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Seeker 名字右侧的浏览器标志（2026-10-25 从会话列表行搬来）。
+ *
+ * 与它原来那版保持同一套语言：主色 + 慢呼吸（1.6s），不转圈 —— 转圈读作
+ * 「加载中」，而它表达的是「正在进行」，稳定的慢呼吸才不会让右栏看起来在闪。
+ * 尺寸比原来那枚（14px）小一档：这里紧挨 13px 的名字，14px 会显得比名字还重。
+ */
+.kr-plain-head__browser {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6);
+  height: calc(13px + var(--dsh-content-font-delta, 0px) * 0.6);
+  color: var(--kr-accent);
+  animation:
+    kr-plain-browser-in var(--kr-dur-row) var(--kr-ease-out) backwards,
+    kr-plain-browser-breathe 1.6s ease-in-out .22s infinite;
+  will-change: opacity;
+}
+
+.kr-plain-head__browser svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* 入场：从右侧滑入 + 轻微缩放淡入（与它原来挂在会话行上时同一套触感）。 */
+@keyframes kr-plain-browser-in {
+  from { opacity: 0; transform: translateX(3px) scale(.72); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 呼吸：只动 opacity（合成层，不重排）。周期 1.6s 与原来那枚一致。 */
+@keyframes kr-plain-browser-breathe {
+  0%, 100% { opacity: .72; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-plain-head__browser {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 /*

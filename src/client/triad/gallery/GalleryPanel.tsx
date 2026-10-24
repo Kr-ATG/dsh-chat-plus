@@ -612,6 +612,16 @@ const GalleryCard = ({ item, index, sessionTitle, now, onOpen, onPreview, onUnre
       ? { animationDelay: `${String(outMs)}ms` } as CSSProperties
       : { '--tg-i': Math.min(index, compact ? 12 : 30) } as CSSProperties}
     onClick={() => { if (!leaving) onOpen(item) }}
+    // 键盘路径的单卡删除：卡片聚焦后按 Delete / Backspace 与鼠标点垃圾桶同一套
+    // 两拍语义（第一次进确认态、第二次真删）。垃圾桶那枚对读屏是隐藏的，
+    // 所以键盘用户必须能从卡片本身发起这件事，否则「单卡删除」对他们不存在。
+    onKeyDown={onDelete === undefined ? undefined : (event) => {
+      if (leaving) return
+      if (event.key !== 'Delete' && event.key !== 'Backspace') return
+      event.preventDefault()
+      event.stopPropagation()
+      onDelete(item)
+    }}
     // 不用 disabled：UA 会给 disabled 的 button 染上灰字，退场那 260ms 看起来像
     // 「变灰消失」而不是「淡出下沉」。不可点由 CSS 的 pointer-events:none（见
     // .tg-card--out）与这里的守卫一起承担，视觉与交互两边都干净。
@@ -658,11 +668,13 @@ const GalleryCard = ({ item, index, sessionTitle, now, onOpen, onPreview, onUnre
     {onDelete !== undefined && (
       <span
         className="tg-card__del"
-        role="button"
-        aria-label={deleteArmed ? `确认删除 ${shownName}，不可恢复` : `删除 ${shownName}`}
+        // 不进无障碍树：卡片本体是 <button>，在里面再放一个 role=button 属于
+        // interactive content 嵌套（HTML 违规，读屏会念两遍）。键盘用户的路径是
+        // **卡片聚焦后按 Delete 键**（见下面 onKeyDown），那条路径有完整的
+        // aria 语义；这一枚只管鼠标。
+        aria-hidden="true"
         title={deleteArmed ? '再点一次即从磁盘删除（不可恢复）' : '删除这一项…'}
         data-armed={deleteArmed ? 'true' : undefined}
-        aria-disabled={leaving ? true : undefined}
         onClick={(event) => {
           if (leaving) return
           event.stopPropagation()
@@ -1210,14 +1222,26 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
       // 避免再往 DOM 上挂一份冗余的 data-path。
       if (owner?.getAttribute('title') !== delItemPath) setDelItemPath(null)
     }
+    /**
+     * Esc 取消确认态。
+     *
+     * **必须拦在 capture 阶段并 stopPropagation**：官方布局层自己有一条
+     * 「Esc 关闭当前工作台面板」的全局监听（实测无确认态时按 Esc 会直接关掉
+     * 整个画廊）。若这里只在冒泡阶段处理，用户按 Esc 想反悔，结果面板先被
+     * 关掉、确认态跟着一起消失 —— 看起来像「按 Esc 就把画廊关了」。
+     * 确认态存在时这一下 Esc 只属于确认态。
+     */
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setDelItemPath(null)
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      setDelItemPath(null)
     }
     document.addEventListener('mousedown', onPointer)
-    document.addEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
     return () => {
       document.removeEventListener('mousedown', onPointer)
-      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('keydown', onKey, true)
     }
   }, [delItemPath])
 

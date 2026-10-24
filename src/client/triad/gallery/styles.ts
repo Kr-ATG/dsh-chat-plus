@@ -342,10 +342,12 @@ const SHEET = `
 .tg-card--tile .tg-card__count{opacity:1;transform:none;top:7px;left:7px;height:17px;padding:0 8px;font-size:10px}
 /* 徽标撤走后快捷点回到角上（原 top:30px 是为了给它让位） */
 .tg-card--tile .tg-card__peek{right:7px;bottom:auto;top:7px;width:24px;height:24px;border-radius:8px}
-/* 单卡删除钮（2026-10-24）：hover / 聚焦浮现，落在右下角，与右上角的预览眼不抢位。
-   第一次点变成红底「删除?」，再点一次才真删 —— 所以确认态必须有足够宽的尺寸，
+/* 单卡删除钮（2026-10-24）：hover / 聚焦浮现。
+   网格视图里预览眼占着右下角，删除钮排在它左边（right:40px）；方格视图里
+   下缘是文件名、没有角落可用，两枚并排挂在缩略图顶部（见下面 .tg-card--tile 那条）。
+   第一次点变成红底「删除?」，再点一次才真删 —— 所以确认态必须有足够宽度，
    否则文字挤不下会被裁掉。 */
-.tg-card__del{position:absolute;right:8px;bottom:8px;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border-radius:8px;color:#fff;background:rgba(15,17,23,.72);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(8px);opacity:0;transform:translateY(4px) scale(.94);transition:opacity 180ms ease,transform 220ms cubic-bezier(.2,.8,.2,1),background 160ms ease,border-color 160ms ease,width 180ms cubic-bezier(.2,.8,.2,1);cursor:pointer;z-index:3;font-family:inherit}
+.tg-card__del{position:absolute;right:40px;bottom:8px;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border-radius:8px;color:#fff;background:rgba(15,17,23,.72);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(8px);opacity:0;transform:translateY(4px) scale(.94);transition:opacity 180ms ease,transform 220ms cubic-bezier(.2,.8,.2,1),background 160ms ease,border-color 160ms ease,width 180ms cubic-bezier(.2,.8,.2,1);cursor:pointer;z-index:3;font-family:inherit}
 .tg-card:hover .tg-card__del,.tg-card:focus-within .tg-card__del{opacity:1;transform:translateY(0) scale(1)}
 .tg-card__del:hover{background:rgba(220,60,60,.9);border-color:rgba(255,255,255,.36)}
 .tg-card__del:active{transform:scale(.92)}
@@ -599,8 +601,10 @@ const SHEET = `
 
 @media (prefers-reduced-motion:reduce){
   .tg-card,.tg-skel,.tg-empty,.tg-stale,.tg-session-bar,.tg-dock{animation:none!important}
-  .tg-card,.tg-card:hover,.tg-icon-btn,.tg-kind,.tg-dock__item,.tg-card__img,.tg-card__icon,.tg-card__kind-dot,.tg-card__peek{transition:none!important}
-  /* 减弱动效下这枚按钮不再靠过渡浮出：直接常显，否则要 hover 才有反应。 */
+  .tg-card,.tg-card:hover,.tg-icon-btn,.tg-kind,.tg-dock__item,.tg-card__img,.tg-card__icon,.tg-card__kind-dot,.tg-card__peek,.tg-card__del{transition:none!important}
+  /* 减弱动效下预览眼直接常显（否则要 hover 才有反应）。
+     单卡删除钮**刻意不跟进**：一屏一百多张卡片各挂一枚常显的垃圾桶是纯噪声，
+     而它的键盘路径已经由卡片上的 Delete 键承担，不依赖这枚按钮可见。 */
   .tg-card__peek{opacity:1!important;transform:none!important}
   .tg-skel__thumb::after,.tg-skel__line::after{animation:none!important}
   .tg-empty__icon,.tg-stale__dot,.tg-icon-btn[data-spinning="true"] svg{animation:none!important}

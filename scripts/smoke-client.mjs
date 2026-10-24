@@ -421,10 +421,16 @@ const expectedStyles = [
   // 「@ 运行中的程序」（src/client/running-apps/styles.ts）：候选行里真实进程
   // 图标的尺寸/圆角/入场，以及前台窗口那枚小圆点。apply 阶段随 @ 源一起注入。
   'dsh-running-apps-styles',
-  // 浏览器标志（src/client/browser-flag/styles.ts）：会话行右端的浏览器图标
-  // （::before + mask 呼吸）。2026-10-20 新增、2026-10-22 从行首挪到行右端，
-  // 与 host 半身的 /api/chat-flow/browser-activity 配对。
-  'dsh-browser-flag-style',
+  /*
+   * 浏览器标志的样式表**已不在注入清单里**（2026-10-25 搬迁）。
+   *
+   * 那枚图标从「左侧会话列表行右端」（DOM 属性 + 伪元素，必须单独注入一张样式表）
+   * 搬到了**操作面板卡头、Seeker 文字右侧**（我们自己的 React 树）。视觉改用
+   * kr-chat/styles.ts 的 .kr-plain-head__browser，与那张表一起注入。
+   *
+   * browser-flag/styles.ts 仍然保留（含它的测试），只是不再挂载 —— 所以这里
+   * 不能再要求 dsh-browser-flag-style 存在，否则「已经搬走」会变成一条永远红的断言。
+   */
   ...(krEnabled ? ['dsh-kr-chat-styles'] : []),
 ]
 for (const expected of expectedStyles) {
@@ -904,9 +910,9 @@ if (!code.includes('data-dsh-anim-paused') || !code.includes('animation-play-sta
 // 按用户要求删除，槽位从 13 → 12。它的 9 个开关迁到 Seeker 右栏「大盘设置」抽屉，
 // 入口是顶栏 Seeker 标签右侧的齿轮（裸 DOM 注入，**不占槽位**）。
 const cell = (key) => registeredSlots.find((s) => s?.slot === 'conversation.chat.node' && s?.key === key)
-// 2026-10-20：浏览器标志**不占任何座位** —— 标题栏胶囊整块删除（用户反馈不好看），
-// 只剩会话行上的一枚伪元素图标（DOM 属性注入，见 browser-flag/row-mark.ts）。
-// 槽位仍是 12；若哪天有人把胶囊座位加回来，这里的计数会立刻红。
+// 2026-10-20：浏览器标志**不占任何座位** —— 标题栏胶囊整块删除（用户反馈不好看）。
+// 2026-10-25 起它住在**操作面板卡头**（Seeker 文字右侧），仍不占座位：
+// 那是插件自己的 React 树，不是官方槽位。若哪天有人把胶囊座位加回来，计数会立刻红。
 // 2026-10-23：composer 那枚 dsh-memory-inject-toggle（记忆注入卡，order 99）
 // 按用户要求删除，槽位从 12 → 11。它的开关能力仍在 Seeker 右栏「大盘设置」抽屉里。
 if (registeredSlots.length !== 11) {
@@ -1650,11 +1656,24 @@ if (krEnabled) {
       pass('操作面板默认收起 + 卡头耗时已隐藏、明细行耗时保留')
     }
 
-    // 卡头形态：竖排「鲸鱼娘立绘 / 名字 / 一行当前动作」，点一下展开全部。
+    // 卡头形态：竖排「鲸鱼娘立绘 / 名字(+浏览器标志) / 一行当前动作」，点一下展开全部。
     if (!/className="kr-plain-head__name">Seeker</.test(cardSrc)) {
       fail('操作面板卡头必须显示名字（Seeker）')
     } else if (!/WhalePortrait size=\{/.test(cardSrc)) {
       fail('操作面板卡头必须挂鲸鱼娘立绘（WhalePortrait）')
+    } else if (!/className="kr-plain-head__name-row"/.test(cardSrc)
+      || !/className="kr-plain-head__browser"/.test(cardSrc)) {
+      /*
+       * 浏览器标志必须在**名字右侧**（2026-10-25 用户：「这个球标志放在操作面板的
+       * Seeker 文字右侧」）。它原先挂在左侧会话列表行右端（DOM 属性 + 伪元素），
+       * 现在住在 name-row 里，跟着名字走。
+       *
+       * 两条都要在：name-row 包裹（并排布局的前提）与 browser 类名（图标本体）。
+       * 少了包裹，图标会掉到名字下一行。
+       */
+      fail('浏览器标志必须挂在 Seeker 名字右侧（.kr-plain-head__name-row 里的 .kr-plain-head__browser）')
+    } else if (!/\.kr-plain-head__browser/.test(code)) {
+      fail('client bundle 缺 .kr-plain-head__browser 样式（图标会是一坨没尺寸的裸 SVG）')
     } else if (!/kr-plain-head__act/.test(cardSrc)) {
       fail('卡头必须有「当前动作」这一行')
     } else if (/\.kr-plain-view\b/.test(cardSrc)) {
