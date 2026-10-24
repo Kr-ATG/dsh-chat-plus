@@ -2231,14 +2231,50 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   font-variant-numeric: tabular-nums;
 }
 
-/* 没有动作时的兜底行（本轮未开始 / 已收口） */
+/*
+ * 没有动作时的那一行（2026-10-25 改）。
+ *
+ * 原先写的是「等待本轮开始 / 已收口」—— 系统视角的措辞，读起来像报错提示。
+ * 现在这里显示的是**鲸鱼娘自己的状态**：休息中 / 吃饭中 / 小憩中 / 晒太阳，
+ * 以及刚发出消息时的「在思考中」（见 KrPlainTimelineCard 的 IDLE_PHRASES）。
+ *
+ * 文案换说法时给一个极轻的淡入：三秒一跳会显得廉价，而这一行在一轮里只变
+ * 一次，淡入正好让"换了个说法"这件事被看见、又不打断阅读。
+ */
 .kr-plain-head__idle {
   margin-top: 2px;
   height: calc(22px + var(--dsh-content-font-delta, 0px));
   display: flex;
   align-items: center;
+  gap: 5px;
   font-size: var(--kr-fs-12, 12px);
   color: var(--dsw-alias-label-tertiary);
+  animation: kr-plain-idle-in var(--kr-dur-row) var(--kr-ease-out) backwards;
+}
+
+@keyframes kr-plain-idle-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+
+/*
+ * 「在思考中」：主色 + 三点呼吸。
+ *
+ * 它是**唯一**表示"此刻真的在动"的空闲文案（其余几句都是"没在干活"），所以
+ * 给它主色和呼吸点 —— 读者一眼能分出"她在想"和"她歇着"。呼吸点与子智能体卡
+ * 段标题那枚同频（1.4s），右栏里所有"正在发生"的信号用同一个节拍。
+ */
+.kr-plain-head__idle[data-thinking] {
+  color: var(--kr-accent);
+}
+
+.kr-plain-head__idle[data-thinking]::after {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: kr-pulse 1.4s var(--kr-ease-loop) infinite;
 }
 
 /* ══ 鲸鱼娘立绘 ══════════════════════════════════════════════════════════
@@ -3393,6 +3429,21 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   .kr-plain-step__count,
   .kr-plain-step__subcount {
     animation: none;
+  }
+
+  /*
+   * 卡头空闲文案的淡入与「在思考中」的呼吸点一并关掉。
+   *
+   * 关掉之后状态**仍然可读**：思考中那行还有主色（颜色不参与动画），
+   * 空闲那几句只是不再淡入 —— 文案本身就在，没有信息只靠动效传达。
+   */
+  .kr-plain-head__idle {
+    animation: none;
+  }
+
+  .kr-plain-head__idle[data-thinking]::after {
+    animation: none;
+    opacity: .75;
   }
 }
 

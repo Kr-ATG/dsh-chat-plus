@@ -1659,6 +1659,26 @@ if (krEnabled) {
       fail('卡头必须有「当前动作」这一行')
     } else if (/\.kr-plain-view\b/.test(cardSrc)) {
       fail('卡头不该再挂简要/详细按钮（点击整块卡头就是展开详细）')
+    } else if (!/const IDLE_PHRASES: readonly string\[\] = \['休息中', '吃饭中', '小憩中', '晒太阳'\]/.test(cardSrc)) {
+      /*
+       * 卡头空闲文案（2026-10-25 用户要求）：「不要显示等待本轮开始，显示休息中、
+       * 吃饭中、小憩、晒太阳；当我发送出去对话的时候就变成在思考中」。
+       *
+       * 两件事都要在：① 空闲时是那几句拟人化说法（不是系统措辞「等待本轮开始」）；
+       * ② 刚发出消息、还没有任何动作时是「在思考中」。
+       *
+       * ②尤其容易退化：只写 ① 的话，消息发出到第一个工具调用之间那段空窗会
+       * 显示"休息中" —— 而模型明明已经在处理了。
+       */
+      fail('卡头空闲文案必须是拟人化轮换（休息中 / 吃饭中 / 小憩中 / 晒太阳）')
+    } else if (!/if \(running && empty\) return THINKING_PHRASE/.test(cardSrc)
+      || !/const THINKING_PHRASE = '在思考中'/.test(cardSrc)) {
+      fail('刚发出消息、还没有任何动作时必须显示「在思考中」'
+        + '（判据 running && empty：本轮在跑但时间线里一条动作都没有）')
+    } else if (/等待本轮开始/.test(stripComments(cardSrc)) || /已收口/.test(stripComments(cardSrc))) {
+      // 必须剥注释再查：这两句在这一轮的注释里被反复引用（"原来写的是…"），
+      // 拿原文匹配会把说明文字当成残留 —— 本文件里 stripComments 已有定义。
+      fail('卡头不该再出现「等待本轮开始 / 已收口」（系统视角措辞，用户点名换掉）')
     } else if (!/\{currentAction\.hideVerb !== true && \(/.test(cardSrc)) {
       /*
        * 渲染层必须遵守 hideVerb（2026-10-25 用户：「也不要出现在电脑上操作，

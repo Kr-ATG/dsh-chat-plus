@@ -187,7 +187,8 @@ const SHEET = `
    计数是「这张卡里有几张」的量词，属于附加信息；类型才是主信息，占右上主位。 */
 .tg-card__count{position:absolute;top:8px;left:8px;display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:9px;font-size:10px;font-weight:600;letter-spacing:.02em;color:#fff;background:rgba(15,17,23,.76);border:1px solid rgba(255,255,255,.16);opacity:0;transform:translateY(-3px);transition:opacity 180ms ease,transform 180ms ease;pointer-events:none}
 .tg-card:hover .tg-card__count{opacity:1;transform:translateY(0)}
-.tg-card--tile .tg-card__count{opacity:1;transform:none;top:6px;left:6px;height:16px;font-size:9.5px}
+/* 方格变体的徽标 / 快捷点尺寸统一在下面「时间轴视图」段落里定义（2026-10-24 归一），
+   这里不再各写一份，改尺寸只改一处。 */
 /* 「就地预览」快捷点（2026-10-20）。
    卡片的主语义换成了「用默认应用打开」，但浏览时不该被迫为每张图开一个外部窗口 ——
    这枚眼睛只负责「在这里看看」。hover / focus-within 浮现，平时不占视觉；
@@ -196,7 +197,6 @@ const SHEET = `
 .tg-card:hover .tg-card__peek,.tg-card:focus-within .tg-card__peek{opacity:1;transform:translateY(0) scale(1)}
 .tg-card__peek:hover{background:rgba(15,17,23,.9);border-color:rgba(255,255,255,.32)}
 .tg-card__peek:active{transform:scale(.92)}
-.tg-card--tile .tg-card__peek{right:6px;bottom:auto;top:26px;width:22px;height:22px;border-radius:7px}
 .tg-card__peek svg{pointer-events:none}
 .tg-card__meta{display:flex;flex-direction:column;gap:2px;padding:8px 10px 10px;min-width:0}
 .tg-card__name{font-size:12px;font-weight:500;line-height:16px;color:var(--dsw-alias-label-primary,#111827);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -316,28 +316,36 @@ const SHEET = `
 .tg-day__head{position:relative;display:flex;align-items:center;gap:7px;padding:5px 10px 5px 0;margin-bottom:7px;animation:tg-fade-in 260ms ease backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
 .tg-day__dot{position:absolute;left:-20px;top:50%;width:8px;height:8px;margin-top:-4px;border-radius:50%;background:var(--dsw-alias-state-business-primary,#3b82f6);box-shadow:0 0 0 3px var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff));animation:tg-dot-pop 380ms cubic-bezier(.2,1.5,.4,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms + 60ms)}
 @keyframes tg-dot-pop{from{opacity:0;transform:scale(0)}60%{opacity:1;transform:scale(1.35)}to{opacity:1;transform:scale(1)}}
-.tg-day__label{font-size:12.5px;font-weight:600;color:var(--dsw-alias-label-primary,#111827);letter-spacing:.01em}
-.tg-day__weekday{font-size:10.5px;font-weight:500;color:var(--dsw-alias-label-tertiary,#888);padding:1px 6px;border-radius:6px;background:var(--dsw-alias-bg-module-platform,color-mix(in srgb,var(--dsw-alias-label-primary,#000) 5%,transparent));border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.12))}
-.tg-day__count{font-size:10.5px;color:var(--dsw-alias-label-tertiary,#888);font-variant-numeric:tabular-nums}
+.tg-day__label{font-size:13.5px;font-weight:600;color:var(--dsw-alias-label-primary,#111827);letter-spacing:.01em}
+.tg-day__weekday{font-size:11px;font-weight:500;color:var(--dsw-alias-label-tertiary,#888);padding:1.5px 7px;border-radius:7px;background:var(--dsw-alias-bg-module-platform,color-mix(in srgb,var(--dsw-alias-label-primary,#000) 5%,transparent));border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.12))}
+.tg-day__count{font-size:11px;color:var(--dsw-alias-label-tertiary,#888);font-variant-numeric:tabular-nums}
 .tg-day__rule{flex:1;height:1px;background:var(--dsw-alias-border-l1,rgba(127,127,127,.12));transform-origin:left;animation:tg-rule-in 420ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms + 90ms)}
 @keyframes tg-rule-in{from{transform:scaleX(0);opacity:0}to{transform:scaleX(1);opacity:1}}
-/* 手机相册式高密度方格：正方形缩略图铺满，间距 4px */
-.tg-day__tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 10px}
-@media (max-width:640px){.tg-day__tiles{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px 8px}.tg-day{padding-left:18px}.tg-day::before{left:4px}.tg-day__dot{left:-17px}}
+/* 手机相册式高密度方格：正方形缩略图铺满。
+   2026-10-24 用户要求「所有格式的时间轴都变大一点」：最小列宽 150 → 182、
+   gutter 10 → 14，格子整体放大约 21%（缩略图、图标、徽标、文件名同步加法，
+   见下面 .tg-card--tile / .tg-tile__* 一组），保持方格比例不变。 */
+.tg-day__tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(182px,1fr));gap:14px 14px}
+@media (max-width:640px){.tg-day__tiles{grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:12px 10px}.tg-day{padding-left:18px}.tg-day::before{left:4px}.tg-day__dot{left:-17px}}
 
 /* 方格卡片：无内边距、无下缘 meta，名字沉到 hover 浮层 */
-.tg-card--tile{border-radius:10px;border-color:transparent;background:var(--dsw-alias-bg-module-platform,rgba(255,255,255,.04));animation-duration:220ms;animation-delay:calc(var(--tg-i,0) * 14ms)}
-.tg-card--tile:hover{transform:translateY(-2px);border-color:var(--dsw-alias-border-l2,rgba(255,255,255,.2));box-shadow:0 6px 18px rgba(0,0,0,.34);z-index:2}
-.tg-tile__thumb{position:relative;width:100%;aspect-ratio:1/1;overflow:hidden;border-radius:10px;background:var(--dsw-alias-bg-module-platform,rgba(255,255,255,.05));display:flex;align-items:center;justify-content:center}
-.tg-tile__thumb .tg-card__img{border-radius:10px}
-.tg-tile__thumb .tg-card__icon svg{width:30px;height:30px}
-.tg-tile__thumb .tg-card__play svg{width:32px;height:32px}
-/* 方格里类别徽标常显（不 hover 也要知道是啥类型） */
-.tg-card--tile .tg-card__kind-dot{opacity:1;transform:none;top:6px;right:6px;height:16px;font-size:9.5px}
+.tg-card--tile{border-radius:12px;border-color:transparent;background:var(--dsw-alias-bg-module-platform,rgba(255,255,255,.04));animation-duration:220ms;animation-delay:calc(var(--tg-i,0) * 14ms)}
+.tg-card--tile:hover{transform:translateY(-3px);border-color:var(--dsw-alias-border-l2,rgba(255,255,255,.2));box-shadow:0 10px 26px rgba(0,0,0,.36);z-index:2}
+.tg-tile__thumb{position:relative;width:100%;aspect-ratio:1/1;overflow:hidden;border-radius:12px;background:var(--dsw-alias-bg-module-platform,rgba(255,255,255,.05));display:flex;align-items:center;justify-content:center}
+.tg-tile__thumb .tg-card__img{border-radius:12px}
+.tg-tile__thumb .tg-card__icon svg{width:36px;height:36px}
+.tg-tile__thumb .tg-card__play svg{width:38px;height:38px}
+/* 方格右上角**不显示类型徽标**（2026-10-24 用户点名：右上角不用显示标识）。
+   分类已经在工具条上选定了，每格再挂一枚「图片 / 网页 / 音频」纯属噪声 ——
+   整块下掉，连 hover 也不放行（不是 opacity:0，直接不参与布局）。 */
+.tg-card--tile .tg-card__kind-dot{display:none}
+.tg-card--tile .tg-card__count{opacity:1;transform:none;top:7px;left:7px;height:17px;padding:0 8px;font-size:10px}
+/* 徽标撤走后快捷点回到角上（原 top:30px 是为了给它让位） */
+.tg-card--tile .tg-card__peek{right:7px;bottom:auto;top:7px;width:24px;height:24px;border-radius:8px}
 /* 文件名常驻缩略图下方（不 hover 也看得见） */
-.tg-tile__meta{display:flex;flex-direction:column;gap:1px;padding:6px 2px 2px;min-width:0}
-.tg-tile__name{font-size:11px;font-weight:500;line-height:15px;color:var(--dsw-alias-label-primary,#eee);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tg-tile__sub{font-size:10px;line-height:13px;color:var(--dsw-alias-label-tertiary,#7c828c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tg-tile__meta{display:flex;flex-direction:column;gap:2px;padding:7px 3px 3px;min-width:0}
+.tg-tile__name{font-size:12px;font-weight:500;line-height:17px;color:var(--dsw-alias-label-primary,#eee);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tg-tile__sub{font-size:10.5px;line-height:14px;color:var(--dsw-alias-label-tertiary,#7c828c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ══ 预览弹窗（2026-10-19 重做）═════════════════════════════════════════
  *

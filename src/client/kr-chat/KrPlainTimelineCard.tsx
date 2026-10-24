@@ -72,6 +72,43 @@ const LIST_MAX_ROWS = 13
 /** 被右栏挤压时（记忆卡常驻底部触发自适应降档）收一档。 */
 const LIST_MAX_ROWS_SQUEEZED = 9
 
+/*
+ * ══ 卡头的「没在干活」文案（2026-10-25 用户要求）═══════════════════════════
+ *
+ * 用户原话：「不要显示等待本轮开始，显示休息中、吃饭中、小憩、晒太阳；当我发送
+ * 出去对话的时候就变成在思考中，后面就正常了」。
+ *
+ * 三档状态，按「有没有活」区分：
+ *   · **空闲**（本轮没在跑）→ 轮换的拟人化说法。原先是一句「等待本轮开始」/
+ *     「已收口」—— 那是**系统视角**的措辞（"这一轮还没开始"），读起来像报错
+ *     提示；而这张卡的卡头是鲸鱼娘本人，她"没在干活"时该有生活感。
+ *   · **刚发出消息、还没有任何动作**（running 但没有可显示的动作）→「在思考中」。
+ *     用户点名要这个：消息发出去到第一个工具调用之间有一段空窗，那时卡头不能
+ *     还挂着"休息中"—— 她明明已经在处理了。
+ *   · **有动作** → 照旧显示当前这一件事（正常流程）。
+ *
+ * 轮换**按轮次推进**而不是定时器：每轮换一次说法（同一轮里保持不变），这样它
+ * 不是"每秒闪一下"的装饰，而更像"她这轮歇着的时候在做什么"。
+ */
+const IDLE_PHRASES: readonly string[] = ['休息中', '吃饭中', '小憩中', '晒太阳']
+/** 刚发出消息、还没有任何动作时的一句话。 */
+const THINKING_PHRASE = '在思考中'
+
+/**
+ * 本轮该显示哪句空闲文案。
+ *
+ * 索引取会话内稳定的整数（已完成的动作数）而不是随机或时间：同一轮里反复渲染
+ * 得到同一个结果（不会闪），下一轮自然换一个（读起来像"她歇够了又去干别的"）。
+ *
+ * @param seed - 会话内稳定的整数。
+ * @returns 空闲短语。
+ */
+function idlePhraseFor(seed: number): string {
+  const list = IDLE_PHRASES
+  const index = Math.abs(Math.trunc(seed)) % list.length
+  return list[index] ?? list[0]
+}
+
 export interface KrPlainTimelineCardProps {
   readonly timeline: PlainTimeline
   readonly running: boolean
@@ -377,6 +414,26 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
     return all[all.length - 1] ?? null
   }, [timeline.steps])
 
+  /*
+   * 卡头「没在干活」时显示哪一句（见文件顶部的 IDLE_PHRASES 说明）。
+   *
+   * 三档按顺序判：
+   *  1. **正在跑但一个动作都还没有** → 「在思考中」。
+   *     这是用户点名的那段空窗：消息发出去、模型在思考、还没调工具，卡头不能
+   *     还挂着「休息中」—— 她明明已经在处理了。
+   *     判据 `running && empty`：running 来自面板的 currentRunning（本轮在跑），
+   *     empty 表示时间线里一条动作都没有。两个同时成立才是「刚发出去」。
+   *  2. **没在跑** → 轮换的拟人化文案（休息中 / 吃饭中 / 小憩中 / 晒太阳）。
+   *  3. 其余（在跑、也有动作）→ currentAction 会取到最后一条，走正常分支，
+   *     不在这里。
+   *
+   * seed 用动作数：同一轮里稳定（不闪），换一轮自然换一个说法。
+   */
+  const idleLine = useMemo(() => {
+    if (running && empty) return THINKING_PHRASE
+    return idlePhraseFor(timeline.steps.length)
+  }, [running, empty, timeline.steps.length])
+
   return (
     <div className="kr-card kr-card--plain" data-empty={empty || undefined}>
       {/*
@@ -415,7 +472,9 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
         <WhalePortrait size={92} motion={motion} />
         <span className="kr-plain-head__name">Seeker</span>
         {currentAction === null ? (
-          <span className="kr-plain-head__idle">{empty ? '等待本轮开始' : '已收口'}</span>
+          <span className="kr-plain-head__idle" data-thinking={idleLine === THINKING_PHRASE || undefined}>
+            {idleLine}
+          </span>
         ) : (
           <span className="kr-plain-head__act" data-status={currentAction.status}>
             <span className="kr-plain-head__ic" aria-hidden>
