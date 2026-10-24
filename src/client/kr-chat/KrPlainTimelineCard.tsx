@@ -40,14 +40,8 @@ import type { SubagentCatalogView } from './subagent-catalog.ts'
 import { workspaceCwdOf } from '../client-ctx.ts'
 import { tryOpenInSidebar } from '../open-preview.ts'
 import { WhalePortrait } from './WhalePortrait.tsx'
-import {
-  browserFlagTitle,
-  getBrowserFlagEntry,
-  subscribeBrowserFlag,
-} from '../browser-flag/store.ts'
-import { activateBrowserWindow } from '../browser-flag/activate.ts'
-import { getPanelSettingsStore } from './panel-settings-store.ts'
-import { getMailDrawerStore } from './mail-drawer-store.ts'
+import { SeekerHead } from './SeekerHead.tsx'
+import { getBrowserFlagEntry, subscribeBrowserFlag } from '../browser-flag/store.ts'
 
 /**
  * 「简要 / 详细」两档**已整块删除**（2026-10-24 用户点名：「点击就是详细不需要简要了」）。
@@ -392,35 +386,6 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
    *
    * 60s 一次 setState 的代价可以忽略（这一个组件，一次极轻的重渲染）。
    */
-  /*
-   * 卡头右上角的两枚动作按钮（2026-10-25 用户要求搬到这里）。
-   *
-   * 它们原先由 kr-chat-controller 以裸 DOM 注入**顶栏标签行**（紧贴 Seeker 标签
-   * 右侧）。用户原话：「这两个图标都移动到操作面板的右上角去」—— 理由很直接：
-   * 顶栏是全局导航（对话 / 轨迹 / 标签），这两枚都是**本大盘**的动作，放在大盘
-   * 自己的卡头上才归位。
-   *
-   * 改用 React 渲染而不是继续 DOM 注入：这张卡本来就是我们的 React 树，正常渲染
-   * 即可 —— 不必再建节点、不必再每 250ms 同步位置、也不必再量几何反推间距
-   * （mail-drawer 里那套 alignMailButtonToGear 就是为了抵消官方 tablist 的
-   * flex gap，搬到这里之后整个问题消失）。
-   *
-   * 开合状态仍走原来那两个跨 bundle 的共享 store（抽屉本体在别处订阅它们），
-   * 所以这里只是**换渲染位置**，不动数据面。
-   */
-  const settingsStore = getPanelSettingsStore()
-  const settingsOpen = useSyncExternalStore(
-    (cb) => settingsStore.subscribe(cb),
-    () => settingsStore.open,
-    () => settingsStore.open,
-  )
-  const mailStore = getMailDrawerStore()
-  const mailOpen = useSyncExternalStore(
-    (cb) => mailStore.subscribe(cb),
-    () => mailStore.open,
-    () => mailStore.open,
-  )
-
   const [clockTick, setClockTick] = useState(() => Date.now())
   useEffect(() => {
     if (running) return undefined
@@ -431,51 +396,31 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   const { ref: bodyRef, present: bodyPresent } = useHeightAnimation(open, motion)
 
   /*
-   * 浏览器操作标志：本会话此刻有没有在跑浏览器操作（2026-10-25 用户要求搬到这里）。
+   * 浏览器操作标志：本会话此刻有没有在跑浏览器操作。
    *
-   * 它原先挂在**左侧会话列表那一行**的右端（DOM 属性注入 + 伪元素，见
-   * browser-flag/row-mark.ts）。用户原话：「这个球标志放在操作面板的 Seeker 文字
-   * 右侧」—— 搬过来的理由很直接：那枚图标说的是「这个会话正在操作浏览器」，
-   * 而操作面板正是这个会话的实时状态卡，它就该跟当前动作待在一起；会话列表那一行
-   * 是**导航**，不是状态。
+   * 数据面来自 browser-flag/store.ts（同一个 store、同一条轮询、同一份快照）。
+   * 渲染交给 SeekerHead（卡头已抽成共享组件，新对话页也用同一份）。
    *
-   * 数据面完全复用：同一个 store、同一条轮询、同一份快照（subscribeBrowserFlag +
-   * getBrowserFlagEntry）。这里只换渲染位置，不新增任何请求。
+   * 判据是**粘滞**的（2026-10-25 用户：「只要 ego 没有收口就不要消失」）：
+   * 本轮里只要出现过一次浏览器活动，就一直亮到本轮收口 —— 因为真实场景里
+   * 浏览器进程一直开着，模型在两次调用之间思考、读快照，那段空窗里图标闪灭再亮
+   * 读起来像「浏览器关了」。1.5s 的尾迹只缝得住相邻调用，缝不住「想了 5 秒」。
    *
-   * useSyncExternalStore 而不是 useEffect+setState：快照对象本身是稳定引用
-   * （只在真正变化时整张替换），正是这个 hook 的标准用法。
+   * ⚠ 别写成 browserActive || running：那会让每个正在跑的会话都亮图标，
+   *   哪怕它根本没碰过浏览器。
    */
   const browserEntry = useSyncExternalStore(
     subscribeBrowserFlag,
     () => getBrowserFlagEntry(sessionId ?? undefined),
     () => getBrowserFlagEntry(sessionId ?? undefined),
   )
-  /*
-   * 图标什么时候亮：**ego 没收口就不灭**（2026-10-25 用户要求）。
-   *
-   * 用户原话：「只要ego没有收口就不要消失」。
-   *
-   * 原来只认 store 的 active > 0 || lingering：一次浏览器调用结束 1.5s 后图标
-   * 就灭，而真实场景里浏览器进程一直开着 —— 模型在两次调用之间思考、读快照、
-   * 决定下一步，那段空窗里图标会闪灭再亮，读起来像「浏览器关了」。1.5s 的尾迹
-   * 是为了把**相邻调用**缝成一段，但缝不住「模型想了 5 秒」这种间隔。
-   *
-   * 做法是**粘滞**：本轮里只要出现过一次浏览器活动，就一直亮到本轮收口。
-   * 用一个 ref 记「本轮是否用过浏览器」，而不是把 running 直接或进来 ——
-   * 后者会让每个正在跑的会话都亮图标，哪怕它根本没碰过浏览器。
-   *
-   * 收口时（running false）ref 不清：那时还要靠 store 的 active / 尾迹把最后
-   * 一次调用收完；等 store 也空了，browserOn 自然变 false。
-   * 会话切换（sessionId 变）才清 —— 那是另一个会话的账。
-   */
   const browserActive = browserEntry !== undefined
     && (browserEntry.active > 0 || browserEntry.lingering === true)
   /*
    * 「本会话本轮用过浏览器」的粘滞标记。
    *
    * 用 state + effect 而不是在渲染期写 ref：渲染期写 ref 在 React 严格模式下
-   * 会跑两次、并发渲染下还可能被丢弃（官方文档明确列为反模式）。这里的数据量
-   * 极小，一次 setState 的代价可以忽略。
+   * 会跑两次、并发渲染下还可能被丢弃（官方文档明确列为反模式）。
    *
    * 值记的是 sessionId 而不是布尔：切会话时不需要额外的清理 effect —— 比较
    * 「记的那个会话 === 当前会话」就自然把旧会话的账作废了。
@@ -488,42 +433,6 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   }, [browserActive, sessionId])
   const browserSticky = sessionId !== null && sessionId !== undefined && browserSeenSession === sessionId
   const browserOn = browserActive || (running && browserSticky)
-
-  /*
-   * 点图标 → 把那个浏览器窗口拉到前台（2026-10-25 用户要求）。
-   *
-   * 用户原话：「点击浏览器图标自动进入到ego那个工作空间」。
-   *
-   * 为什么走本插件自己的路由而不是别的：
-   *  · 浏览器窗口是**独立桌面应用**（ego / Chrome），不是 DSH 的页面或会话 ——
-   *    client 侧没有任何官方 API 能切过去；
-   *  · host 侧已经有一个常驻 PowerShell 采集器（@ 运行中的程序在用），它本来就会
-   *    EnumWindows。加一条 ACTIVATE 命令就能顺带做窗口激活，不必再拉一个进程。
-   *
-   * 候选进程名从活动条目的 service/tool 推：ego-browser 背后的桌面进程是 ego，
-   * playwright-mcp 背后通常是 chrome。推不出来时退到 'ego'（用户的默认场景）。
-   * 服务端按序试，第一个成功的赢。
-   *
-   * 失败静默：点一下没反应，比弹一个"窗口激活失败"的错误好 —— 那枚图标本来就
-   * 只是个便利入口。
-   */
-  const browserBusyRef = useRef(false)
-  const onBrowserClick = useCallback((event: React.MouseEvent): void => {
-    // 卡头整块是折叠热区：点图标不该顺带把时间线展开/收起。
-    event.stopPropagation()
-    event.preventDefault()
-    if (browserBusyRef.current) return
-    browserBusyRef.current = true
-    const label = browserFlagTitle(browserEntry).toLowerCase()
-    const candidates = label.includes('playwright') || label.includes('chrome')
-      ? ['chrome', 'msedge', 'ego']
-      : ['ego', 'chrome', 'msedge']
-    void activateBrowserWindow(candidates).finally(() => {
-      // 给一点冷却：连点会把同一个窗口反复拽到前台（观感上像在抖）。
-      window.setTimeout(() => { browserBusyRef.current = false }, 600)
-    })
-  }, [browserEntry])
-
   /*
    * 展开后显示的就是**完整详细时间线**：不收敛、不过滤、一步不省。
    *
@@ -633,178 +542,23 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
        *    回到空闲文案（休息中 / 吃饭中 / 小憩中 / 晒太阳，按钟点选）。
        *    这是用户点名要的：不堆流水，只看此刻。
        */}
-      <div
-        className="kr-card__header kr-plain-head"
-        onClick={() => { setOpen((value) => !value) }}
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        /*
-         * 读屏文案与视觉同步：卡头显示什么，读屏就念什么。
-         *   · 有动作 → hideVerb 那族读 detail（视觉上也只有 detail），否则读 verb；
-         *   · 没动作 → 念那句空闲文案（休息中 / 吃饭中… / 在思考中），
-         *     而不是一句屏幕上根本没有的「暂无动作」。
-         */
-        aria-label={`操作面板 · ${currentAction === null
-          ? idleLine
-          : (currentAction.hideVerb === true && currentAction.detail !== undefined && currentAction.detail !== ''
-            ? currentAction.detail
-            : currentAction.verb)}${open ? '（已展开时间线）' : ''}`}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            setOpen((value) => !value)
-          }
+      <SeekerHead
+        motion={motion}
+        line={currentAction === null ? null : {
+          icon: currentAction.icon,
+          verb: currentAction.verb,
+          ...(currentAction.hideVerb === true ? { hideVerb: true as const } : {}),
+          ...(currentAction.detail !== undefined ? { detail: currentAction.detail } : {}),
+          status: currentAction.status,
         }}
-      >
-        <WhalePortrait size={92} motion={motion} />
-        {/*
-         * 名字 + 浏览器标志（同一行）。
-         *
-         * 用户要求：「这个球标志放在操作面板的 Seeker 文字右侧」。名字与图标
-         * 并排，图标只在**本会话真的在跑浏览器操作**时出现（判据见上面的
-         * browserOn）—— 与它原来挂在会话列表行上时是同一份数据。
-         *
-         * title 里带工具名（「浏览器操作中 · playwright」），悬停即可知道在用什么；
-         * aria-hidden 让读屏不重复念一遍，因为卡头自己的 aria-label 已经说了
-         * 此刻在做什么。
-         */}
-        <span className="kr-plain-head__name-row">
-          <span className="kr-plain-head__name">Seeker</span>
-          {/*
-           * 可点击（2026-10-25 用户要求）：「点击浏览器图标自动进入到ego那个
-           * 工作空间」。用 button 而不是 span + onClick：
-           *  · 键盘可达（Tab 到、回车触发）；
-           *  · 自带 :active / :focus-visible 语义，不必手写；
-           *  · 读屏能认出"这是个能按的东西"。
-           *
-           * title 写清"点了会发生什么"（「点击切到 ego 窗口」），而不只是
-           * 陈述状态 —— 悬停提示是这枚按钮唯一能解释自己的地方。
-           */}
-          {browserOn && (
-            <button
-              type="button"
-              className="kr-plain-head__browser"
-              title={`${browserFlagTitle(browserEntry)} · 点击切到窗口`}
-              aria-label={`${browserFlagTitle(browserEntry)}，点击切到那个窗口`}
-              onClick={onBrowserClick}
-            >
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="8" cy="8" r="6.25" />
-                <path d="M1.75 8h12.5" />
-                <path d="M8 1.75c1.7 1.8 2.6 3.9 2.6 6.25S9.7 12.45 8 14.25C6.3 12.45 5.4 10.35 5.4 8S6.3 3.55 8 1.75z" />
-              </svg>
-            </button>
-          )}
-        </span>
-        {currentAction === null ? (
-          <span className="kr-plain-head__idle" data-thinking={idleLine === THINKING_PHRASE || undefined}>
-            {idleLine}
-          </span>
-        ) : (
-          <span className="kr-plain-head__act" data-status={currentAction.status}>
-            <span className="kr-plain-head__ic" aria-hidden>
-              <Icon name={currentAction.icon} />
-            </span>
-            {/*
-             * 动词**按需显示**（hideVerb）。
-             *
-             * 用户原话：「也不要出现在电脑上操作因为看 SVG 就能看出来」。
-             * 行首那枚图标已经表达了这个动作属于哪一类，动词再复述一遍就只是
-             * 把同一句话说长，还挤掉了真正该读的对象。
-             *
-             * 只对**纯复述图标**的规则生效（终端族：⌗ 图标 = 让电脑干活，
-             * 「在电脑上操作」是同义反复）。具体动词照常显示 ——「打开网页
-             * 携程 · 机票」里的「打开网页」不能删，图标只说了"网页"。
-             */}
-            {currentAction.hideVerb !== true && (
-              <span className="kr-plain-head__verb">{currentAction.verb}</span>
-            )}
-            {currentAction.detail !== undefined && currentAction.detail !== '' && (
-              <span className="kr-plain-head__detail">{currentAction.detail}</span>
-            )}
-            {/*
-             * 卡头这一行的耗时**不显示**（2026-10-24 按用户要求）。
-             *
-             * 注意范围：只藏**卡头这一行**（收起态唯一可见的那一行）的秒数。
-             * 展开后时间线里每一行自己那枚耗时（.kr-plain-step__time，见 StepRow）
-             * 原样保留 —— 用户原话是「那一行的秒数给隐藏，里面的不隐藏」，
-             * 「里面」指的正是展开后的明细行。删错一处就会让明细失去耗时读数。
-             */}
-            {/*
-             * ⚠ 上面那段注释是给读代码的人看的；真正生效的是下面这段注释掉的
-             * 渲染。保留注释而不是删掉整块，是因为这枚读数只差一个开关就能回来
-             * （用户的口径常变，删了就得重写一遍同构的 JSX）。
-             */}
-            {/* {currentAction.durationMs !== undefined && currentAction.durationMs > 40 && (
-              <span className="kr-plain-head__time">{formatDuration(currentAction.durationMs)}</span>
-            )} */}
-          </span>
-        )}
-
-        {/*
-         * 卡头右上角的两枚动作按钮（2026-10-25 用户要求搬到这里）。
-         *
-         * 原先它们在**顶栏标签行**（裸 DOM 注入，紧贴 Seeker 标签右侧）。用户原话：
-         * 「这两个图标都移动到操作面板的右上角去」—— 顶栏是全局导航，而这两枚都是
-         * 本大盘的动作，放在大盘自己的卡头上才归位。
-         *
-         * ## 为什么 stopPropagation
-         *
-         * 整个卡头是折叠热区（点一下展开时间线）。按钮必须拦住冒泡，否则点齿轮
-         * 会顺带把时间线也展开 —— 那是两个完全不同的意图。
-         *
-         * ## 无障碍
-         *
-         * 卡头本身是 role="button"，里面再嵌按钮在 ARIA 上是合法的（button 里不能
-         * 套 button，但这里外层是 div[role=button]，内层是真 button，读屏能分开）。
-         * 用真 button 而不是 span：键盘可达、自带 :active / :focus-visible。
-         */}
-        <div className="kr-plain-head__tools">
-          <button
-            type="button"
-            /* id 沿用顶栏那版：e2e（test-settings-card / test-mail-drawer）按它找节点。 */
-            id="kr-panel-settings-btn"
-            className="kr-plain-head__tool"
-            title="大盘设置"
-            aria-label="大盘设置"
-            aria-expanded={settingsOpen}
-            data-open={settingsOpen || undefined}
-            onClick={(event) => {
-              event.stopPropagation()
-              settingsStore.toggle()
-            }}
-          >
-            {/*
-             * 齿轮（2026-10-25 修正形状）：旧版是「圆 + 八根发散线」，那是太阳/辐条
-             * 而不是齿轮 —— 用户截图反馈「设置的图标不对」。现在用闭合 path 画 8 个
-             * 齿的外缘，中心留圆孔，与官方设置图标同一套语言。
-             */}
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="8" cy="8" r="2.2" />
-              <path d="M8 1.35l1.1 1.65 1.95-.5.5 1.95L13.2 5.55l-.5 1.95 1.65 1.1-1.65 1.1.5 1.95-1.95.5-.5 1.95-1.95-.5L8 14.65l-1.1-1.65-1.95.5-.5-1.95-1.65-1.1 1.65-1.1-.5-1.95 1.95-.5.5-1.95 1.95.5z" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            id="kr-mail-btn"
-            className="kr-plain-head__tool"
-            title="邮箱"
-            aria-label="邮箱"
-            aria-expanded={mailOpen}
-            data-open={mailOpen || undefined}
-            onClick={(event) => {
-              event.stopPropagation()
-              mailStore.toggle()
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="1.6" y="3.2" width="12.8" height="9.6" rx="1.6" />
-              <path d="M2.2 4.4 8 8.6l5.8-4.2" />
-            </svg>
-          </button>
-        </div>
-      </div>
+        idleLine={idleLine}
+        thinking={idleLine === THINKING_PHRASE}
+        browserEntry={browserEntry}
+        browserOn={browserOn}
+        expanded={open}
+        onClick={() => { setOpen((value) => !value) }}
+        renderIcon={(name) => <Icon name={name as PlainIconKey} />}
+      />
 
       {bodyPresent && (
         <div

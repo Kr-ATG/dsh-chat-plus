@@ -1657,12 +1657,14 @@ if (krEnabled) {
     }
 
     // 卡头形态：竖排「鲸鱼娘立绘 / 名字(+浏览器标志) / 一行当前动作」，点一下展开全部。
-    if (!/className="kr-plain-head__name">Seeker</.test(cardSrc)) {
+    // 卡头已抽成 SeekerHead.tsx（操作面板卡与新对话页共用），断言改查那个文件。
+    const seekerHeadSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/SeekerHead.tsx'), 'utf8')
+    if (!/className="kr-plain-head__name">Seeker</.test(seekerHeadSrc)) {
       fail('操作面板卡头必须显示名字（Seeker）')
-    } else if (!/WhalePortrait size=\{/.test(cardSrc)) {
+    } else if (!/WhalePortrait size=\{/.test(seekerHeadSrc)) {
       fail('操作面板卡头必须挂鲸鱼娘立绘（WhalePortrait）')
-    } else if (!/className="kr-plain-head__name-row"/.test(cardSrc)
-      || !/className="kr-plain-head__browser"/.test(cardSrc)) {
+    } else if (!/className="kr-plain-head__name-row"/.test(seekerHeadSrc)
+      || !/className="kr-plain-head__browser"/.test(seekerHeadSrc)) {
       /*
        * 浏览器标志必须在**名字右侧**（2026-10-25 用户：「这个球标志放在操作面板的
        * Seeker 文字右侧」）。它原先挂在左侧会话列表行右端（DOM 属性 + 伪元素），
@@ -1674,7 +1676,7 @@ if (krEnabled) {
       fail('浏览器标志必须挂在 Seeker 名字右侧（.kr-plain-head__name-row 里的 .kr-plain-head__browser）')
     } else if (!/\.kr-plain-head__browser/.test(code)) {
       fail('client bundle 缺 .kr-plain-head__browser 样式（图标会是一坨没尺寸的裸 SVG）')
-    } else if (!/<button[\s\S]{0,200}?className="kr-plain-head__browser"[\s\S]{0,400}?onClick=\{onBrowserClick\}/.test(cardSrc)) {
+    } else if (!/<button[\s\S]{0,200}?className="kr-plain-head__browser"[\s\S]{0,400}?onClick=\{onBrowserClick\}/.test(seekerHeadSrc)) {
       /*
        * 浏览器标志必须**可点击**（2026-10-25 用户要求：「点击浏览器图标自动进入到
        * ego 那个工作空间」）。
@@ -1714,6 +1716,10 @@ if (krEnabled) {
        * 两者都无框时靠内距与 gap 就够，再画反而像表格。
        */
       fail('操作面板必须保留下方一条分隔线（border-bottom: 1px solid var(--kr-hairline)）')
+    } else if (!/export function syncSeekerHeroHead/.test(readFileSync(resolve(ROOT, 'src/client/kr-chat/SeekerHeroHead.tsx'), 'utf8'))) {
+      fail('缺新对话页卡头（SeekerHeroHead.tsx 的 syncSeekerHeroHead）')
+    } else if (!/\.kr-hero-head/.test(code)) {
+      fail('client bundle 缺 .kr-hero-head 样式（新对话页卡头会没有居中与入场动效）')
     } else if (!/const browserOn = browserActive \|\| \(running && browserSticky\)/.test(cardSrc)) {
       /*
        * 「只要 ego 没收口就不要消失」（2026-10-25 用户要求）。
@@ -1727,7 +1733,7 @@ if (krEnabled) {
        */
       fail('浏览器标志必须粘滞到本轮收口（browserActive || (running && browserSticky)），'
         + '不能只认单次调用，也不能无条件跟着 running 亮')
-    } else if (!/kr-plain-head__act/.test(cardSrc)) {
+    } else if (!/kr-plain-head__act/.test(seekerHeadSrc)) {
       fail('卡头必须有「当前动作」这一行')
     } else if (/\.kr-plain-view\b/.test(cardSrc)) {
       fail('卡头不该再挂简要/详细按钮（点击整块卡头就是展开详细）')
@@ -1769,7 +1775,7 @@ if (krEnabled) {
       // 必须剥注释再查：这两句在这一轮的注释里被反复引用（"原来写的是…"），
       // 拿原文匹配会把说明文字当成残留 —— 本文件里 stripComments 已有定义。
       fail('卡头不该再出现「等待本轮开始 / 已收口」（系统视角措辞，用户点名换掉）')
-    } else if (!/\{currentAction\.hideVerb !== true && \(/.test(cardSrc)) {
+    } else if (!/\{line\.hideVerb !== true && \(/.test(seekerHeadSrc)) {
       /*
        * 渲染层必须遵守 hideVerb（2026-10-25 用户：「也不要出现在电脑上操作，
        * 因为看 SVG 就能看出来」）。
@@ -4771,11 +4777,13 @@ if (krEnabled) {
      *  · 卡头本身是 position:relative（否则绝对定位会相对别处）；
      *  · 两枚按钮共用 .kr-plain-head__tool（尺寸/悬停/打开态都挂在这个类上）。
      */
-    const toolsRule = /\.kr-plain-head__tools\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
+    // .kr-plain-head__tools 有两条规则：基础那条（absolute）与 Hero 里的覆盖（right:0）。
+    // 断言要的是**存在一条绝对定位的**，不能只取第一条。
+    const toolsRules = [...code.matchAll(/\.kr-plain-head__tools\s*\{([^}]*)\}/g)].map((m) => m[1] ?? '')
     const headRule = /\.kr-plain-head\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
-    if (toolsRule === '') {
+    if (toolsRules.length === 0) {
       fail('未找到 .kr-plain-head__tools（齿轮与邮箱按钮没搬到卡头右上角）')
-    } else if (!/position:\s*absolute/.test(toolsRule)) {
+    } else if (!toolsRules.some((rule) => /position:\s*absolute/.test(rule))) {
       fail('.kr-plain-head__tools 必须绝对定位（卡头是竖排居中，参与布局会把立绘挤偏）')
     } else if (!/position:\s*relative/.test(headRule)) {
       fail('.kr-plain-head 必须是 position:relative（右上角按钮组的定位基准）')
@@ -4881,9 +4889,9 @@ if (krEnabled) {
     //     那整套成本归零 —— 但**必须留一句清理**摘掉旧 bundle 残留的顶栏按钮，
     //     否则页面上会出现两组一样的图标。
     const ctrl = readFileSync(resolve(ROOT, 'src/client/kr-chat/kr-chat-controller.tsx'), 'utf8')
-    // 本作用域里 cardSrc 指的是别的文件，这里自己读一份操作面板源码。
-    const plainCardSrcHere = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrPlainTimelineCard.tsx'), 'utf8')
-    if (!/id="kr-panel-settings-btn"/.test(plainCardSrcHere) || !/id="kr-mail-btn"/.test(plainCardSrcHere)) {
+    // 两枚按钮已随卡头抽到 SeekerHead.tsx（操作面板卡与新对话页共用）。
+    const seekerHeadSrcHere = readFileSync(resolve(ROOT, 'src/client/kr-chat/SeekerHead.tsx'), 'utf8')
+    if (!/id="kr-panel-settings-btn"/.test(seekerHeadSrcHere) || !/id="kr-mail-btn"/.test(seekerHeadSrcHere)) {
       fail('齿轮与邮箱按钮必须在 KrPlainTimelineCard 卡头里渲染（id 沿用旧版，e2e 按它找节点）')
     } else if (!/removeLegacyHeaderButtons/.test(ctrl)) {
       fail('controller 必须清理旧版顶栏按钮（热重载后会出现两组一样的图标）')

@@ -2220,6 +2220,51 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
  * 不抢注意力；指针移上去或键盘聚焦才到 1 并浮出底色 —— 与右栏其它工具按钮
  * 同一套克制口径。
  */
+/*
+ * ══ 新对话页顶部的 Seeker 卡头（2026-10-25 用户要求）═════════════════════════
+ *
+ * 用户原话：「新对话页面的上面放上我们这个东西」（附图是操作面板卡头）。
+ *
+ * 空白新会话里右侧大盘整体不显示（没内容可看），于是那张卡头也跟着消失 ——
+ * 用户在新对话页看不到她。这里把**同一份 SeekerHead** 挂到 Hero 区上方。
+ *
+ * 宽度不写死：Hero 区宽度由官方布局决定（侧栏折叠 / 窗口缩放都会变），
+ * 卡头跟着它走即可。水平居中、上下留呼吸，与右栏那版是同一个组件、同一套类名，
+ * 所以两处长得完全一样。
+ */
+.kr-hero-head {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  /* 与 Hero 之间留一点呼吸，别把「探索未至之境」顶得太紧。 */
+  padding: 4px 0 8px;
+  /* 入场：与右栏那张卡头同一套节奏（淡入 + 上浮 4px），两处出现时读起来是一件事。 */
+  animation: kr-hero-head-in var(--kr-dur-card) var(--kr-ease-out) backwards;
+}
+
+/* 卡头本体在 Hero 里不需要悬停浮起（它不可折叠，点它没有动作）。 */
+.kr-hero-head .kr-plain-head {
+  cursor: default;
+  /* 立绘 92px + 名字 + 状态行，与右栏那版同宽即可，别在宽屏里拉成一条。 */
+  max-width: 320px;
+}
+
+/* 右上角两枚动作按钮在 Hero 里要贴住卡头自己的右缘，而不是 Hero 的右缘。 */
+.kr-hero-head .kr-plain-head__tools {
+  right: 0;
+}
+
+@keyframes kr-hero-head-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-hero-head {
+    animation: none;
+  }
+}
+
 .kr-plain-head__tools {
   position: absolute;
   top: -2px;

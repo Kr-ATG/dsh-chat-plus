@@ -18,6 +18,7 @@ import { getKrChatStore } from './kr-chat-store.ts'
 import { getPanelSettingsStore } from './panel-settings-store.ts'
 import { getMailDrawerStore } from './mail-drawer-store.ts'
 import { mountMailDrawer } from './mail-drawer.tsx'
+import { syncSeekerHeroHead } from './SeekerHeroHead.tsx'
 import { KrAgentPanel } from './KrAgentPanel.tsx'
 import { activityStore } from '../tool-summary/activity-drawer.tsx'
 import { getCurrentChatSnapshot, latestChatSessionId, leaveCurrentChatSession, subscribeLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
@@ -572,6 +573,26 @@ export function mountKrChatController(): void {
           el.classList.add(activeClass)
         }
       })
+    }
+
+    /*
+     * 2.5 新对话页（空白 Hero 态）顶部的 Seeker 卡头（2026-10-25 用户要求：
+     *     「新对话页面的上面放上我们这个东西」）。
+     *
+     * 判据只有两条：**Seeker 视图** + **还没有内容**。
+     *
+     * 刻意**不看 hasActiveChat**：空白新会话在点开的那一瞬会话 id 可能还没登记
+     * （input.dock 座位要等一拍），拿它当条件会让卡头在该出现的窗口里闪一下不出现
+     * —— 而 Hero 存在与否本身就是"这是新对话页"最直接的证据（syncSeekerHeroHead
+     * 内部找不到 composerStack 就什么都不做）。
+     *
+     * 「还没有内容」这条是关键：一旦发出第一条消息，右栏大盘自己会出现（那张卡头
+     * 就在操作面板卡里），这里必须同时摘掉，否则页面上会同时出现两张一模一样的卡头。
+     */
+    try {
+      syncSeekerHeroHead(isKr && !hasConversationContent())
+    } catch (error) {
+      console.warn('[kr-chat] hero head sync failed', error)
     }
 
     // 3. 同步右侧大盘容器
