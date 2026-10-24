@@ -1700,6 +1700,20 @@ if (krEnabled) {
        * 不动盒子尺寸。高度一旦丢，下面那张操作面板立刻又开始跳。
        */
       fail('子智能体卡必须去掉卡片外框（background:transparent + border:0 + box-shadow:none）')
+    } else if (!/\.kr-card--plain\s*\{[^}]*background:\s*transparent/.test(code)
+      || !/\.kr-card--plain\s*\{[^}]*box-shadow:\s*none/.test(code)) {
+      /*
+       * 操作面板**也去外框**（2026-10-25 用户：「操作面板留，下截框」→ 确认口径
+       * 为「也去掉外框，但保留下方一条分隔线」）。与子智能体卡同一套口径。
+       */
+      fail('操作面板必须去掉卡片外框（background:transparent + box-shadow:none）')
+    } else if (!/\.kr-card--plain\s*\{[^}]*border-bottom:\s*1px solid var\(--kr-hairline\)/.test(code)) {
+      /*
+       * 下方那条发丝线是**本轮唯一保留的边界**：它把「这一轮的过程」与下面
+       * 的「计划 / 成品」分开 —— 那里确实换了语义。上面（子智能体卡）不画线，
+       * 两者都无框时靠内距与 gap 就够，再画反而像表格。
+       */
+      fail('操作面板必须保留下方一条分隔线（border-bottom: 1px solid var(--kr-hairline)）')
     } else if (!/const browserOn = browserActive \|\| \(running && browserSticky\)/.test(cardSrc)) {
       /*
        * 「只要 ego 没收口就不要消失」（2026-10-25 用户要求）。

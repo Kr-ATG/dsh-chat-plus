@@ -2136,8 +2136,45 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
    不出现工具函数名、参数名、原始命令行、完整路径，只出现「打开携程 · 机票」
    这类中文人话。技术细节压在每条末尾的「技术细节」折叠里，需要的人自己点。 */
 
+/*
+ * 操作面板**也去掉卡片外框**（2026-10-25 用户要求：「操作面板留，下截框」→
+ * 确认口径为「操作面板也去掉外框，但保留下方一条分隔线」）。
+ *
+ * 与子智能体卡同一套口径：抹掉 .kr-card 基类给的底色 / 描边 / 圆角 / 投影，
+ * 只留布局。右栏两张主卡都不再是"悬浮的白色方块"，读起来更轻、更像一整列内容。
+ *
+ * ## 下方那条分隔线
+ *
+ * 这是本轮唯一保留的边界：卡**底部**一条发丝线，把它与下面的任务概览 / 产出物
+ * 分开。为什么只留下面：
+ *  · 上面是子智能体卡（同样无框），两者之间靠内距与 gap 就够了，再画线反而像
+ *    表格；
+ *  · 下面是「这一轮的过程」与「计划 / 成品」的分界 —— 这里确实换了语义，一条
+ *    线正好收住。
+ *
+ * 用 border-bottom 而不是伪元素：卡片没有外框之后，border 不再有"描边"的读法，
+ * 只剩一条线；而伪元素要多一层定位与 z-index 考虑，不值得。
+ * 线色走 --kr-hairline（与右栏其它分隔线同源，暗色主题自动跟随）。
+ */
 .kr-card--plain {
-  padding-bottom: 11px;
+  padding: 6px 12px 12px;
+  /* ── 去外框：底色 / 描边 / 圆角 / 投影 全部抹掉 ── */
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  transform: none;
+  /* 只留下方那条发丝线（见上）。 */
+  border-bottom: 1px solid var(--kr-hairline);
+}
+
+/* 悬停：去外框之后不再浮起，也不该出现边框变色 —— 那会把它读成一张卡。 */
+.kr-card--plain:hover {
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+  border-color: transparent;
+  border-bottom-color: var(--kr-hairline);
 }
 
 /* ══ 操作面板 · 卡头（2026-10-24 竖排形态） ══════════════════════════════
