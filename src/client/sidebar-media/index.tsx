@@ -32,13 +32,14 @@
  * 先探 HEAD 再决定，既拿到最快路径，也不会对没权限的文件白读一遍字节。
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { getService, workspaceCwdOf } from '../client-ctx.js'
 import { resolveWorkspacePath } from '../open-preview.js'
 import { sessionRawUrl } from '../triad/gallery/api.js'
 import { whenDocumentPreviews, type DocumentPreviewsLike } from '../sidebar/document-registry.js'
 import { parseFileAddress } from '../sidebar-doc/address.js'
+import { openOutputFile } from '../open-file.js'
 
 /** 渲染器 id（同时是 keyed slot 的 key；官方要求全局唯一）。 */
 export const SIDEBAR_MEDIA_ID = 'dsh-chat-plus/sidebar-media'
@@ -120,12 +121,47 @@ function isAudioExt(ext: string): boolean {
   return (AUDIO_EXTENSIONS as readonly string[]).includes(ext)
 }
 
-/** 播放器需要的最小 MIME（浏览器也认扩展名，这里只是让声明更明确）。 */
+/**
+ * 播放器需要的最小 MIME。
+ *
+ * ⚠ 这张表**不是**「让声明更明确」的装饰，它直接决定浏览器肯不肯解码。
+ * 2026-10-24 用真实 Chromium（154.0.8037.44）灌真实文件实测（见下），
+ * 同一个字节流换个 MIME 就从「能播」变成 `error: SRC_NOT_SUPPORTED`：
+ *
+ *  · **mov 必须声明成 video/mp4** —— 这是本表最重要的一条。Chromium 对 QuickTime
+ *    容器本身是能解的（实测同一份 t.mov：声明 video/mp4 → loadeddata 320×240；
+ *    声明 video/quicktime → SRC_NOT_SUPPORTED；声明 application/octet-stream →
+ *    同样失败）。原来写 video/quicktime，等于把**所有 mov 视频**判成打不开。
+ *    QuickTime 与 MP4 同属 ISO-BMFF 家族、解码路径一致，声明 mp4 是准确的。
+ *  · **音频里 opus 用 audio/ogg** —— 同理：`audio/opus` 在 canPlayType 上是空串
+ *    （= 不支持），而 `audio/ogg; codecs=opus` 是 "probably"。裸 `audio/opus`
+ *    这个类型浏览器根本不认。
+ *  · mkv 声明 video/x-matroska 是可播的（实测 loadeddata）—— 与 canPlayType 的
+ *    "maybe" 一致，不要想当然认为"mkv 浏览器不支持"。它播不了的是编码，
+ *    不是容器。
+ *
+ * 真正播不了的是 **avi（Video for Windows 容器）与 wma（Windows Media Audio）**：
+ * 实测三种 MIME 声明全部 SRC_NOT_SUPPORTED，容器本身不在 Chromium 的解码面里。
+ * 这两个归 `canShowInSidebar` 判成 external（交系统默认应用），见 sidebar-display.ts。
+ */
 const MIME_BY_EXT: Readonly<Record<string, string>> = {
-  mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm',
-  mkv: 'video/x-matroska', avi: 'video/x-msvideo',
-  mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav',
-  flac: 'audio/flac', ogg: 'audio/ogg', opus: 'audio/opus', wma: 'audio/x-ms-wma',
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  // mov 声明成 mp4：QuickTime 容器 Chromium 能解，但只认 mp4 这个 MIME（实测）。
+  mov: 'video/mp4',
+  webm: 'video/webm',
+  mkv: 'video/x-matroska',
+  // avi 保留原 MIME：它本来就播不了，声明什么都不影响（归 external）。
+  avi: 'video/x-msvideo',
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  wav: 'audio/wav',
+  flac: 'audio/flac',
+  ogg: 'audio/ogg',
+  // opus 是 ogg 容器里的编码，不是独立 MIME（audio/opus → 不支持）。
+  opus: 'audio/ogg',
+  wma: 'audio/x-ms-wma',
 }
 
 /**
@@ -141,6 +177,8 @@ function SidebarMediaBody(props: DocumentBodyOwner): JSX.Element {
   const [state, setState] = useState<'probing' | 'ready' | 'failed'>('probing')
   const [detail, setDetail] = useState('')
   const [src, setSrc] = useState('')
+  /** 失败态第二出口的进行中标志（防连点、给按钮一个「正在打开」的文案）。 */
+  const [opening, setOpening] = useState(false)
   const blobRef = useRef<string | null>(null)
   const aliveRef = useRef(true)
 
@@ -242,6 +280,50 @@ function SidebarMediaBody(props: DocumentBodyOwner): JSX.Element {
   const parsed = parseFileAddress(address)
   const ext = parsed === null ? '' : extOf(parsed.path)
   const kind = isAudioExt(ext) ? 'audio' : 'video'
+  /*
+   * 失败态「用系统默认应用打开」的目标：**绝对路径**。
+   *
+   * 必须在这里折成绝对而不是把相对路径直接发出去：host 的 resolveTarget 对
+   * 相对路径要求请求里带 cwd，而侧栏地址里的 path 是工作区相对的
+   * （`landing/video/x.mp4`）。折一次既省掉一个参数，也让失败日志里能直接看出
+   * 打开的是哪个文件。
+   */
+  const openTarget = parsed === null
+    ? ''
+    : resolveWorkspacePath(workspaceCwdOf(parsed.sessionId), parsed.path)
+
+  /*
+   * 播放器**真解码失败** → 转 failed 态。
+   *
+   * 这一条是「第二出口」能不能出现的唯一开关，也是 2026-10-24 之前真正的缺口：
+   * 原来的 ready 判定只看「HEAD 探测成功」—— 那只证明**文件读得到**，完全不证明
+   * **浏览器解得出**。于是 avi / wma 这类容器会一路走到 ready：播放器挂出来、
+   * UI 一切正常、时间轴停在 0:00、画面全黑，而 <video> 内部的 error 事件没有
+   * 任何人监听 —— 用户看到的就是「一片黑，也没有任何按钮可按」。
+   *
+   * 浏览器给的 MediaError.code 分四种，只有两种值得说给人听：
+   *   3 MEDIA_ERR_DECODE            —— 容器认了但解不开（编码不支持 / 文件损坏）
+   *   4 MEDIA_ERR_SRC_NOT_SUPPORTED —— 容器本身不认（avi / wma 正是这个）
+   * 1（用户中止）直接忽略：那是用户自己按了停止，不是故障。
+   * 2（网络）保留通用文案：重试确实可能有用。
+   *
+   * 用 document.querySelector 而不是 ref：播放器元素在条件渲染里，ref 在
+   * failed 态切走后就断开，而 error 事件恰好是在切走那一刻触发的。
+   */
+  const onMediaError = useCallback((): void => {
+    const element = document.querySelector('[data-dsh-sidebar-media] audio')
+      ?? document.querySelector('[data-dsh-sidebar-media] video')
+    const media = element as (HTMLMediaElement | null)
+    const code = media?.error?.code ?? 0
+    if (code === 1) return
+    owner.content.failed()
+    setState('failed')
+    setDetail(code === 4
+      ? '浏览器解不了这个容器，用系统播放器打开试试'
+      : code === 3
+        ? '这个文件的编码浏览器解不开，用系统播放器打开试试'
+        : '播放失败，可以重试或交给系统应用')
+  }, [owner])
 
   return (
     <div style={wrapStyle} data-dsh-sidebar-media={state} data-kind={kind}>
@@ -258,7 +340,40 @@ function SidebarMediaBody(props: DocumentBodyOwner): JSX.Element {
       {state === 'failed' && (
         <div style={centerStyle}>
           <span style={hintStyle}>{detail === '' ? '这个文件暂时播放不了' : detail}</span>
-          <button type="button" style={retryStyle} onClick={() => { owner.content.reload() }}>重试</button>
+          {/*
+           * 「用系统默认应用打开」是失败态的**第二出口**，不是重试的替代。
+           *
+           * 为什么必须在这里出现：侧栏播放不了的原因分两类 ——
+           *   ① 临时的（网络抖动、raw 准入暂时拒、读字节超大小上限）→ 重试有用；
+           *   ② 结构的（容器浏览器根本解不了、编码这台机器不支持）→ 重试一万次
+           *      还是同一个结果。
+           * 而②恰恰是用户最需要「换成系统播放器看一眼」的场景：文件是存在的、
+           * 内容也是真的，只是浏览器的解码面覆盖不到它。不给这个出口，用户就
+           * 被关在一个只会循环报错的格子里 —— 明明双击文件就能看。
+           *
+           * 走的是与产出物卡同一条 openOutputFile（本插件 /api/chat-flow/open-file：
+           * 按会话工作区绝对化 + stat 文件本体），失败时按钮自己说明原因，
+           * 不弹 toast、不打断用户。 */}
+          <div style={failActionsStyle}>
+            <button type="button" style={retryStyle} onClick={() => { owner.content.reload() }}>重试</button>
+            {openTarget !== '' && (
+              <button
+                type="button"
+                style={retryStyle}
+                disabled={opening}
+                onClick={() => {
+                  setOpening(true)
+                  void openOutputFile(openTarget).then((result) => {
+                    setOpening(false)
+                    if (result === 'opened') return
+                    setDetail(result === 'unavailable' ? '这台宿主没有可用的桌面，无法交给系统应用' : '系统应用没能打开这个文件')
+                  })
+                }}
+              >
+                {opening ? '正在打开…' : '用系统默认应用打开'}
+              </button>
+            )}
+          </div>
         </div>
       )}
       {state === 'ready' && src !== '' && (
@@ -273,10 +388,24 @@ function SidebarMediaBody(props: DocumentBodyOwner): JSX.Element {
                   <circle cx="26.6" cy="28" r="2.6" />
                 </svg>
               </span>
-              <audio src={src} controls autoPlay preload="metadata" style={audioStyle} />
+              <audio
+                src={src}
+                controls
+                autoPlay
+                preload="metadata"
+                style={audioStyle}
+                onError={onMediaError}
+              />
             </div>
           ) : (
-            <video src={src} controls autoPlay preload="metadata" style={videoStyle} />
+            <video
+              src={src}
+              controls
+              autoPlay
+              preload="metadata"
+              style={videoStyle}
+              onError={onMediaError}
+            />
           )}
         </div>
       )}
@@ -330,6 +459,14 @@ const centerStyle: CSSProperties = {
   color: 'var(--dsw-alias-label-secondary, #9ca3af)',
 }
 const hintStyle: CSSProperties = { fontSize: 12.5, lineHeight: 1.7 }
+/** 失败态两枚按钮并排（重试 + 用系统默认应用打开）；窄容器下自动换行。 */
+const failActionsStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
+}
 const spinStyle: CSSProperties = { display: 'inline-flex', animation: 'dsh-sdp-spin 900ms linear infinite' }
 const retryStyle: CSSProperties = {
   height: 28,

@@ -409,7 +409,10 @@ export { gateIconForRow, decorateGateMenuRows, GATE_ICON_ATTR, GATE_ICON_COMMAND
  * （图点出一整个 PowerPoint，或者 3D 模型点开得到一句"不支持预览"）。
  * 判据的逐扩展名依据见 sidebar-display.ts 文件头。
  */
-export { canShowInSidebar, sidebarDisplayOf, sidebarRenderedExtensions, extensionOf, PLUGIN_RENDERED_EXT, TEXT_RENDERED_EXT } from './sidebar-display.ts'
+export {
+  canShowInSidebar, sidebarDisplayOf, sidebarRenderedExtensions, extensionOf,
+  PLUGIN_RENDERED_EXT, TEXT_RENDERED_EXT, BROWSER_UNDECODABLE_MEDIA_EXT,
+} from './sidebar-display.ts'
 /**
  * 对话内 HTML 卡片：围栏切分 + iframe 文档装配的纯逻辑，供 smoke 直接钉住。
  *

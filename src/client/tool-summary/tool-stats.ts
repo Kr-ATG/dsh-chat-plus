@@ -150,20 +150,26 @@ export function shortenEntry(entry: string, cwd: string | undefined): string {
   return shortenPath(entry, cwd)
 }
 
-/** Format an elapsed millisecond duration for compact display. */
+/**
+ * Format an elapsed millisecond duration for compact display.
+ *
+ * **秒数一律整数，不显示小数点**（2026-10-24 用户点名要求）。
+ *
+ * 之前 60 秒以内走的是 `seconds.toFixed(1)`，屏幕上会出现「1.2s」「0.9s」
+ * 这类读数。用户的原话是「秒数不要小数点」—— 对读者来说，一次工具调用是
+ * 1.2 秒还是 1.4 秒没有任何决策价值，小数位只是在增加视觉噪音。
+ *
+ * 取整口径（两个坑，都是这一行改出来的）：
+ *  · **1 秒以内显示毫秒**（`420ms`）：直接取整到 0s 会把快速调用全压成「0s」，
+ *    那看起来像"没花时间"，比小数更误导；
+ *  · **分与秒从同一个已取整总量里拆**：先 `Math.round` 到整秒再拆分钟，
+ *    否则 119.6s 会被拆成「1m 60s」（历史上真的出现过）。
+ */
 export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '--'
-  const seconds = ms / 1000
-  if (seconds < 1) return `${Math.round(ms)}ms`
-  /*
-   * 先整体四舍五入到整秒，再拆分钟。
-   *
-   * 旧写法是分钟取 floor、余下秒数各自 round —— 119.6s 于是拆成 1m 60s
-   * （截图上真的出现过「1m 60s」），59.96s 也会显示成 60.0s。
-   * 两种都是同一类进位错误：分与秒必须从同一个已取整的总量里拆。
-   */
-  const total = Math.round(seconds)
-  if (total < 60) return `${seconds.toFixed(1)}s`
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  const total = Math.round(ms / 1000)
+  if (total < 60) return `${total}s`
   const minutes = Math.floor(total / 60)
   const rest = total % 60
   return `${minutes}m ${rest.toString().padStart(2, '0')}s`

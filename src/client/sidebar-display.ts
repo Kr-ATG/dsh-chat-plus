@@ -24,6 +24,11 @@
  *     压缩包、avif/tif/tiff/heic、ods），打开就是「该格式文件暂时无法预览」。
  *  3. **not-text**：既没注册、也不在 UNVIEWABLE 的二进制（blend/glb/3ds 必现，
  *     fbx/stl/ply 视编码），会落到纯文本兜底后在读页时报 `workspace-file/not-text`。
+ *  4. **容器浏览器解不了**（2026-10-24 用真实 Chromium 逐个灌文件实测）：avi
+ *     （Video for Windows）与 wma（Windows Media Audio）—— 播放器会挂出来、UI 一切
+ *     正常，但一帧都解不出，只在控制台留一句 SRC_NOT_SUPPORTED。用户看到的是
+ *     「黑的 + 播不了」，比直接交给系统默认应用差得多。判据见
+ *     `BROWSER_UNDECODABLE_MEDIA_EXT`。
  *
  * ## 为什么是**静态表**而不是读官方 registry
  *
@@ -95,10 +100,39 @@ const OFFICIAL_RENDERED_EXT: ReadonlySet<string> = new Set([
 export const PLUGIN_RENDERED_EXT: ReadonlySet<string> = new Set([
   // sidebar-doc：pdf / Office / ods（LibreOffice 转 PDF → 浏览器内置查看器）
   'pdf', 'doc', 'docx', 'ppt', 'pptx', 'odt', 'odp', 'ods',
-  // sidebar-media：原生 <video> / <audio>
-  'mp4', 'webm', 'mov', 'mkv', 'm4v', 'avi',
-  'mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'opus', 'wma',
+  // sidebar-media：原生 <video> / <audio> 里**浏览器真能解码**的那一族。
+  //
+  // ⚠ 这份名单不能用「渲染器接管了哪些后缀」直接顶替 —— 接管只代表侧栏会挂出
+  // 一个播放器，不代表播放器能出画面。2026-10-24 用真实 Chromium（154）灌真实
+  // 文件逐个实测，两个后缀被剔出去：
+  //  · **avi**：Video for Windows 容器，三种 MIME 声明（x-msvideo / mp4 /
+  //    octet-stream）全部 SRC_NOT_SUPPORTED —— 容器不在解码面里。
+  //  · **wma**：Windows Media Audio，同样三种声明全失败。
+  // 这两个交系统默认应用才是「点开就看见」；留在侧栏只会得到一个黑播放器
+  // 加一句报错，正是用户 2026-10-22 说的「点开只有一句不支持预览」。
+  //
+  // 保留的 mov / mkv / opus 都是实测**能播**的（细节见 sidebar-media 的
+  // MIME_BY_EXT：mov 必须声明成 video/mp4，opus 必须声明成 audio/ogg）。
+  'mp4', 'webm', 'mov', 'mkv', 'm4v',
+  'mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'opus',
 ])
+
+/**
+ * 浏览器**解不了**的媒体容器（2026-10-24 实测，见文件头第 4 档）。
+ *
+ * 这张表与 PLUGIN_RENDERED_EXT 是互补关系而不是重复：
+ *  · PLUGIN_RENDERED_EXT 说「侧栏有渲染器接管」；
+ *  · 本表说「接管了也播不出来」。
+ *
+ * 分开写的理由：`sidebar-media` 的 CLAIMED_EXTENSIONS 必须覆盖这些后缀 ——
+ * 官方把它们列进 UNVIEWABLE，不接管的话用户从**文件树**点开时连播放器都没有；
+ * 接管之后至少有一个能重试的界面。但**产出物卡的分流判据**不该把它们送进侧栏，
+ * 那里有更好的选择（系统默认应用）。
+ *
+ * 实测依据（Chromium 154.0.8037.44，真实文件 + 三种 MIME 声明）：avi 与 wma
+ * 全部 `error: SRC_NOT_SUPPORTED`。
+ */
+export const BROWSER_UNDECODABLE_MEDIA_EXT: ReadonlySet<string> = new Set(['avi', 'wma'])
 
 /**
  * 官方纯文本兜底里**确实能读、且读出来就是它本来样子**的扩展名。
@@ -134,6 +168,9 @@ export function canShowInSidebar(
   if (target === '') return false
   const ext = extensionOf(target)
   if (ext === '') return false
+  // 「有渲染器接管」不等于「能正常展示」：先剔掉浏览器解不了的容器
+  // （avi / wma），再问有没有人接管。顺序不能反 —— 反了就会把它们判成 sidebar。
+  if (BROWSER_UNDECODABLE_MEDIA_EXT.has(ext)) return false
   return OFFICIAL_RENDERED_EXT.has(ext)
     || PLUGIN_RENDERED_EXT.has(ext)
     || TEXT_RENDERED_EXT.has(ext)
@@ -154,5 +191,5 @@ export function sidebarRenderedExtensions(): string[] {
     ...OFFICIAL_RENDERED_EXT,
     ...PLUGIN_RENDERED_EXT,
     ...TEXT_RENDERED_EXT,
-  ])].sort()
+  ])].filter((ext) => !BROWSER_UNDECODABLE_MEDIA_EXT.has(ext)).sort()
 }

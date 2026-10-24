@@ -21,7 +21,7 @@ import { callName, isRunning } from './tool-stats.ts'
 import { argFields, toolArgsRaw } from './activity-view-model.ts'
 import { getKrChatStore } from '../kr-chat/kr-chat-store.ts'
 import { getOfficialTurnProcessNodeView } from '../index.ts'
-import { KrActivityCardGate, type KrActivityReasoningItem } from '../kr-chat/KrLiveActivityCard.tsx'
+import type { KrActivityReasoningItem } from '../kr-chat/KrLiveActivityCard.tsx'
 import { clearLiveDshTodos } from '../kr-chat/kr-todo-bridge.ts'
 
 const NS = 'dts'
@@ -948,10 +948,11 @@ export const TurnProcessShadowView = memo(function TurnProcessShadowView(props: 
     return () => { window.clearTimeout(id) }
   }, [liveSummaryCandidate, liveSummaryProbe, turn])
   const answerStarted = liveSummaryReady
-  const interrupted = krProjection.steps.some((step) => step.status === 'interrupted')
-  const krCommitted = locationTurn?.status === 'closed' || interrupted
-  const krClosing = krCommitted || answerStarted
-  const krActive = isKrMode && locationTurn?.status === 'open' && !krClosing
+  /*
+   * 原来这里还算了 krCommitted / krClosing / krActive 三个派生值，专供那张
+   * 「Seeker 正在分析…」活动卡判断"该不该出现 / 该不该收场"。卡片删掉之后
+   * 它们没有任何消费者了，一并删除（留着只会在下次改动时误导人以为还有人在读）。
+   */
   useEffect(() => {
     if (locationTurn?.status === 'open') {
       krClosedProjectionCollectedRef.current = false
@@ -1005,14 +1006,19 @@ export const TurnProcessShadowView = memo(function TurnProcessShadowView(props: 
   if (isKrMode) {
     return (
       <>
-        <KrActivityCardGate
-          turn={turn}
-          reasoning={krProjection.reasoning}
-          tools={krProjection.tools}
-          active={krActive}
-          closing={krClosing}
-          committed={krCommitted}
-        />
+        {/*
+         * 「Seeker 正在分析…」那张对话流活动卡（KrActivityCardGate）已按用户要求
+         * 于 2026-10-24 整块移除。
+         *
+         * 它原先贴在对话流里，显示头像 + 当前动作 + 呼吸点。删掉的判断依据：
+         *  · 同一个信息在右栏「操作面板」卡上已经有了（鲸鱼娘 + 一行当前动作），
+         *    而且那边是立绘、更大、更好看；对话流里再放一张就是在同屏说两遍；
+         *  · 它占的是对话流的纵向空间 —— 左栏读正文时被一张状态卡隔开，很碍事；
+         *  · 用户原话：「这个东西可以删掉了」。
+         *
+         * 组件本体与样式**全部保留**（KrLiveActivityCard.tsx 与 .kr-agent-mini-*
+         * 一族）：把这一行加回来即完整恢复，不需要重写任何东西。
+         */}
         {OfficialProcessRow
           ? (
             <OfficialProcessRow

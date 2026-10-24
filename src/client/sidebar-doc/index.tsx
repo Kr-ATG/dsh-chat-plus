@@ -45,6 +45,7 @@ import { getService, workspaceCwdOf } from '../client-ctx.js'
 import { resolveWorkspacePath } from '../open-preview.js'
 import { whenDocumentPreviews, type DocumentPreviewsLike } from '../sidebar/document-registry.js'
 import { parseFileAddress } from './address.js'
+import { openOutputFile } from '../open-file.js'
 
 /** 渲染器 id（同时是 keyed slot 的 key；官方要求全局唯一）。 */
 export const SIDEBAR_DOC_ID = 'dsh-chat-plus/sidebar-document'
@@ -105,6 +106,8 @@ function SidebarDocumentBody(props: DocumentBodyOwner): JSX.Element {
   const revision = owner.content.revision
   const [state, setState] = useState<'probing' | 'ready' | 'failed'>('probing')
   const [detail, setDetail] = useState('')
+  /** 失败态第二出口的进行中标志（防连点、给按钮一个「正在打开」的文案）。 */
+  const [opening, setOpening] = useState(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const aliveRef = useRef(true)
 
@@ -173,6 +176,10 @@ function SidebarDocumentBody(props: DocumentBodyOwner): JSX.Element {
   }, [address, revision, owner])
 
   const parsed = parseFileAddress(address)
+  /** 失败态「用系统默认应用打开」的目标（绝对路径，理由同 sidebar-media）。 */
+  const openTarget = parsed === null
+    ? ''
+    : resolveWorkspacePath(workspaceCwdOf(parsed.sessionId), parsed.path)
   const src = parsed === null
     ? ''
     : officePdfUrl(resolveWorkspacePath(workspaceCwdOf(parsed.sessionId), parsed.path), parsed.sessionId)
@@ -200,7 +207,34 @@ function SidebarDocumentBody(props: DocumentBodyOwner): JSX.Element {
       {state === 'failed' && (
         <div style={centerStyle}>
           <span style={hintStyle}>{detail === '' ? '这份文档暂时预览不了' : detail}</span>
-          <button type="button" style={retryStyle} onClick={() => { owner.content.reload() }}>重试</button>
+          {/*
+           * 第二出口：交给系统默认应用（PowerPoint / Word / 系统 PDF 阅读器）。
+           *
+           * 与 sidebar-media 同一个理由：失败分「暂时的」（重试有用）与「结构的」
+           * （引擎没装、这个格式转换失败、文件损坏）两类，后者的正确出路是让用户
+           * 用他自己的应用打开 —— 那台机器上装着的 Office 本来就能读这份文件。
+           * 只给「重试」等于把人关在一个只会循环报错的格子里。
+           */}
+          <div style={failActionsStyle}>
+            <button type="button" style={retryStyle} onClick={() => { owner.content.reload() }}>重试</button>
+            {openTarget !== '' && (
+              <button
+                type="button"
+                style={retryStyle}
+                disabled={opening}
+                onClick={() => {
+                  setOpening(true)
+                  void openOutputFile(openTarget).then((result) => {
+                    setOpening(false)
+                    if (result === 'opened') return
+                    setDetail(result === 'unavailable' ? '这台宿主没有可用的桌面，无法交给系统应用' : '系统应用没能打开这个文件')
+                  })
+                }}
+              >
+                {opening ? '正在打开…' : '用系统默认应用打开'}
+              </button>
+            )}
+          </div>
         </div>
       )}
       {state === 'ready' && (
@@ -228,6 +262,14 @@ const centerStyle: CSSProperties = {
   color: 'var(--dsw-alias-label-secondary, #9ca3af)',
 }
 const hintStyle: CSSProperties = { fontSize: 12.5, lineHeight: 1.7 }
+/** 失败态两枚按钮并排（重试 + 用系统默认应用打开）；窄容器下自动换行。 */
+const failActionsStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
+}
 const spinStyle: CSSProperties = { display: 'inline-flex', animation: 'dsh-sdp-spin 900ms linear infinite' }
 const retryStyle: CSSProperties = {
   height: 28,

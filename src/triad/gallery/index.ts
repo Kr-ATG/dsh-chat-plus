@@ -49,8 +49,29 @@ import { admitSpillPath, spillRoots } from '../../spill/index.ts'
 
 const ROUTE = '/api/triad/gallery'
 
-/** 单文件大小上限（raw 服务；100MB 足够任何演示页/图片/文档）。 */
-const MAX_RAW_BYTES = 100 * 1024 * 1024
+/**
+ * 单文件大小上限（raw 服务）。
+ *
+ * ## 为什么从 100MB 提到 2GB（2026-10-24）
+ *
+ * 原值 100MB 的注释写的是「足够任何演示页/图片/文档」—— 那三类确实够，但它漏掉了
+ * **本插件自己最常产出的一类：视频**。实测（本机真实文件）：
+ *
+ *   projects/video-studio/videos/dsh-chat-plus-intro/final_video.mp4   270.30 MB
+ *   projects/video-studio/videos/dsh-chat-plus-intro/output.mp4        274.90 MB
+ *
+ * 4K 演示片动辄两三百 MB，于是这些**最需要预览的成品**点开就吃 413
+ * （`{ok:false, error:'too large'}`），侧栏播放器拿到的是 JSON 而不是视频字节 ——
+ * 用户看到的就是「mp4 播放不了」。而小视频（3–16MB）一直正常，所以这个缺陷在
+ * 只测小文件时完全不会暴露。
+ *
+ * 上限的意义是**挡住误用**（把系统镜像往浏览器推），不是「限制用户看自己的视频」。
+ * 配合 sendFile 的 Range 支持，媒体走分段流式传输：一次只读一个区间直接 pipe，
+ * 不会把整个文件读进内存 —— 真正决定内存占用的是流式管道，不是这个上限。
+ *
+ * 取 2GB：远大于任何 4K 长片，同时仍能挡住上面那类误用。
+ */
+const MAX_RAW_BYTES = 2 * 1024 * 1024 * 1024
 
 /** 渲染资源扩展名白名单（/raw-asset 专用，见文件头安全说明）。 */
 const ASSET_EXT_ALLOW = new Set([
@@ -359,6 +380,61 @@ function indexedHtmlDirs(): Set<string> {
   return lastIndex === null ? new Set<string>() : htmlDirsOf(lastIndex.values())
 }
 
+/**
+ * 把 `Range: bytes=a-b` 解析成含端点的区间；无法解析时返回 null。
+ *
+ * 只支持单区间（多区间的 multipart/byteranges 浏览器播视频从不用）。
+ * 后缀区间 `bytes=-500`（从末尾数）要支持：Chromium 探测 mp4 的 moov 原子时
+ * 就发这个形态。
+ *
+ * @param header - 请求头原文。
+ * @param size - 文件总字节数。
+ * @returns 合法区间或 null（越界、语法不对、起点大于终点一律 null）。
+ */
+function parseRange(header: string | undefined, size: number): { readonly start: number; readonly end: number } | null {
+  if (typeof header !== 'string' || header === '') return null
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim())
+  if (match === null) return null
+  const startText = match[1] ?? ''
+  const endText = match[2] ?? ''
+  if (startText === '' && endText === '') return null
+  // 后缀区间（bytes=-500）：从末尾数。
+  if (startText === '') {
+    const suffix = Number(endText)
+    if (!Number.isFinite(suffix) || suffix <= 0) return null
+    return { start: Math.max(0, size - suffix), end: size - 1 }
+  }
+  const start = Number(startText)
+  if (!Number.isFinite(start) || start < 0 || start >= size) return null
+  // 缺省终点 = 到文件末尾（媒体播放器最常见的一次探测就是这个形态）。
+  const end = endText === '' ? size - 1 : Math.min(Number(endText), size - 1)
+  if (!Number.isFinite(end) || end < start) return null
+  return { start, end }
+}
+
+/**
+ * 发一个文件（支持 Range 与 HEAD）。
+ *
+ * ## 为什么必须支持 Range（2026-10-24 修「mp4 播放不了」）
+ *
+ * 这条函数原来是「一次 200 + 全量 content-length + 直通 stream」。对图片、字体
+ * 这类小文件没问题，但对 mp4 是致命的：Chromium 的 `<video>` 靠 Range 请求做
+ * 分段加载与 seek，服务端若无视 `Range` 头、一律回 200 全量，浏览器在需要 seek
+ * 或需要第二段时拿不到 206，就卡在「一直转圈」或直接报 SRC_NOT_SUPPORTED ——
+ * 而文件本身完全正常。
+ *
+ * 两个症状必须分开看（排查时最容易混的一层）：
+ *  · **解码不了**（avi / wma）：容器不在解码面里 —— 客户端判据层面就不该送进
+ *    侧栏（见 sidebar-display.ts 的 BROWSER_UNDECODABLE_MEDIA_EXT）。
+ *  · **能解码但播不动**（任何 mp4）：媒体元素支持，但传输链路不给 206。用户看到
+ *    的现象与「格式不支持」几乎一样，根因却在这里。
+ *
+ * @param req - 请求（读 Range 头、判 HEAD）。
+ * @param res - 响应。
+ * @param target - 已准入的绝对路径。
+ * @param contentType - MIME。
+ * @param csp - 可选 CSP（html 成品用）。
+ */
 function sendFile(req: IncomingMessage, res: ServerResponse, target: string, contentType: string, csp?: string): void {
   let size: number
   try {
@@ -370,16 +446,37 @@ function sendFile(req: IncomingMessage, res: ServerResponse, target: string, con
     return
   }
   if (size > MAX_RAW_BYTES) { json(res, 413, { ok: false, error: 'too large' }); return }
-  const headers: Record<string, string> = {
+  const baseHeaders: Record<string, string> = {
     'content-type': contentType,
-    'content-length': String(size),
     'cache-control': 'private, max-age=30',
     'x-content-type-options': 'nosniff',
+    // 声明支持 Range：媒体元素据此判断可以边下边播 / seek。
+    'accept-ranges': 'bytes',
   }
-  if (csp !== undefined) headers['content-security-policy'] = csp
-  res.writeHead(200, headers)
+  if (csp !== undefined) baseHeaders['content-security-policy'] = csp
+
+  const rangeHeader = typeof req.headers.range === 'string' ? req.headers.range : undefined
+  const range = parseRange(rangeHeader, size)
+
+  if (range === null) {
+    // 没有 Range（或 Range 非法）：正常整份返回。
+    res.writeHead(200, { ...baseHeaders, 'content-length': String(size) })
+    if (req.method === 'HEAD') { res.end(); return }
+    const stream = createReadStream(target)
+    stream.on('error', () => { try { res.destroy() } catch { /* ignore */ } })
+    stream.pipe(res)
+    return
+  }
+
+  // 206 Partial Content：媒体播放器的主路。
+  const length = range.end - range.start + 1
+  res.writeHead(206, {
+    ...baseHeaders,
+    'content-length': String(length),
+    'content-range': `bytes ${range.start}-${range.end}/${size}`,
+  })
   if (req.method === 'HEAD') { res.end(); return }
-  const stream = createReadStream(target)
+  const stream = createReadStream(target, { start: range.start, end: range.end })
   stream.on('error', () => { try { res.destroy() } catch { /* ignore */ } })
   stream.pipe(res)
 }
@@ -870,4 +967,8 @@ export const __test = {
   isJsonContentType,
   isCrossSiteWrite,
   verifyResponse,
+  // Range 解析（2026-10-24）：这条判据错了不会抛错，只会让媒体播放器拿不到 206、
+  // 卡在转圈或报 SRC_NOT_SUPPORTED —— 必须能离线逐形态断言。
+  parseRange,
+  MAX_RAW_BYTES,
 }

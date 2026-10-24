@@ -344,6 +344,43 @@ need(paths.some(p => p.startsWith('/api/triad/gallery')), 'media gallery route r
     need(isCrossSiteWrite({ origin: 'http://localhost:3080' }) === false, 'CSRF 判据：localhost Origin 放行')
     need(isCrossSiteWrite({}) === false, 'CSRF 判据：Origin 缺失放行（同源 fetch / curl 不带它）')
   }
+  /*
+   * Range 解析（2026-10-24 修「mp4 播放不了」）。
+   *
+   * 这条判据错了**不会抛任何错**：服务端照样回 200 全量，浏览器只是默默播不动，
+   * 用户看到的是「视频坏了」。所以必须逐形态钉死，尤其是两种媒体主路：
+   *  · `bytes=0-`      —— 首探测，返回整份区间；
+   *  · `bytes=-N`      —— 尾部探测，Chromium 用它找 mp4 的 moov 原子（索引在文件
+   *                      尾部时只有这条能拿到元数据，缺了就是「一直转圈」）。
+   */
+  need(typeof mod.galleryTest.parseRange === 'function',
+    'gallery __test exposes parseRange（媒体 Range 支持的可测面）')
+  {
+    const { parseRange, MAX_RAW_BYTES } = mod.galleryTest
+    const S = 1000
+    need(parseRange('bytes=0-', S)?.start === 0 && parseRange('bytes=0-', S)?.end === 999,
+      'Range：bytes=0- 返回整份区间（媒体首探测）')
+    need(parseRange('bytes=0-99', S)?.end === 99, 'Range：bytes=0-99 端点含在内（不是 98）')
+    const tail = parseRange('bytes=-100', S)
+    need(tail?.start === 900 && tail?.end === 999,
+      'Range：bytes=-100 是尾部区间（Chromium 靠它找 moov 原子，错了视频就转圈）')
+    need(parseRange('bytes=500-', S)?.end === 999, 'Range：缺省终点 = 文件末尾')
+    need(parseRange('bytes=0-99999999', S)?.end === 999, 'Range：终点超长钳到末尾（不能原样回 416）')
+    need(parseRange('bytes=1000-', S) === null, 'Range：起点越界返回 null（回 200 全量，不是 206）')
+    need(parseRange('bytes=500-100', S) === null, 'Range：起点>终点返回 null')
+    need(parseRange('bytes=', S) === null && parseRange('garbage', S) === null,
+      'Range：语法不合法返回 null（退化回 200，不抛错）')
+    need(parseRange(undefined, S) === null && parseRange('', S) === null,
+      'Range：无头/空头返回 null（普通 GET 的常态）')
+    /*
+     * 上限必须容得下真实的 4K 成片：本机实测 final_video.mp4 是 270MB。
+     * 原值 100MB 会让这类文件点开直接 413，而小视频（3–16MB）一切正常 ——
+     * 这正是「为什么我测的时候是好的」。
+     */
+    need(MAX_RAW_BYTES >= 1024 * 1024 * 1024,
+      'MAX_RAW_BYTES 必须容得下 4K 长片（≥1GB）：270MB 的成片在 100MB 上限下会吃 413，'
+      + '用户看到的就是「mp4 播放不了」')
+  }
 
   const DELETE_KIT = resolve(ROOT, '_tmp', 'smoke-gallery-delete')
   try { rmSync(DELETE_KIT, { recursive: true, force: true }) } catch { /* 上一轮残留被占用时覆盖即可 */ }
