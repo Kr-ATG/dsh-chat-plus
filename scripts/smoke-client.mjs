@@ -415,6 +415,11 @@ const expectedStyles = [
   // 侧栏横滑分类条（src/client/triad/hub/strip.tsx，2026-10 v4 导航定稿）：
   // 替换官方「工作台」菜单行的视觉，宽栏铺满分类格、rail 让位还原官方图标列。
   'dsh-workbench-strip-styles',
+  // 界面字体覆盖（src/client/ui-font/font.ts）：把 --dsh-font-family-text/-code
+  // （官方 0.2.1 的可写槽位）与 --dsw-font-family / --ds-font-family-code（消费值）
+  // 改写成所选字体。必须在 apply 阶段就注入（不等 React），否则首帧会先按系统
+  // 字体渲染、再闪成所选字体。
+  'dsh-chat-plus-ui-font',
   // 首 token 平均平铺读数（src/client/stats-ttft/styles.ts）：只定分隔与入场，
   // 字号颜色全部继承官方 pill。apply 阶段随桥一起注入。
   'dsh-stats-ttft-styles',
@@ -915,10 +920,12 @@ const cell = (key) => registeredSlots.find((s) => s?.slot === 'conversation.chat
 // 那是插件自己的 React 树，不是官方槽位。若哪天有人把胶囊座位加回来，计数会立刻红。
 // 2026-10-23：composer 那枚 dsh-memory-inject-toggle（记忆注入卡，order 99）
 // 按用户要求删除，槽位从 12 → 11。它的开关能力仍在 Seeker 右栏「大盘设置」抽屉里。
-if (registeredSlots.length !== 11) {
-  fail(`expected 11 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
+// 2026-10-25：ui-font 通用设置行（settings.general.item / order 12）随「界面字体」
+// 功能恢复而回归，槽位从 11 → 12。
+if (registeredSlots.length !== 12) {
+  fail(`expected 12 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
 } else {
-  pass('registered 11 seats (6 chat-plus + 4 triad + 1 provider settings section + 1 ttft flat bridge)')
+  pass('registered 12 seats (6 chat-plus + 4 triad + 1 provider settings section + 1 ttft flat bridge + 1 ui-font general row)')
 }
 
 // 工具闸门卡片：挂在输入栏工具行**左端**（与记忆注入开关同一排），order 100。
@@ -1689,6 +1696,14 @@ if (krEnabled) {
         + '点了要能切到那个窗口')
     } else if (!/export async function activateBrowserWindow/.test(readFileSync(resolve(ROOT, 'src/client/browser-flag/activate.ts'), 'utf8'))) {
       fail('缺 activateBrowserWindow（POST /api/chat-flow/activate-window 的客户端封装）')
+    } else if (!/data-flash=\{flash \?\? undefined\}/.test(seekerHeadSrc)) {
+      /*
+       * 点击要有**结果反馈**（2026-10-25 修「点了不跳转」时补）。
+       *
+       * 之前完全静默：成功和失败在界面上长得一模一样，用户不知道到底跳没跳 ——
+       * 而这轮修的正是「点了不跳转」，静默失败让人连"是不是坏了"都判断不了。
+       */
+      fail('浏览器标志必须有点击结果反馈（data-flash=ok/fail），否则失败时用户无从判断')
     } else if (!/\.kr-card--subs\s*\{[^}]*background:\s*transparent/.test(code)
       || !/\.kr-card--subs\s*\{[^}]*border:\s*0/.test(code)
       || !/\.kr-card--subs\s*\{[^}]*box-shadow:\s*none/.test(code)) {
@@ -5038,6 +5053,118 @@ if (krEnabled) {
       fail(`包行左侧竖线又出现了（面板表:${lineInPanel} 换肤层:${lineInTheme}）—— 用户要求去掉`)
     } else {
       pass('包行左侧不再画主色竖线（面板表与换肤层两处来源都已清除）')
+    }
+  }
+}
+
+/* ── 界面字体：选项表 / 覆盖 CSS / 座位（纯逻辑，全部可断言）─────────────
+ *
+ * 这些错了都不会报错，只会静默显示成错的字体：
+ *   ① 默认档不是微软雅黑 → 用户没选过却被换了字体；
+ *   ② 字体栈漏掉通用回退链 → 缺字时掉成浏览器默认衬线（中文尤其明显）；
+ *   ③ webfont 档的 URL 不指向 host 路由 → 404，浏览器静默回退；
+ *   ④ 覆盖 CSS 不写 html:root → 压不过官方 :root，改了没反应；
+ *   ⑤ **只写下层变量（--dsw-font-family）而漏掉上层槽位（--dsh-font-family-text）
+ *      → 官方 body 自己重新声明了下层变量，元素自身声明压过继承，html 上写多高
+ *      特异性都传不下去 —— 表现为「字体加载成功、document.fonts.check 为 true，
+ *      但界面一个字都没变」。DSH 0.2.1 恢复本功能时踩过，必须钉死。
+ */
+{
+  const fontTest = mod.uiFontTest
+  if (fontTest === undefined) {
+    fail('ui-font 纯逻辑测试面（uiFontTest）未导出')
+  } else {
+    const { FONT_OPTIONS, DEFAULT_FONT_ID, fontOptionOf, fontOverrideCss, fontFileUrl } = fontTest
+    const reasons = []
+
+    // ① 默认档必须是微软雅黑（用户点开设置看到的初始值）。
+    if (DEFAULT_FONT_ID !== 'system') reasons.push(`默认档应为 system，实得 ${DEFAULT_FONT_ID}`)
+    const system = FONT_OPTIONS.find(o => o.id === 'system')
+    if (system === undefined) reasons.push('缺少 system 档（微软雅黑）')
+    else if (!/Microsoft YaHei/.test(system.body)) reasons.push('system 档必须显式写 Microsoft YaHei')
+    else if (system.webfont !== undefined) reasons.push('system 档不该带 webfont（默认档必须零下载）')
+
+    // 下拉框恰好两个选项，且第二项是霞鹜新致宋。
+    if (FONT_OPTIONS.length !== 2) reasons.push(`下拉框应恰好 2 个选项，实得 ${FONT_OPTIONS.length}`)
+    const lx = FONT_OPTIONS.find(o => o.id === 'lxgw-neozhisong')
+    if (lx === undefined) reasons.push('缺少 lxgw-neozhisong 档')
+    else {
+      if (lx.label !== '霞鹜新致宋') reasons.push(`档位标签应为「霞鹜新致宋」，实得 ${lx.label}`)
+      if (lx.webfont === undefined) reasons.push('lxgw 档必须声明 webfont（否则永远拿不到真字体）')
+      else if (!/@font-face/.test(fontOverrideCss(lx))) reasons.push('lxgw 档的覆盖 CSS 必须带 @font-face')
+      else if (!fontFileUrl(lx.webfont.file).startsWith('/api/chat-flow/fonts/')) {
+        reasons.push(`webfont URL 必须指向 host 路由，实得 ${fontFileUrl(lx.webfont.file)}`)
+      }
+    }
+
+    // ② 每一档的正文字体栈都必须带通用回退（缺字不掉成衬线）。
+    for (const option of FONT_OPTIONS) {
+      if (!/sans-serif\s*$/.test(option.body.trim())) reasons.push(`${option.id} 的正文字体栈未以 sans-serif 收尾`)
+      if (!option.code.includes('monospace') && !/Consolas|Menlo|SF Mono/.test(option.code)) {
+        reasons.push(`${option.id} 的代码字体栈缺少等宽字体`)
+      }
+    }
+
+    // ③ 覆盖 CSS 必须用 `html:root`（压过官方 :root）。
+    //
+    // 特异性实算：官方把变量声明在 `:root`（伪类，(0,1,0)）；`html` 只有
+    // (0,0,1) —— **更低**，会被官方原值压过。实机踩过一次，必须钉死。
+    const css = fontOverrideCss(FONT_OPTIONS[0])
+    if (!/^html:root\{/.test(css)) {
+      reasons.push('覆盖 CSS 必须用 html:root（html 特异性 (0,0,1) 低于官方 :root 的 (0,1,0)，会被压过）')
+    }
+
+    // ④ 上层槽位与下层消费值必须同时写（DSH 0.2.1 两层变量）。
+    //
+    // --dsh-font-family-text / -code 是官方「更多字体设置」写入的可写槽位，
+    // body 上的 --dsw-font-family / --ds-font-family-code 由它们派生。
+    // 只写后者 → body 自身的声明赢，html 上的值对后代不可见（改了没反应）。
+    for (const name of ['--dsh-font-family-text', '--dsh-font-family-code']) {
+      if (!css.includes(name + ':')) reasons.push(`覆盖 CSS 缺少上层槽位 ${name}（只写下层变量时 body 自身声明会赢，改了没反应）`)
+    }
+    for (const name of ['--dsw-font-family', '--ds-font-family-code']) {
+      if (!css.includes(name + ':')) reasons.push(`覆盖 CSS 缺少下层变量 ${name}`)
+    }
+
+    // ⑤ 未知 id 必须回落默认档（localStorage 脏值不该白屏或换字体）。
+    if (fontOptionOf('nope').id !== DEFAULT_FONT_ID) reasons.push('未知 id 未回落默认档')
+    if (fontOptionOf(null).id !== DEFAULT_FONT_ID) reasons.push('null 未回落默认档')
+
+    if (reasons.length > 0) fail('界面字体契约：' + reasons.join('；'))
+    else pass('界面字体：默认微软雅黑 + 两档下拉 + 通用回退齐备 + 两层变量齐备')
+
+    // 设置行座位：官方「通用」页的 settings.general.item，order 排在官方两行之后。
+    const fontRow = registeredSlots.find(s => s?.slot === 'settings.general.item' && s?.id === 'ui-font')
+    if (fontRow === undefined) {
+      fail(`missing ui-font settings row (settings.general.item / ui-font)，实得 ${JSON.stringify(registeredSlots.filter(s => s?.slot === 'settings.general.item'))}`)
+    } else if (fontRow.order !== 12) {
+      // 官方 appearance=10 / font-size=11，本行必须排在它们之后（同列堆叠）。
+      fail(`ui-font 行 order 应为 12（官方外观 10 / 字号 11 之后），实得 ${fontRow.order}`)
+    } else {
+      pass('ui-font 设置行座位：settings.general.item / order 12（排在官方外观与字号之后）')
+    }
+
+    // 字体覆盖必须**同步**应用（不能等 React 挂载）：apply 路径上就写 <style>。
+    const fontIndexSrc = readFileSync(resolve(ROOT, 'src/client/ui-font/index.ts'), 'utf8')
+    if (!/initFont\(\)/.test(fontIndexSrc) || !/applyStoredFont\(\)/.test(fontIndexSrc)) {
+      fail('ui-font 入口必须同步调用 initFont() + applyStoredFont()（否则首帧会闪一下系统字体）')
+    } else if (!/settings\.general\.item/.test(fontIndexSrc)) {
+      fail('ui-font 入口必须注册 settings.general.item 座位')
+    } else {
+      pass('ui-font 在 apply 阶段同步应用（首帧即所选字体）+ 注册通用设置行')
+    }
+
+    // 失败必须可见：切换中/失败都要有状态文案，静默等待会被当成「点了没反应」。
+    const rowSrc = readFileSync(resolve(ROOT, 'src/client/ui-font/Row.tsx'), 'utf8')
+    if (!/加载失败/.test(rowSrc)) fail('字体加载失败必须给出可见提示（否则用户只会觉得字体坏了）')
+    else if (!/加载中/.test(rowSrc)) fail('5.0MB 字体下载期间必须显示「加载中」（否则像是卡死）')
+    else pass('字体状态可见：加载中 / 加载失败提示齐备')
+
+    // 覆盖样式表必须真的出现在 head 里（apply 阶段注入，id 契约见 font.ts 的 STYLE_ID）。
+    if (!styleIds.includes('dsh-chat-plus-ui-font')) {
+      fail('apply 阶段没有把 <style id=dsh-chat-plus-ui-font> 注入 head（字体覆盖不会生效）')
+    } else {
+      pass('apply 阶段已注入字体覆盖样式表（首帧即所选字体）')
     }
   }
 }

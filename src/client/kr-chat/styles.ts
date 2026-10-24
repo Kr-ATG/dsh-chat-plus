@@ -2536,6 +2536,53 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   height: 100%;
 }
 
+/*
+ * 点击结果的两种瞬时反馈（2026-10-25 补）。
+ *
+ * 为什么需要：之前点图标**完全静默** —— 成功和失败在界面上长得一模一样，
+ * 用户不知道到底跳没跳（而这轮修的正是「点了不跳转」，静默失败让人连"是不是
+ * 坏了"都判断不了）。
+ *
+ *  · ok   → 主色脉冲一次（700ms）：确认"跳过去了"；
+ *  · fail → 警示色 + 轻微左右抖动（2.2s，够看清又不长期占着警示色）：
+ *           "没找到那个窗口"。
+ *
+ * 两者都不弹窗、不改布局，只动颜色与位移（合成层）。
+ */
+.kr-plain-head__browser[data-flash="ok"] {
+  color: var(--kr-accent);
+  animation: kr-browser-ok 700ms var(--kr-ease-out);
+}
+
+.kr-plain-head__browser[data-flash="fail"] {
+  color: var(--kr-warning, #d97706);
+  animation: kr-browser-fail 2.2s var(--kr-ease-out);
+}
+
+@keyframes kr-browser-ok {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+
+@keyframes kr-browser-fail {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-2px); }
+  30% { transform: translateX(2px); }
+  45% { transform: translateX(-1.5px); }
+  60% { transform: translateX(1.5px); }
+  75% { transform: translateX(-1px); }
+  90% { transform: translateX(1px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 关掉位移，但**保留颜色**：两种结果仍可分辨（主色 = 成功 / 警示色 = 没找到）。 */
+  .kr-plain-head__browser[data-flash="ok"],
+  .kr-plain-head__browser[data-flash="fail"] {
+    animation: none;
+  }
+}
+
 /* 入场：从右侧滑入 + 轻微缩放淡入（与它原来挂在会话行上时同一套触感）。 */
 @keyframes kr-plain-browser-in {
   from { opacity: 0; transform: translateX(3px) scale(.72); }

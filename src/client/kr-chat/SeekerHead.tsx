@@ -21,7 +21,7 @@
  * @module
  */
 
-import { useCallback, useRef, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactElement } from 'react'
 import { WhalePortrait } from './WhalePortrait.tsx'
 import { activateBrowserWindow } from '../browser-flag/activate.ts'
@@ -113,10 +113,18 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
    * playwright-mcp 背后通常是 chrome。推不出来时退到 'ego'（用户的默认场景）。
    * 服务端按序试，第一个成功的赢。
    *
-   * 失败静默：点一下没反应，比弹一个"窗口激活失败"的错误好 —— 这枚图标本来就
-   * 只是个便利入口。
+   * ## 失败反馈（2026-10-25 补）
+   *
+   * 原先完全静默。问题是：**失败和成功在界面上长得一模一样**，用户点完不知道
+   * 到底发生了没有 —— 而这轮修的正是「点了不跳转」，静默失败让人连"是不是坏了"
+   * 都判断不了。
+   *
+   * 现在成功后给一次极短的**主色脉冲**（图标闪一下），失败则把图标变成一次性
+   * 的警示色 + title 里换成"没找到窗口"。都不弹窗、不打断，但能分清两种结果。
    */
   const busyRef = useRef(false)
+  const [flash, setFlash] = useState<'ok' | 'fail' | null>(null)
+  const flashTimerRef = useRef(0)
   const onBrowserClick = useCallback((event: React.MouseEvent): void => {
     // 卡头整块可能是折叠热区：点图标不该顺带展开时间线。
     event.stopPropagation()
@@ -127,11 +135,18 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
     const candidates = label.includes('playwright') || label.includes('chrome')
       ? ['chrome', 'msedge', 'ego']
       : ['ego', 'chrome', 'msedge']
-    void activateBrowserWindow(candidates).finally(() => {
+    void activateBrowserWindow(candidates).then((ok) => {
+      if (flashTimerRef.current !== 0) window.clearTimeout(flashTimerRef.current)
+      setFlash(ok ? 'ok' : 'fail')
+      flashTimerRef.current = window.setTimeout(() => { setFlash(null) }, ok ? 700 : 2200)
+    }).finally(() => {
       // 给一点冷却：连点会把同一个窗口反复拽到前台（观感上像在抖）。
       window.setTimeout(() => { busyRef.current = false }, 600)
     })
   }, [browserEntry])
+  useEffect(() => () => {
+    if (flashTimerRef.current !== 0) window.clearTimeout(flashTimerRef.current)
+  }, [])
 
   const hasLine = line !== null && line !== undefined
   const lineText = hasLine
@@ -170,7 +185,10 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
           <button
             type="button"
             className="kr-plain-head__browser"
-            title={`${browserFlagTitle(browserEntry)} · 点击切到窗口`}
+            data-flash={flash ?? undefined}
+            title={flash === 'fail'
+              ? '没找到那个窗口（可能已经关掉了）'
+              : `${browserFlagTitle(browserEntry)} · 点击切到窗口`}
             aria-label={`${browserFlagTitle(browserEntry)}，点击切到那个窗口`}
             onClick={onBrowserClick}
           >

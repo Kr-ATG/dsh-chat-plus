@@ -24,7 +24,7 @@
  * Usage: node scripts/smoke-host.mjs
  */
 
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -271,7 +271,8 @@ else pass('deferred webServer callback executed')
 // 图片文件，好让官方右侧 Sidebar 像打开普通文件一样打开（它的文档预览只认真
 // 实文件，data URL 不是文件）。注册成 exact 而不是把读图路由改成 prefix ——
 // 改成 prefix 会动到 /generated-images 这条既有契约的路由形状。
-// 原 fonts 路由（界面字体 woff2 资产）已随「界面字体」整块移除。
+// fonts 是「界面字体」的资产路由（霞鹜新致宋 woff2 不内联进 client 产物）。
+// 2026-10-14 曾随「界面字体」整块下线，2026-10-25 按用户要求装回来 —— 计数 +1。
 // browser-activity 是 2026-10-20 新增：会话行 / 标题栏「浏览器操作中」标志的
 // 数据源（只读轮询）。它注册在插件自己的延迟注入里，与其它路由同生共死，
 // 所以计数一并 +1 —— 漏注册的表现是「图标永远不亮」，只能靠计数断言钉住。
@@ -282,8 +283,8 @@ else pass('deferred webServer callback executed')
 // 拉到前台（用户：「点击浏览器图标自动进入到ego那个工作空间」）。它挂在
 // running-apps 的延迟注入里、共用同一个常驻 PowerShell 采集器 —— 漏注册的表现
 // 是「点了图标没反应」，界面上同样没有任何报错，只能靠计数断言钉住。
-if (registered.length !== 11) {
-  fail(`expected exactly 11 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
+if (registered.length !== 12) {
+  fail(`expected exactly 12 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
 } else {
   const exacts = registered.filter(spec => spec?.kind === 'exact')
   const prefix = registered.filter(spec => spec?.kind === 'prefix')
@@ -304,6 +305,20 @@ if (registered.length !== 11) {
   } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/activate-window')) {
     fail('missing activate-window route (exact /api/chat-flow/activate-window) —— '
       + '点浏览器标志切到 ego 窗口就靠它，漏注册等于点了没反应')
+  } else if (!/return nowPid != 0 && nowPid == targetPid/.test(
+    readFileSync(resolve(ROOT, 'src/running-apps/collect.ts'), 'utf8'))) {
+    /*
+     * 窗口激活必须**校验结果**，不能无条件 return true（2026-10-25 修的 bug）。
+     *
+     * 原来 Activate 结尾直接 return true，于是路由永远回 ok:true —— 而实测
+     * 前台窗口根本没变（只调 AttachThreadInput + SetForegroundWindow 不够，
+     * 采集器那个 PowerShell 线程不是前台线程，拿不到置顶权）。客户端因此
+     * 一直以为成功了，用户看到的就是「点了不跳转」。
+     *
+     * 现在拿 GetForegroundWindow 比对，没变就返回 false。
+     */
+    fail('Activate 必须校验结果（GetForegroundWindow 比对），不能无条件 return true —— '
+      + '否则路由永远回 ok:true，客户端以为成功、用户看到的是点了没反应')
   } else {
     pass('registered GET /api/chat-flow/generated-images (+ /materialize) + /open-path + /open-file + /tools-gate + /browser-activity (kind=exact)')
   }
@@ -325,6 +340,12 @@ if (registered.length !== 11) {
   } else {
     pass('registered /api/chat-flow/office (kind=prefix, info/page/pdf/thumb)')
   }
+  const fonts = prefix.find(spec => spec?.path === '/api/chat-flow/fonts')
+  if (fonts === undefined) {
+    fail(`missing font asset route (prefix /api/chat-flow/fonts): ${JSON.stringify(prefix)}`)
+  } else {
+    pass('registered /api/chat-flow/fonts (kind=prefix, woff2 + license)')
+  }
   for (const spec of registered) {
     if (typeof spec?.handler !== 'function') fail(`route handler is not a function: ${spec?.path}`)
   }
@@ -332,6 +353,92 @@ if (registered.length !== 11) {
   const disposer = effectDisposer
   if (typeof disposer === 'function') pass('routes return disposers (unregisterable)')
   else fail('route registration did not return an unregister disposer')
+}
+
+/* ── 界面字体：资产必须真的随包存在 + 路由真的吐得出来 ────────────────────
+ *
+ * 这块的失效方式全是静默的：资产没进包 → 用户切到霞鹜新致宋后浏览器拿 404，
+ * 页面**不会报错**，只是悄悄回退系统字体，看起来像「功能没生效」；路由把任意
+ * 文件名也放行 → 变成任意文件读。所以既要断言文件在位，也要真发请求。
+ */
+{
+  const FONT_DIR = resolve(ROOT, 'assets', 'fonts')
+  const woff2 = resolve(FONT_DIR, 'lxgw-neozhisong-screen.woff2')
+  const license = resolve(FONT_DIR, 'IPA-Font-License-1.0.md')
+  if (!existsSync(woff2)) {
+    fail(`字体资产缺失：${woff2}（切到霞鹜新致宋会静默回退系统字体）`)
+  } else {
+    const size = statSync(woff2).size
+    // 全字集约 5MB；明显偏小说明是子集或文件被截断（掉字同样不报错）。
+    if (size < 3 * 1024 * 1024) fail(`字体资产偏小（${(size / 1024 / 1024).toFixed(2)} MB），可能被截断或误换成子集`)
+    else pass(`字体资产在位（${(size / 1024 / 1024).toFixed(2)} MB 全字集 woff2）`)
+  }
+  if (!existsSync(license)) fail(`字体许可文件缺失：${license}（IPA 协议要求随字体一并分发）`)
+  else pass('字体许可原文随包分发（IPA Font License 1.0）')
+
+  // 产物必须**不**内联字体：5.0MB 的 base64 会让所有用户白下载 6.6MB。
+  const clientBundle = readFileSync(resolve(ROOT, 'lib/client.js'), 'utf8')
+  if (clientBundle.includes('data:font/woff2;base64,')) {
+    fail('client 产物内联了字体 base64（每个用户都要白下载，必须走 host 路由）')
+  } else {
+    pass('client 产物未内联字体（默认档零下载，按需拉取）')
+  }
+
+  // 真链路：起 http 服务挂路由，验证命中 / 未知名 / HEAD。
+  const http = await import('node:http')
+  const fontRegs = []
+  const fontWebCtx = {
+    logger: { warn: () => {}, error: () => {}, info: () => {}, debug: () => {} },
+    effect(fn) { const d = fn(); return typeof d === 'function' ? d : () => {} },
+    webServer: { register(spec) { fontRegs.push(spec); return () => {} } },
+  }
+  mod.applyFontRoutes(fontWebCtx)
+  const fontRoute = fontRegs.find(spec => spec?.path === '/api/chat-flow/fonts')
+  if (fontRoute === undefined) {
+    fail('applyFontRoutes 未注册 /api/chat-flow/fonts')
+  } else {
+    const server = http.createServer((req, res) => fontRoute.handler(req, res))
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = server.address().port
+    const request = (method, path) => new Promise((resolve) => {
+      const req = http.request({ host: '127.0.0.1', port, path, method }, (res) => {
+        const chunks = []
+        res.on('data', (c) => chunks.push(c))
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }))
+      })
+      req.on('error', () => resolve({ status: 0, headers: {}, body: Buffer.alloc(0) }))
+      req.end()
+    })
+    try {
+      const hit = await request('GET', '/api/chat-flow/fonts/lxgw-neozhisong-screen.woff2')
+      // woff2 的魔数：'wOF2'。断言真实字体字节而不是只看 200 —— 200 空体同样
+      // 会让浏览器静默回退，是最难发现的那种坏法。
+      const magic = hit.body.subarray(0, 4).toString('latin1')
+      if (hit.status !== 200) fail(`字体路由应 200，实得 ${hit.status}`)
+      else if (hit.headers['content-type'] !== 'font/woff2') fail(`字体 content-type 应为 font/woff2，实得 ${hit.headers['content-type']}`)
+      else if (magic !== 'wOF2') fail(`字体响应不是 woff2（魔数 ${JSON.stringify(magic)}）`)
+      else if (Number(hit.headers['content-length']) !== hit.body.length) fail('字体 content-length 与实际字节数不符')
+      else if (!/immutable/.test(String(hit.headers['cache-control']))) fail(`字体应带 immutable 缓存头，实得 ${hit.headers['cache-control']}`)
+      else pass(`字体路由端到端可用（${hit.body.length} 字节 woff2 + immutable 缓存）`)
+
+      const licenseHit = await request('GET', '/api/chat-flow/fonts/IPA-Font-License-1.0.md')
+      if (licenseHit.status !== 200) fail(`许可文件应 200，实得 ${licenseHit.status}`)
+      else pass('许可文件可经路由取到（前端可链接）')
+
+      const head = await request('HEAD', '/api/chat-flow/fonts/lxgw-neozhisong-screen.woff2')
+      if (head.status !== 200 || head.body.length !== 0) fail(`HEAD 应 200 且无体，实得 ${head.status}/${head.body.length}`)
+      else pass('HEAD 请求回 200 无体（浏览器探测不白传 5MB）')
+
+      // 未知文件名必须 404 —— 这条路由族**不能**变成任意文件读。
+      for (const bad of ['/api/chat-flow/fonts/../../../etc/passwd', '/api/chat-flow/fonts/secret.txt', '/api/chat-flow/fonts/']) {
+        const res = await request('GET', bad)
+        if (res.status !== 404) fail(`未知名应 404（防任意文件读），${bad} 实得 ${res.status}`)
+      }
+      pass('未知/穿越文件名一律 404（不回落成任意文件读）')
+    } finally {
+      await new Promise(resolve => server.close(resolve))
+    }
+  }
 }
 
 // ── 数据安全与注入面（读源码断言，锁住这轮修掉的 P0/P1）──────────────────
