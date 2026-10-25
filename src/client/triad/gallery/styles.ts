@@ -30,119 +30,17 @@ const SHEET = `
 /* ── 工具条：搜索 + 时间筛选 + 视图切换 + 数量 + 刷新 ───────────── */
 .tg-toolbar{flex:none;display:flex;align-items:center;gap:10px;padding:8px 18px;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.12));background:transparent;flex-wrap:wrap}
 
-/* ── 类别筛选 chips（2026-10 简化：图标 + 文字 + 数字，仅此三样）─────
-   基础形态就是一枚素胶囊；工作台作用域（hub/theme.ts）再覆写配色。
-   简化时一并删掉了三个已不再渲染的装饰层：图标盒（圆角方底 + 描边）、
-   悬浮计数角标、选中态圆点；它们的样式与 reduced-motion 引用都已清理干净。
-   也删掉了原「底部悬浮 Dock」的绝对定位（absolute / bottom / 50% / 毛玻璃底 /
-   阴影 / 入场动画）——它现在就是工具条里的一个普通 flex 子项。 */
-.tg-dock{display:inline-flex;align-items:center;flex-wrap:wrap;gap:6px}
-/* 芯片本体是 div（外层做布局与 data 态），真正的「选中这个分类」是里面那枚
-   .tg-kind__pick —— 之所以不是单个 button：确认态里要放「确认/取消」两枚真按钮，
-   而 button 不能嵌套 button。视觉上两者合一，用户看到的仍是一枚胶囊。 */
-.tg-dock__item,.tg-kind{display:inline-flex;align-items:center;justify-content:center;gap:5px;
-  padding:4px 10px;border-radius:999px;border:none;background:transparent;
-  color:var(--dsw-alias-label-secondary,#6b7280);cursor:pointer;user-select:none;outline:none;
-  font-family:inherit;font-size:12px;line-height:18px;
-  transition:background 280ms cubic-bezier(.32,.72,0,1),color 280ms cubic-bezier(.32,.72,0,1),padding-right 200ms cubic-bezier(.16,1,.3,1)}
-.tg-kind__pick{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0;border:none;
-  background:transparent;color:inherit;font-family:inherit;font-size:inherit;line-height:inherit;
-  cursor:pointer;outline:none}
-.tg-kind__pick:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b82f6);outline-offset:2px;border-radius:999px}
-.tg-kind__pick:disabled{cursor:default}
-.tg-dock__item:hover,.tg-kind:hover{color:var(--dsw-alias-label-primary,#111827)}
-.tg-dock__item:active,.tg-kind:active{transform:scale(.97)}
-.tg-dock__item:focus-visible,.tg-kind:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b82f6);outline-offset:2px}
+/* ── 类别胶囊条已整条删除（2026-10-25）───────────────────────────────
+   这里曾经是「图片 / 网页 / 视频 / PDF…」那一排类别胶囊（.tg-dock / .tg-kind），
+   上面挂着每个类别的实时计数与「一次清空整个分类」的批量删除键。
 
-.tg-dock__item[data-active="true"],.tg-kind[data-active="true"]{color:var(--dsw-alias-label-primary,#111827);font-weight:600}
+   现在两件事都不在页内了：
+    ① 类别入口搬进侧栏二级菜单（操作间 → 画廊 → 8 个类别）；
+    ② 用户点名「画廊页面的这些不需要了删除掉」，胶囊栏连同它的批量删除一起
+       下线（当时明确选了「一起删掉，彻底干净」，不是收进某个图标按钮里）。
 
-.tg-dock__label{font-size:11px;line-height:14px;font-weight:500;white-space:nowrap;letter-spacing:.01em}
-.tg-dock__item[data-active="true"] .tg-dock__label,.tg-kind[data-active="true"] .tg-dock__label{font-weight:600}
-/* 计数：真实数字（2026-10-16 起不再做两位数的近似显示）。
-   tabular-nums + nowrap 让 4~5 位数不换行；数字等宽，位数变多只是让胶囊变宽，
-   超长时由 .tg-dock 的 flex-wrap 换行，不截断、不缩写 —— 用户问的就是这个数。 */
-.tg-dock__num{font-size:10.5px;line-height:14px;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary,#888);
-  white-space:nowrap;font-feature-settings:"tnum" 1}
-
-/* ── 分类芯片上的删除键（2026-10-16 新增：分类级删除）─────────────
-   手感与 kr-chat 的 kr-memory__act 同一套：常态淡出并右移 3px，指针落到芯片上
-   或键盘聚焦时才浮现归位 —— 破坏性操作不该在工具条里常驻抢注意力。
-   与 kr-chat 的两处**刻意差异**：
-   ① 这里不能只靠 :hover。触摸屏没有 hover 通路，hover-only 等于「永远点不到」，
-      所以按 B3 走三档可见性兜底：触屏（hover:none）常显 / 键盘聚焦浮现 /
-      当前选中分类常显。
-   ② 隐藏态**只用 opacity + pointer-events**，不用 display:none，也不用
-      visibility:hidden —— 后两者会把元素移出可聚焦序列，键盘用户 Tab 一辈子
-      也到不了它（可见性依赖动画/隐藏的经典坑）。opacity:0 的元素仍可聚焦，
-      一旦聚焦 :focus-visible 就把它显出来。 */
-.tg-kind__del{display:inline-flex;align-items:center;justify-content:center;flex:none;
-  width:16px;height:16px;padding:0;margin-left:-1px;border:none;border-radius:5px;
-  background:transparent;color:var(--dsw-alias-label-tertiary,#888);cursor:pointer;
-  opacity:0;pointer-events:none;
-  transition:opacity 160ms ease,transform 200ms cubic-bezier(.16,1,.3,1),background 150ms ease,color 150ms ease;
-  transform:translateX(3px)}
-.tg-kind:hover .tg-kind__del,
-.tg-kind__del:focus-visible,
-.tg-kind[data-active="true"] .tg-kind__del{opacity:1;pointer-events:auto;transform:translateX(0)}
-.tg-kind__del:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary,#000) 12%,transparent);color:var(--dsw-alias-state-error-primary,#dc2626)}
-.tg-kind__del:active{transform:scale(.88)}
-.tg-kind__del:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b82f6);outline-offset:1px}
-/* 空分类：删除键仍在位（布局不跳）但不可点，且不被 hover 浮现规则点亮 ——
-   一枚"点了什么也不会发生"的垃圾桶比没有垃圾桶更糟。 */
-.tg-kind__del:disabled{opacity:0!important;pointer-events:none;cursor:default}
-.tg-kind:hover .tg-kind__del:disabled{opacity:0!important}
-/* 触屏常显（没有 hover 就没有浮现通路） */
-@media (hover:none){.tg-kind__del{opacity:.75;pointer-events:auto;transform:none}}
-
-/* 确认态：删除键那一下之后，芯片**原地**换成问题 + 确认 / 取消。
-   芯片本身撑宽一点（padding-right 让步），读起来像同一枚胶囊在展开，而不是
-   旁边凭空多出一截 UI。
-   两处 !important 是必要的：工作台主题（hub/theme.ts）用 !important 覆写了
-   .tg-dock__item 的 padding 与 background，普通优先级在这里赢不了它，确认态
-   的底色与内距会被吃回去（看起来就像"点了没反应"）。 */
-.tg-kind[data-confirm="true"]{gap:6px;padding-right:6px!important;background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#dc2626) 9%,transparent)!important}
-.tg-kind[data-confirm="true"] .tg-kind__pick,
-.tg-kind[data-busy="true"] .tg-kind__pick{color:var(--dsw-alias-label-primary,#111827)}
-.tg-kind__confirm{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;animation:tg-kind-confirm-in 180ms cubic-bezier(.16,1,.3,1)}
-@keyframes tg-kind-confirm-in{from{opacity:0;transform:translateX(4px)}to{opacity:1;transform:translateX(0)}}
-.tg-kind__ask{font-size:10.5px;line-height:14px;color:var(--dsw-alias-label-secondary,#6b7280);font-variant-numeric:tabular-nums}
-/* 「不可恢复」是确认态里唯一不可省的语义（删的是磁盘文件），所以它**不能**被
-   省略号截掉、也不能靠 title：小一号 + 告警色让它退到问句之后当附注，但仍与
-   问句连读成一句完整的话，触屏与键盘用户一眼可见。
-   刻意不写 overflow:hidden / text-overflow：那会把这四个字本身裁掉，等于回到
-   "后果只有鼠标用户看得到"的老问题。宽度不够时由外层降字号承担（见下面的窄屏档）。 */
-.tg-kind__warn{margin-left:4px;font-size:10px;color:var(--dsw-alias-state-error-primary,#dc2626);font-weight:600}
-.tg-kind__yes,.tg-kind__no{display:inline-flex;align-items:center;height:17px;padding:0 7px;border-radius:9px;
-  border:1px solid transparent;font-family:inherit;font-size:10.5px;font-weight:600;line-height:1;cursor:pointer;
-  transition:background 140ms ease,color 140ms ease,transform 130ms cubic-bezier(.2,.8,.2,1)}
-.tg-kind__yes{background:var(--dsw-alias-state-error-primary,#dc2626);color:#fff}
-.tg-kind__yes:hover{filter:brightness(1.1);transform:translateY(-1px)}
-.tg-kind__yes:active{transform:translateY(0) scale(.95)}
-.tg-kind__yes:disabled{opacity:.55;cursor:default;transform:none;filter:none}
-.tg-kind__no{background:transparent;color:var(--dsw-alias-label-secondary,#6b7280);border-color:var(--dsw-alias-border-l2,rgba(127,127,127,.22))}
-.tg-kind__no:hover{color:var(--dsw-alias-label-primary,#111827);background:color-mix(in srgb,var(--dsw-alias-label-primary,#000) 8%,transparent)}
-.tg-kind__no:active{transform:scale(.95)}
-.tg-kind__yes:focus-visible,.tg-kind__no:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b82f6);outline-offset:1px}
-/* 窄屏兜底：确认态比常态芯片宽（多了「不可恢复」四个字 + 两枚按钮），手机上再叠
-   一层字号与内距收缩。按 169 项这个最长现实值估算：常规档约 202px，这一档约
-   182px —— 落在最窄手机视口（320px）内，不会把工具条撑出横向滚动。
-   收缩的是**字号与留白**，不是省略号：语义一个字都不能少（见上面的说明）。
-   工具条本身是 flex-wrap，所以即便真的放不下，也是整体换行而不是溢出。 */
-@media (max-width:640px){
-  .tg-kind[data-confirm="true"]{gap:5px;padding-right:5px!important}
-  .tg-kind__confirm{gap:4px}
-  .tg-kind__ask{font-size:10px}
-  .tg-kind__warn{font-size:9.5px;margin-left:3px}
-  .tg-kind__yes,.tg-kind__no{height:16px;padding:0 6px;font-size:10px}
-}
-
-/* 删除中：芯片禁止重复点击，整枚胶囊轻微脉冲 —— 用「还在动」表达请求在飞，
-   而不是塞一枚转圈（工具条里转圈太多，已经有一个刷新的了）。
-   pointer-events:none 只挡鼠标，键盘的 Enter 由内层 button 的 disabled 拦。 */
-.tg-kind[data-busy="true"]{pointer-events:none;opacity:.72;background:color-mix(in srgb,var(--dsw-alias-label-primary,#000) 6%,transparent)!important}
-.tg-kind[data-busy="true"] .tg-kind__confirm{animation:tg-kind-busy 1.1s ease-in-out infinite}
-@keyframes tg-kind-busy{0%,100%{opacity:1}50%{opacity:.5}}
-
+   所以下面直接从工具条的搜索框开始 —— 中间那段空白是刻意的，不要再把类别
+   胶囊加回来：侧栏已经是类别的唯一入口，页内再来一排只会让人不知道该点哪。 */
 .tg-search{position:relative;flex:1;min-width:140px;max-width:400px;margin-left:0}
 .tg-search__icon{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--dsw-alias-label-tertiary,#888);pointer-events:none;display:flex}
 .tg-search__input{width:100%;box-sizing:border-box;height:30px;padding:0 10px 0 28px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.18));background:transparent;color:var(--dsw-alias-label-primary,#111827);font-size:12px;font-family:inherit;outline:none;transition:border-color 140ms ease,box-shadow 140ms ease}
@@ -193,7 +91,7 @@ const SHEET = `
    卡片的主语义换成了「用默认应用打开」，但浏览时不该被迫为每张图开一个外部窗口 ——
    这枚眼睛只负责「在这里看看」。hover / focus-within 浮现，平时不占视觉；
    缩略图角落铺一层模糊底，压在任意颜色的图上都读得清。 */
-.tg-card__peek{position:absolute;right:8px;bottom:8px;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;color:#fff;background:rgba(15,17,23,.72);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(8px);opacity:0;transform:translateY(4px) scale(.94);transition:opacity 180ms ease,transform 220ms cubic-bezier(.2,.8,.2,1),background 160ms ease;cursor:pointer;z-index:2}
+.tg-card__peek{position:absolute;right:40px;bottom:8px;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;color:#fff;background:rgba(15,17,23,.72);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(8px);opacity:0;transform:translateY(4px) scale(.94);transition:opacity 180ms ease,transform 220ms cubic-bezier(.2,.8,.2,1),background 160ms ease;cursor:pointer;z-index:2}
 .tg-card:hover .tg-card__peek,.tg-card:focus-within .tg-card__peek{opacity:1;transform:translateY(0) scale(1)}
 .tg-card__peek:hover{background:rgba(15,17,23,.9);border-color:rgba(255,255,255,.32)}
 .tg-card__peek:active{transform:scale(.92)}
@@ -300,37 +198,47 @@ const SHEET = `
 @keyframes tg-clock-sway{0%,100%{transform:rotate(0deg)}25%{transform:rotate(-9deg)}75%{transform:rotate(9deg)}}
 .tg-time-bar__name{color:var(--dsw-alias-label-primary,#111827);font-weight:600;max-width:46ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-/* ── 时间轴视图 ─────────────────────────────────────────────────── */
+/* ── 时间轴视图（极简现代质感，支持单日折叠与整组折叠）─────────────── */
 /* 不用 content-visibility:auto：滚动时分组进出视口会触发整组重布局 + 组内
    lazy 图集中加载，实测掉到 43fps 且伴随 longtask 卡顿；去掉后 280+fps。
    屏外成本改由 img loading=lazy 单独承担。 */
-.tg-day{position:relative;padding-left:22px;margin-bottom:2px;animation:tg-day-in 340ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
-@keyframes tg-day-in{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}
-/* 竖轨：自上而下生长 */
-.tg-day::before{content:"";position:absolute;left:5px;top:4px;bottom:-2px;width:2px;border-radius:1px;background:var(--dsw-alias-border-l2,rgba(127,127,127,.18));transform-origin:top;animation:tg-rail-grow 520ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
-.tg-day:last-child::before{bottom:auto;height:22px}
+.tg-day{position:relative;padding-left:26px;margin-bottom:26px;transition:margin-bottom 180ms ease;animation:tg-day-in 340ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 45ms)}
+.tg-day[data-collapsed="true"]{margin-bottom:8px}
+@keyframes tg-day-in{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
+/* 竖轨：极简细线，自上而下生长 */
+.tg-day::before{content:"";position:absolute;left:7px;top:15px;bottom:-26px;width:1.5px;border-radius:1px;background:var(--dsw-alias-border-l1,rgba(127,127,127,.14));transform-origin:top;animation:tg-rail-grow 480ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 45ms)}
+.tg-day:last-child::before{bottom:auto;height:14px}
+.tg-day[data-collapsed="true"]::before{bottom:-8px}
+.tg-day:last-child[data-collapsed="true"]::before{bottom:auto;height:14px}
 @keyframes tg-rail-grow{from{transform:scaleY(0);opacity:0}to{transform:scaleY(1);opacity:1}}
-/* 日期头：钉住 + 节点 */
-/* 不 sticky：sticky 头在滚动期每帧参与合成重绘（实测掉 6fps）；日期头随内容滚走，
-   分组感由竖轨节点承担。 */
-.tg-day__head{position:relative;display:flex;align-items:center;gap:7px;padding:5px 10px 5px 0;margin-bottom:7px;animation:tg-fade-in 260ms ease backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms)}
-.tg-day__dot{position:absolute;left:-20px;top:50%;width:8px;height:8px;margin-top:-4px;border-radius:50%;background:var(--dsw-alias-state-business-primary,#3b82f6);box-shadow:0 0 0 3px var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff));animation:tg-dot-pop 380ms cubic-bezier(.2,1.5,.4,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms + 60ms)}
-@keyframes tg-dot-pop{from{opacity:0;transform:scale(0)}60%{opacity:1;transform:scale(1.35)}to{opacity:1;transform:scale(1)}}
-.tg-day__label{font-size:13.5px;font-weight:600;color:var(--dsw-alias-label-primary,#111827);letter-spacing:.01em}
-.tg-day__weekday{font-size:11px;font-weight:500;color:var(--dsw-alias-label-tertiary,#888);padding:1.5px 7px;border-radius:7px;background:var(--dsw-alias-bg-module-platform,color-mix(in srgb,var(--dsw-alias-label-primary,#000) 5%,transparent));border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.12))}
-.tg-day__count{font-size:11px;color:var(--dsw-alias-label-tertiary,#888);font-variant-numeric:tabular-nums}
-.tg-day__rule{flex:1;height:1px;background:var(--dsw-alias-border-l1,rgba(127,127,127,.12));transform-origin:left;animation:tg-rule-in 420ms cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 55ms + 90ms)}
-@keyframes tg-rule-in{from{transform:scaleX(0);opacity:0}to{transform:scaleX(1);opacity:1}}
-/* 手机相册式高密度方格：正方形缩略图铺满。
-   2026-10-24 用户要求「所有格式的时间轴都变大一点」：最小列宽 150 → 182、
-   gutter 10 → 14，格子整体放大约 21%（缩略图、图标、徽标、文件名同步加法，
-   见下面 .tg-card--tile / .tg-tile__* 一组），保持方格比例不变。 */
+/* 日期头：整行作为收起/展开按钮，悬浮微底色，干净极简 */
+.tg-day__head{position:relative;display:inline-flex;align-items:center;gap:6px;padding:3px 8px 3px 4px;margin-bottom:12px;border-radius:8px;border:none;background:transparent;color:inherit;cursor:pointer;font-family:inherit;text-align:left;user-select:none;transition:background 140ms ease,transform 120ms ease;animation:tg-fade-in 240ms ease backwards;animation-delay:calc(var(--tg-day-i,0) * 45ms)}
+.tg-day__head:hover{background:var(--dsw-alias-bg-layer-2,color-mix(in srgb,var(--dsw-alias-label-primary,#000) 5%,transparent))}
+.tg-day__head:active{transform:scale(.985)}
+.tg-day__head:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b82f6);outline-offset:1px}
+/* 时间轴节点：安静质感空心圆，hover 或折叠时柔和响应 */
+.tg-day__dot{position:absolute;left:-22px;top:50%;width:7px;height:7px;margin-top:-3.5px;border-radius:50%;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff));border:1.5px solid var(--dsw-alias-border-l3,rgba(127,127,127,.38));box-sizing:border-box;transition:transform 160ms cubic-bezier(.2,.8,.2,1),border-color 160ms ease,background 160ms ease,box-shadow 160ms ease;animation:tg-dot-pop 340ms cubic-bezier(.2,1.5,.4,1) backwards;animation-delay:calc(var(--tg-day-i,0) * 45ms + 50ms)}
+@keyframes tg-dot-pop{from{opacity:0;transform:scale(0)}to{opacity:1;transform:scale(1)}}
+.tg-day__head:hover .tg-day__dot{border-color:var(--dsw-alias-state-business-primary,#3b82f6);background:var(--dsw-alias-state-business-primary,#3b82f6);transform:scale(1.25);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary,#3b82f6) 20%,transparent)}
+.tg-day[data-collapsed="true"] .tg-day__dot{border-color:var(--dsw-alias-label-tertiary,#888);background:var(--dsw-alias-border-l2,rgba(127,127,127,.22))}
+/* 折叠箭头 */
+.tg-day__chevron{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;color:var(--dsw-alias-label-tertiary,#888);transition:transform 200ms cubic-bezier(.2,.8,.2,1),color 140ms ease;flex:none}
+.tg-day__head:hover .tg-day__chevron{color:var(--dsw-alias-label-primary,#111827)}
+.tg-day[data-collapsed="true"] .tg-day__chevron{transform:rotate(-90deg)}
+/* 日期与星期 */
+.tg-day__label{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#111827);letter-spacing:.005em;line-height:1.2}
+.tg-day__weekday{font-size:11.5px;font-weight:400;color:var(--dsw-alias-label-tertiary,#888);margin-left:1px;line-height:1.2}
+/* 数量胶囊：简约扁平 */
+.tg-day__count{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:9px;font-size:11px;font-weight:500;color:var(--dsw-alias-label-tertiary,#888);background:var(--dsw-alias-bg-module-platform,color-mix(in srgb,var(--dsw-alias-label-primary,#000) 4%,transparent));border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.1));font-variant-numeric:tabular-nums;line-height:1;margin-left:3px;transition:color 140ms ease,background 140ms ease,border-color 140ms ease}
+.tg-day[data-collapsed="true"] .tg-day__count{color:var(--dsw-alias-state-business-primary,#3b82f6);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3b82f6) 10%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary,#3b82f6) 20%,transparent);font-weight:600}
+/* 网格 */
 .tg-day__tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(182px,1fr));gap:14px 14px}
-@media (max-width:640px){.tg-day__tiles{grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:12px 10px}.tg-day{padding-left:18px}.tg-day::before{left:4px}.tg-day__dot{left:-17px}}
+.tg-day[data-collapsed="true"] .tg-day__tiles{display:none}
+@media (max-width:640px){.tg-day__tiles{grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:12px 10px}.tg-day{padding-left:20px}.tg-day::before{left:5px}.tg-day__dot{left:-18px}}
 
-/* 方格卡片：无内边距、无下缘 meta，名字沉到 hover 浮层 */
-.tg-card--tile{border-radius:12px;border-color:transparent;background:var(--dsw-alias-bg-module-platform,rgba(255,255,255,.04));animation-duration:220ms;animation-delay:calc(var(--tg-i,0) * 14ms)}
-.tg-card--tile:hover{transform:translateY(-3px);border-color:var(--dsw-alias-border-l2,rgba(255,255,255,.2));box-shadow:0 10px 26px rgba(0,0,0,.36);z-index:2}
+/* 方格卡片：无内边距、微边框定义、无下缘 meta，名字沉到 hover 浮层 */
+.tg-card--tile{border-radius:12px;border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.12));background:var(--dsw-alias-bg-module-platform,rgba(255,255,255,.04));animation-duration:220ms;animation-delay:calc(var(--tg-i,0) * 14ms);transition:transform 180ms cubic-bezier(.2,.8,.2,1),box-shadow 180ms ease,border-color 180ms ease}
+.tg-card--tile:hover{transform:translateY(-3px);border-color:var(--dsw-alias-border-l2,rgba(127,127,127,.28));box-shadow:0 8px 24px color-mix(in srgb,var(--dsw-alias-label-primary,#000) 12%,transparent);z-index:2}
 .tg-tile__thumb{position:relative;width:100%;aspect-ratio:1/1;overflow:hidden;border-radius:12px;background:var(--dsw-alias-bg-module-platform,rgba(255,255,255,.05));display:flex;align-items:center;justify-content:center}
 .tg-tile__thumb .tg-card__img{border-radius:12px}
 .tg-tile__thumb .tg-card__icon svg{width:36px;height:36px}
@@ -341,23 +249,21 @@ const SHEET = `
 .tg-card--tile .tg-card__kind-dot{display:none}
 .tg-card--tile .tg-card__count{opacity:1;transform:none;top:7px;left:7px;height:17px;padding:0 8px;font-size:10px}
 /* 徽标撤走后快捷点回到角上（原 top:30px 是为了给它让位） */
-.tg-card--tile .tg-card__peek{right:7px;bottom:auto;top:7px;width:24px;height:24px;border-radius:8px}
+.tg-card--tile .tg-card__peek{right:37px;bottom:auto;top:7px;width:24px;height:24px;border-radius:8px}
 /* 单卡删除钮（2026-10-24）：hover / 聚焦浮现。
-   网格视图里预览眼占着右下角，删除钮排在它左边（right:40px）；方格视图里
-   下缘是文件名、没有角落可用，两枚并排挂在缩略图顶部（见下面 .tg-card--tile 那条）。
+   网格视图里预览眼在左（right:40px），删除钮在右角（right:8px）；方格视图里
+   两枚并排挂在缩略图顶部：预览眼在左（right:37px），删除钮在右角（right:7px）。
    第一次点变成红底「删除?」，再点一次才真删 —— 所以确认态必须有足够宽度，
-   否则文字挤不下会被裁掉。 */
-.tg-card__del{position:absolute;right:40px;bottom:8px;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border-radius:8px;color:#fff;background:rgba(15,17,23,.72);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(8px);opacity:0;transform:translateY(4px) scale(.94);transition:opacity 180ms ease,transform 220ms cubic-bezier(.2,.8,.2,1),background 160ms ease,border-color 160ms ease,width 180ms cubic-bezier(.2,.8,.2,1);cursor:pointer;z-index:3;font-family:inherit}
+   向左撑开时已隐藏预览眼避免遮挡。 */
+.tg-card__del{position:absolute;right:8px;bottom:8px;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border-radius:8px;color:#fff;background:rgba(15,17,23,.72);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(8px);opacity:0;transform:translateY(4px) scale(.94);transition:opacity 180ms ease,transform 220ms cubic-bezier(.2,.8,.2,1),background 160ms ease,border-color 160ms ease,width 180ms cubic-bezier(.2,.8,.2,1);cursor:pointer;z-index:3;font-family:inherit}
 .tg-card:hover .tg-card__del,.tg-card:focus-within .tg-card__del{opacity:1;transform:translateY(0) scale(1)}
 .tg-card__del:hover{background:rgba(220,60,60,.9);border-color:rgba(255,255,255,.36)}
 .tg-card__del:active{transform:scale(.92)}
 .tg-card__del[data-armed="true"]{width:auto;min-width:52px;padding:0 9px;background:rgba(214,48,48,.96);border-color:rgba(255,255,255,.5);box-shadow:0 0 0 2px rgba(214,48,48,.22)}
 .tg-card__del-text{font-size:11px;font-weight:600;line-height:1;white-space:nowrap;letter-spacing:.02em}
 .tg-card__del svg{pointer-events:none}
-/* 方格里：缩略图占满整块、下缘是文件名，没有"右下角"可用 ——
-   两枚按钮并排挂在缩略图顶部：预览眼贴右（7px），删除在它左边（37px）。
-   确认态向左撑开，不会盖住眼睛。 */
-.tg-card--tile .tg-card__del{right:37px;bottom:auto;top:7px;width:24px;height:24px;border-radius:8px}
+/* 方格里：两枚按钮并排挂在缩略图顶部：预览眼在左（37px），删除在右（7px）。 */
+.tg-card--tile .tg-card__del{right:7px;bottom:auto;top:7px;width:24px;height:24px;border-radius:8px}
 .tg-card--tile .tg-card__del[data-armed="true"]{min-width:50px;padding:0 8px}
 /* 文件名与时间：**不再常驻在缩略图下方**（2026-10-25 用户要求）——
    默认整块隐去，格子就是一个干净的正方形缩略图；鼠标移上来（或键盘聚焦）时
@@ -611,8 +517,8 @@ const SHEET = `
 }
 
 @media (prefers-reduced-motion:reduce){
-  .tg-card,.tg-skel,.tg-empty,.tg-stale,.tg-session-bar,.tg-dock{animation:none!important}
-  .tg-card,.tg-card:hover,.tg-icon-btn,.tg-kind,.tg-dock__item,.tg-card__img,.tg-card__icon,.tg-card__kind-dot,.tg-card__peek,.tg-card__del{transition:none!important}
+  .tg-card,.tg-skel,.tg-empty,.tg-stale,.tg-session-bar{animation:none!important}
+  .tg-card,.tg-card:hover,.tg-icon-btn,.tg-card__img,.tg-card__icon,.tg-card__kind-dot,.tg-card__peek,.tg-card__del{transition:none!important}
   /* 减弱动效下预览眼直接常显（否则要 hover 才有反应）。
      单卡删除钮**刻意不跟进**：一屏一百多张卡片各挂一枚常显的垃圾桶是纯噪声，
      而它的键盘路径已经由卡片上的 Delete 键承担，不依赖这枚按钮可见。 */
@@ -621,22 +527,21 @@ const SHEET = `
   .tg-empty__icon,.tg-stale__dot,.tg-icon-btn[data-spinning="true"] svg{animation:none!important}
   .glb,.glb-panel,.glb-head,.glb-body,.glb-media,.glb-note,.glb-paged__bar,.glb-zoom{animation:none!important}
   .glb-btn,.glb-nav,.glb-paged__step,.glb-paged__img,.glb-zoom__hint,.glb-zoom__reset{transition:none!important}
-  .glb-spin,.glb-spin-inline{animation:none!important}
-  .tg-day,.tg-day::before,.tg-day__head,.tg-day__dot,.tg-day__rule,.tg-time-pop,.tg-search__time-tag,.tg-time-bar{animation:none!important}
+  .tg-day,.tg-day::before,.tg-day__head,.tg-day__dot,.tg-time-pop,.tg-search__time-tag,.tg-time-bar{animation:none!important}
+  .tg-day__chevron,.tg-day__dot,.tg-day__head{transition:none!important}
   /* 时间轴格子的名称浮层（2026-10-25）：只关过渡，**不动 opacity / display** ——
      hover 该浮现还是浮现，只是没有过渡帧。 */
   .tg-tile__meta{transition:none!important}
   .tg-time-pop__preset,.tg-time-pop__apply,.tg-view__btn{transition:none!important}
   .tg-time-bar__icon{animation:none!important}
-  /* 分类删除（2026-10-16）：只关动画与位移，**不动布局与可见性规则** ——
-     删除键该浮现还是浮现（opacity 立即切换），确认态该出现还是出现，条目该被删
-     还是被删，只是不再有过渡帧。注意这里刻意**不写** visibility / display：
-     写了就等于让"看不看得见"取决于这段媒体查询是否命中。 */
-  .tg-card--out,.tg-kind__confirm,.tg-kind[data-busy="true"] .tg-kind__confirm,.tg-del-error{animation:none!important}
-  .tg-kind__del,.tg-kind__yes,.tg-kind__no,.tg-del-error__close{transition:opacity 120ms linear,background 120ms linear,color 120ms linear}
-  .tg-kind__del{transform:none}
-  .tg-kind__del:active,.tg-kind__yes:active,.tg-kind__no:active{transform:none}
-  .tg-kind__yes:hover,.tg-kind__yes:active{transform:none}
+  /* 单卡删除（2026-10-24）的退场动画：只关动画与位移，**不动布局与可见性规则**
+     —— 卡片该退场还是退场、错误行该出现还是出现，只是不再有过渡帧。注意这里
+     刻意**不写** visibility / display：写了就等于让"看不看得见"取决于这段媒体
+     查询是否命中。
+     （2026-10-25：分类批量删除的确认态/busy 脉冲随胶囊栏一起删除，这里原本
+     点名它们的几行一并去掉。） */
+  .tg-card--out,.tg-del-error{animation:none!important}
+  .tg-del-error__close{transition:opacity 120ms linear,background 120ms linear,color 120ms linear}
   /* 刻意**不**在减弱动效下把退场卡片设成 opacity:0：动画关掉后它仍要等请求
      回来才从数据里摘掉，这期间让它保持原样（kr-chat 一键删记忆同款口径），
      否则会先"闪没"再等几百毫秒才真正消失。 */

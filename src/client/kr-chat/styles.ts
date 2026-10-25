@@ -1206,6 +1206,17 @@ body[data-kr-resizing="true"] * {
   color: var(--dsw-alias-label-secondary);
 }
 
+/*
+ * 行尾状态标签。
+ *
+ * 现在只有「未完成」一种（2026-10-25 按用户要求去掉行尾的「进行中」胶囊）。
+ * 基类留着：它是那枚未完成标签的尺寸与字号来源，也是将来若要再加行尾标签的
+ * 唯一样式入口。
+ *
+ * 「进行中」胶囊为什么删：同一个语义已经有三个出口——行首转圈图标、左侧呼吸
+ * 竖条、行底 5% 淡色。再挂一枚灰底胶囊是把同一句话说第四遍，而且它是整行最靠
+ * 右的一块有底色区域，扫清单时视线总被拽到那里。状态一点没丢：那三条都还在。
+ */
 .kr-task-item__tag {
   /* 状态标签：字级跟随官方字号轴（见「字号轴」段）。 */
   font-size: var(--kr-fs-11, 11px);
@@ -1217,15 +1228,9 @@ body[data-kr-resizing="true"] * {
   white-space: nowrap;
 }
 
-/* 「进行中」标签：中性色底 + 主文字色。
-   原来是一枚蓝色胶囊，一列里唯一的彩色块；改成中性后它与右侧「进行中」的
-   灰色文字读数同属一档，整行只有竖条与圆环在动，不再有第三处抢眼。 */
-.kr-task-item__tag--running {
-  color: var(--dsw-alias-label-primary, #1f2329);
-  background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 11%, transparent);
-}
-
-/* 停滞标签：中性灰描边，与「进行中」同形不同色——状态退化一眼可读。 */
+/* 停滞标签：中性灰描边 —— 状态退化一眼可读，且刻意与行内其它装饰区分开
+   （它可以是整张卡里唯一带描边的小块，因为它是唯一的「事实性告警」）。
+   曾经这里是「与进行中同形不同色」，进行中标签删掉后它就是行尾唯一的标签。 */
 .kr-task-item__tag--stalled {
   color: var(--dsw-alias-label-tertiary);
   background: transparent;
@@ -6084,12 +6089,32 @@ body[data-ds-dark-theme] .kr-settings__scrim {
   --kr-hover-bg: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, .06));
   --kr-accent: var(--dsw-alias-state-business-primary, #4176e6);
   --kr-card-shadow: 0 1px 2px rgba(15, 17, 21, .05), 0 6px 14px -8px rgba(15, 17, 21, .18);
-  /* 字号档位：卡片里同样跟随官方「设置 → 字号」轴。只声明本卡片用得到的三档 ——
-     全量七档挂在 .kr-card--* 那六个卡根上，浮层不继承那条规则。 */
-  --kr-fs-12: max(11px, calc(var(--dsh-content-font-size, 14px) - 2px));
-  --kr-fs-11: max(10px, calc(var(--dsh-content-font-size, 14px) - 3px));
-  --kr-fs-10-5: max(9.5px, calc(var(--dsh-content-font-size, 14px) - 3.5px));
-  --kr-fs-10: max(9.5px, calc(var(--dsh-content-font-size, 14px) - 4px));
+  /* 字号档位：卡片里同样跟随官方「设置 → 字号」轴。只声明本卡片用得到的档位 ——
+     全量七档挂在 .kr-card--* 那六个卡根上，浮层不继承那条规则。
+   *
+   * ## 2026-10-25 整体放大约 1.5px（用户：「设置里面的字也太小了」）───────
+   *
+   * 原来四档是 12 / 11 / 10.5 / 10px，也就是**比正文小 2～4px**，而且在同一个
+   * 面板里堆了四档：标签 12、说明 11、组标题 10.5、适用范围 10。读者要在一屏里
+   * 适应四种字号，其中两档已经掉到可读性下限（10px 的中文在 1080p 上要靠猜）。
+   *
+   * 设置面板不是「密度优先」的界面 —— 它一次只让人拨一两个开关，不需要为了塞进
+   * 一屏而牺牲可读性。所以整体抬到 13 / 12 / 11 三档，并把 10px 那档取消
+   * （--kr-fs-10 保留变量名但提到 11px，避免一次改所有引用点）。
+   *
+   * 为什么仍然比正文（14px）小：它是浮层、是「配置界面」而不是阅读界面，
+   * 与正文同号会让卡片显得笨重；13px 是「明显可读、但仍然退后一层」的档位。
+   *
+   * 下限也一并抬高：max() 的地板从 9.5/10/11 提到 11/11.5/12 —— 用户在官方
+   * 设置里把字号调到最小档时，这里不再跟着掉到 9.5px。 */
+  --kr-fs-13: max(12px, calc(var(--dsh-content-font-size, 14px) - 1px));
+  --kr-fs-12: max(11.5px, calc(var(--dsh-content-font-size, 14px) - 2px));
+  --kr-fs-11: max(11px, calc(var(--dsh-content-font-size, 14px) - 2.5px));
+  /* 10.5 / 10 两档已并入 11px：历史上它们是「比说明再小一点」的注脚档，
+     实测那样只是让路径、角标、页脚这些小字变得难读，层级并没有因此更清楚 ——
+     层级该靠颜色与位置拉开，不靠再小半像素。变量名保留，值合并。 */
+  --kr-fs-10-5: var(--kr-fs-11);
+  --kr-fs-10: var(--kr-fs-11);
   background: var(--kr-card-bg);
   border: 1px solid var(--kr-card-border);
   border-radius: 16px;
@@ -6134,7 +6159,7 @@ body[data-ds-dark-theme] .kr-settings {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  font-size: var(--kr-fs-12, 12px);
+  font-size: var(--kr-fs-13, 13px);
   font-weight: 600;
   line-height: 1.4;
   color: var(--dsw-alias-label-primary);
@@ -6191,7 +6216,19 @@ body[data-ds-dark-theme] .kr-settings {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  /* 比例 1.4 : 1 → **1.25 : 1**（2026-10-25 随字号整体放大一起调）。
+   *
+   * 原比例是在字号还是 12/11/10.5/10px 时定的：右栏拿 392px 刚好把三条说明
+   * 排完（每行约 26 个汉字）。字号抬到 13/12/11 之后每行少装约 4 个字，
+   * 实测「关掉后不留边框与阴影，退回纯正文」被截成「…退回纯...」——
+   * 单行排版的代价是**一个字都不能多**，所以这里必须让右栏随字号一起变宽。
+   *
+   * 为什么不让说明换行到两行：那正是这轮要修掉的「拥挤」（11 行说明占 22 行）。
+   * 宁可左右比例不那么"左重"，也不退回多行。
+   *
+   * 左栏 548 → 约 500px 仍装得下「中文思考与输出，代码与报错保持原文」这类短句
+   * （左栏说明本来就比右栏短，截断风险更低）。 */
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
   gap: 0 22px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -6228,6 +6265,46 @@ body[data-ds-dark-theme] .kr-settings {
   }
 }
 
+/* 更窄（≤ 560px）：行 grid 的「标签定宽」撑不住了 —— 132px 的标签列 + 开关
+   40px 之后，说明那一格只剩一百来像素，中文一句话被切成两三个字一行。
+   这时改成两行式：标签与开关一行，说明独占下面一行（仍是一行高、仍可悬停展开）。
+   通栏区块的工作区行同理：名称和路径上下排、开关跟着下去。 */
+@media (max-width: 560px) {
+  .kr-settings__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 2px;
+  }
+
+  .kr-settings__hint {
+    grid-column: 1 / -1;
+  }
+
+  /*
+   * 工作区行在窄屏改成两行式（与上面 .kr-settings__row 同一套降法）：
+   * 名称 + 路径一行、两枚开关另起一行。
+   *
+   * 注意这里是 grid（不是 flex）—— 2026-10-25 那版是三列 grid，不是 flex；
+   * 窄屏要把列定义换成两列，并让路径列跨到第二行起（名称 180px 在窄屏太宽，
+   * 直接给弹性）。
+   */
+  .kr-settings__ws-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 4px;
+  }
+
+  /* 路径在窄屏独占自己那一行（第二列起），免得和名称抢宽度。 */
+  .kr-settings__ws-path {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  /* 开关组留在第一行的右侧（名称旁边），视觉上仍是"这一行的操作"。 */
+  .kr-settings__ws-flags {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
 /* 与大盘其余滚动区同一套细滚动条（这些伪元素选择器不在上方那条共用规则组里，
    所以在这里单独声明一份；标准属性仍然只能待在 @supports 里，否则 Blink 121+
    会反过来忽略伪元素）。 */
@@ -6261,14 +6338,56 @@ body[data-ds-dark-theme] .kr-settings {
   margin-top: 6px;
 }
 
+/* 组头：左边标题、右边「这一组共有的性质」（2026-10-25）。
+ *
+ * 为什么要右半边那块小字：拥挤的一大来源是**共性被抄进了每一行**——
+ * 「每会话首步注入一次」在团队协作与 step 纪律两行里各写了一遍，「只改本机观感 /
+ * 随浏览器持久保存」在展示组三行里各写了一遍。这些是**整组的性质**，说一次就够，
+ * 提到组头右侧之后，各行的短说明就只剩「这一行和别行有什么不同」。
+ *
+ * 右对齐而不是紧跟标题：它级别比标题低（是注脚不是副标题），跟在标题后面会让
+ * 「标题 + 注解」读成一个长句；推到右缘则读作「这一组的适用范围」，视线扫完
+ * 标题顺手就能看到。 */
+.kr-settings__group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0 2px;
+}
+
 .kr-settings__group-title {
   display: block;
-  padding: 10px 0 2px;
-  font-size: var(--kr-fs-10-5, 10.5px);
+  /* 组头已经给了上内距，这里只管自己的排版（组头缺席时也不会顶到卡片边缘）。 */
+  padding: 0;
+  font-size: var(--kr-fs-11, 11px);
   font-weight: 600;
   line-height: 1.5;
   letter-spacing: .06em;
   color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+/* 组头的右半：适用范围 / 存储位置这类「整组共有」的一句话。
+ * 比标题再淡一档（opacity .85），且不允许折行 —— 它是注脚，折行会把组头撑高、
+ * 把标题压到中线以下。窄屏放不下时由下面那条媒体查询直接藏掉：这些信息在
+ * 各行的 title 里仍然拿得到，不值得为它在小屏上换行。 */
+.kr-settings__group-scope {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--kr-fs-11, 11px);
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+  opacity: .85;
+  text-align: right;
+}
+
+@media (max-width: 560px) {
+  .kr-settings__group-scope {
+    display: none;
+  }
 }
 
 /* 组说明：一组内的**共性**只写一次。
@@ -6280,72 +6399,65 @@ body[data-ds-dark-theme] .kr-settings {
 .kr-settings__group-note {
   display: block;
   padding: 0 0 4px;
-  font-size: var(--kr-fs-10-5, 10.5px);
+  font-size: var(--kr-fs-11, 11px);
   line-height: 1.55;
   color: var(--dsw-alias-label-tertiary);
   opacity: .9;
 }
 
-/* ── 「展示」组：紧凑列表（用户 2026-10-15 要求「展示方式换一下」）──────────
+/* ── 紧凑排版：**已提升为默认形态**（2026-10-25）─────────────────────────
  *
- * 三条都是纯外观偏好，说明文字短、共性已提到组说明里，没必要继续沿用注入组
- * 那套「每行一大段灰字」的排法 —— 九行文案密度一样，读者反而分不出哪些真的
- * 会改提示词。紧凑组做三件事：
+ * 这段历史上是「展示」组的专属优化（2026-10-15 用户要求「展示方式换一下」）：
+ * 那组三条都是纯外观偏好、说明短，没必要沿用注入组「每行一大段灰字」的排法。
  *
- *  1. 行距与内边距收一档，行 hover 给一层淡底（可点范围的暗示），让三条读起来
- *     是一段连续列表，而不是三个独立小节；
- *  2. hint 常态压到**最多三行**，指针悬停或键盘聚焦（focus-within，TAB 到开关即
- *     触发）时展开成完整说明。这是「换展示方式」的核心：不是删字，是把长说明从
- *     常驻改成按需。全文始终在 DOM 里（只是视觉截断）+ 原生 title 提示，读屏与
- *     鼠标悬停都拿得到完整内容。
- *     行数怎么定的：最初是 2 行（那时右栏只有 353px，单行约 26 个汉字，2 行够读完
- *     大半说明）。2026-10-18 卡片加宽到 1000px、右栏涨到 392px 之后，2 行会把
- *     「工具调用卡」「操作面板」两条砍在句中，于是放到 3 行 —— 实测三条说明基本都
- *     能整句读完，只有极长的才吃省略号。行数是**跟着栏宽走的**，右栏再变宽就该再调。
- *  3. @media (hover: none) 下关掉截断：触摸设备没有悬停这一说，一律展开 ——
- *     否则手机用户拿到的是一份读不全的说明（这类「只在桌面好看」的紧凑布局是
- *     最容易漏掉的一档）。
+ * 2026-10-25 用户报「大盘设置拥挤、排版不合理」之后，查下来根因不是某一组，
+ * 而是**所有组都常驻多行说明**：11 个开关占了 22 行文字。所以这套「单行省略 +
+ * 悬停展开 + 触摸降级」整块提到了 「.kr-settings__hint」 的基类上（见上方那条
+ * 规则），「--compact」 从「某组的特殊处理」降级成**同义标记**。
  *
- * 为什么展开用 display:block 而不是只改 -webkit-line-clamp：line-clamp 只在
- * display:-webkit-box 下生效，换回 block 就等于彻底取消截断，不依赖某个
- * -webkit- 属性对 unset 的支持程度。max-height 负责给出可插值的展开动画。 */
-.kr-settings__group--compact .kr-settings__row {
-  padding: 7px 8px;
-  margin: 0 -8px;
-  border-radius: 8px;
-  transition: background-color .16s ease;
+ * 这里原本的三条规则（行距收紧 / 3 行截断 / hover 展开）全部并入基类，只留下
+ * 上面基类旁边那份等价声明 —— 保留是因为 smoke-client 按类名断言这些选择器
+ * 存在，而「类名还在、行为已并入基类」比「删掉选择器、连带一串断言失效」更
+ * 容易读懂。新增组**不需要**再挂 --compact。
+ */
+
+/* ══ 工作区记忆：通栏独立区块（2026-10-25 用户要求「放在下方独立的空间」）═══
+ *
+ * 位置：「.kr-settings」 的**直接子元素**，夹在 「.kr-settings__body」 与
+ * 「.kr-settings__foot」 之间 —— 也就是「上方两栏正文」之下、「页脚」之上。
+ *
+ * 为什么不放进 「.kr-settings__body」 的 grid（加一句 grid-column:1/-1 也能通栏）：
+ * body 带 4px/18px/14px 内边距，用来给两栏留呼吸。区块若在里面，那层极淡底色
+ * 会被内边距切断，在卡片里变成一块**悬空的内嵌面板**；放在 body 外才铺得到卡片
+ * 边缘，读起来是「卡片的下半区」，而不是「卡中卡」。这与操作面板、子智能体卡
+ * 当年拆掉外框是同一条判据：底色要贴着容器边界。
+ *
+ * 为什么用**极淡底色 + 上方一条发丝线**而不是卡片外框：设置面板里再套一层
+ * 圆角 + 描边 + 阴影，就是本仓库反复踩过的「卡中卡」。这里要的是分区，不是
+ * 分层 —— 底色只比卡片底色深 2.8%（深色主题下换成白色 3.5%），够分辨、不够
+ * 抢眼。
+ *
+ * 高度：「flex: none」。列表自己有 max-height + overflow，区块本身不该再抢
+ * body 的弹性空间 —— 否则工作区一多，上面那两栏会被压成一条缝。 */
+.kr-settings__ws-zone {
+  flex: none;
+  padding: 0 18px 12px;
+  border-top: 1px solid var(--kr-hairline);
+  /* 深浅两套都由 token 给真值，与卡片底色同源：混 2.8% / 3.5% 而不是写死颜色，
+     否则深色主题下这块会变成一块脏灰。 */
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 2.8%, transparent);
 }
 
-.kr-settings__group--compact .kr-settings__row:hover {
-  background: var(--kr-hover-bg);
+/* 区块里的组标题：与两大栏里的组标题同一套视觉，只是上方多留一点（它前面是
+   一条分隔线，紧贴着排会读成"这条线的标题"）。 */
+.kr-settings__ws-zone .kr-settings__group-title {
+  padding-top: 11px;
 }
 
-.kr-settings__group--compact .kr-settings__hint {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  max-height: 4.8em;
-  overflow: hidden;
-  transition: max-height var(--kr-dur-card) var(--kr-ease-out);
-}
-
-.kr-settings__group--compact .kr-settings__row:hover .kr-settings__hint,
-.kr-settings__group--compact .kr-settings__row:focus-within .kr-settings__hint {
-  display: block;
-  -webkit-line-clamp: unset;
-  line-clamp: unset;
-  max-height: 10em;
-}
-
-@media (hover: none) {
-  .kr-settings__group--compact .kr-settings__hint {
-    display: block;
-    -webkit-line-clamp: unset;
-    line-clamp: unset;
-    max-height: none;
-    overflow: visible;
-  }
+/* 组说明：一行读完。通栏 960px 之下这句话本来就不会折行，但窄屏要允许折 ——
+   所以不设 line-clamp（它是**整组共性**，不是每行的短说明，截断没有第二出口）。 */
+.kr-settings__ws-zone .kr-settings__group-note {
+  padding-bottom: 6px;
 }
 
 /* ══ 工作区记忆：逐工作区列表（2026-10-18）═════════════════════════════════
@@ -6354,15 +6466,14 @@ body[data-ds-dark-theme] .kr-settings {
  * 开关是否排除注入」。原来那一组只给**当前**工作区一行开关（写入侧 autoMemory），
  * 现在改成列出全部工作区，每个工作区两个开关：
  *
- *   ┌ 名称 [当前]  路径            记录 ⬤   不注入 ⚪ ┐
+ *   ┌ 名称 [当前]  │ 路径          │ 记录 ⬤   不注入 ⚪ ┐
  *
  * 为什么两个开关并排横着放而不是各占一行：一行一个开关会让 10 个工作区变成
- * 20 行，右栏要滚很久；而这两个开关的语义是「同一工作区的两个维度」，横排
- * 读起来是一组、纵向扫的时候按工作区对齐，比按开关对齐有用得多。
+ * 20 行；而这两个开关的语义是「同一工作区的两个维度」，横排读起来是一组、
+ * 纵向扫的时候按工作区对齐，比按开关对齐有用得多。
  *
  * 为什么列表限高可滚：工作区数量不受控（本机就 2 个，重度用户几十个），
- * 不限高会把「展示」组顶到卡片外面去。max-height 用 em 跟着字号走。
- */
+ * 不限高会把区块顶得很高、把页脚挤出视口。max-height 用 em 跟着字号走。 */
 .kr-settings__ws-list {
   display: flex;
   flex-direction: column;
@@ -6370,16 +6481,46 @@ body[data-ds-dark-theme] .kr-settings {
   max-height: 15em;
   overflow-y: auto;
   overscroll-behavior: contain;
-  /* 负外边距 + 等量内边距：让行的 hover 底色铺到组边界外一点点，
-     视觉上与上面「提示词通道」那些行的可点范围一致。 */
+  /* 负外边距 + 等量内边距：让行的 hover 底色铺到区块边界外一点点，
+     视觉上与上面两栏那些行的可点范围一致。 */
   margin: 2px -6px 0;
   padding: 0 6px;
 }
 
+/*
+ * 工作区行：**三列 grid**（2026-10-25 第二次改）。
+ *
+ * 上一版是 「flex」 + 名称/路径**上下叠两行**，实测在通栏 960px 下非常空：
+ *
+ *   Dsh 当前                                    记录 ⚪  不注入 ⚪
+ *   D:\AI\Dsh
+ *   （中间约 600px 全是空白，每行却占了两个文字行的高度）
+ *
+ * 用户直接指出「这样是不是太浪费空间了」。两处浪费，分别治：
+ *
+ *  1. **名称与路径并排**：它们是同一条信息的两个部分（谁 / 在哪），
+ *     上下叠没有任何理由 —— 那只是上一版为了在 390px 窄栏里塞下才这么写的，
+ *     搬进通栏之后这个约束早就不存在了。并排之后行高直接减半。
+ *  2. **路径吃掉中间空白**：上一版 「.kr-settings__ws-main」 上的
+ *     「flex: 1 1 auto」 把开关推到最右缘，中间留一大片真空。现在路径列是
+ *     「minmax(0,1fr)」，它自己会撑满中间那段 —— 空白变成有效信息（完整路径），
+ *     而开关仍然对齐成一列。
+ *
+ * 列宽：名称用 max-content —— **按内容收缩，不固定 180px**。
+ *
+ * 最初写的是 minmax(0, 180px)，实测很难看：目录名 Dsh / EESub 只有 3~5 个字符，
+ * 180px 的格子里它们只占左半边，名称与路径之间就空出 170px 真空 —— 比原来
+ * 上下叠两行的浪费还刺眼。改成 max-content 之后名称有多宽占多宽、路径紧跟着
+ * 它起；两个工作区之间因名称长度不同会有轻微参差，但那正是「名称 + 路径是一组」
+ * 该有的读法（参差比真空好）。
+ *
+ * 上限 240px：极长的目录名（deepseek-harness-xxx 这类）不能把路径挤没。
+ */
 .kr-settings__ws-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   padding: 6px 6px;
   border-radius: 7px;
   transition: background-color .16s ease;
@@ -6395,12 +6536,15 @@ body[data-ds-dark-theme] .kr-settings {
   box-shadow: inset 2px 0 0 var(--kr-accent);
 }
 
+/* 名称 + 路径的外壳改成 display:contents：让它的两个子元素直接落进父级 grid
+   的第 1、2 列（与 .kr-settings__main 同一套做法，理由见 .kr-settings__row 的
+   注释）。改 DOM 结构要动 JSX 与一串 e2e 选择器，contents 是更小的改动面。
+ *
+ * ⚠ error / confirm 两个提示条在 JSX 里是 main 的子元素，contents 之后它们会
+ * 变成 grid 的独立格子 —— 所以下面那条规则给它们 「grid-column: 1 / -1」，
+ * 让它们仍独占一整行（这本来就是提示条该有的位置）。 */
 .kr-settings__ws-main {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  flex: 1 1 auto;
-  min-width: 0;
+  display: contents;
 }
 
 .kr-settings__ws-name {
@@ -6408,8 +6552,10 @@ body[data-ds-dark-theme] .kr-settings {
   align-items: center;
   gap: 5px;
   min-width: 0;
-  font-size: var(--kr-fs-12, 12px);
-  line-height: 1.4;
+  /* 上限 240px：与上面 grid 的 max-content 配合，超长目录名走省略号。 */
+  max-width: 240px;
+  font-size: var(--kr-fs-13, 13px);
+  line-height: 1.6;
   color: var(--dsw-alias-label-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6424,7 +6570,7 @@ body[data-ds-dark-theme] .kr-settings {
   flex: none;
   border-radius: 4px;
   padding: 0 4px;
-  font-size: var(--kr-fs-10, 10px);
+  font-size: var(--kr-fs-11, 11px);
   line-height: 1.6;
   color: var(--dsw-alias-state-business-primary, #4176e6);
   background: color-mix(in srgb, var(--kr-accent) 12%, transparent);
@@ -6433,7 +6579,7 @@ body[data-ds-dark-theme] .kr-settings {
 /* 路径：等宽数字体 + 极小号，弱到不抢名称的注意力，但 hover 行的完整路径在
    title 里，截断也不会丢信息。 */
 .kr-settings__ws-path {
-  font-size: var(--kr-fs-10-5, 10.5px);
+  font-size: var(--kr-fs-11, 11px);
   line-height: 1.4;
   color: var(--dsw-alias-label-tertiary);
   overflow: hidden;
@@ -6444,7 +6590,10 @@ body[data-ds-dark-theme] .kr-settings {
 .kr-settings__ws-flags {
   display: flex;
   align-items: center;
-  gap: 12px;
+  /* 18px 而不是 12px（2026-10-25 搬进通栏之后）：原来在 390px 右栏里横向寸土
+     必争，12px 是能挤下的上限，但读起来两枚开关黏成一坨 —— 分不清哪枚管哪个。
+     通栏有足够宽度，拉开到 18px，两枚各自带上自己的文字标签才变得可读。 */
+  gap: 18px;
   flex: none;
 }
 
@@ -6455,7 +6604,7 @@ body[data-ds-dark-theme] .kr-settings {
 }
 
 .kr-settings__ws-flag-text {
-  font-size: var(--kr-fs-10-5, 10.5px);
+  font-size: var(--kr-fs-11, 11px);
   line-height: 1.4;
   color: var(--dsw-alias-label-tertiary);
   white-space: nowrap;
@@ -6498,7 +6647,7 @@ body[data-ds-dark-theme] .kr-settings {
   align-items: center;
   gap: 8px;
   padding: 6px 0 2px;
-  font-size: var(--kr-fs-11, 11px);
+  font-size: var(--kr-fs-12, 12px);
   line-height: 1.5;
   color: var(--dsw-alias-label-tertiary);
 }
@@ -6509,7 +6658,7 @@ body[data-ds-dark-theme] .kr-settings {
   padding: 1px 8px;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
-  font-size: var(--kr-fs-10-5, 10.5px);
+  font-size: var(--kr-fs-11, 11px);
   font-family: inherit;
   cursor: pointer;
   transition: background-color .15s ease, color .15s ease;
@@ -6554,7 +6703,7 @@ body[data-ds-dark-theme] .kr-settings {
   padding: 1px 8px;
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
-  font-size: var(--kr-fs-10-5, 10.5px);
+  font-size: var(--kr-fs-11, 11px);
   font-family: inherit;
   cursor: pointer;
   transition: color .15s ease, border-color .15s ease, background-color .15s ease;
@@ -6572,8 +6721,13 @@ body[data-ds-dark-theme] .kr-settings {
 }
 
 /* 二次确认条：含记忆的行点「清理」后展开 —— 清理会一并软废弃这些条目
-   （进回收站可恢复），先摆出真实条数让用户再确认一次。 */
+   （进回收站可恢复），先摆出真实条数让用户再确认一次。
+ *
+ * 「grid-column: 1 / -1」（2026-10-25）：.kr-settings__ws-main 改成了 display:contents，
+ * 它里面的提示条于是直接成为父级 grid 的格子 —— 不跨列的话会被塞进 180px 的
+ * 名称列里，挤成一条竖条。跨满整行才是提示条该有的位置。 */
 .kr-settings__ws-confirm {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -6586,7 +6740,7 @@ body[data-ds-dark-theme] .kr-settings {
 }
 
 .kr-settings__ws-confirm-text {
-  font-size: var(--kr-fs-10-5, 10.5px);
+  font-size: var(--kr-fs-11, 11px);
   line-height: 1.45;
   color: var(--dsw-alias-label-secondary);
 }
@@ -6597,7 +6751,7 @@ body[data-ds-dark-theme] .kr-settings {
   padding: 2px 9px;
   background: var(--dsw-alias-state-danger-primary, #e5484d);
   color: #fff;
-  font-size: var(--kr-fs-10-5, 10.5px);
+  font-size: var(--kr-fs-11, 11px);
   font-family: inherit;
   cursor: pointer;
   transition: opacity .15s ease;
@@ -6619,7 +6773,7 @@ body[data-ds-dark-theme] .kr-settings {
   padding: 2px 9px;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
-  font-size: var(--kr-fs-10-5, 10.5px);
+  font-size: var(--kr-fs-11, 11px);
   font-family: inherit;
   cursor: pointer;
   transition: background-color .15s ease;
@@ -6630,10 +6784,12 @@ body[data-ds-dark-theme] .kr-settings {
 }
 
 /* 行内错误提示（host 拒绝 / 网络失败）：红字，不弹 toast ——
-   toast 会盖住正在看的这一行，行内提示指向更明确。 */
+   toast 会盖住正在看的这一行，行内提示指向更明确。
+   跨满整行（理由同上面的 .kr-settings__ws-confirm）。 */
 .kr-settings__ws-error {
+  grid-column: 1 / -1;
   margin-top: 3px;
-  font-size: var(--kr-fs-10-5, 10.5px);
+  font-size: var(--kr-fs-11, 11px);
   line-height: 1.45;
   color: var(--dsw-alias-state-danger-primary, #e5484d);
 }
@@ -6660,43 +6816,86 @@ body[data-ds-dark-theme] .kr-settings {
   }
 }
 
-/* 行：顶对齐（hint 多行时开关不能被拉到中间），开关再用 margin-top 压回
-   标签中线 —— 与 .dsh-memory-inject-row 同款处理。 */
+/* 行：**grid 三段定宽**（2026-10-25 排版改造）。
+ *
+ * 原来这里是 flex：标签和说明挤在 「.kr-settings__main」 那一格里，开关跟着文字
+ * 长度浮动。后果是开关的 x 坐标由「这一行说明有多长」决定 —— 左栏 6 行停在一个
+ * 位置，右栏 3 行停在另一个位置，读者扫「开没开」时每换一栏就得重新找对齐线。
+ * 一个设置面板最常用的动作就是扫这一列，列不齐就整体显得拥挤。
+ *
+ * 现在是 「标签(定宽) | 说明(弹性) | 开关(定宽)」：开关永远贴右缘、上下对齐；
+ * 说明无论多长都不推挤开关；标签定宽让「中文优先 / 对话内交互卡片 / 团队协作」
+ * 这些长度不一的标签左对齐成一列。
+ *
+ * 用 「.kr-settings__main」 承载前两格（display:contents）：改 DOM 结构要动所有
+ * 调用点，而 contents 能让它的两个子元素直接参与父级 grid —— 代价是这个 span
+ * 自身不再生成盒子，所以它上面原来那条 flex 规则一并去掉。
+ *
+ * ⚠ display:contents 在旧 Safari 上对可访问性树有 bug（元素从树里消失）。本面板
+ * 的子元素都是纯装饰性文本，且按钮在 grid 的第三格里（不在 main 内），不受影响。 */
 .kr-settings__row {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 9px 0;
+  display: grid;
+  /*
+   * 标签列宽**按栏给**（2026-10-25 字号放大后调）：
+   *
+   *  · 左栏 132px：标签最长的是「对话内交互卡片」（7 字 × 13px ≈ 91px），
+   *    132px 富余，说明那一格能拿到约 350px。
+   *  · 右栏 120px：标签最长的是「回合结束自动收口」（8 字 ≈ 104px），
+   *    120px 刚好；比左栏少 12px 全给说明 —— 右栏只有 392px 宽，而这 12px
+   *    正好是「…退回纯正文」会不会被截成「…退回纯...」的差别（实测）。
+   *
+   * 为什么不做成两栏等宽：左栏标签确实更长，等宽会让左栏标签占不满、
+   * 右栏标签却溢出成省略号。分别定宽是"按内容给宽度"的最小代价版本。
+   */
+  grid-template-columns: var(--kr-settings-label-w, 132px) minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 7px 10px;
+  margin: 0 -10px;
+  border-radius: 8px;
+  transition: background-color .16s ease;
 }
 
-.kr-settings__row + .kr-settings__row {
-  border-top: 1px dashed var(--kr-hairline);
+/* 右栏（.kr-settings__col--aside）里的行：标签列收窄 12px，把宽度让给说明。 */
+.kr-settings__col--aside .kr-settings__row {
+  --kr-settings-label-w: 120px;
 }
 
-/* 组内第一行上方已经有组标题，不再叠一条分隔虚线。
-   选择器写成双类名：单类名的特异性(0,1,0)低于上面那条相邻兄弟规则(0,2,0)，
-   写了也会被覆盖。 */
+/* 行 hover 给一层淡底（可点范围的暗示）—— 原来只有紧凑组有，现在所有行统一：
+   行的可点范围在「一行只占一行」之后变窄了，没有底色提示读不出哪里能点。
+   不再用虚线分隔：行距与底色已经承担了分组，虚线在行高一致时才像表格，
+   而这里行高不一致（说明可能悬停展开成两行）。 */
+.kr-settings__row:hover {
+  background: var(--kr-hover-bg);
+}
+
+/* 组内第一行与其余行一致（组标题已经在上面隔开了）。这条保留类名是为了
+   兼容既有的 「lead」 调用点：语义仍是「这一行上方不再叠分隔」，只是分隔线
+   本身已经整块去掉。 */
 .kr-settings__row.kr-settings__row--lead {
   border-top: none;
 }
 
+/* 前两格的外壳：「display: contents」 让 label 与 hint 直接落进父级 grid 的
+   第 1、2 列（见 .kr-settings__row 的注释）。 */
 .kr-settings__main {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1 1 auto;
-  min-width: 0;
+  display: contents;
 }
 
 .kr-settings__label {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
-  font-size: var(--kr-fs-12, 12px);
+  min-width: 0;
+  font-size: var(--kr-fs-13, 13px);
   line-height: 1.45;
   color: var(--dsw-alias-label-secondary);
-  overflow-wrap: anywhere;
+  /* 标签定宽之后长标签会溢出：省略号而不是折行 —— 折行会让这一行的开关
+     被顶到第二行去，列对齐当场失效。全文在 aria-label 里（读屏拿得到）。 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   transition: color .15s ease;
 }
 
@@ -6705,18 +6904,81 @@ body[data-ds-dark-theme] .kr-settings {
   color: var(--dsw-alias-label-primary);
 }
 
+/* 说明：**常态一行、悬停/聚焦展开**（2026-10-25）。
+ *
+ * 这套「单行省略 + 按需展开」的机制原先只给「展示」组用（--compact），理由是
+ * 那组三条短。但拥挤的根因恰恰是**所有组都常驻多行说明**：11 个开关占了 22 行
+ * 文字，滚一屏看不到底。所以把它提升为默认形态，--compact 从「某组的特殊处理」
+ * 变成「显式的同义标记」（保留类名，不影响既有 DOM 契约与断言）。
+ *
+ * 为什么是行数封顶而不是删字：删掉的是信息，封顶只是把**阅读时机**从常驻改成
+ * 按需。全文仍在 DOM 里、仍在 title 上，鼠标悬停、键盘 Tab（focus-within）、
+ * 触摸点按都能拿到。
+ *
+ * max-height 与 line-clamp 双写：line-clamp 负责抹出省略号，max-height 负责
+ * 给出可插值的展开动画（line-clamp 本身不可过渡）。 */
 .kr-settings__hint {
-  font-size: var(--kr-fs-11, 11px);
+  font-size: var(--kr-fs-12, 12px);
   line-height: 1.5;
   color: var(--dsw-alias-label-tertiary);
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  max-height: 1.5em;
+  overflow: hidden;
+  transition: max-height var(--kr-dur-card) var(--kr-ease-out);
+}
+
+.kr-settings__row:hover .kr-settings__hint,
+.kr-settings__row:focus-within .kr-settings__hint {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  max-height: 10em;
+}
+
+/* --compact 保留为**同义标记**：所有组现在都是这套排版，这个类名不再改变行为，
+   但它出现在 DOM 里、smoke 也断言它，删掉会连带一串断言失效。留着并说明用途，
+   比让后来者猜「为什么有个类名什么也不做」好。 */
+.kr-settings__group--compact .kr-settings__hint {
+  /* 与基类同口径（见上）；显式写出来是因为下面那两条 hover / hover:none 规则
+     仍以 --compact 为选择器，样式表里需要有对应基础规则才能读通。 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  max-height: 1.5em;
+  overflow: hidden;
+}
+
+.kr-settings__group--compact .kr-settings__row:hover .kr-settings__hint,
+.kr-settings__group--compact .kr-settings__row:focus-within .kr-settings__hint {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  max-height: 10em;
+}
+
+/* 触摸设备没有悬停这一说，一律展开 —— 否则手机用户拿到的是一份读不全的说明。
+   （这类「只在桌面好看」的紧凑布局是最容易漏掉的一档。） */
+@media (hover: none) {
+  .kr-settings__hint,
+  .kr-settings__group--compact .kr-settings__hint {
+    display: block;
+    -webkit-line-clamp: unset;
+    line-clamp: unset;
+    max-height: none;
+    overflow: visible;
+  }
 }
 
 .kr-settings__badge {
   flex: none;
   border-radius: 4px;
   padding: 1px 5px;
-  font-size: var(--kr-fs-10, 10px);
+  font-size: var(--kr-fs-11, 11px);
   font-weight: 500;
   line-height: 1.5;
   color: var(--dsw-alias-label-tertiary);
@@ -6788,7 +7050,7 @@ body[data-ds-dark-theme] .kr-settings {
   margin: 0;
   padding: 9px 14px 11px;
   border-top: 1px solid var(--kr-hairline);
-  font-size: var(--kr-fs-10-5, 10.5px);
+  font-size: var(--kr-fs-11, 11px);
   line-height: 1.55;
   color: var(--dsw-alias-label-tertiary);
 }

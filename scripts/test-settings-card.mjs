@@ -140,6 +140,7 @@ const CARD_STATE = `(function(){
   var body = d.querySelector('.kr-settings__body');
   var main = d.querySelector('.kr-settings__col--main');
   var aside = d.querySelector('.kr-settings__col--aside');
+  var wsZone = d.querySelector('.kr-settings__ws-zone');
   var bs = body ? getComputedStyle(body) : null;
   // 最近定位祖先：portal 成功后应该是 body / html 一级，而不是 .kr-split__side。
   var anchor = d.parentElement, anchorCls = '(body)';
@@ -178,6 +179,59 @@ const CARD_STATE = `(function(){
     switches: d.querySelectorAll('.kr-settings__switch').length,
     groups: d.querySelectorAll('.kr-settings__group').length,
     wsRows: d.querySelectorAll('.kr-settings__ws-row').length,
+    // 工作区记忆区块（2026-10-25 搬到下方通栏）：这三个值一起证明它**不在**
+    // body 之内、并且真的在 body 之后（DOM 顺序 = 视觉顺序，不靠 order 反排）。
+    hasWsZone: wsZone !== null,
+    zoneInBody: wsZone !== null && body !== null && body.contains(wsZone),
+    // compareDocumentPosition 的 4 = wsZone 在 body 之后（DOCUMENT_POSITION_FOLLOWING）。
+    zoneAfterBody: wsZone !== null && body !== null
+      ? (body.compareDocumentPosition(wsZone) & 4) !== 0
+      : false,
+    zoneBg: wsZone ? getComputedStyle(wsZone).backgroundColor : null,
+    // 行是不是真的排成了三列（开关对齐的前提）。
+    rowCols: (function(){
+      var r = d.querySelector('.kr-settings__row');
+      return r ? getComputedStyle(r).gridTemplateColumns : null;
+    })(),
+    // 说明常态是不是封顶一行（拥挤的直接指标：11 行说明各占几行）。
+    hintLines: (function(){
+      var h = d.querySelector('.kr-settings__row .kr-settings__hint');
+      if (!h) return null;
+      var cs = getComputedStyle(h);
+      return { clamp: cs.webkitLineClamp || cs.lineClamp, maxH: cs.maxHeight, height: Math.round(h.getBoundingClientRect().height) };
+    })(),
+    // 两栏各几行 / 两栏底部各空多少（视觉重心是否偏左或偏右的量化指标）。
+    mainRows: main ? main.querySelectorAll('.kr-settings__row').length : 0,
+    asideRows: aside ? aside.querySelectorAll('.kr-settings__row').length : 0,
+    asideSlackPx: (function(){
+      if (!aside || !body) return null;
+      var rows = aside.querySelectorAll('.kr-settings__row');
+      if (rows.length === 0) return null;
+      var last = rows[rows.length - 1].getBoundingClientRect().bottom;
+      var bs = getComputedStyle(body);
+      var bodyBottom = body.getBoundingClientRect().bottom - parseFloat(bs.paddingBottom || '0');
+      return Math.round(bodyBottom - last);
+    })(),
+    /*
+     * 左栏底部留白。两栏都要量：只量右栏时，左栏空一块会完全看不见 ——
+     * 2026-10-25 就是这样漏掉的（右栏 slack=0 一路绿灯，而左栏空出 70px）。
+     * 判据不该是「某一栏没空」，而是「**两栏**都不该空出一大块」。
+     */
+    mainSlackPx: (function(){
+      if (!main || !body) return null;
+      var rows = main.querySelectorAll('.kr-settings__row');
+      if (rows.length === 0) return null;
+      var last = rows[rows.length - 1].getBoundingClientRect().bottom;
+      var bs = getComputedStyle(body);
+      var bodyBottom = body.getBoundingClientRect().bottom - parseFloat(bs.paddingBottom || '0');
+      return Math.round(bodyBottom - last);
+    })(),
+    // 两栏里较高的那一栏占了多少高度（用于判断卡片够不够塞满）。
+    colGapPx: (function(){
+      if (!main || !aside) return null;
+      var mr = main.getBoundingClientRect(), ar = aside.getBoundingClientRect();
+      return Math.round(Math.abs(mr.height - ar.height));
+    })(),
   };
 })()`
 
@@ -228,7 +282,21 @@ async function main() {
   }
   await sleep(2500)
 
-  // ── 进入一个已有会话（顶栏 tablist 只在会话开张后渲染）─────────────────
+  // ── 进入一个**有对话轮次**的会话，并等右栏真的长出来 ────────────────────
+  //
+  // ⚠ 两个坑，都是 2026-10-25 实测踩到的：
+  //
+  // 1. **不能取 byId 的第一个**。打开的往往是空白新会话，而 kr-chat-controller
+  //    对空白新会话整块不渲染右栏（判据 hasConversationContent()：官方 header
+  //    在 blank 态隐藏 tablist，且对话流里没有 [data-chat-turn]）。于是齿轮不在、
+  //    设置卡片没挂载，后面每条断言都报「找不到 .kr-settings」—— 看起来像本轮
+  //    改动把卡片改坏了，其实是脚本选错了会话。
+  // 2. **不能 openSession 完就断言**。右栏是 contentGate 通过之后才挂的，而 gate
+  //    依赖 DOM 里出现 [data-chat-turn]；官方渲染是异步的。所以必须**轮询等**
+  //    .kr-split__side 出现，最多 20 秒。
+  //
+  // 判据用会话快照里的 turnOutline / sessionStats（有轮次才有），这是 host 侧
+  // 事实，不依赖当前 DOM。
   const entered = await evaluate(`(function(){
     var ctx = window.__dshClientCtx__;
     if (!ctx) return 'NO_CTX';
@@ -236,30 +304,74 @@ async function main() {
     if (!ws || typeof ws.openSession !== 'function') return 'NO_OPEN_SESSION';
     var s = ctx.get('sessions');
     var snap = s && s.list && s.list.getSnapshot ? s.list.getSnapshot() : (s && s.getSnapshot ? s.getSnapshot() : null);
-    var ids = snap && snap.byId ? Object.keys(snap.byId) : [];
+    var byId = (snap && snap.byId) || {};
+    var proj = (snap && snap.projectionsBySession) || {};
+    var ids = Object.keys(byId);
     if (ids.length === 0) return 'NO_SESSIONS';
-    ws.openSession(ids[0]);
-    return 'opened:' + ids[0];
+    // 有轮次的会话优先：turnOutline 非空 / sessionStats.turns > 0 / 有 title。
+    function score(id) {
+      var vals = (proj[id] && proj[id].values) || {};
+      var n = 0;
+      if (Array.isArray(vals.turnOutline)) n += vals.turnOutline.length * 10;
+      var stats = vals.sessionStats;
+      if (stats && typeof stats.turns === 'number') n += stats.turns * 10;
+      if (typeof vals.title === 'string' && vals.title.trim() !== '') n += 1;
+      return n;
+    }
+    var scored = ids.map(function(id){ return { id: id, n: score(id) } })
+                    .sort(function(a, b){ return b.n - a.n; });
+    window.__probeCandidates = scored.slice(0, 5);
+    ws.openSession(scored[0].id);
+    return 'opened:' + scored[0].id + ' (score=' + scored[0].n + ', candidates=' + ids.length + ')';
   })()`)
   log('enterSession=' + entered)
-  await sleep(6000)
+  // 等右栏真的长出来（contentGate 依赖 [data-chat-turn]，官方渲染是异步的）。
+  // 轮询而不是固定 sleep：固定 6 秒在大会话上够、在冷启动上不够，偶发失败最难查。
+  let panelReady = false
+  for (let i = 0; i < 40; i += 1) {
+    panelReady = await evaluate(`Boolean(document.querySelector('.kr-split__side') || document.getElementById('kr-panel-settings-btn'))`).catch(() => false)
+    if (panelReady) break
+    await sleep(500)
+  }
+  const candidates = await evaluate(`window.__probeCandidates ?? null`)
+  log('panelReady=' + panelReady + ' candidates=' + JSON.stringify(candidates))
+  if (!panelReady) {
+    fail('打开了会话但右栏始终没渲染出来（.kr-split__side 不存在）—— 会话可能仍是空白态，hasConversationContent() 不通过；见 enterSession 的 score')
+  }
+  await sleep(1200)
 
-  // ── A. 齿轮仍在 Seeker 右侧 ────────────────────────────────────────────
+  // ── A. 齿轮在**操作面板卡头右上角**（2026-10-25 搬家后）────────────────
+  //
+  // 历史：2026-10-18 这里断言「齿轮在顶栏 Seeker 标签右侧」（那时是裸 DOM 注入
+  // 顶栏 tablist 的）。2026-10-25 用户要求「这两个图标都移动到操作面板的右上角
+  // 去」，齿轮与邮箱搬进 SeekerHead，于是**旧的断言永久失效**（prevId 恒为 null、
+  // seekerExists 恒 false）。留着它会让人误以为搬家没做成功。
+  //
+  // 新判据三条：
+  //   · 齿轮存在且**不在**顶栏 tablist 里（搬走了）；
+  //   · 它在 .kr-plain-head__tools 之内（卡头右上角那一组）；
+  //   · 它的定位祖先是 .kr-plain-head（绝对定位的基准，见 styles 的注释）。
   const order = await evaluate(`(function(){
     var gear = document.getElementById('kr-panel-settings-btn');
-    var seeker = document.getElementById('kr-chat-tab-btn');
     if (!gear) return { missing: 'kr-panel-settings-btn' };
-    var prev = gear.previousElementSibling;
+    var head = gear.closest('.kr-plain-head');
+    var tools = gear.closest('.kr-plain-head__tools');
+    var inTablist = gear.closest('header [role="tablist"]') !== null;
     return {
-      prevId: prev ? prev.id : null,
-      seekerExists: Boolean(seeker),
+      hasHead: head !== null,
+      hasTools: tools !== null,
+      inTablist: inTablist,
       gearW: Math.round(gear.getBoundingClientRect().width),
+      headPos: head ? getComputedStyle(head).position : null,
     };
   })()`)
   log('ORDER=' + JSON.stringify(order))
-  if (order.missing !== undefined) fail('顶栏找不到齿轮 #kr-panel-settings-btn')
-  else if (order.prevId !== 'kr-chat-tab-btn') fail(`齿轮前一个兄弟是 ${order.prevId}，应为 kr-chat-tab-btn`)
-  else ok('顶栏齿轮仍在 Seeker 标签右侧（位置没被这轮改动带偏）')
+  if (order.missing !== undefined) fail('页面上找不到齿轮 #kr-panel-settings-btn（右栏没渲染？见上一步 contentScore）')
+  else if (order.inTablist) fail('齿轮仍在顶栏 tablist 里（2026-10-25 应已搬到操作面板卡头右上角）')
+  else if (!order.hasTools) fail('齿轮不在 .kr-plain-head__tools 之内（没进卡头右上角那一组）')
+  else if (!order.hasHead) fail('齿轮的定位祖先不是 .kr-plain-head（绝对定位会相对别处，位置漂）')
+  else if (order.headPos !== 'relative') fail(`.kr-plain-head 的 position=${order.headPos}，应为 relative（右上角按钮组的定位基准）`)
+  else ok(`齿轮在操作面板卡头右上角（不在顶栏 / 在 .kr-plain-head__tools 内 / 基准 relative / 宽 ${order.gearW}px）`)
 
   // ── B. 点齿轮 → 卡片打开 ───────────────────────────────────────────────
   const before = await evaluate(CARD_STATE)
@@ -328,9 +440,112 @@ async function main() {
     // 这个数字与 smoke-client 里 `<SettingsRow` 的计数必须同步（那处按源码推导，
     // 这里是**渲染后**的实际行数，两者互为印证：源码写了但没渲染出来同样算错）。
     // 邮箱那个三态行在 DOM 里只有一行（'不可用' 时换成分支渲染，不叠加）。
-    if (opened.rows !== 9) fail(`卡片里 ${opened.rows} 行固定设置，应为 9 行`)
-    else if (opened.groups !== 3) fail(`卡片里 ${opened.groups} 组，应为 3 组`)
-    else ok(`卡片内容完整：9 行固定设置 / 3 组（提示词通道 + 工作区记忆 + 展示）`)
+    /*
+     * 行数是**渲染后**的实际行数，不是源码里 <SettingsRow> 的出现次数。
+     *
+     * 源码有 10 处 <SettingsRow>，但「Agent 邮箱」写了两个分支（可用 / 不可用），
+     * 运行时只渲染其中一个 —— 所以卡片上恒定是 **9 行**：
+     *   提示词通道 4（中文 / 交互卡片 / 团队 / 邮箱）
+     *   + 展示 3（总结卡外框 / 工具调用卡 / 操作面板）
+     *   + 任务清单 2（step 纪律 / 回合结束自动收口）
+     * 这个数字与 smoke-client 里「源码 <SettingsRow> 计数 = 10」是两个不同口径，
+     * 两边互为印证（源码写了但没渲染出来同样算错），但**数字本来就不相等**。
+     */
+    if (opened.rows !== 9) fail(`卡片里 ${opened.rows} 行固定设置，应为 9 行（源码 10 处 SettingsRow − 邮箱两分支只渲染一个）`)
+    // 组数 3（2026-10-25 最终形态）：提示词通道 / 展示 / 任务清单；
+    // 工作区记忆是通栏区块（.kr-settings__ws-zone），不计入 group。
+    // 任务清单组里的两行**没有合并成一个开关**（用户问过能不能合）：作用机理相反，
+    // 一个往提示词里写约束、一个由 host 在回合结束时改清单状态，绑在一起会强迫
+    // 用户做无意义的交易。归到同一组负责「看起来归一类」，不负责「共用一个开关」。
+    else if (opened.groups !== 3) fail(`卡片里 ${opened.groups} 组，应为 3 组（提示词通道 + 展示 + 任务清单；工作区记忆是独立区块）`)
+    else ok(`卡片内容完整：9 行固定设置 / 3 组 + 1 个独立区块（提示词通道 + 展示 + 任务清单 + 工作区记忆）`)
+
+    // ── E1b0. 两栏平衡：**两栏**都不许空出一大块 ─────────────────────────
+    //
+    // 2026-10-25 实测两次反向失衡，都是这条断言该抓住的：
+    //   ① 工作区记忆搬走后右栏只剩 3 行 → 右栏底部空 127px；
+    //   ② 把 step 纪律也挪进右栏的「任务清单」组后 → 左栏只剩 4 行、底部空 70px，
+    //      而当时只量右栏（slack=0）一路绿灯，图片里才看出来。
+    // 结论：判据必须是「两栏各空多少」两个数，不能只看一栏。
+    //
+    // 阈值 60px ≈ 一行半：再大就是一块看得见的空白。写"差值"而不是绝对高度，
+    // 字号轴缩放后不会假失败。
+    const slackAside = opened.asideSlackPx
+    const slackMain = opened.mainSlackPx
+    log('SLACK=' + JSON.stringify({
+      aside: slackAside, main: slackMain, mainRows: opened.mainRows, asideRows: opened.asideRows, colGap: opened.colGapPx,
+    }))
+    if (typeof slackAside !== 'number' || typeof slackMain !== 'number') {
+      fail('量不到两栏底部留白（asideSlackPx / mainSlackPx 缺失）')
+    } else if (slackAside > 60 || slackMain > 90) {
+      /*
+       * 两栏阈值**不对称**，这是刻意的（右侧更严）：
+       *
+       *  · 右栏 > 60px：右栏是「展示 + 任务清单」两组固定 5 行，它一空就意味着
+       *    卡片右侧塌下去一块，而卡片高度是由左栏撑的 —— 视觉上非常明显。
+       *  · 左栏 > 90px：左栏是「提示词通道」组，行数由**实际有几个通道**决定。
+       *     2026-10-25 把 step 纪律挪进「任务清单」组之后它只剩 4 行（中文 /
+       *     交互卡片 / 团队 / 邮箱），比右栏矮一行约 70px —— 这是内容真实差异，
+       *     不是排版错误。为凑齐高度把语义不对的行塞回来（比如把邮箱拆出去）
+       *     才是真错误：分组要跟行为一致，高度是次要的。
+       *
+       * 所以左栏给 90px 的容差（一行半），超过才报 —— 那样说明是真的塌了一块。
+       */
+      fail(`有一栏底部空太多（右 ${slackAside}px / 左 ${slackMain}px，左 ${opened.mainRows} 行 / 右 ${opened.asideRows} 行）—— 右侧容差 60px、左侧 90px`)
+    } else {
+      ok(`两栏平衡：右栏留白 ${slackAside}px / 左栏留白 ${slackMain}px（左 ${opened.mainRows} 行 / 右 ${opened.asideRows} 行；左右容差 60/90px 不对称，理由见断言注释）`)
+    }
+
+    // ── E1b. 工作区记忆：下方通栏独立区块（2026-10-25 用户要求）─────────
+    //
+    // 用户原话：「我觉得工作区记忆应该放在下方独立的空间」。
+    //
+    // 三条判据，缺一条就退回旧形态（而旧形态看起来「也能用」，只是挤）：
+    //   · 它存在，且**不在** .kr-settings__body 之内 —— 在里面会被 body 的内边距
+    //     切断极淡底色，变成悬空的内嵌面板；
+    //   · 它在 DOM 顺序上晚于 body（视觉下方，不靠 order 反排）；
+    //   · 它有底色（分区读得出来）且**没有**圆角/阴影（不得套卡片外框 = 卡中卡）。
+    const zoneBg = await evaluate(`(function(){
+      var z = document.querySelector('.kr-settings__ws-zone');
+      if (!z) return null;
+      var cs = getComputedStyle(z);
+      return { bg: cs.backgroundColor, radius: cs.borderRadius, shadow: cs.boxShadow, borderTop: cs.borderTopWidth };
+    })()`)
+    log('WS_ZONE=' + JSON.stringify({ has: opened.hasWsZone, inBody: opened.zoneInBody, afterBody: opened.zoneAfterBody, style: zoneBg }))
+    if (!opened.hasWsZone) {
+      fail('卡片里没有 .kr-settings__ws-zone（工作区记忆没被搬成独立区块）')
+    } else if (opened.zoneInBody) {
+      fail('工作区记忆区块仍在 .kr-settings__body 之内（会被内边距切断底色，读成悬空的内嵌面板）')
+    } else if (!opened.zoneAfterBody) {
+      fail('工作区记忆区块不在 body 之后（DOM 顺序与视觉顺序不一致，靠 order 反排会在读屏里念错序）')
+    } else if (zoneBg === null || zoneBg.bg === 'rgba(0, 0, 0, 0)') {
+      fail(`工作区记忆区块没有底色（backgroundColor=${zoneBg && zoneBg.bg}）—— 分区读不出来，和上面两栏糊成一片`)
+    } else if (zoneBg.radius !== '0px') {
+      fail(`工作区记忆区块有圆角 ${zoneBg.radius} —— 设置面板里再套一层圆角容器就是卡中卡（本仓库老坑）`)
+    } else if (zoneBg.shadow !== 'none') {
+      fail(`工作区记忆区块有阴影 —— 只能靠底色分区，不得分层（卡中卡）`)
+    } else {
+      ok(`工作区记忆是下方通栏独立区块（在 body 之外、DOM 之后；底色 ${zoneBg.bg} / 无圆角 / 无阴影 / 上边线 ${zoneBg.borderTop}）`)
+    }
+
+    // ── E1c. 行排版：三列 grid + 说明封顶一行（「拥挤」的直接解药）─────────
+    //
+    // 这两个值就是用户抱怨的两件事的量化形态：
+    //   · rowCols 是三条定宽 → 开关排成一列（flex 时它随文字长度浮动）；
+    //   · hint.height ≈ 一行高（16-17px）→ 11 个开关不再各占 2-3 行说明。
+    // 判据写成「值本身合理」而不是「等于某个具体 px」：字号轴会缩放，写死数字
+    // 会在用户调字号后假失败。
+    log('ROWS=' + JSON.stringify({ cols: opened.rowCols, hint: opened.hintLines }))
+    const colCount2 = opened.rowCols === null ? 0 : opened.rowCols.split(' ').filter(s => s !== '').length
+    if (colCount2 !== 3) {
+      fail(`设置行算出 ${colCount2} 列（gridTemplateColumns=${opened.rowCols}），应为 3 列（标签定宽 / 说明弹性 / 开关定宽）——否则开关不对齐`)
+    } else if (opened.hintLines === null) {
+      fail('找不到 .kr-settings__row .kr-settings__hint（说明文字没渲染？）')
+    } else if (Number(opened.hintLines.height) > 26) {
+      fail(`说明行高 ${opened.hintLines.height}px 超过一行（clamp=${opened.hintLines.clamp}）—— 拥挤的根因就是说明常驻多行`)
+    } else {
+      ok(`行排版到位：三列 grid（${opened.rowCols}）+ 说明封顶一行（高 ${opened.hintLines.height}px / clamp=${opened.hintLines.clamp}）`)
+    }
 
     // ── E2. 工作区列表：全部工作区 + 每行两个开关 ──────────────────────
     // 用户点名：「显示出来所有工作区每个单独进行开关，并且还需要有个开关是否排除注入」。
@@ -349,6 +564,25 @@ async function main() {
           var list = card.querySelector('.kr-settings__ws-list');
           return list ? getComputedStyle(list).overflowY : null;
         })(),
+        /*
+         * 名称与路径是否**同一行**（2026-10-25 用户：「这样是不是太浪费空间了」）。
+         *
+         * 上一版名称/路径上下叠两行，通栏 960px 下每行只用到左边 350px 却占两个
+         * 文字行的高度。判据：两者 top 相差不超过 6px（同一行的正常抖动），
+         * 且名称右缘到路径左缘的**空隙不超过 40px** —— 后者是「名称列固定 180px
+         * 导致中间空 170px」那次的教训：只判同一行还不够，空太开同样是浪费。
+         */
+        geometry: rows.map(function(r){
+          var n = r.querySelector('.kr-settings__ws-name');
+          var p = r.querySelector('.kr-settings__ws-path');
+          if (!n || !p) return null;
+          var nr = n.getBoundingClientRect(), pr = p.getBoundingClientRect();
+          return {
+            sameLine: Math.abs(nr.top - pr.top) <= 6,
+            gap: Math.round(pr.left - nr.right),
+            rowH: Math.round(r.getBoundingClientRect().height),
+          };
+        }),
       };
     })()`)
     log('WORKSPACES=' + JSON.stringify(ws))
@@ -364,8 +598,26 @@ async function main() {
       fail('工作区行缺路径副标题（重名工作区分不开）')
     } else if (ws.listScrolls !== 'auto') {
       fail(`工作区列表 overflow-y=${ws.listScrolls}，应为 auto（工作区多了会把展示组顶出卡片）`)
+    } else if (!Array.isArray(ws.geometry) || ws.geometry.some(g => g === null)) {
+      fail('量不到工作区行的名称/路径几何（geometry 缺失）')
+    } else if (!ws.geometry.every(g => g.sameLine)) {
+      /*
+       * 名称与路径必须**同一行**（2026-10-25 用户：「这样是不是太浪费空间了」）。
+       *
+       * 上一版它们是上下叠两行 —— 那是 390px 窄栏时代的写法，搬进 960px 通栏之后
+       * 早就不需要了：每行只用到左边 350px，却占两个文字行的高度，中间还空着
+       * 一大片。并排之后行高直接减半。
+       */
+      fail(`工作区行的名称与路径不在同一行：${JSON.stringify(ws.geometry)}（浪费一整行高度）`)
+    } else if (!ws.geometry.every(g => g.gap <= 40)) {
+      /*
+       * 名称右缘到路径左缘的空隙不超过 40px —— 这是「名称列固定 180px 导致
+       * 中间空 170px」那次的教训。只判同一行还不够：并排了但中间隔着一大片真空，
+       * 同样是浪费空间。40px ≈ 一个词距，再大就是固定列宽留下的空档。
+       */
+      fail(`工作区行的名称与路径之间空隙过大：${JSON.stringify(ws.geometry.map(g => g.gap))}px（应是紧邻的一对，容差 40px）`)
     } else {
-      ok(`工作区列表在位：${ws.rows} 个工作区，每个 2 枚开关（记录 / 不注入），当前工作区已标注`)
+      ok(`工作区列表在位：${ws.rows} 个工作区，每个 2 枚开关（记录 / 不注入），当前工作区已标注；名称与路径同一行且紧邻（空隙 ${ws.geometry.map(g => g.gap).join('/')}px，行高 ${ws.geometry.map(g => g.rowH).join('/')}px）`)
     }
     // ── E3. 开关真的能拨、真的落盘 ───────────────────────────────────────
     // 光有开关不算做到位：点下去要变成 aria-checked 的反面，并且 host 侧真的改了
@@ -473,8 +725,21 @@ async function main() {
   else if (afterBtn.visibility !== 'hidden' || afterBtn.pointerEvents !== 'none') {
     fail(`卡片关闭后仍可见或仍拦点击（visibility=${afterBtn.visibility} pointer-events=${afterBtn.pointerEvents}）`)
   } else if (afterBtn.opacity > 0.02) fail(`卡片关闭后 opacity 仍有 ${afterBtn.opacity}（退场没走完 / 可见性依赖动画）`)
-  else if (btnAttr.open !== 'false' || btnAttr.expanded !== 'false') fail(`按钮打开态属性未复位：${JSON.stringify(btnAttr)}`)
-  else ok(`再点齿轮关闭成：卡片 hidden + pointer-events:none + opacity ${afterBtn.opacity}，按钮 data-open/aria-expanded 复位`)
+  /*
+   * 只有**卡片本体**的 data-open 必须显式是 "false"（它是常驻 DOM 的模态，靠这个
+   * 属性决定可见性，而 .kr-settings[data-open="false"] 就是关闭态）。
+   *
+   * 齿轮按钮不一样：它渲染成 `data-open={settingsOpen || undefined}`，关闭时**整个
+   * 属性都不写**（getAttribute 得到 null）—— 这是布尔属性的正常惯例，样式表只按
+   * `[data-open="true"]` 命中打开态即可。旧断言要求字符串 "false"，等于把实现细节
+   * 当契约，2026-10-25 排查时确认这是脚本过严、不是按钮坏了。
+   *
+   * 真正要钉的是「关闭后按钮不再显示打开态」：aria-expanded 必须是 "false"，
+   * 且 data-open 不能残留 "true"（残留会让按钮一直亮着）。
+   */
+  else if (btnAttr.expanded !== 'false') fail(`按钮 aria-expanded 未复位：${JSON.stringify(btnAttr)}`)
+  else if (btnAttr.open === 'true') fail(`按钮 data-open 仍残留 "true"（关闭后图标一直亮着）：${JSON.stringify(btnAttr)}`)
+  else ok(`再点齿轮关闭成：卡片 hidden + pointer-events:none + opacity ${afterBtn.opacity}，按钮 aria-expanded=false / data-open=${JSON.stringify(btnAttr.open)}（属性移除，非 "false"）`)
 
   // ── F2. Esc → 关闭 ────────────────────────────────────────────────────
   await evaluate(`document.getElementById('kr-panel-settings-btn').click(); 'open'`)
@@ -547,18 +812,73 @@ async function main() {
     fail('开启 prefers-reduced-motion 后刷新，应用没再就绪')
   } else {
     await sleep(2500)
-    await evaluate(`(function(){
+    /*
+     * 重载后要重新打开一个**有轮次**的会话 —— 与上面 enterSession 同一个坑：
+     * 取 ids[0] 往往命中空白新会话，右栏整块不渲染，齿轮就不存在。
+     * 这里复用同一个打分逻辑（turnOutline 越长越优先）。
+     */
+    const rmOpen = await evaluate(`(function(){
       var ctx = window.__dshClientCtx__;
       var ws = ctx && ctx.get('uiWorkspace');
       var s = ctx && ctx.get('sessions');
       var snap = s && s.list && s.list.getSnapshot ? s.list.getSnapshot() : (s && s.getSnapshot ? s.getSnapshot() : null);
-      var ids = snap && snap.byId ? Object.keys(snap.byId) : [];
-      if (ws && ids.length) ws.openSession(ids[0]);
+      var byId = (snap && snap.byId) || {};
+      var proj = (snap && snap.projectionsBySession) || {};
+      var ids = Object.keys(byId);
+      if (!ws || ids.length === 0) return;
+      function score(id) {
+        var vals = (proj[id] && proj[id].values) || {};
+        var n = 0;
+        if (Array.isArray(vals.turnOutline)) n += vals.turnOutline.length * 10;
+        var stats = vals.sessionStats;
+        if (stats && typeof stats.turns === 'number') n += stats.turns * 10;
+        return n;
+      }
+      ids.sort(function(a, b){ return score(b) - score(a); });
+      ws.openSession(ids[0]);
+      return 'opened:' + ids[0] + ' score=' + score(ids[0]) + ' n=' + ids.length;
     })()`)
-    await sleep(4000)
-    const rmBtn = await buttonCenter('kr-panel-settings-btn')
+    log('RM_OPEN=' + JSON.stringify(rmOpen))
+    // 等右栏长出来（同 enterSession 的理由：contentGate 依赖异步渲染的 DOM）。
+    let rmPanel = false
+    for (let i = 0; i < 40; i += 1) {
+      rmPanel = await evaluate(`Boolean(document.getElementById('kr-panel-settings-btn'))`).catch(() => false)
+      if (rmPanel) break
+      await sleep(500)
+    }
+    log('RM_PANEL=' + rmPanel + ' panelCount=' + await evaluate(`document.querySelectorAll('.kr-split__side').length`))
+    /*
+     * 拿坐标要**重试**，不能一次就判死。
+     *
+     * 重载后 DOM 已挂载（rmPanel=true）不等于已经布局完：headless 下首帧的
+     * getBoundingClientRect 可能还是 0×0（触发条件与字体/滚动容器就绪相关）。
+     * buttonCenter 对 0 尺寸返回 null，上一次就是这么误报「找不到齿轮」的 ——
+     * 而它其实一秒钟后就出现了。
+     */
+    let rmBtn = null
+    for (let i = 0; i < 20 && rmBtn === null; i += 1) {
+      rmBtn = await buttonCenter('kr-panel-settings-btn')
+      if (rmBtn === null) await sleep(400)
+    }
     if (rmBtn === null) {
-      fail('减弱动效重载后顶栏找不到齿轮')
+      const diag = await evaluate(`(function(){
+        var g = document.getElementById('kr-panel-settings-btn');
+        if (!g) return { missing: true };
+        var r = g.getBoundingClientRect();
+        var cs = getComputedStyle(g);
+        var head = g.closest('.kr-plain-head');
+        var tools = g.closest('.kr-plain-head__tools');
+        var hr = head ? head.getBoundingClientRect() : null;
+        var tr = tools ? tools.getBoundingClientRect() : null;
+        return {
+          gear: { w: Math.round(r.width), h: Math.round(r.height), disp: cs.display, vis: cs.visibility, op: cs.opacity },
+          tools: tr ? { w: Math.round(tr.width), h: Math.round(tr.height) } : null,
+          head: hr ? { w: Math.round(hr.width), h: Math.round(hr.height) } : null,
+          panelRect: (function(){ var p = document.querySelector('.kr-split__side'); if(!p) return null; var b=p.getBoundingClientRect(); return { w: Math.round(b.width), h: Math.round(b.height), left: Math.round(b.left) } })(),
+          inDom: document.body.contains(g),
+        };
+      })()`)
+      fail(`减弱动效重载后齿轮量不到可点坐标 —— 诊断：${JSON.stringify(diag)}`)
     } else {
       await realClick(rmBtn.x, rmBtn.y)
       await sleep(900)

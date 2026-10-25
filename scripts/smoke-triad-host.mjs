@@ -762,6 +762,52 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
   }
 }
 
+// ── 中文偏好通道：路由 + 语言契约必须覆盖「上屏的说明性参数」──────────
+//
+// 2026-10-25 补：右栏「操作面板」整片英文（用户截图：Probe workspace layout and
+// existing fee… / List existing _tmp/proto contents）。根因不在客户端翻译层，而在
+// 模型照着官方工具 schema 写英文 description —— 那个参数文档原文是
+// "…in active voice, 5-10 words (shown in the UI)" 且给的全是英文示例，而 DSH 的
+// UI 会把 description **原样上屏**（plain-language.ts 里 pwsh / bash / exec_command
+// 三条规则的 detail 直接取它，且都带 hideVerb，抹掉动词后这一行就只剩 description）。
+//
+// 所以修法只能是语言契约把「会被人读到」这件事写进去。这条断言钉住那两句判据：
+// 少了「上屏」的说明，模型不会认为 description 属于对外输出；少了「命令原文保持
+// 原文」的边界，模型会把 `git status` 也翻译掉 —— 那是破坏，不是本地化。
+{
+  const route = routes.get('/api/dsh-memory')
+  need(route !== undefined, 'memory prefix route reachable for the zh-channel assertion')
+  if (route !== undefined) {
+    const captured = { status: 0, body: null }
+    const res = {
+      writeHead: (status) => { captured.status = status },
+      end: (payload) => { try { captured.body = JSON.parse(payload) } catch { captured.body = null } },
+    }
+    route.handler({ method: 'GET', url: '/api/dsh-memory/zh-inject-state', socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:3080' } }, res)
+    await new Promise((r) => setTimeout(r, 60))
+    need(captured.status === 200, `GET /zh-inject-state answers 200（实得 ${captured.status}）`)
+    need(typeof captured.body?.enabled === 'boolean', 'zh-inject-state returns a boolean enabled')
+    need(captured.body?.builtin === true, 'zh-inject-state is tagged builtin (无卸载入口)')
+  }
+  const zhRuleSrc = readFileSync(resolve(ROOT, 'src/triad/memory/engine/inject.ts'), 'utf8')
+  for (const [needle, why] of [
+    ['description', '点名 description 这个会被上屏的参数（不说它就等于没约束）'],
+    ['显示给用户', '说清「上屏」这件事——它才是 description 要中文的理由'],
+    ['命令原文', '边界：命令 / 参数值 / 路径不翻译'],
+    ['不要翻译', '边界必须写成禁止项，否则模型会顺手本地化命令'],
+    // 2026-10-25 补：任务清单条目也会上屏（右栏「任务概览」卡正文就是 task.content）。
+    // 官方 todo_write 的 schema 对 content 的说明是英文（"What the task is — a short
+    // imperative line."），模型照着写英文，于是「中文界面上挂着一屏看不懂的待办」。
+    // 这一条与 description 同源，但必须分开点名：todos 是**数组里的业务内容**，
+    // 不在「参数说明」的直觉范围内，混在一起说模型不会把它归进语言契约。
+    ['todo_write', '点名任务清单这个载体（它是右栏任务概览卡的数据源）'],
+    ['任务概览', '说清条目会印在哪张卡上——理由写出来模型才知道这不是内部草稿'],
+    ['content', '点名要中文化的是哪个字段'],
+  ]) {
+    need(zhRuleSrc.includes(needle), `中文偏好注入规范必须写清：${why}`)
+  }
+}
+
 // ── HTML 卡片通道：路由 + 注入规范 + 配置项 ────────────────────────────
 //
 // 这条链路最容易「静默半通」：客户端渲染器在，host 侧却没接线（模型永远不知道
@@ -929,6 +975,19 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
     ['79%', '实测收益数字（没有数字规则就退化成口号）'],
     ['1635', '本机可合并空间的量化依据'],
     ['重复 read', '同文件重复读这条实测发现'],
+    // ── 第五节：任务清单纪律（2026-10-25 从记忆库并入本通道）──────────────
+    //
+    // 这几条原先住在记忆库的一条 pinned 记忆里（mem_0e2d4a98ddb90f7c）。并进
+    // 代码的理由：它是**行为纪律**而不是"用户说过什么"，混在记忆库里会被检索与
+    // 预算机制影响（预算挤掉、相似度没命中就消失），而纪律必须每次都成立。
+    //
+    // 断言钉住 5 个判据 —— 它们分别对应「最容易做错的那一步」，少一条模型就会
+    // 退回旧行为（一次性补标 / 把交棒事项挂 pending / 拿 pending 当"等用户"）：
+    ['任务清单纪律', '第五节的存在（与自动收口是同一件事的两半）'],
+    ['收尾清零', '收尾必须把清单收干净——不收就会出现"永远挂着的进行中"'],
+    ['不等于"等待用户"', '钉住 pending 最常见的误用（这条用户点名反馈过）'],
+    ['交棒事项不进清单', '用户点名反馈：等审阅/等重启不能写进清单挂 pending'],
+    ['收口本身不占条目', '元纪律：不要为了收口而往清单里加一条"更新任务清单"'],
   ]) {
     need(stepRuleSrc.includes(needle), `step 纪律注入规范必须写清「${why}」（缺 ${needle}）`)
   }
@@ -1295,6 +1354,14 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
     '任务卡 meta 文案按 stalled 出「未完成」（回退成「进行中」会让收口后的残留看着像在跑）')
   need(/未完成/.test(taskCardCode), '任务卡用「未完成」文案（收口后 pending 行也标）')
   need(!/未收口/.test(taskCardCode), '任务卡渲染文案不再用已过时的「未收口」（注释里的改口记录不算）')
+  // 行尾「进行中」胶囊已按用户要求删除（2026-10-25）。进行中的信号仍有三处：
+  // 行首转圈图标（StatusIcon state='running'）、左侧呼吸竖条、行底淡色 —— 都在 CSS，
+  // 所以这里只需钉住「不再渲染那枚胶囊」，不必替它找替代断言。
+  // 反向断言读的是**剥注释后**的代码，注释里写过的改口记录不会误伤。
+  need(!/tag--running/.test(taskCardCode),
+    '任务卡不再渲染行尾「进行中」胶囊（用户 2026-10-25 要求去掉；状态由行首转圈+竖条承担）')
+  // 但不能连备用分支一起删掉：rowStalled 的「未完成」标签必须还在。
+  need(/tag--stalled/.test(taskCardCode), '行尾「未完成」标签保留（删进行中胶囊不应连带删掉它）')
 }
 
 /*

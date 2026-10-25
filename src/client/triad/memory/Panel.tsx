@@ -1,21 +1,25 @@
 /**
- * dsh-memory 主面板 —— 三栏应用布局（按参考设计图复刻，浅色系）：
+ * dsh-memory 主面板 —— 单列应用布局（按参考设计图复刻，浅色系）：
  *
- *   ┌────────┬─────────────────────────────────────────────┐
- *   │ 左栏    │ 顶栏：搜索框（⌘K）· 统计 · 关闭                 │
- *   │ 导航    ├─────────────────────────────────────────────┤
- *   │ 项目    │ （筛选行移除：作用域/分类由左栏导航控制）        │
- *   │ 分类    ├──────────────┬──────────────────────────────┤
- *   │ 设置    │ 中栏列表      │ 右栏详情（关联/历史/相关）         │
- *   └────────┴──────────────┴──────────────────────────────┘
+ *   ┌───────────────────────────────────────────────────────────┐
+ *   │ 顶栏：视图切换（首页/全部/变更/修订/回收站 … 设置）           │
+ *   │       搜索框（⌘K）· 分类下拉 · 统计 · 添加                   │
+ *   ├────────────────────────────┬──────────────────────────────┤
+ *   │ 中栏列表                    │ 右栏详情（关联/历史/相关）      │
+ *   └────────────────────────────┴──────────────────────────────┘
  *
- *  - 左栏：全部记忆 / 变更 / 修订 / 回收站 导航 + 项目区 + 分类区 + 底部设置；
- *  - 顶栏：全局搜索（260ms 防抖，⌘K 聚焦）+ 统计（条数·项目·置顶·变更）+ 关闭；
+ *  - 顶栏：视图分段控件 + 全局搜索（260ms 防抖，⌘K 聚焦）+ 分类下拉 + 统计 + 添加；
  *  - 中栏列表头：计数 + 排序切换 / 整理 / 多选 / 刷新（多选时换成批量操作），
  *    选中具体项目时项目上下文条（别名 / 清空）出现在列表头下方 —— 自动记忆与
  *    排除注入两个开关 2026-10-18 已迁到「大盘设置」卡片（按工作区逐个列出）；
- *  - 中栏：置顶大卡（星标 + 摘要 + 时间行）+ 时间分组紧凑行，选中蓝描边；
+ *  - 中栏：待确认组 + 置顶大卡（星标 + 摘要 + 时间行）+ 时间分组紧凑行，选中蓝描边；
  *  - 右栏：标题 + 标鉴 chips + 重要度卡 + 正文 + 关联信息 + 历史记录 + 相关记忆。
+ *
+ * **页内没有导航栏**（2026-10-25 第三次重做）：
+ *  - 原 212px 左侧栏整条删除，页面变宽；
+ *  - 工作区（项目）筛选搬到侧栏「操作间 → 记忆」的二级菜单，由
+ *    `../hub/workbench-intent.js` 这条意图通道驱动（见下方「工作区意图」小节）；
+ *  - 视图切换回到顶栏的分段控件，分类筛选变成顶栏的一个下拉。
  *
  * 数据加载分片：list/tags 随筛选条件走；changes / revisions / config / summary
  * 各自独立加载，切视图时按需拉取。相关记忆（/related）随选中条目懒加载。
@@ -49,7 +53,6 @@ import type {
 } from './api.js'
 import { css, ensureStyles } from './styles.js'
 import { SettingsTab } from './SettingsTab.js'
-import { MemoryHome } from './Home.js'
 import { makeT, type MemoryLocaleKey, type MemoryT } from './locales.js'
 import { modalStaggerClass } from '../triad-modal-animation.js'
 import { ConfirmDialog } from './ConfirmDialog.js'
@@ -57,12 +60,31 @@ import { ConfirmDialog } from './ConfirmDialog.js'
 // 这里 re-export 是刻意的：Toggle.tsx / index.ts 历史上从 Panel.js 取 BrainIcon，
 // 保持这个出口不变，抽取就是纯粹的内部重构，不牵连任何调用方。
 export { BrainIcon, PinIcon } from './icons.js'
-import { BrainIcon, PinIcon, BoxIcon, HomeIcon, ClockIcon, HistoryIcon, TrashIcon, EraserIcon, ShieldIcon, CopyIcon, RingOffIcon, LightbulbIcon, GearIcon, SortArrowsIcon, GlobeIcon, FolderIcon, TagIcon, PenIcon, SparkIcon, LayersIcon, VerifiedIcon, CheckMark, PowerIcon } from './icons.js'
+// 2026-10-25：BoxIcon / HomeIcon / ClockIcon / HistoryIcon / TrashIcon / GearIcon /
+// TagIcon / LightbulbIcon 随「页内左侧栏删除」一并摘掉 import —— 它们原本只挂在
+// 那 6 个侧栏视图条目与分类区上（视图切换现在只有文案 + 计数，图标留给侧栏二级
+// 菜单；LightbulbIcon 早在那之前就没消费点了）。
+import { BrainIcon, PinIcon, EraserIcon, ShieldIcon, CopyIcon, RingOffIcon, SortArrowsIcon, GlobeIcon, FolderIcon, PenIcon, SparkIcon, LayersIcon, VerifiedIcon, CheckMark, PowerIcon } from './icons.js'
 import { PshBody, PopoverShell } from '../popover-shell.js'
 import { markReadIds, markViewed, readIds } from './Notify.js'
+import {
+  readMemoryScope,
+  requestMemoryScope,
+  subscribeWorkbenchIntent,
+  type MemoryScopeIntent,
+} from '../hub/workbench-intent.js'
+import { setNavEntryActiveChild, setNavEntryChildren } from '../hub/nav-registry.js'
 
-/** 面板视图（左栏导航决定）。 */
-export type MemoryTab = 'home' | 'all' | 'changes' | 'revisions' | 'trash' | 'settings'
+/**
+ * 面板视图（顶栏视图分段控件决定）。
+ *
+ * 2026-10-25：「首页」整块删除（用户要求「主页应该去掉」）。它原本是一张仪表盘
+ * （问候语 + 新增/导入/链接/AI 整理四张动作卡 + 分类磁贴 + 类型分布环 + 最近浏览），
+ * 承担「进记忆先看一眼概览」的角色；但这页现在的主入口是侧栏二级菜单的**工作区**，
+ * 用户点进来就是要看那个工作区的条目，仪表盘横在前面反而多一次点击。
+ * 默认视图因此落到「全部记忆」。
+ */
+export type MemoryTab = 'all' | 'changes' | 'revisions' | 'trash' | 'settings'
 
 /** 时间分组。 */
 type GroupKey = 'today' | 'week' | 'earlier' | 'longterm'
@@ -171,6 +193,24 @@ function formatCount(value: number): string {
   if (value < 1000) return String(value)
   if (value < 10_000) return `${(value / 1000).toFixed(1).replace(/\.0$/, '')}k`
   return `${Math.round(value / 1000)}k`
+}
+
+/**
+ * 侧栏「操作间 → 记忆」二级菜单里「工作区」项的图标（文件夹）。
+ *
+ * 为什么不复用 `GlobeIcon`：「全部工作区」是「跨所有项目」，而具体工作区是
+ * 「某一个项目」——两者用同一枚地球会让「全部」与「某一个」在视觉上等价。
+ * 统一用文件夹表达「这是一个工作区」，与「全局记忆」的地球形成对照。
+ *
+ * 尺寸固定 14（与侧栏二级菜单其它子项一致），颜色继承 `currentColor`。
+ */
+function WorkspaceIcon({ size = 14 }: { size?: number }): JSX.Element {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h3.4a1.5 1.5 0 0 1 1.2.6L11.5 6H18a2 2 0 0 1 2 2v9.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" />
+    </svg>
+  )
 }
 
 /**
@@ -372,8 +412,15 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
   // 否则 load 的 useCallback 依赖 api 每次变化 → useEffect 无限重触发请求风暴。
   const apiRef = useRef(api)
   apiRef.current = api
-  const [tab, setTab] = useState<MemoryTab>(initialTab ?? 'home')
-  const [scope, setScope] = useState<ScopeFilter>('all')
+  const [tab, setTab] = useState<MemoryTab>(initialTab ?? 'all')
+  /**
+   * 当前工作区筛选。
+   *
+   * **初值从意图通道读**（而不是恒 'all'）：从侧栏「操作间 → 记忆 → 某个工作区」
+   * 进来时，页面是后挂载的一方，持久化层里已经有侧栏写下的那份 scope；
+   * 恒 'all' 会让「侧栏点 D:\AI\Dsh、页面显示全部」这种首屏分叉。
+   */
+  const [scope, setScope] = useState<ScopeFilter>(() => readMemoryScope())
   const [q, setQ] = useState('')
   // 防抖后的搜索词：list 请求只跟这个走（边打字边请求会打爆 host）。
   const [debouncedQ, setDebouncedQ] = useState('')
@@ -422,19 +469,38 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
   const [aliasDraft, setAliasDraft] = useState<string | null>(null)
   // 列表排序方向（最新 / 最旧）。
   const [sortDir, setSortDir] = useState<SortDir>('new')
-  // 分类区：是否展开全部标签。
-  const [catExpanded, setCatExpanded] = useState(false)
   // 详情：相关记忆 / 历史记录展开。
   const [related, setRelated] = useState<RelatedState>({ entryId: null, entries: [], loading: false })
   const [historyExpanded, setHistoryExpanded] = useState(false)
   // 顶栏搜索框引用（⌘K 聚焦）。
   const searchRef = useRef<HTMLInputElement | null>(null)
 
+  /**
+   * 当前工作区的最新值（供意图订阅在 listener 里比对，避免拿到闭包里的旧 scope）。
+   *
+   * ⚠ 必须做变更检测：意图事件是**所有**工作台意图共用的通道（画廊切类别也走
+   * 这一条），无条件 setScope 会让「在画廊点了个类别」顺手触发记忆页一次重新
+   * 拉取；而 scope 真的没变时 setScope 的入参还是同一个字符串，React 虽然
+   * 不会重渲染，但值比较的语义比依赖 setState 的 bailout 更明确、更省一次
+   * 全链路 diff。
+   */
+  const scopeRef = useRef(scope)
+  scopeRef.current = scope
+
   // 当前 tab / 变更范围的最新值（供 mutation 后的刷新决定拉哪些接口）。
   const tabRef = useRef(tab)
   tabRef.current = tab
   const rangeRef = useRef(changeRange)
   rangeRef.current = changeRange
+  /**
+   * 数据状态的最新值（供「切换筛选要不要闪骨架屏」判断）。
+   *
+   * 用 ref 而不是把 `state.status` 放进 effect 依赖：放进去会让那个 effect 在
+   * 每次加载完成后（status 从 loading → ready）再跑一遍，变成「加载 → 再加载」
+   * 的死循环。这里只需要在**触发时**读一眼现值。
+   */
+  const stateRef = useRef(state)
+  stateRef.current = state
 
   // 搜索防抖：260ms 内的连续输入合并成一次请求。
   useEffect(() => {
@@ -554,12 +620,85 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
 
   // 挂载即加载。本页现在挂在官方 main 槽位（keyed），只有被选中时才渲染、
   // 切走即卸载，所以「打开」= 挂载，不再需要 open 依赖。
+  //
+  // ⚠ `load` 的依赖里有 scope / tag / debouncedQ，所以**切换筛选**也会重跑这个
+  // effect。切筛选时要不要闪骨架屏，取决于「现在屏幕上有没有数据」：
+  //   · 首次挂载（status=loading、一条都还没有）→ 必须显示骨架屏，
+  //     否则用户面对一块空白不知道在等什么；
+  //   · 已经有数据、只是换了个工作区/分类/搜索词 → **必须静默**，让旧列表
+  //     原地留着，新数据回来直接替换。
+  //
+  // 这条是用户报障「点记忆的二级菜单会刷新整个页面」的根因：原先这里无条件
+  // `void load()`（非 silent），于是每次点侧栏的工作区，列表都会先被清空换成
+  // 4 行骨架屏、再填回新数据（实测 t+3ms 出骨架屏、t+11ms 才换回列表）。
+  // 面板本身并没有重新挂载（DOM 身份未变），但那一闪看起来就是「整页刷新」。
   useEffect(() => {
-    void load()
+    // state.status 参与判断但不进依赖：进依赖会让本 effect 在每次加载完成后
+    // 再跑一遍（status 变了），变成「加载 → 再加载」的循环。用 ref 读现值。
+    void load({ silent: stateRef.current.status === 'ready' })
     void loadSummary()
     void loadChanges()
     void loadRevisions()
   }, [load, loadSummary, loadChanges, loadRevisions])
+
+  /* ────────────────── 工作区意图通道（侧栏 ⇄ 页内筛选）──────────────────
+   *
+   * 2026-10-25：页内那条 212px 左栏删掉，工作区（项目）选择搬进侧栏
+   * 「操作间 → 记忆」的二级菜单。侧栏与页面是两个互不相邻的 React 根
+   * （侧栏是插进官方 DOM 的裸节点，本页在官方 main 槽位），没有共同祖先、
+   * 也没有共享 context，所以只能走 `../hub/workbench-intent.js`：
+   * 「写持久化 + 广播」的意图由侧栏发出，页面负责收敛。
+   *
+   * 三条链路各自解决一个不同的失败模式，缺一条就会静默分叉：
+   *   ① **初值回填**（上面的 useState 惰性初始化）——页面是后挂载的一方，
+   *      从侧栏点进来时持久化层里已经有 scope 了；
+   *   ② **订阅**（下面第二个 effect）——页面已经挂着时侧栏再点，原地切换，
+   *      不必重开页面；
+   *   ③ **回写**（changeScope）——用户在页面里改 scope，侧栏高亮跟着走。
+   */
+
+  /**
+   * 改工作区，并把同一份值回写给侧栏。
+   *
+   * 页内改 scope 的入口现在只剩三处：「变更」工具行的范围下拉、首页
+   * `goAll({scope})`、以及点「全部」视图时的复位——全部走这里。两处各自写一份
+   * 状态的后果不是「多一个方便」，而是「侧栏说全局、页面显示全部」。
+   *
+   * **意图回调那条路不要用这个函数**（见下面的订阅）：那条是「侧栏 → 页面」
+   * 的方向，再回写一次就是自己给自己发消息，事件与持久化层来回打转。
+   * @param next - 新的工作区筛选值。
+   */
+  const changeScope = (next: ScopeFilter): void => {
+    setScope(next)
+    requestMemoryScope(next)
+  }
+
+  /**
+   * 订阅意图：侧栏二级菜单点了别的项 → 页内筛选原地跟上。
+   *
+   * ⚠ **必须先读再比对**，不能「有事件就刷新」：这条事件是所有工作台意图共用
+   * 的（画廊切类别、以后新增的意图都广播到同一个 Event），无条件 setScope 会
+   * 让「在画廊点了一下」触发记忆页重新拉一次全量列表；更糟的是值没变也会让
+   * `load` 的依赖链重新走一遍。读 `readMemoryScope()` 与当前值比对，相同就
+   * 直接返回。
+   */
+  useEffect(() => subscribeWorkbenchIntent(() => {
+    const next = readMemoryScope()
+    if (next === scopeRef.current) return
+    setScope(next)
+  }), [])
+
+  /**
+   * 告诉侧栏「记忆这一行的二级菜单此刻该高亮哪一项」。
+   *
+   * 注册表**不另存一份选中态**：它每次渲染都现调这个函数，函数里去读意图通道
+   * 的那份持久化值——于是侧栏高亮与页内筛选天生同源，不会出现两套状态。
+   * 卸载时传 `undefined` 还原，避免侧栏还挂着一个指向已卸载页面的闭包。
+   */
+  useEffect(() => {
+    setNavEntryActiveChild('workbench-memory', () => readMemoryScope())
+    return () => { setNavEntryActiveChild('workbench-memory', undefined) }
+  }, [])
 
   // 视图按需加载：设置只在被切到该 Tab 时拉取。
   useEffect(() => {
@@ -569,10 +708,10 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
   /*
    * 有未读变更时直达「变更」Tab，并顺手清掉未读。
    *
-   * 这是原侧边栏入口的点击语义（`openPanel(unread.count > 0 ? 'changes' :
-   * 'home')` + `markRead()`）。入口改成官方菜单行后那段逻辑没地方挂了，就挪到
-   * 页面自己身上：挂载后拉一次未读，有就跳并标记已读，只跳一次（jumpedRef 守
-   * 住，用户自己切回「全部」不会被再拽走）。
+   * 这是原侧边栏入口的点击语义（`openPanel(unread.count > 0 ? 'changes' : …)`
+   * + `markRead()`）。入口改成官方菜单行后那段逻辑没地方挂了，就挪到页面自己
+   * 身上：挂载后拉一次未读，有就跳并标记已读，只跳一次（jumpedRef 守住，用户
+   * 自己切回「全部」不会被再拽走）。
    *
    * 只拉一次、不轮询：官方菜单行没有角标位（`sidebar.panellist` 只渲染图标 +
    * 文案），常驻轮询已经没有消费方；原先 60s 一次的那条轮询随入口一并去掉。
@@ -588,7 +727,7 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
         markReadIds(response.changes.map(change => change.id))
         setTab('changes')
       },
-      () => { /* 未读是尽力而为的副产物：拉不到就停在「首页」。 */ },
+      () => { /* 未读是尽力而为的副产物：拉不到就停在默认视图（全部记忆）。 */ },
     )
   }, [])
 
@@ -920,6 +1059,53 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
     () => (activePool === null ? snapshot?.projects ?? [] : recountProjects(snapshot?.projects ?? [], activePool)),
     [snapshot, activePool],
   )
+
+  /**
+   * 把工作区清单推给侧栏「操作间 → 记忆」的二级菜单。
+   *
+   * 侧栏只负责渲染，工作区是**异步**拉的 —— 所以「全部工作区 / 全局记忆」这两
+   * 行固定项先给出去，本页面回来项目清单后再补上数据驱动的那些行。
+   *
+   * 三个坑：
+   *  1. `run` 里**只写意图、不直接 setScope**。页面自己通过订阅收敛——两条路
+   *     同时改同一份状态，会因为 React 批处理时序不同而互相覆写；
+   *  2. 依赖里**不能放 `t`**：`makeT()` 每次渲染都返回新闭包，放进 deps 会让
+   *     这个 effect 每渲染都跑、每次都 notify 侧栏重渲染。这几行的文案与侧栏
+   *     自身的区域名同口径（都是中文常量），不跟面板语言走；
+   *  3. cleanup **不缩回固定项**（2026-10-25 改）。原先这里把 children 还原成
+   *     两项固定项，理由是「页面卸载后 projects 不再更新，侧栏会挂陈旧列表」。
+   *     但侧栏现在有**自己**的数据源（hub/workspace-source.ts，挂载时自己拉一次），
+   *     缩回固定项等于把侧栏自己那份也抹掉 —— 用户离开记忆页后工作区行凭空消失，
+   *     正是报障「工作区要点了全局记忆才展示」的另一半。现在干脆不写 cleanup：
+   *     页面这份只是在**有更准的计数时**覆盖侧栏那份，卸载后保留最后一份即可。
+   *
+   * ⚠ **每一项都必须给 icon**（2026-10-25 修）：侧栏二级菜单的行是「图标 +
+   *   文字」两段式 flex，缺图标的行会整体左移一格、与上面几行文字对不齐 ——
+   *   第一版给两行固定项配了图标、数据驱动的工作区没配，结果前两行有图标、
+   *   后面几行文字顶到最左，看上去像两组不相干的东西。现在四项统一用同一枚
+   *   14px 线性图标（工作区文件夹），视觉上是一整组。
+   */
+  useEffect(() => {
+    /** 与具体工作区无关的两个固定项（全部 / 全局）。 */
+    const fixedChildren = [
+      { id: 'all', label: '全部工作区', icon: WorkspaceIcon, order: 10, run: () => { requestMemoryScope('all') } },
+      { id: 'global', label: '全局记忆', icon: GlobeIcon, order: 20, run: () => { requestMemoryScope('global') } },
+    ] as const
+    setNavEntryChildren('workbench-memory', [
+      ...fixedChildren,
+      ...projects.map((project, index) => ({
+        id: `project:${project.hash}`,
+        label: project.alias ?? project.path.split(/[\\/]/).filter(Boolean).at(-1) ?? project.hash,
+        hint: project.path,
+        count: project.entryCount,
+        order: 30 + index,
+        // 每个工作区都给同一枚图标：缺了它文字会左移一格、与上面两行对不齐。
+        icon: WorkspaceIcon,
+        run: () => { requestMemoryScope(`project:${project.hash}` as MemoryScopeIntent) },
+      })),
+    ])
+  }, [projects])
+
   /** 当前视图的条目集（回收站=只保留已废弃；其余视图=只保留活跃条目）。 */
   const filtered = useMemo(() => {
     const entries = snapshot?.entries ?? []
@@ -1076,38 +1262,6 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
     [related, detail],
   )
 
-  /** 左侧分类可见集：默认前 5 + 「更多分类」展开全部。 */
-  const visibleCats = useMemo(
-    () => (catExpanded ? allTags : allTags.slice(0, 5)),
-    [allTags, catExpanded],
-  )
-
-  /** 首页仪表盘条目集：活跃池优先（与分类计数同口径），未就绪时回落快照。 */
-  const homeEntries = (activePool ?? snapshot?.entries ?? []).filter(entry => entry.deprecated !== true)
-  /** 首页导航回调：复用既有 tab/筛选/选中态，不新增数据链路。 */
-  const homeNav = {
-    goAll: (opts?: { tag?: string; scope?: string; q?: string }): void => {
-      if (opts?.tag !== undefined) setTag(opts.tag)
-      if (opts?.scope !== undefined) setScope(opts.scope as ScopeFilter)
-      if (opts?.q !== undefined) setQ(opts.q)
-      setTab('all'); closeForms(); exitSelecting()
-    },
-    goChanges: (): void => { setTab('changes'); closeForms(); exitSelecting() },
-    goSettings: (): void => { setTab('settings'); closeForms(); exitSelecting() },
-    goAdd: (prefill?: { content?: string; tags?: string }): void => {
-      if (prefill?.content !== undefined) setAddContent(prefill.content)
-      if (prefill?.tags !== undefined) setAddTags(prefill.tags)
-      setAdding(true); setEditing(null); setMoving(null); setTab('all'); exitSelecting()
-    },
-    pickEntry: (id: string): void => {
-      setSelectedId(id)
-      setTab('all')
-      closeForms()
-      exitSelecting()
-      // 首页点条目同样算一次浏览（首页卡片自己也是入口）
-      markViewed(id)
-    },
-  }
   /** 变更导航计数：优先全量 changeCount，旧 host 无该字段时回落 todayChanges。 */
   const changeCount = summary?.changeCount ?? summary?.todayChanges ?? 0
   /** 项目总数：与下面列出的项目行同源（含零记忆的 DSH 工作区）。 */
@@ -1736,13 +1890,19 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
     )
   }
 
-  /** 作用域下拉（全部 / 全局 / 各项目）：「变更」工具行使用（列表筛选已由左栏导航承担）。 */
+  /**
+   * 作用域下拉（全部 / 全局 / 各项目）：「变更」工具行使用。
+   *
+   * 页内左栏删除后，这是**页面里唯一**能改 scope 的控件 —— 列表筛选本身已经
+   * 由侧栏的二级菜单承担。改它必须走 `changeScope`：只 setScope 不回写的话，
+   * 侧栏高亮会停在旧工作区上。
+   */
   const scopeSelectEl = (
     <select
       className={`${css.filterSelect} ${css.scopeSelect}`}
       value={scope}
       aria-label={t('scopeFilterLabel')}
-      onChange={(event) => { setScope(event.currentTarget.value as ScopeFilter) }}
+      onChange={(event) => { changeScope(event.currentTarget.value as ScopeFilter) }}
     >
       <option value="all">{t('filterAllProjects')} ({summary?.entryCount ?? 0})</option>
       <option value="global">{t('scopeGlobal')} ({summary?.globalCount ?? 0})</option>
@@ -1754,40 +1914,90 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
     </select>
   )
 
+  /**
+   * 顶部「分类」下拉（原侧栏分类区的替代入口）。
+   *
+   * 分类筛选能力一个字都没变（`tag` 状态 + 它对 `filtered` 的影响原样保留），
+   * 只是入口从侧栏那一列平铺项换成了顶栏一个下拉：侧栏这次只搬「工作区」，
+   * 分类留在页面里，而下拉是唯一不新增交互形态的安置方式（原侧栏的「更多分类」
+   * 展开逻辑随之删除 —— 下拉天然能滚，不需要「展开更多」）。
+   * 计数沿用 `allTags` 的本地口径（只数活跃条目，见 countTagsFromEntries）。
+   */
+  const categorySelectEl = allTags.length === 0 ? null : (
+    <select
+      className={`${css.filterSelect} ${css.categorySelect}`}
+      value={tag}
+      aria-label={t('navCategories')}
+      title={t('navCategories')}
+      onChange={(event) => { setTag(event.currentTarget.value) }}
+    >
+      <option value="">{t('filterAllCategories')}</option>
+      {allTags.map(cat => (
+        <option key={cat.tag} value={cat.tag}>{cat.tag} ({cat.count})</option>
+      ))}
+    </select>
+  )
+
   const selectedProject = scope.startsWith('project:')
     ? projects.find(candidate => candidate.hash === scope.slice('project:'.length))
     : undefined
 
-  /* 顶部视图分段 Tab 项。 */
   /**
-   * 侧栏导航条目（2026-10 第二轮重做：从顶部 tab 行搬进左侧栏）。
+   * 顶栏视图分段控件的一项。
    *
-   * 与旧版的关键差别：
-   *   · 旧：横向排一排，6 个 tab 挤在顶部，计数用小徽章挂在右侧。
-   *   · 新：纵向列表，图标 + 文字 + 右对齐计数，整行可点（点击区从文字
-   *     宽度扩到整行 212px，左侧栏本来就窄，整行点击才够好按）。
-   * 计数为 0 时不显示——「0 条」在两个地方同时出现只是噪音。
+   * 2026-10-25 第三次重做：这些视图原本长在页内左侧栏里（第二轮重做时从
+   * 顶部 tab 行搬下去的），现在侧栏搬进「操作间」后它们回到页内顶部。
+   * 状态机一个字没改 —— 仍是 `tab` / `setTab`，`initialTab` 与 ⌘K 的跳转
+   * 都复用同一份。
+   *
+   * 计数为 0 时不显示：「0 条」在两个地方同时出现只是噪音（原侧栏的约定）。
+   *
+   * ⚠ `data-active` 不只是调试标记：工作台换肤层（hub/theme.ts）用
+   *   `.dsh-memory-view-tab[data-active="true"]` 给选中态上底色与内阴影，
+   *   少了这个属性，选中项在换肤下会跟未选中长得一模一样。
+   * @param key - 视图 id。
+   * @param label - 显示文案。
+   * @param count - 行尾计数；`null` = 这个视图不显示计数（设置）。
+   * @param hint - 悬停说明（说不清口径的数字必须有解释）。
+   * @param tail - true = 推到行尾（低频入口「设置」）。
    */
-  const viewTab = (key: MemoryTab, icon: JSX.Element, label: string, count: number, badge = true, hint?: string): JSX.Element => (
-    <button
-      key={key}
-      type="button"
-      role="tab"
-      title={hint ?? (label + (count > 0 ? ' · ' + count.toLocaleString() : ''))}
-      className={css.sidebarItem + (tab === key ? ' ' + css.sidebarItemActive : '')}
-      aria-selected={tab === key}
-      onClick={() => {
-        setTab(key)
-        closeForms()
-        exitSelecting()
-        if (key === 'all') { setScope('all'); setTag('') }
-      }}
-    >
-      <span className={css.navIcon}>{icon}</span>
-      <span className={css.sidebarItemLabel}>{label}</span>
-      {badge && count > 0 && <span className={css.sidebarItemCount}>{formatCount(count)}</span>}
-    </button>
-  )
+  const viewTab = (
+    key: MemoryTab,
+    label: string,
+    count: number | null,
+    hint?: string,
+    tail = false,
+  ): JSX.Element => {
+    const active = tab === key
+    const cls = [
+      css.viewTab,
+      active ? css.viewTabActive : '',
+      tail ? css.viewTabTail : '',
+    ].filter(Boolean).join(' ')
+    const showCount = count !== null && count > 0
+    return (
+      <button
+        key={key}
+        type="button"
+        role="tab"
+        aria-selected={active}
+        data-active={active ? 'true' : undefined}
+        title={hint ?? (showCount ? `${label} · ${(count as number).toLocaleString()}` : label)}
+        className={cls}
+        onClick={() => {
+          setTab(key)
+          closeForms()
+          exitSelecting()
+          // 切回「全部」时复位筛选：这是原侧栏条目时代就有的语义（点「全部记忆」
+          // 等于「回到无筛选」）。复位走 changeScope —— 侧栏高亮要跟着回到全部。
+          if (key === 'all') { changeScope('all'); setTag('') }
+        }}
+      >
+        <span>{label}</span>
+        {showCount && <span className={css.viewTabCount}>{formatCount(count as number)}</span>}
+      </button>
+    )
+  }
 
   const shellOrWrap = (children: JSX.Element): JSX.Element => (
     embedded
@@ -1808,119 +2018,31 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
     <>
       {shellOrWrap(
         <div className={`${css.panel} ${modalStaggerClass}`} aria-busy={state.status === 'loading'}>
-        {/* ── 左侧栏（2026-10 第二轮重做：从顶部 tab 行搬下来）── */}
-        <nav className={css.sidebarNav} aria-label={t('panelTitle')}>
-          <div className={css.sidebarBrand}>
-            <span className={css.sidebarBrandIcon}><BrainIcon size={15} /></span>
-            <span className={css.sidebarBrandText}>{t('panelTitle')}</span>
-          </div>
-
-          <div className={css.sidebarSection} role="tablist" aria-label={t('panelTitle')}>
-            {viewTab('home', <HomeIcon size={15} />, '首页', 0, false)}
-            {viewTab('all', <BoxIcon size={15} />, t('navAll'), summary?.entryCount ?? 0, true, t('hintActive'))}
-            {viewTab('changes', <ClockIcon size={15} />, t('tabChanges'), changeCount, true, t('hintAllChanges'))}
-            {viewTab('revisions', <HistoryIcon size={15} />, t('tabRevisions'), revisions.length, true, t('hintRevisions'))}
-            {viewTab('trash', <TrashIcon size={15} />, t('navTrash'), summary?.deprecatedCount ?? 0, true, t('hintDeprecated'))}
-          </div>
-
-          {/* 项目：平铺列出（旧版是下拉框 —— 十几个项目时看不见选项就得先点开） */}
-          <div className={css.sidebarSection}>
-            <div className={css.sidebarSectionTitle}>
-              {t('navProjects') || '项目'}
-              <span className={css.sidebarSectionCount}>{projects.length}</span>
-            </div>
-            <button
-              type="button"
-              className={css.sidebarItem + (scope === 'all' ? ' ' + css.sidebarItemActive : '')}
-              onClick={() => { setTab('all'); setScope('all') }}
-            >
-              <span className={css.navIcon}><GlobeIcon size={15} /></span>
-              <span className={css.sidebarItemLabel}>{t('filterAllProjects')}</span>
-              <span className={css.sidebarItemCount}>{formatCount(summary?.entryCount ?? 0)}</span>
-            </button>
-            <button
-              type="button"
-              className={css.sidebarItem + (scope === 'global' ? ' ' + css.sidebarItemActive : '')}
-              onClick={() => { setTab('all'); setScope('global') }}
-            >
-              <span className={css.navIcon}><GlobeIcon size={15} /></span>
-              <span className={css.sidebarItemLabel}>{t('scopeGlobal')}</span>
-              <span className={css.sidebarItemCount}>{formatCount(summary?.globalCount ?? 0)}</span>
-            </button>
-            {projects.map(project => {
-              const active = scope === `project:${project.hash}`
-              const label = project.alias ?? project.path.split(/[\\/]/).filter(Boolean).at(-1) ?? project.hash
-              return (
-                <button
-                  key={project.hash}
-                  type="button"
-                  title={project.path}
-                  className={css.sidebarItem + (active ? ' ' + css.sidebarItemActive : '')}
-                  onClick={() => { setTab('all'); setScope(`project:${project.hash}`) }}
-                >
-                  <span className={css.navIcon}><FolderIcon size={15} /></span>
-                  <span className={css.sidebarItemLabel}>{label}</span>
-                  <span className={css.sidebarItemCount}>{formatCount(project.entryCount)}</span>
-                </button>
-              )
-            })}
-            {projects.length === 0 && <span className={css.sidebarEmpty}>{t('noProjects')}</span>}
-          </div>
-
-          {/* 分类：平铺（旧版同样是下拉 + 一排胶囊，重复了两遍） */}
-          {allTags.length > 0 && (
-            <div className={css.sidebarSection}>
-              <div className={css.sidebarSectionTitle}>
-                {t('navCategories') || '分类'}
-                <span className={css.sidebarSectionCount}>{allTags.length}</span>
-              </div>
-              <button
-                type="button"
-                className={css.sidebarItem + (tag === '' ? ' ' + css.sidebarItemActive : '')}
-                onClick={() => { setTag('') }}
-              >
-                <span className={css.navIcon}><TagIcon size={15} /></span>
-                <span className={css.sidebarItemLabel}>{t('filterAllCategories')}</span>
-              </button>
-              {visibleCats.map(cat => (
-                <button
-                  key={cat.tag}
-                  type="button"
-                  className={css.sidebarItem + (tag === cat.tag ? ' ' + css.sidebarItemActive : '')}
-                  onClick={() => { setTag(tag === cat.tag ? '' : cat.tag) }}
-                >
-                  <span className={css.navIcon}>
-                    <span className={css.catDot} style={{ ['--dot' as string]: DOT_COLORS[hashOf(cat.tag) % DOT_COLORS.length] }} />
-                  </span>
-                  <span className={css.sidebarItemLabel}>{cat.tag}</span>
-                  <span className={css.sidebarItemCount}>{formatCount(cat.count)}</span>
-                </button>
-              ))}
-              {allTags.length > 6 && (
-                <button
-                  type="button"
-                  className={css.sidebarItem}
-                  aria-expanded={catExpanded}
-                  onClick={() => { setCatExpanded((value) => !value) }}
-                >
-                  <span className={css.navIcon}>{catExpanded ? '−' : '+'}</span>
-                  <span className={css.sidebarItemLabel}>{catExpanded ? t('catLess') : t('navMoreCategories')}</span>
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* 设置固定在底部：它是低频入口，不该跟导航抢位置 */}
-          <div className={css.sidebarSection} style={{ marginTop: 'auto' }}>
-            {viewTab('settings', <GearIcon size={15} />, t('tabSettings'), 0, false)}
-          </div>
-        </nav>
-
-        {/* ── 右侧内容列：顶栏 + 主区 ── */}
+        {/* ── 内容列：顶栏 + 主区 ──
+            2026-10-25 第三次重做：这里原本是「左侧栏 + 内容列」两栏，左栏那条
+            212px 导航整条删除（工作区搬进侧栏二级菜单），只留这一列填满面板。 */}
         <div className={css.contentCol}>
           <header className={css.topBar}>
+            {/* ── 第一行：视图分段条 ──
+                原侧栏那 6 个视图条目整条搬到这里，状态机一字未改。
+                **必须独占一行**：和搜索框/统计/按钮挤在同一行时，六个视图夹在
+                中间那段窄空间里，会被压缩得看不出层级（实测截图：视图条被推到
+                最右侧、与「3 条记忆 · 置顶 · 添加」贴成一团）。它承担的是整页
+                导航，视觉权重应该压过下面那排筛选。 */}
+            <div className={css.viewTabs} role="tablist" aria-label={t('panelTitle')}>
+              {viewTab('all', t('navAll'), summary?.entryCount ?? 0, t('hintActive'))}
+              {viewTab('changes', t('tabChanges'), changeCount, t('hintAllChanges'))}
+              {viewTab('revisions', t('tabRevisions'), revisions.length, t('hintRevisions'))}
+              {viewTab('trash', t('navTrash'), summary?.deprecatedCount ?? 0, t('hintDeprecated'))}
+              {/* 设置是低频入口：推到行尾，与前面四个视图拉开距离 */}
+              {viewTab('settings', t('tabSettings'), null, undefined, true)}
+            </div>
+
+            {/* ── 第二行：搜索 + 分类 + 统计 + 主按钮 ── */}
             <div className={css.viewRow}>
-              {/* 搜索框（重做：胶囊容器 + 聚焦光晕 + 内容清除键） */}
+              {/* 搜索框（胶囊容器 + 聚焦光晕 + 内容清除键）。
+                  只有能搜索的视图才给：变更/修订/首页/设置里输入框无处生效，
+                  摆一个打了字没反应的框比没有更让人困惑。 */}
               {(tab === 'all' || tab === 'trash') ? (
                 <label className={css.searchWrap}>
                   <span className={css.topSearchIcon}><IconSearchOutlineRegular size={15} /></span>
@@ -1946,6 +2068,9 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
                 </label>
               ) : <span style={{ flex: 1 }} />}
 
+              {/* 分类筛选：原侧栏分类区的替代入口（能力不变，只换位置） */}
+              {categorySelectEl}
+
               <div className={css.topActions}>
                 <div className={css.topStats}>
                   {summary !== null && (
@@ -1967,6 +2092,7 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
                     </>
                   )}
                 </div>
+
 
                 <button
                   type="button"
@@ -1995,31 +2121,13 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
 
         {/* ── 主区 ── */}
 
-        {/* ── 主区：纯双栏（左列表 + 右详情）或全宽视图 ── */}
+        {/* ── 主区：纯双栏（左列表 + 右详情）或全宽视图 ──
+            2026-10-25：「首页」仪表盘整块删除，这里不再有 home 分支 ——
+            主区只按「列表类视图 / 变更 / 修订 / 设置」三种形态渲染。 */}
         <div className={css.mainCol}>
           {notice !== '' && <p className={css.notice}>{notice}</p>}
           {error !== '' && <p className={css.error} role="alert">{error}</p>}
 
-          {tab === 'home' ? (
-            state.status === 'loading' ? renderSkeleton() : (
-              state.status === 'error' ? (
-                <div className={css.viewFull}>
-                  <div className={css.empty}>{t('loadFailed')}</div>
-                </div>
-              ) : (
-                <MemoryHome
-                  api={apiRef.current}
-                  entries={homeEntries}
-                  projects={projects}
-                  tags={allTags}
-                  summary={summary}
-                  changes={changes}
-                  nav={homeNav}
-                  refresh={() => { void refresh() }}
-                />
-              )
-            )
-          ) : (
           <>
 
           {/* 主区框架 */}
@@ -2273,7 +2381,6 @@ export function MemoryPanel({ onClose, initialTab, embedded = false, t = makeT()
             </div>
           )}
           </>
-          )}
         </div>
         </div>
       </div>

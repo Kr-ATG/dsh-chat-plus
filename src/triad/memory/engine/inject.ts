@@ -94,6 +94,52 @@ const ZH_INJECTION_RULE = [
   '【中文偏好记忆 · 内置通道】以下为用户长期语言偏好，与上方记忆库开关无关，始终生效。',
   '请始终遵循：内部分析/推理过程与对外输出默认使用简体中文。',
   '代码、路径、命令、标识符、报错原文、API/协议名等技术内容保持原文不翻译。',
+  /*
+   * ── 「说明性参数也算对外输出」（2026-10-25 补）────────────────────────
+   *
+   * 起因：右栏「操作面板」整片英文（用户截图：Probe workspace layout and existing
+   * fee… / List existing _tmp/proto contents / Inspect deliverables and create feed-pr…）。
+   *
+   * 那些行**不是模型答错语言**，而是工具 schema 的引导：官方 pwsh / bash / run_code
+   * 的 description 参数文档写着 "Clear, concise description of what this command does
+   * in active voice, 5-10 words (shown in the UI)"，并给三个英文示例
+   * （"List files in current directory" / "Show working tree status"…）。模型照着写英文。
+   *
+   * 而 DSH 的 UI 把这段 description **原样上屏**：plain-language.ts 里
+   * pwsh / bash / exec_command 三条规则的 detail 直接取 description，且都带
+   * hideVerb —— 动词被抹掉之后，这一行**只剩下 description**，它因此成了卡头上的
+   * 主文案。于是「中文对话 + 英文操作面板」并存，而这张卡的读者是完全不写代码的人。
+   *
+   * 为什么必须写进语言契约而不是改 schema：schema 是官方的（不伪造、不覆盖），
+   * 而"这段文字会被人读"这一事实只有语言契约能表达。
+   *
+   * 边界必须钉死，否则会引出更糟的 bug：只有**给人读的说明性文字**要中文；命令原文、
+   * 参数值、文件名、路径一律保持原文 —— 把 `git status` 翻译成「查看仓库状态」再去
+   * 执行，那不是本地化，是破坏。
+   */
+  '工具调用里**会被直接显示给用户看**的说明性参数同样属于对外输出：pwsh / bash / exec_command / run_code 这类工具的 description 字段（它会被原样印在右栏操作面板与工具卡上）、子任务与定时任务的标题，一律用简体中文写，不要写英文。',
+  /*
+   * ── 「任务清单条目」也要中文（2026-10-25 补）──────────────────────────
+   *
+   * 用户原话：「我要中文的目前任务概览会出现英文我有点看不懂」。
+   *
+   * 与上面 description 是**同一个根因**：官方 todo_write 的 schema 对 `content`
+   * 字段的说明是英文 —— "What the task is — a short imperative line."，
+   * 而整份 tools 数组的文档也是英文（"The COMPLETE task list, replacing any
+   * previous list."）。模型照着 schema 的语言写，于是条目全英文。
+   *
+   * 而这段文字的去向是**右栏「任务概览」卡的正文**（KrTaskOverviewCard 直接
+   * 渲染 task.content，一个字都不加工）。也就是说：模型以为在写内部工作清单，
+   * 实际上是在给一个不写代码的用户写一屏待办 —— 他看不懂。
+   *
+   * 为什么单独点名它：description 那条只说「说明性参数」，而 todos 是**数组里的
+   * 业务内容**，不在「参数说明」的直觉范围内。不点名，模型不会把它归进语言契约。
+   *
+   * 边界同前：条目里出现的文件名、函数名、命令片段保持原文（「跑通 build.mjs
+   * 的冒烟」这种写法是对的），要中文的是叙述那部分，不是把标识符也译掉。
+   */
+  '任务清单（todo_write）的每一条 content 也属于对外输出：它是右栏「任务概览」卡上给人读的正文，一律用简体中文写（如「重建插件产物并跑冒烟」），不要写英文。条目里出现的文件名、函数名、命令保持原文；子任务的 label / 标题同理。',
+  '但**命令原文、参数值、文件名、文件路径保持原文**，不要翻译、不要改写——要翻译的只是那句描述，不是被执行的命令。',
   '（若与当前项目的 AGENTS.md / 项目指令或系统提示冲突，一律以项目指令为准。）',
 ].join('\n')
 

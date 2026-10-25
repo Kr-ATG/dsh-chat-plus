@@ -723,7 +723,32 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
   // 那时靠 data.status 判——非 running / 非 interrupted 即已定型。
   const turnClosed = (locationTurn?.status ?? (data.status !== 'running' ? 'closed' : 'open')) === 'closed'
   const showCard = turnClosed === true || interrupted
-  const isClosingReply = owner !== undefined || (turnClosed && (node.key === lastStepKey || data.finalNode !== undefined))
+  /*
+   * 本次渲染是不是本回合的**最终回答**（决定包总结卡还是轻量步骤卡）。
+   *
+   * ⚠ 判据里**不能出现 `data.finalNode !== undefined`**（2026-10-25 修）。
+   *
+   * 那个字段来自官方 projectAssistant：`...settled === void 0 ? {} : { finalNode: settled }`
+   * —— 只要这一步收到过 assistant/message（也就是**每一次工具调用之后的落定**），
+   * 它就有值，**不是**「这一步是最终回答」的意思。拿它当兜底等于宣布「每个中间
+   * 步骤都是总结」：一个 39 步的回合会产出几十张带框的总结卡，把过程播报
+   * （「现在改写渲染…」「浮层效果不错…」）逐条包装成一排碎片卡。
+   *
+   * 实测（2026-10-25，浏览器里量 DOM）：
+   *   · 被插话/停止的回合：22 张 reply 卡、0 张 step 卡，20 张有高度；
+   *   · 正常完成的回合：**89 张 reply 卡、0 张 step 卡，74 张有高度**。
+   * 两组数字证明它与「是否为中断」无关——用户是在中断那一轮才注意到的，
+   * 但每个多步回合都在这样渲染。顺带它还把 hideProcessText 一并废掉：
+   * showBody 里 `isClosingReply` 恒真 → 过程性发言一条都藏不住。
+   *
+   * 正确判据只有两个来源，且都指向「唯一那一句」：
+   *   · owner —— 官方 turn-tail 的 closing（最准，它才是官方认定的收尾回复）；
+   *   · node.key === lastStepKey —— 本回合最后一个 assistant-step（官方答案行的位置）。
+   * lastStepKey 取不到（locations 与全量扫都失败、数据不全）时才退回 finalNode 兜底，
+   * 免得「总结完了怎么查看」那类正文全丢的老问题复发。
+   */
+  const isClosingReply = owner !== undefined
+    || (turnClosed && (node.key === lastStepKey || (lastStepKey === undefined && data.finalNode !== undefined)))
   const isSummary = isClosingReply || interrupted
   const variant: 'reply' | 'step' | undefined = !showCard
     ? undefined

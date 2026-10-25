@@ -389,32 +389,35 @@ body[data-ds-dark-theme] .wb-root {
    导航列跨满三行通高；首页视图没有筛选行时该行 auto 塌成 0，不留空白带。
    项目/分类下拉保留在二级筛选行（真数据入口不丢）。 */
 
-/* ── 记忆面板（2026-10 第二轮重做后）──
-   历史：这里曾用 display:grid!important 把面板强行摊成三行网格，
-   靠 display:contents 把 .dsh-memory-top-bar / .dsh-memory-view-row 拆开，
-   再把 6 个 view-tab 塞进第 1 列当侧栏 —— 那是给「顶部 tab 行」的旧 DOM 打的补丁。
+/* ── 记忆面板（2026-10-25 第三次改版后）──
+   历史（两轮都记着，因为下次很容易又想动布局）：
+   · 第一轮：这里曾用 display:grid!important 把面板强行摊成三行网格，靠
+     display:contents 把 .dsh-memory-top-bar / .dsh-memory-view-row 拆开，
+     再把 6 个 view-tab 塞进第 1 列当侧栏 —— 那是给「顶部 tab 行」的旧 DOM
+     打的补丁；
+   · 第二轮：面板有了自己的 212px 真侧栏（.dsh-memory-sidebar-nav），本块
+     只做配色微调，**不动布局**（一写 grid!important 就会盖掉插件的 flex，
+     表现为「面板挤成两条、内容掉到下面」）；
+   · 第三轮（当前）：那条侧栏**整块搬进了侧栏的「操作间 → 记忆」二级菜单**，
+     面板里已经没有 .dsh-memory-sidebar-nav 了。视图切换改为页内顶栏的
+     横向分段条（.dsh-memory-view-tabs / -view-tab）。
 
-   现在面板自己就有真侧栏（.dsh-memory-sidebar-nav）+ 内容列（.dsh-memory-content-col），
-   两栏 flex 布局写在插件自己的样式表里。换肤层**不能再动布局**，只做配色微调：
-   一旦这里还写 grid!important，就会把插件的 flex-row 覆盖掉，
-   表现为「面板挤成两条、内容掉到下面」——这正是重做后实测到的破版。
+   所以本块现在只剩一件事：把换肤层的配色变量接进记忆面板的**仍然存在**的
+   那些部件（顶栏 / 搜索框 / 主按钮 / 卡片 / 详情栏 / 新的视图分段条），
+   一件布局属性都不要写。窄屏也不再需要「侧栏收成横排」那套覆盖——侧栏没了。 */
 
-   所以本块只剩两件事：
-     ① 把换肤层的配色变量接进记忆面板（保持工作台里视觉统一）；
-     ② 窄屏下让侧栏收成横排（宽度不够时竖栏会把正文压死）。 */
-.wb-root .dsh-memory-sidebar-nav {
-  background: color-mix(in srgb, var(--wb2-t1) 4%, transparent) !important;
-  border-right-color: var(--wb2-line) !important;
+/* 页内视图分段条（原侧栏的 6 个视图搬到这里）：跟随换肤层的中性色阶。 */
+.wb-root .dsh-memory-view-tab {
+  color: var(--wb2-t2) !important;
+  transition: background 300ms var(--wb2-ease), color 300ms var(--wb2-ease) !important;
 }
-.wb-root .dsh-memory-sidebar-brand-text { color: var(--wb2-t1) !important; }
-.wb-root .dsh-memory-sidebar-item { transition: background 300ms var(--wb2-ease), color 300ms var(--wb2-ease) !important; }
-.wb-root .dsh-memory-sidebar-item:hover { background: color-mix(in srgb, var(--wb2-t1) 6%, transparent) !important; }
-.wb-root .dsh-memory-sidebar-item-active,
-.wb-root .dsh-memory-sidebar-item-active:hover {
+.wb-root .dsh-memory-view-tab:hover { background: color-mix(in srgb, var(--wb2-t1) 6%, transparent) !important; }
+.wb-root .dsh-memory-view-tab-active,
+.wb-root .dsh-memory-view-tab-active:hover {
   background: var(--wb2-a1) !important;
   color: var(--wb2-accent) !important;
 }
-.wb-root .dsh-memory-sidebar-item-active .dsh-memory-sidebar-item-count { color: var(--wb2-accent) !important; }
+.wb-root .dsh-memory-view-tab-active .dsh-memory-view-tab-count { color: var(--wb2-accent) !important; }
 /* 顶栏：保持一条横排，只换底色与描边。 */
 .wb-root .dsh-memory-top-bar {
   background: transparent !important;
@@ -436,58 +439,19 @@ body[data-ds-dark-theme] .wb-root {
   border-left-color: var(--wb2-line) !important;
 }
 
-/* 窄屏降级：212px 竖栏 + 正文在 900px 以下会挤死正文。
-   导航改横排一行（保持可读，不退化成图标轨——那条路已经证明认不出来）。 */
+/* 窄屏降级：面板里已经没有侧栏了，只剩「详情栏的窄屏形态由插件样式表决定」
+   这一句必须保留 —— 换肤层一旦在这里写 width!important，会把插件的浮层规则
+   打死，详情又变回挤压列表的占满块（实测踩过）。 */
 @media (max-width: 900px) {
-  .wb-root .dsh-memory-panel { flex-direction: column !important; }
-  .wb-root .dsh-memory-sidebar-nav {
-    width: 100% !important; max-height: 128px;
-    flex-direction: row !important; flex-wrap: wrap; gap: 4px !important;
-    border-right: none !important; border-bottom: 1px solid var(--wb2-line) !important;
-    padding: 8px !important;
-  }
-  .wb-root .dsh-memory-sidebar-brand { display: none !important; }
-  .wb-root .dsh-memory-sidebar-section {
-    flex-direction: row !important; flex-wrap: wrap; gap: 4px !important;
-    margin-top: 0 !important;
-  }
-  .wb-root .dsh-memory-sidebar-section-title { display: none !important; }
-  .wb-root .dsh-memory-sidebar-item { width: auto !important; }
   /* 详情栏的窄屏形态由插件样式表决定（浮层覆盖），这里不再覆盖 width，
      否则 !important 会把浮层规则打死，详情又变回挤压列表的占满块。 */
 }
-/* ── 记忆首页大盘换肤（MemoryHome）──
-   用户点名「不需要背景色」：hero 卡那两团模糊装饰圆删掉；分类/类型/行图标
-   的多彩（KIND_META 彩色 inline 色）统一收进强调色微底。 */
-.wb-root .hm-hero::before, .wb-root .hm-hero::after { display: none !important; }
-.wb-root .dsh-memory-home .hm-card, .wb-root .dsh-memory-home .hm-hero {
-  border-radius: var(--wb2-r-md) !important; border: 1px solid var(--wb2-line) !important;
-  background: linear-gradient(168deg, var(--wb2-s2), var(--wb2-s1) 46%) !important;
-  box-shadow: var(--wb2-inset) !important; }
-.wb-root .dsh-memory-home .hm-mem-card { border-radius: var(--wb2-r-sm) !important;
-  border: 1px solid var(--wb2-line) !important; background: var(--wb2-s1) !important;
-  transition: transform 420ms var(--wb2-ease), border-color 420ms var(--wb2-ease) !important; }
-.wb-root .dsh-memory-home .hm-mem-card:hover { transform: translateY(-3px); border-color: var(--wb2-line2) !important; }
-/* 行内多彩图标（inline style 的 background）收强调色微底：
-   属性选择器提权压 inline */
-.wb-root .dsh-memory-home span[style*="background"] {
-  background: var(--wb2-a1) !important; color: var(--wb2-accent) !important; }
-.wb-root .dsh-memory-home .hm-tab.hm-tab-active { background: var(--wb2-accent) !important; color: #fff !important; }
-/* 趋势图/环图描边吃强调色（SVG stroke 走 CSS 变量） */
-.wb-root .dsh-memory-home .hm-line { stroke: var(--wb2-accent) !important; }
-.wb-root .dsh-memory-home .hm-dot { fill: var(--wb2-accent) !important; }
-/* 类型分布环：多彩分段收强调色明度五档（stroke 是 presentation attribute，CSS 可压） */
-.wb-root .dsh-memory-home .hm-seg:nth-of-type(2) { stroke: var(--wb2-accent) !important; }
-.wb-root .dsh-memory-home .hm-seg:nth-of-type(3) { stroke: var(--wb2-accent-hi) !important; }
-.wb-root .dsh-memory-home .hm-seg:nth-of-type(4) { stroke: var(--wb2-a4) !important; }
-.wb-root .dsh-memory-home .hm-seg:nth-of-type(5) { stroke: var(--wb2-a3) !important; }
-.wb-root .dsh-memory-home .hm-seg:nth-of-type(6) { stroke: var(--wb2-a2) !important; }
-.wb-root .dsh-memory-home .hm-legend-dot { background: var(--wb2-a3) !important; }
-.wb-root .dsh-memory-home .hm-legend-row:nth-of-type(1) .hm-legend-dot { background: var(--wb2-accent) !important; }
-.wb-root .dsh-memory-home .hm-legend-row:nth-of-type(2) .hm-legend-dot { background: var(--wb2-accent-hi) !important; }
-.wb-root .dsh-memory-home .hm-legend-row:nth-of-type(3) .hm-legend-dot { background: var(--wb2-a4) !important; }
-.wb-root .dsh-memory-home .hm-legend-row:nth-of-type(4) .hm-legend-dot { background: var(--wb2-a3) !important; }
-.wb-root .dsh-memory-home .hm-legend-row:nth-of-type(5) .hm-legend-dot { background: var(--wb2-a2) !important; }
+/* ── 记忆首页大盘的换肤规则已整块删除（2026-10-25）──
+   那块规则（.dsh-memory-home / .hm-* 系列）服务的是记忆页的「首页」仪表盘
+   （问候语 + 四张动作卡 + 分类磁贴 + 类型分布环 + 最近浏览）。用户点名
+   「主页应该去掉」，Home.tsx 连同它的样式表一起退役，换肤层自然也没有对象可
+   换 —— 留着只会是一堆匹配不到元素的死选择器，误导后人以为那页还在。
+   记忆面板本身（列表 / 详情 / 变更 / 修订 / 设置）的换肤规则仍在下面。 */
 
 /* 时间河流 / 条目卡 padding：2026-10 第二轮重做后整块移除。
    这套规则的前提是「左栏导航 + 中间卡片列表」的旧布局，
@@ -507,17 +471,11 @@ body[data-ds-dark-theme] .wb-root {
    它是旧「卡片 hover 滑入条」的遗留，在这套目录式版面里会从行首一直拉到行尾，
    比包名还抢眼，成了每个包前面一道杠。hover 反馈改由包名变色 + 淡底承担。 */
 
-/* ── 画廊：网格改瀑布流 + 类别筛选进工具条 ── */
+/* ── 画廊：网格改瀑布流 ──
+   类别筛选那一排胶囊（.tg-dock / .tg-kind）已于 2026-10-25 整条从页面删除：
+   类别入口在侧栏二级菜单（操作间 → 画廊），页内不再重复。本块只剩网格与卡片。 */
 .wb-root .tg-root { display: flex; flex-direction: column; }
 .wb-root .tg-toolbar { order: 0; }
-/* 类别筛选：**工具条内的最后一段**（刷新钮之后，用户 2026-10 要求）。
-   不再是底部悬浮 Dock，也不再靠 order 单独占一行——它就是工具条里的一个
-   flex 子项，跟着工具条一起换行。 */
-.wb-root .tg-dock { position: static !important; transform: none !important;
-  flex: 0 1 auto; flex-wrap: wrap; flex-direction: row; align-items: center;
-  margin: 0 0 0 2px; padding: 0; background: transparent; border: none; box-shadow: none;
-  backdrop-filter: none; -webkit-backdrop-filter: none; gap: 6px;
-  max-width: none; overflow: visible; animation: none; }
 .wb-root .tg-body { order: 1; }
 .wb-root .tg-grid { display: block !important; column-count: 4; column-gap: 11px; }
 @media (max-width: 1240px) { .wb-root .tg-grid { column-count: 3; } }
@@ -541,30 +499,6 @@ body[data-ds-dark-theme] .wb-root {
   background: color-mix(in srgb, var(--wb2-bg) 74%, transparent) !important;
   border: 1px solid var(--wb2-line2) !important; backdrop-filter: blur(9px);
   font-size: 9.5px !important; font-weight: 600; color: var(--wb2-t2) !important; }
-/* 类别筛选 chip（2026-10 简化定稿）：**一枚素净的胶囊**——
-   图标 + 文字 + 数字，仅此三样。去掉的东西：图标盒（圆角方底 + 描边 + 阴影）、
-   悬浮在角上的计数徽标、选中态的小圆点。原先一枚 chip 里叠四层装饰，
-   扫视时反而读不出「这是哪一类、有几项」。
-   选中态只靠底色 + 文字色区分，不再给图标单独上色块。 */
-.wb-root .tg-dock__item { flex-direction: row; align-items: center; gap: 5px;
-  border-radius: 999px !important; padding: 4px 10px !important;
-  border: 1px solid transparent !important; background: transparent !important;
-  color: var(--wb2-t3) !important;
-  transition: background 280ms var(--wb2-ease), color 280ms var(--wb2-ease) !important; }
-.wb-root .tg-dock__item:hover { background: color-mix(in srgb, var(--wb2-t1) 6%, transparent) !important;
-  color: var(--wb2-t1) !important; transform: none !important; }
-.wb-root .tg-dock__item:active { transform: scale(.97) !important; }
-.wb-root .tg-dock__item svg { flex: none; }
-.wb-root .tg-dock__label { font-size: 12px !important; line-height: 18px !important; font-weight: 500 !important; }
-/* 计数：不再是悬浮角标，就是文字后面一个淡淡的数字 */
-.wb-root .tg-dock__num { font-size: 11px !important; line-height: 18px !important;
-  color: var(--wb2-t4) !important; font-variant-numeric: tabular-nums;
-  transition: color 280ms var(--wb2-ease) !important; }
-/* 选中：极淡底 + 主文字色，与工具条其它控件的选中语言一致 */
-.wb-root .tg-dock__item[data-active="true"] { background: color-mix(in srgb, var(--wb2-t1) 9%, transparent) !important;
-  border-color: var(--wb2-line) !important; color: var(--wb2-t1) !important; }
-.wb-root .tg-dock__item[data-active="true"] .tg-dock__label { font-weight: 600 !important; }
-.wb-root .tg-dock__item[data-active="true"] .tg-dock__num { color: var(--wb2-t2) !important; }
 
 /* ── 画廊 Coverflow 焦点轮播（效果图第 5 页顶部） ──
    数据是真条目（visible 前 5 条），位移/旋转/景深全 CSS transform；

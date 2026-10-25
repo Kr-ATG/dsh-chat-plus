@@ -19,6 +19,7 @@
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
@@ -412,9 +413,10 @@ const expectedStyles = [
   // 侧栏「工作台」行的分类浮层（src/client/triad/hub/row-flyout.tsx）：
   // apply 时随 attachWorkbenchRowFlyout 注入（hover 浮层 + 滚轮切分类）。
   'dsh-workbench-row-flyout-styles',
-  // 侧栏横滑分类条（src/client/triad/hub/strip.tsx，2026-10 v4 导航定稿）：
-  // 替换官方「工作台」菜单行的视觉，宽栏铺满分类格、rail 让位还原官方图标列。
-  'dsh-workbench-strip-styles',
+  // 侧栏「工作区 / 操作间」双屏导航（src/client/triad/hub/nav-sections.tsx）：
+  // apply 时随 attachSidebarSections 注入。横滑分类条（strip.tsx）已于 2026-10-25
+  // 删除——四个入口收进「操作间」屏，不再平铺在侧栏。
+  'dsh-sidebar-nav-sections-styles',
   // 界面字体覆盖（src/client/ui-font/font.ts）：把 --dsh-font-family-text/-code
   // （官方 0.2.1 的可写槽位）与 --dsw-font-family / --ds-font-family-code（消费值）
   // 改写成所选字体。必须在 apply 阶段就注入（不等 React），否则首帧会先按系统
@@ -801,8 +803,14 @@ if (krEnabled) {
   } else {
     pass(`外观偏好行 busy 恒 false（${localRows[0]} 处：总结卡外框 / 工具调用卡 / 操作面板）`)
   }
-  // 抽屉必须三组分区：注入通道 / 按工作区的记录开关 / 纯外观，三者混一列会被读成同一种能力。
-  // 抽屉里的组标题是**硬编码中文**（与它其余各行同款），不走 i18n —— 断言按实际写法钉。
+  // 抽屉必须分组：注入通道 / 按工作区的记录开关 / 纯外观 / 任务清单，
+  // 四者混一列会被读成同一种能力。抽屉里的组标题是**硬编码中文**（与它其余各行
+  // 同款），不走 i18n —— 断言按实际写法钉。
+  //
+  // 2026-10-25 新增「任务清单」组：「回合结束自动收口」原来住在「提示词通道」组里，
+  // 而它自己的说明就写着「它不改提示词，只动任务清单的状态」—— 语义自相矛盾的
+  // 分组，读者扫到它时已经被前四行带进「这组都改提示词」的预期。一行也值得单开
+  // 一个组：组的判据是「同一种东西」，不是「行数够多」。
   if (!/kr-settings__group-title">提示词通道|>提示词通道</.test(drawerSrc)) {
     fail('大盘设置抽屉缺「提示词通道」组标题')
   } else if (!/>工作区记忆</.test(drawerSrc)) {
@@ -811,8 +819,14 @@ if (krEnabled) {
     fail('大盘设置抽屉缺「工作区记忆」组标题（写入侧开关被混进注入组，语义会被读错）')
   } else if (!/>展示</.test(drawerSrc)) {
     fail('大盘设置抽屉缺「展示」组标题（外观偏好会被读成一条注入能力）')
+  } else if (!/>任务清单</.test(drawerSrc)) {
+    fail('大盘设置抽屉缺「任务清单」组标题（自动收口不改提示词，不能留在提示词通道组里）')
+  } else if (/>提示词通道<[\s\S]{0,4000}?回合结束自动收口/.test(drawerSrc.replace(/<\/?div[^>]*>/g, '\u0001'))) {
+    // 分区之后写反了（把收口又挪回提示词通道组里）：允许跨子节点的粗略检查，
+    // 只要求这两样东西不在同一个 4000 字符窗口里同时出现。
+    fail('「回合结束自动收口」不得回到「提示词通道」组（它不改提示词，分组要与行为一致）')
   } else {
-    pass('大盘设置抽屉：三组分区（提示词通道 / 工作区记忆 / 展示）在位')
+    pass('大盘设置抽屉：四组分区（提示词通道 / 任务清单 / 展示 / 工作区记忆区块）在位')
   }
   // 初始化必须在 apply 阶段跑（挂晚了会先画一遍带框卡片再闪成纯正文）。
   if (!/installReplyCardChrome/.test(entrySrc.replace(/\/\*[\s\S]*?\*\//g, ' '))) {
@@ -1357,6 +1371,43 @@ if (krEnabled) {
     fail('思考卡性能/时机回退：' + reasons.join('；'))
   } else {
     pass('思考卡：稳定引用 + 指纹探针 + 尾部窗口 + 按总结卡折叠 + 全量兜底 + 无箭头/跟随无底色')
+  }
+
+  /*
+   * 总结卡判据不得再拿 `data.finalNode` 当「这一步是最终回答」用（2026-10-25 修）。
+   *
+   * data.finalNode 来自官方 projectAssistant：
+   *   `...settled === void 0 ? {} : { finalNode: settled }`
+   * 只要这一步收到过 assistant/message（即**每一次工具调用之后的落定**）它就有值，
+   * 与「是不是最终回答」毫无关系。曾写成
+   *   isClosingReply = owner !== undefined || (turnClosed && (node.key === lastStepKey || data.finalNode !== undefined))
+   * 等于宣布每个中间步骤都是总结：
+   *   · 每个 step 各自包一张带框的 reply 卡 → 过程播报被逐条包装成一排碎片卡；
+   *   · showBody 里的 isClosingReply 恒真 → hideProcessText 整条规则失效。
+   *
+   * 实测（浏览器量 DOM，同一构建）：被中断的回合 22 张 reply 卡 / 0 张 step 卡；
+   * **正常完成的回合 89 张 reply 卡 / 0 张 step 卡、74 张有高度** —— 说明它不是
+   * 「中断」特有的问题，每个多步回合都在这样渲染，用户只是在插话那一轮看见了它。
+   *
+   * 断言形状：finalNode 只允许出现在「lastStepKey === undefined」的兜底分支里。
+   */
+  {
+    // ⚠ 判据跨行书写（本仓源码是 CRLF + 多行三元），必须整段抓取而不是只抓第一行。
+    const closingMatch = stepCode.match(/const isClosingReply = ([\s\S]{0,400}?)\n\s*const isSummary/)
+    const closing = closingMatch === null ? stepCode.match(/const isClosingReply = [\s\S]{0,300}/)?.[0] ?? '' : closingMatch[1]
+    if (closing === '') {
+      fail('缺少 isClosingReply（总结卡判据），对话流卡片无法判定包哪种卡')
+    } else if (!/owner !== undefined/.test(closing)) {
+      fail('isClosingReply 必须保留 owner（官方 turn-tail closing）这一路——它才是官方认定的收尾回复')
+    } else if (!/node\.key === lastStepKey/.test(closing)) {
+      fail('isClosingReply 必须用「本回合最后一个 assistant-step」判最终回答（node.key === lastStepKey）')
+    } else if (/data\.finalNode !== undefined/.test(closing)
+      && !/lastStepKey === undefined[\s\S]{0,80}data\.finalNode !== undefined/.test(closing)) {
+      fail('isClosingReply 的 data.finalNode 只能是 lastStepKey 取不到时的兜底，不能直接并列'
+        + '（每个 step 都有 finalNode，并列等于把整轮过程播报逐条包成总结卡，并让过程性发言隐藏失效）')
+    } else {
+      pass('总结卡判据：owner / 最后一步为准，finalNode 仅在取不到最后一步时兜底（不把中间步骤当成总结）')
+    }
   }
 }
 
@@ -3372,37 +3423,721 @@ if (krEnabled) {
   }
 }
 
-// ── 工作台导航：侧栏横滑条替换官方菜单行（2026-10 v4 定稿）───────────────
+// ── 侧栏「工作区 / 操作间」双屏导航（2026-10-25 定稿）─────────────────────
 //
-// 这组断言盯的是**入口不丢**：条挂不上时官方行必须还在（降级），rail 折叠态
-// 条让位、官方图标列照常可用。三者任何一条破了，用户都会「找不到工作台入口」。
+// 这组断言盯三件事，任何一条破了用户都会「找不到入口 / 侧栏被掏空」：
+//   1. 注册表驱动：区域与条目都来自 nav-registry，挂载器里不许硬编码菜单清单；
+//   2. 入口不丢：官方行只在宽栏隐藏，rail / 卸载必须还原；官方区域同理；
+//   3. 三态闭环：点切换行 → 官方区域隐藏 + 条目出现；再点 → 官方区域回来。
 {
   const reasons = []
-  const stripSrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/strip.tsx'), 'utf8')
+  const sectionsSrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/nav-sections.tsx'), 'utf8')
+  const registrySrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/nav-registry.ts'), 'utf8')
   const seatSrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/seat.ts'), 'utf8')
   const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/hub/WorkbenchPanel.tsx'), 'utf8')
 
-  // 条必须真的挂在座位里，且每个分类都来自 WORKBENCH_TABS（不另起一份真相）
-  if (!/attachWorkbenchStrip/.test(seatSrc)) reasons.push('横滑条没有挂进工作台座位')
-  if (!/WORKBENCH_TABS\.map/.test(stripSrc)) reasons.push('横滑条必须遍历 WORKBENCH_TABS 渲染分类格')
-  if (!/openWorkbench/.test(stripSrc)) reasons.push('横滑条点击必须走 openWorkbench（复用官方 selectPanel）')
-  if (!/WORKBENCH_TAB_EVENT/.test(stripSrc)) reasons.push('横滑条选中态必须订阅广播事件（避免两份状态）')
-  // 降级：官方行只在宽栏隐藏，rail 必须还原
-  if (!/syncOfficialRow\(false\)/.test(stripSrc)) reasons.push('卸载/rail 时必须还原官方行（入口不丢）')
-  if (!/onWide/.test(stripSrc)) reasons.push('条必须把「是否真的渲染出内容」回传，供官方行显隐决策')
-  if (!/useRail/.test(stripSrc)) reasons.push('条必须观察侧栏折叠态（rail 下让位）')
+  // 1. 注册表驱动：挂载器必须挂在座位里，且分类清单来自 WORKBENCH_TABS
+  if (!/attachSidebarSections/.test(seatSrc)) reasons.push('双屏导航没有挂进工作台座位')
+  if (!/WORKBENCH_TABS\.map/.test(sectionsSrc)) reasons.push('默认条目必须遍历 WORKBENCH_TABS（不另起一份真相）')
+  if (!/openWorkbench/.test(sectionsSrc)) reasons.push('工作台条目必须走 openWorkbench（复用官方 selectPanel）')
+  if (!/entriesOfSection/.test(sectionsSrc)) reasons.push('条目必须按区域从注册表取（entriesOfSection）')
+  if (!/orderedNavSections/.test(sectionsSrc)) reasons.push('区域必须从注册表按 order 取（orderedNavSections）')
+  if (!/nextSectionId/.test(sectionsSrc)) reasons.push('切换行文字必须是「下一个区域」（nextSectionId），不是当前区域')
+
+  // 2. 入口不丢：官方行/官方区域都只在宽栏隐藏，rail 与卸载必须还原
+  if (!/useRail/.test(sectionsSrc)) reasons.push('必须观察侧栏折叠态（rail 下让位）')
+  if (!/syncOfficialChrome\(\{ hideSection: false, hideRow: false \}\)/.test(sectionsSrc)) {
+    reasons.push('卸载时必须还原官方区域与官方行（入口不丢）')
+  }
+  if (!/ROW_HIDDEN_ATTR/.test(sectionsSrc) || !/SECTION_HIDDEN_ATTR/.test(sectionsSrc)) {
+    reasons.push('官方行/官方区域必须用属性显隐（不搬官方 DOM）')
+  }
+  // 降级：注册表为空/只有一个区域时不渲染切换行（避免点了没反应）
+  if (!/sections\.length < 2/.test(sectionsSrc)) reasons.push('不足两个区域时必须不渲染切换行')
+
+  // 3. 三态闭环：切换 = 写区域（持久化 + 广播），不是组件内局部 state
+  if (!/rotateActiveSection/.test(sectionsSrc)) reasons.push('切换行点击必须走 rotateActiveSection')
+  if (!/registerNavSection/.test(registrySrc) || !/registerNavEntry/.test(registrySrc)) {
+    reasons.push('注册表必须提供区域/条目两级注册接口（这是「以后加菜单方便」的落点）')
+  }
+  // 「加菜单只要一行」：便捷注册器必须在，且默认清单自己就得用它（活样本）
+  if (!/export function navMenuItem/.test(registrySrc)) {
+    reasons.push('必须提供 navMenuItem 便捷注册器（加菜单只写一行）')
+  }
+  if (!/export function navSection/.test(registrySrc)) {
+    reasons.push('必须提供 navSection 便捷注册器（加一整屏只需一行）')
+  }
+  if (!/navMenuItem\(\{/.test(sectionsSrc)) reasons.push('默认条目必须自己就用 navMenuItem 注册（活样本）')
+  if (!/writeActiveSection/.test(registrySrc)) reasons.push('注册表必须提供 writeActiveSection（切换唯一入口）')
+  if (!/NAV_SECTION_STORE/.test(registrySrc)) reasons.push('当前区域必须持久化（重开界面停在同一屏）')
+  // 回到会话时自动切回工作区：否则在操作间点「新会话」后会话列表是不见的
+  if (!/useSessionReturnToWorkspaces/.test(sectionsSrc)) {
+    reasons.push('回到会话时必须自动切回工作区（否则操作间里点新会话会看不到会话列表）')
+  }
+  // rail 显隐必须走同一个决策点（applySectionChrome）。踩过：place() 里硬编码
+  // hideRow:true，折叠后每 1.5s 又把官方行藏回去 —— 折叠态侧栏一个入口都没有。
+  if (!/applySectionChrome/.test(sectionsSrc)) {
+    reasons.push('官方 chrome 显隐必须收敛到 applySectionChrome 单一决策点')
+  }
+  if (!/readRail\(\)/.test(sectionsSrc)) reasons.push('place() 必须自己读一次 rail（轮询不能依赖组件 effect）')
+  // 折叠态本插件让位后不能留空白占位
+  if (!/SECTION_EMPTY_ATTR/.test(sectionsSrc)) reasons.push('rail 下必须打空标记收掉 host 占位')
+
+  // 横滑条必须真的没了（它把四个入口平铺在侧栏，正是本次要收进操作间的）
+  if (existsSync(resolve(ROOT, 'src/client/triad/hub/strip.tsx'))) reasons.push('strip.tsx 应已删除（入口收进操作间）')
+  if (/attachWorkbenchStrip/.test(seatSrc)) reasons.push('座位里不该再挂横滑条')
+
   // 页内不得再有任何分类切换器
   if (/WorkbenchDock|wb2-dock/.test(panelSrc)) reasons.push('页内分类切换器（Dock）必须已删除')
   if (existsSync(resolve(ROOT, 'src/client/triad/hub/Dock.tsx'))) reasons.push('Dock.tsx 应已删除')
-  // ⌘1–N 直切要在页内实现（侧栏条自己不吃键盘）
+  // ⌘1–N 直切要在页内实现（侧栏导航自己不吃键盘）
   if (!/metaKey \|\| event\.ctrlKey/.test(panelSrc) || !/WORKBENCH_TABS\[index\]/.test(panelSrc)) {
     reasons.push('⌘1–N 直切分类必须在工作台页内实现')
   }
 
   if (reasons.length > 0) {
-    fail('工作台横滑导航契约：' + reasons.join('；'))
+    fail('侧栏双屏导航契约：' + reasons.join('；'))
   } else {
-    pass('工作台横滑条：分类复用 WORKBENCH_TABS + 官方行宽栏隐藏/rail 还原 + 页内无切换器 + ⌘1–N 直切')
+    pass('侧栏双屏导航：注册表驱动（区域+条目）+ 官方行/区域宽栏隐藏·rail与卸载还原 + 切换持久化 + 回会话自动切回工作区')
+  }
+}
+
+// ── 侧栏导航注册表纯逻辑（真跑一遍状态机）────────────────────────────────
+//
+// 注册表是「以后加菜单」的那个东西，它的语义要能被单独验证：轮转顺序、持久化
+// 回填、注销、空表降级、重复注册覆盖。本模块只 import 类型（运行时零依赖），
+// node 的 type-stripping 可以直接跑。
+{
+  const reasons = []
+  const registry = await import(pathToFileURL(resolve(ROOT, 'src/client/triad/hub/nav-registry.ts')).href)
+
+  // localStorage 垫片：注册表只用 getItem/setItem，缺了会走「不记住」分支。
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => { store.set(key, String(value)) },
+    removeItem: (key) => { store.delete(key) },
+    clear: () => { store.clear() },
+  }
+
+  const Icon = () => null
+  registry.registerNavSection({ id: 'a', label: 'A', icon: Icon, order: 10 })
+  registry.registerNavSection({ id: 'b', label: 'B', icon: Icon, order: 20 })
+  registry.registerNavEntry({ id: 'e1', section: 'b', label: 'E1', icon: Icon, target: { kind: 'custom', run: () => {} } })
+
+  if (registry.readActiveSection() !== 'a') reasons.push('无持久化时应落在第一个区域（a）')
+  if (registry.nextSectionId() !== 'b') reasons.push('两个区域时下一个应是 b')
+  registry.rotateActiveSection()
+  if (registry.readActiveSection() !== 'b') reasons.push('轮转后应落在 b')
+  if (registry.nextSectionId() !== 'a') reasons.push('在 b 时下一个应回到 a（轮转）')
+  if (registry.entriesOfSection('b').length !== 1) reasons.push('b 区域应有 1 个条目')
+  if (registry.entriesOfSection('a').length !== 0) reasons.push('a 区域不应有条目')
+  if (store.get(registry.NAV_SECTION_STORE) !== 'b') reasons.push('当前区域必须写进持久化层')
+
+  // 持久化回填：刷新后仍停在 b（不跳屏）
+  registry.resetNavRegistryForTests()
+  registry.registerNavSection({ id: 'a', label: 'A', icon: Icon, order: 10 })
+  registry.registerNavSection({ id: 'b', label: 'B', icon: Icon, order: 20 })
+  if (registry.readActiveSection() !== 'b') reasons.push('持久化过的区域必须回填（刷新不跳屏）')
+
+  // 注销收敛
+  registry.resetNavRegistryForTests()
+  const disposeX = registry.registerNavSection({ id: 'x', label: 'X', icon: Icon })
+  if (registry.orderedNavSections().length !== 1) reasons.push('注册后应有 1 个区域')
+  disposeX()
+  if (registry.orderedNavSections().length !== 0) reasons.push('注销后应为空')
+  if (registry.readActiveSection() !== null) reasons.push('空注册表时 readActiveSection 必须返回 null')
+  if (registry.nextSectionId() !== null) reasons.push('空注册表时 nextSectionId 必须返回 null')
+
+  // 重复注册同 id = 覆盖（热重载不叠加两份）
+  registry.resetNavRegistryForTests()
+  registry.registerNavSection({ id: 'dup', label: '旧', icon: Icon })
+  registry.registerNavSection({ id: 'dup', label: '新', icon: Icon })
+  const dupList = registry.orderedNavSections()
+  if (dupList.length !== 1 || dupList[0].label !== '新') reasons.push('同 id 重复注册必须覆盖（热重载不叠加）')
+
+  // ── 便捷注册器：navMenuItem / navSection 是「以后加菜单」的真正入口，必须真能跑
+  registry.resetNavRegistryForTests()
+  registry.navSection({ id: 'official-x', label: '工作区', icon: Icon, order: 10, source: 'official' })
+  registry.navSection({ id: 'shop', label: '操作间', icon: Icon, order: 20 })
+  const dPanel = registry.navMenuItem({ id: 'm1', label: '任务', icon: Icon, section: 'shop', panelId: 'schedule', order: 10 })
+  const dTab = registry.navMenuItem({ id: 'm2', label: '画廊', icon: Icon, section: 'shop', workbenchTab: 'gallery', order: 20 })
+  let ranCustom = 0
+  const dRun = registry.navMenuItem({ id: 'm3', label: '自定义', icon: Icon, section: 'shop', run: () => { ranCustom += 1 }, order: 30 })
+
+  const shopEntries = registry.entriesOfSection('shop')
+  if (shopEntries.length !== 3) reasons.push(`navMenuItem 应注册 3 个条目，实际 ${shopEntries.length}`)
+  if (shopEntries[0]?.target.kind !== 'panel' || shopEntries[0].target.panelId !== 'schedule') {
+    reasons.push('navMenuItem({ panelId }) 应生成 panel target')
+  }
+  if (shopEntries[1]?.target.kind !== 'workbench' || shopEntries[1].target.tab !== 'gallery') {
+    reasons.push('navMenuItem({ workbenchTab }) 应生成 workbench target')
+  }
+  if (shopEntries[2]?.target.kind !== 'custom') reasons.push('navMenuItem({ run }) 应生成 custom target')
+  shopEntries[2]?.target.run?.()
+  if (ranCustom !== 1) reasons.push('custom target 的 run 应被调用')
+  // 缺省 section = 操作间（不传 section 也应落进去）
+  const dDefault = registry.navMenuItem({ id: 'm4', label: '默认区', icon: Icon })
+  if (registry.entriesOfSection(registry.DEFAULT_ENTRY_SECTION).length !== 1) {
+    reasons.push('navMenuItem 缺省 section 必须是操作间')
+  }
+  dDefault()
+  // 按 order 排序（10/20/30）
+  if (shopEntries.map((e) => e.id).join(',') !== 'm1,m2,m3') reasons.push('条目必须按 order 排序')
+  // 注销收敛
+  dPanel(); dTab(); dRun()
+  if (registry.entriesOfSection('shop').length !== 0) reasons.push('navMenuItem 的注销必须收敛')
+
+  registry.resetNavRegistryForTests()
+
+  if (reasons.length > 0) {
+    fail('侧栏导航注册表：' + reasons.join('；'))
+  } else {
+    pass('侧栏导航注册表：轮转顺序 + 持久化回填 + 注销收敛 + 空表降级 + 同 id 覆盖')
+  }
+}
+
+// ── 侧栏二级菜单 + 页面内筛选意图通道（2026-10-25）────────────────────
+//
+// 用户原话：「记忆的侧边栏可以放在操作间的记忆菜单下变成二级菜单，画廊的
+// 分类也可以变为二级菜单」。落地后导航只有一个真相（侧栏），页面内的筛选
+// 必须跟着走的到底是不是侧栏那一项 —— 这条链路跨了两个 React 根，只能靠
+// workbench-intent 的持久化+事件传递，写坏了不会报错、只会「侧栏说 PDF、
+// 页面显示图片」这种静默分叉。所以这里既验注册表的二级菜单状态机，也验
+// 意图通道的三个方向（初值回填 / 广播 / 只写意图不直接改状态）。
+{
+  const reasons = []
+
+  /* ── ⓿ localStorage 与 window 垫片 ───────────────────────────────
+   * 本块独立一份（不复用上一块的局部变量）：注册表的展开态走 localStorage，
+   * 意图通道的跨根同步走 window 自定义事件与 localStorage 两个面，缺任何一个
+   * 都有「页面已经挂着、侧栏点了没反应」的静默失效。 */
+  const prefs = new Map()
+  globalThis.localStorage = {
+    getItem: (key) => (prefs.has(key) ? prefs.get(key) : null),
+    setItem: (key, value) => { prefs.set(key, String(value)) },
+    removeItem: (key) => { prefs.delete(key) },
+    clear: () => { prefs.clear() },
+  }
+  const dispatched = []
+  const windowListeners = new Map()
+  globalThis.window = {
+    dispatchEvent: (event) => { dispatched.push(event); return true },
+    addEventListener: (name, fn) => { windowListeners.set(name, fn) },
+    removeEventListener: (name) => { windowListeners.delete(name) },
+  }
+
+  /* ── ① 契约文件必须存在且被两侧真用上 ─────────────────────────── */
+  const intentPath = resolve(ROOT, 'src/client/triad/hub/workbench-intent.ts')
+  if (!existsSync(intentPath)) {
+    reasons.push('缺少 workbench-intent.ts（侧栏与页面之间的筛选意图通道）')
+  }
+  const sectionsSrc2 = readFileSync(resolve(ROOT, 'src/client/triad/hub/nav-sections.tsx'), 'utf8')
+  const memorySrc = readFileSync(resolve(ROOT, 'src/client/triad/memory/Panel.tsx'), 'utf8')
+  const gallerySrc = readFileSync(resolve(ROOT, 'src/client/triad/gallery/GalleryPanel.tsx'), 'utf8')
+
+  // 侧栏是「发意图」的一侧：记忆的工作区、画廊的类别都必须由侧栏点出来。
+  if (!/requestMemoryScope/.test(sectionsSrc2)) reasons.push('侧栏记忆二级菜单必须调 requestMemoryScope 发意图')
+  if (!/requestGalleryKind/.test(sectionsSrc2)) reasons.push('侧栏画廊二级菜单必须调 requestGalleryKind 发意图')
+  // 两个页面是「收意图」的一侧：初值回填 + 订阅 + 反向回写，三件缺一都会分叉。
+  if (!/readMemoryScope/.test(memorySrc)) reasons.push('记忆页必须用 readMemoryScope 回填初值（否则从侧栏进来筛选是空的）')
+  if (!/subscribeWorkbenchIntent/.test(memorySrc)) reasons.push('记忆页必须订阅 subscribeWorkbenchIntent（已挂载时原地切换）')
+  if (!/requestMemoryScope/.test(memorySrc)) reasons.push('记忆页改工作区后必须 requestMemoryScope 回写（侧栏高亮才跟得上）')
+  if (!/readGalleryKind/.test(gallerySrc)) reasons.push('画廊页必须用 readGalleryKind 回填初值')
+  if (!/subscribeWorkbenchIntent/.test(gallerySrc)) reasons.push('画廊页必须订阅 subscribeWorkbenchIntent')
+  if (!/requestGalleryKind/.test(gallerySrc)) reasons.push('画廊页改类别后必须 requestGalleryKind 回写')
+
+  // 记忆的工作区清单由页面侧推给侧栏（数据驱动），两步都必须接上。
+  if (!/setNavEntryChildren/.test(memorySrc)) reasons.push('记忆页必须用 setNavEntryChildren 把工作区清单推给侧栏')
+  if (!/setNavEntryActiveChild/.test(memorySrc)) reasons.push('记忆页必须用 setNavEntryActiveChild 让侧栏高亮跟随')
+
+  /* ── ①b 画廊页那条类别胶囊栏必须整条删掉（2026-10-25 用户要求）──────
+   *
+   * 用户原话：「画廊页面的这些不需要了删除掉」。那条胶囊栏里的类别入口已经
+   * 在侧栏二级菜单里，页内再排一排同样的东西只是重复；它原先是**唯一**能
+   * 「一次清空某个分类」的地方 —— 用户明确选择连同该功能一起删掉。
+   *
+   * 这组断言盯两件事：
+   *   1. 胶囊栏 DOM / 它的批量删除状态机不得残留（残留 = 死代码 + 误导后人）；
+   *   2. 单卡删除必须**完好**（用户只删了「按分类」，没删「按单条」）。
+   */
+  if (/className="tg-dock"/.test(gallerySrc)) reasons.push('画廊页的类别胶囊栏（tg-dock）必须整条删除')
+  // 只看**代码形态**而不是裸词：这几个符号在解释「为什么删掉」的中文注释里
+  // 仍会出现（那是应该留的历史说明），用 \b 裸词会把注释也算成残留。
+  for (const dead of [
+    'const \\[delConfirmId',
+    'const \\[delBusyKind',
+    'const armDel =',
+    'const runDel =',
+    'const entriesFor =',
+    'const dockKinds =',
+    'const totalOf =',
+  ]) {
+    if (new RegExp(dead).test(gallerySrc)) {
+      reasons.push(`画廊页的按分类批量删除已随胶囊栏删除，不得残留 ${dead.replace(/\\\\/g, '')}`)
+    }
+  }
+  // 单卡删除必须还在（这是不能误删的那一半）
+  if (!/delItemPath/.test(gallerySrc)) reasons.push('画廊单卡删除（delItemPath）必须保留')
+  if (!/className="tg-card__del"/.test(gallerySrc)) reasons.push('画廊卡片上的单条删除键必须保留')
+  if (!/deleteGalleryPaths/.test(gallerySrc)) reasons.push('画廊必须仍调用 deleteGalleryPaths 执行删除')
+  // 侧栏二级菜单**不再有任何小标题**（画廊的「分类」与记忆的「工作区」先后被
+  // 用户点名去掉）。小标题机制本身也已整块退役，所以这里钉「机制不许复活」。
+  if (!/case 'gallery':[\s\S]{0,400}?activeChild: \(\) => readGalleryKind\(\)/.test(sectionsSrc2)) {
+    reasons.push('侧栏画廊二级菜单必须仍在（activeChild 指向 readGalleryKind）')
+  }
+  if (/childrenTitle/.test(sectionsSrc2.replace(/\/\*[\s\S]*?\*\//g, ''))) {
+    reasons.push('侧栏不得再给二级菜单配小标题（「工作区」/「分类」都已被用户要求去掉）')
+  }
+  if (/dsn-sub-title/.test(sectionsSrc2.replace(/\/\*[\s\S]*?\*\//g, ''))) {
+    reasons.push('二级菜单小标题的渲染与样式（dsn-sub-title）必须已整块删除')
+  }
+  const registrySrc2 = readFileSync(resolve(ROOT, 'src/client/triad/hub/nav-registry.ts'), 'utf8')
+  if (/childrenTitle/.test(registrySrc2.replace(/\/\*[\s\S]*?\*\//g, ''))) {
+    reasons.push('注册表里 childrenTitle 字段必须已退役（留着就是一条永远不执行的死分支）')
+  }
+
+  /* ── ①c 展开/收起必须点「整行」，不是点那枚箭头（2026-10-25 用户要求）──
+   *
+   * 用户原话：「点击展开和收起的方式不对，应该是这一行而不是图标」。
+   *
+   * 早先的写法把一行切成两个点击目标（行本体开页面 / 右侧 26px 箭头展开），
+   * 实际用起来三个问题：想展开得去够那个很小的图标、箭头看着像装饰不像开关、
+   * 触屏上 26px 低于可点下限容易点错。
+   *
+   * 现在整行是一个 button，箭头退化成纯装饰。这组断言钉四件事，破了任何一条
+   * 都会退回「点图标才能展开」：
+   *   1. 可展开行的根节点是**一个 button**（带 dsn-branch-row），不再是 div 套两个 button；
+   *   2. 那个 button 上有 aria-expanded（读屏用户听到的就是这行状态）；
+   *   3. 点击走 toggleExpandedMenu（而不是「打开页面 + 顺手展开」那套旧逻辑）；
+   *   4. 箭头是 span（不是 button）+ aria-hidden + pointer-events:none。
+   */
+  const branchRowJsx = /<button[\s\S]{0,400}?className="dsn-row dsn-branch-row"[\s\S]{0,700}?<\/button>/.exec(sectionsSrc2)?.[0] ?? ''
+  if (branchRowJsx === '') {
+    reasons.push('可展开行必须是一个整行 button（className="dsn-row dsn-branch-row"）—— 用户要求点整行展开，不是点图标')
+  } else if (!/aria-expanded=\{expanded\}/.test(branchRowJsx)) {
+    reasons.push('整行 button 必须带 aria-expanded（读屏用户要知道这行是展开还是收起）')
+  } else if (!/toggleExpandedMenu\(entry\.id\)/.test(branchRowJsx)) {
+    reasons.push('整行点击必须走 toggleExpandedMenu（展开/收起同一个动作）')
+  } else if (/<button[^>]*className="dsn-caret"/.test(sectionsSrc2)) {
+    reasons.push('箭头不得再是可点的 button（整行才是开关，箭头只是状态装饰）')
+  } else if (!/<span className="dsn-caret" aria-hidden="true"/.test(sectionsSrc2)) {
+    reasons.push('箭头必须是 aria-hidden 的 span（纯装饰，不接收点击也不进 Tab 序列）')
+  } else if (!/\.dsn-caret\{[^}]*pointer-events:none/.test(sectionsSrc2)) {
+    reasons.push('.dsn-caret 必须 pointer-events:none（否则点箭头会吞掉整行的点击）')
+  } else {
+    pass('侧栏二级菜单展开/收起：整行是开关（aria-expanded + toggleExpandedMenu）+ 箭头降级为装饰')
+  }
+
+  /* ── ② 记忆页内那条 212px 左栏必须真删掉 ───────────────────────── */
+  // 删掉之后视图切换只能在页内顶部，否则「变更/修订/回收站/设置」全部失联
+  // —— 那比侧栏变长严重得多。
+  const memoryStylesSrc = readFileSync(resolve(ROOT, 'src/client/triad/memory/styles.ts'), 'utf8')
+  if (/dsh-memory-sidebar-nav\s*\{/.test(memoryStylesSrc)) {
+    reasons.push('记忆页内左栏样式（dsh-memory-sidebar-nav）必须整条删除')
+  }
+  if (/css\.sidebarNav/.test(memorySrc)) reasons.push('记忆页内左栏 DOM 必须整条删除（css.sidebarNav 不得再出现）')
+  for (const view of ['all', 'changes', 'revisions', 'trash', 'settings']) {
+    if (!new RegExp(`viewTab\\(\\s*'${view}'`).test(memorySrc)) {
+      reasons.push(`视图 ${view} 的入口必须保留在页内顶部（viewTab('${view}', …)）`)
+    }
+  }
+
+  /* ── ②b 记忆「首页」视图必须整块退役（2026-10-25 用户要求）────────
+   *
+   * 用户原话：「点击展开记忆的页面也不对，主页应该去掉」。
+   *
+   * 那张「首页」是进记忆页的第一屏（问候语 + 新增/导入/链接/AI 整理四张动作卡
+   * + 分类磁贴 + 类型分布环 + 最近浏览）。问题在于它和现在的入口语义打架：
+   * 主入口是侧栏二级菜单里的**工作区**，用户点「Dsh」就是要看那个工作区的条目，
+   * 结果先被一张概览挡一下、还得再点一次「全部记忆」。
+   *
+   * 所以要钉三件事，防止它被"顺手加回来"：
+   *   1. 视图条里不得再有 home 这一项；
+   *   2. 默认视图必须是 all（挂载即看列表，不是看仪表盘）；
+   *   3. Home.tsx / home-styles.ts 不得复活（留着文件就一定会有人再接回去）。
+   */
+  if (/viewTab\(\s*'home'/.test(memorySrc)) {
+    reasons.push("记忆视图条不得再有「首页」（用户要求去掉）")
+  }
+  if (!/useState<MemoryTab>\(initialTab \?\? 'all'\)/.test(memorySrc)) {
+    reasons.push("记忆默认视图必须是 'all'（首页去掉后挂载即看列表）")
+  }
+  if (/MemoryHome/.test(memorySrc)) reasons.push('记忆面板不得再 import / 渲染 MemoryHome')
+  if (/tab === 'home'/.test(memorySrc)) reasons.push("记忆面板不得再有 tab === 'home' 的渲染分支")
+  if (existsSync(resolve(ROOT, 'src/client/triad/memory/Home.tsx'))) {
+    reasons.push('Home.tsx（记忆首页仪表盘）应已删除')
+  }
+  if (existsSync(resolve(ROOT, 'src/client/triad/memory/home-styles.ts'))) {
+    reasons.push('home-styles.ts（记忆首页样式）应已删除')
+  }
+  // 换肤层里那批 .dsh-memory-home / .hm-* 规则也必须清掉（匹配不到元素的死选择器）
+  const themeSrc2 = readFileSync(resolve(ROOT, 'src/client/triad/hub/theme.ts'), 'utf8')
+  if (/\.dsh-memory-home\s*\{|\.wb-root \.dsh-memory-home \.|\.hm-hero::/.test(themeSrc2)) {
+    reasons.push('hub/theme.ts 里不得残留记忆首页（.dsh-memory-home / .hm-*）的换肤选择器')
+  }
+  // 侧栏的记忆子项必须**整组都带图标**（缺图标的行会左移一格、与上面几行对不齐）
+  if (!/icon: WorkspaceIcon/.test(memorySrc)) {
+    reasons.push('记忆页推给侧栏的每个工作区子项都必须带 icon（否则文字与上面几行对不齐）')
+  }
+
+  /* ── ②c 工作区清单必须由**侧栏自己**拉，不能等记忆页面先被访问 ─────
+   *
+   * 用户报障：「点二级菜单为什么左侧的侧边栏会跳一下，并且工作区目录应该直接
+   * 展示而不是点击全局记忆才展示」。
+   *
+   * 根因是依赖方向反了：工作区清单原先只由记忆页面在挂载后推给侧栏，而记忆页
+   * 只在「工作台已打开且 tab=memory」时挂载。于是没进过记忆页时侧栏只有两项
+   * 固定项，点进去那一拍才补上真实工作区 —— 实测 host 高度 512 → 572px，
+   * 那就是用户看到的「跳一下」。
+   *
+   * 修复：新增 hub/workspace-source.ts，侧栏挂载时自己拉 /api/dsh-memory/projects。
+   * 这组断言钉住这条依赖方向，防止有人又把它改回「等页面推」。
+   */
+  const workspaceSrc = existsSync(resolve(ROOT, 'src/client/triad/hub/workspace-source.ts'))
+    ? readFileSync(resolve(ROOT, 'src/client/triad/hub/workspace-source.ts'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+    : ''
+  if (workspaceSrc === '') {
+    reasons.push('必须存在 hub/workspace-source.ts（侧栏自带的工作区数据源）')
+  } else {
+    if (!/createMemoryApi/.test(workspaceSrc)) reasons.push('workspace-source 必须自己建 memory api 取数')
+    if (!/export async function fetchWorkspaces/.test(workspaceSrc)) {
+      reasons.push('workspace-source 必须导出 fetchWorkspaces')
+    }
+    if (!/projectsToChildren/.test(workspaceSrc)) reasons.push('workspace-source 必须提供 projectsToChildren 转换')
+    if (!/catch[\s\S]{0,120}return \[\]/.test(workspaceSrc)) {
+      reasons.push('fetchWorkspaces 失败必须静默返回空数组（侧栏不能因为副菜单拉不到就少行）')
+    }
+    if (!/icon,/.test(workspaceSrc) && !/icon: icon/.test(workspaceSrc)) {
+      reasons.push('projectsToChildren 必须给每个子项带 icon（否则与固定项对不齐）')
+    }
+  }
+  // 侧栏必须在挂载时就拉，而不是等某个页面调用
+  const sectionsCode2 = sectionsSrc2.replace(/\/\*[\s\S]*?\*\//g, '')
+  if (!/fetchWorkspaces/.test(sectionsCode2)) {
+    reasons.push('侧栏挂载器必须自己调 fetchWorkspaces（不能只靠记忆页面 setNavEntryChildren 推）')
+  }
+  if (!/pushWorkspaceChildren|setNavEntryChildren/.test(sectionsCode2)) {
+    reasons.push('侧栏必须把拉到的工作区写进注册表（setNavEntryChildren）')
+  }
+  if (!/MEMORY_FIXED_CHILDREN/.test(sectionsCode2)) {
+    reasons.push('侧栏的工作区子项必须以 MEMORY_FIXED_CHILDREN 打底（拉取失败时仍有两项固定项）')
+  }
+  // 侧栏与记忆页两处的工作区图标必须同名同形（否则两份数据交替时图标会跳变）
+  if (!/function WorkspaceIcon/.test(sectionsCode2)) {
+    reasons.push('nav-sections 必须定义 WorkspaceIcon（与记忆页那份同形）')
+  }
+  // 记忆页卸载时**不得**把 children 缩回固定项：那会把侧栏自拉的那份一起抹掉，
+  // 用户离开记忆页后工作区行凭空消失（报障的后半段）。
+  const memoryCode = memorySrc.replace(/\/\*[\s\S]*?\*\//g, '')
+  const cleanupBlock = /useEffect\(\(\) => \{[\s\S]{0,900}?setNavEntryChildren\('workbench-memory', fixedChildren\)[\s\S]{0,80}?\}, \[projects\]\)/.exec(memoryCode)
+  if (cleanupBlock !== null) {
+    reasons.push('记忆页卸载时不得把工作区子项缩回固定项（会抹掉侧栏自拉的那份）')
+  }
+  if (!/}, \[projects\]\)/.test(memoryCode)) {
+    reasons.push('记忆页必须仍在 projects 变化时把更准的清单推给侧栏')
+  }
+
+  /* ── ②d 切筛选时不得闪骨架屏（2026-10-25 用户报障）───────────────
+   *
+   * 用户原话：「为什么点记忆的二级菜单会刷新整个页面呢」。
+   *
+   * 实测结论：面板**没有**重新挂载（DOM 身份全程不变、navigation 计数为 1），
+   * 真正闪的是骨架屏 —— 切换工作区时 `load()` 走非 silent 分支把状态置回
+   * loading，列表先被清空换成 4 行骨架屏（t+3ms），再填回新数据（t+11ms）。
+   * 那一闪看起来就是「整页刷新」。
+   *
+   * 修法：数据已经就绪时切筛选必须静默（silent: true），只有首次挂载
+   * （屏幕上一条都没有）才显示骨架屏。这组断言钉住判据，防止写回恒 false。
+   */
+  if (!/load\(\{ silent: stateRef\.current\.status === 'ready' \}\)/.test(memoryCode)) {
+    reasons.push("切换筛选时必须有条件地静默加载（load({ silent: stateRef.current.status === 'ready' })），否则点二级菜单会闪骨架屏")
+  }
+  if (!/const stateRef = useRef\(state\)/.test(memoryCode)) {
+    reasons.push('必须用 stateRef 读数据状态（把 state.status 放进 effect 依赖会导致加载死循环）')
+  }
+
+  /* ── ③ 注册表：二级菜单结构 / 展开态 / 高亮现算 ────────────────── */
+  const registry2 = await import(pathToFileURL(resolve(ROOT, 'src/client/triad/hub/nav-registry.ts')).href)
+  const Icon = () => null
+  registry2.resetNavRegistryForTests()
+  registry2.navSection({ id: 'official', label: '工作区', icon: Icon, order: 10, source: 'official' })
+  registry2.navSection({ id: 'shop', label: '操作间', icon: Icon, order: 20 })
+
+  let activeScope = 'all'
+  let picked = null
+  const childRun = (id) => { picked = id }
+  const entryDispose = registry2.navMenuItem({
+    id: 'workbench-memory',
+    label: '记忆',
+    icon: Icon,
+    section: 'shop',
+    workbenchTab: 'memory',
+    order: 10,
+    children: [
+      { id: 'all', label: '全部工作区', order: 10, run: () => { childRun('all') } },
+      { id: 'global', label: '全局记忆', order: 20, run: () => { childRun('global') } },
+    ],
+    activeChild: () => activeScope,
+  })
+  // 没有 children 的行 = 不可展开（不画箭头），它的 children 必须是 undefined
+  const flatDispose = registry2.navMenuItem({ id: 'workbench-usage', label: '用量', icon: Icon, section: 'shop', workbenchTab: 'usage' })
+
+  const entryList = registry2.entriesOfSection('shop')
+  const memoryEntry = entryList.find((e) => e.id === 'workbench-memory')
+  const usageEntry = entryList.find((e) => e.id === 'workbench-usage')
+  if (memoryEntry?.children?.length !== 2) reasons.push('navMenuItem 的 children 必须原样落进注册表')
+  // 小标题机制已退役：条目定义上不该再有这个字段（传了也应该被忽略）
+  if ('childrenTitle' in (memoryEntry ?? {})) {
+    reasons.push('二级菜单小标题机制已退役，条目定义上不该再有 childrenTitle')
+  }
+  if (usageEntry?.children !== undefined) reasons.push('不传 children 的条目必须没有二级菜单（不画箭头）')
+  if (memoryEntry && registry2.resolveActiveChild(memoryEntry) !== 'all') {
+    reasons.push('高亮项必须来自 activeChild() 的现值')
+  }
+  // 高亮必须收敛到「真的还在 children 里」：工作区被删/改名后不能指着一个不存在的项
+  activeScope = 'project:gone'
+  if (memoryEntry && registry2.resolveActiveChild(memoryEntry) !== null) {
+    reasons.push('activeChild 指向不存在的子项时必须收敛成 null（不能高亮一个没有的行）')
+  }
+  activeScope = 'global'
+  if (memoryEntry && registry2.resolveActiveChild(memoryEntry) !== 'global') {
+    reasons.push('activeChild 切换到 global 后高亮必须跟着走')
+  }
+  // 子项的 run 是唯一动作形态：点了就要真的被调用
+  memoryEntry?.children?.find((c) => c.id === 'global')?.run?.()
+  if (picked !== 'global') reasons.push('子项 run 必须被调用（切筛选的唯一动作）')
+
+  // activeChild 抛异常不得把侧栏整个带崩（工作区数据脏了也只是不高亮）
+  registry2.setNavEntryActiveChild('workbench-memory', () => { throw new Error('boom') })
+  const refreshedEntry = registry2.entriesOfSection('shop').find((e) => e.id === 'workbench-memory')
+  if (registry2.resolveActiveChild(refreshedEntry) !== null) {
+    reasons.push('activeChild 抛异常时必须静默降级为不高亮')
+  }
+  // 不传 activeChild 的行也不该高亮（没有选中态可言）
+  if (registry2.resolveActiveChild(usageEntry) !== null) {
+    reasons.push('没有 activeChild 的条目必须不高亮')
+  }
+
+  // 展开态：默认全收起 → toggle 展开 → 持久化 → 陈旧 id 被丢弃
+  registry2.toggleExpandedMenu('workbench-memory')
+  if (!registry2.readExpandedMenus().has('workbench-memory')) reasons.push('toggleExpandedMenu 必须能展开一行')
+  if (registry2.readExpandedMenus().has('workbench-usage')) reasons.push('只有真带 children 的行才能被展开')
+  if (prefs.get(registry2.NAV_EXPANDED_STORE) !== 'workbench-memory') {
+    reasons.push('展开态必须写进持久化层（用户选的是「记住上次展开状态」）')
+  }
+  // 陈旧 id（行已被删 / 升级后不再有下级）必须被丢弃，否则展开态会指向幽灵
+  prefs.set(registry2.NAV_EXPANDED_STORE, 'workbench-memory,ghost-row')
+  if (registry2.readExpandedMenus().has('ghost-row')) {
+    reasons.push('持久化里的陈旧行 id 必须被丢弃（不能展开一个不存在的行）')
+  }
+  registry2.toggleExpandedMenu('workbench-memory')
+  if (registry2.readExpandedMenus().has('workbench-memory')) reasons.push('再 toggle 一次必须收起')
+
+  // 数据驱动的刷新入口：换 children 不能把行本身（图标/order/target）换掉
+  const beforeChildren = memoryEntry?.children?.length
+  if (registry2.setNavEntryChildren('workbench-memory', [
+    { id: 'all', label: '全部工作区', order: 10, run: () => {} },
+    { id: 'global', label: '全局记忆', order: 20, run: () => {} },
+    { id: 'project:abc', label: 'D:\\AI\\Dsh', order: 30, count: 48, run: () => {} },
+  ], '工作区') !== true) {
+    reasons.push('setNavEntryChildren 对存在的行必须返回 true')
+  }
+  const refreshed = registry2.entriesOfSection('shop').find((e) => e.id === 'workbench-memory')
+  if (refreshed?.children?.length !== 3) reasons.push(`setNavEntryChildren 必须补上新子项（期望 3，实得 ${refreshed?.children?.length}，原 ${beforeChildren}）`)
+  if (refreshed?.target?.kind !== 'workbench' || refreshed.target.tab !== 'memory') {
+    reasons.push('setNavEntryChildren 不得改动行本身的 target（只换子项）')
+  }
+  if (refreshed?.order !== 10) reasons.push('setNavEntryChildren 不得改动行的 order')
+  const projectChild = refreshed?.children?.find((c) => c.id === 'project:abc')
+  if (projectChild?.count !== 48) reasons.push('子项的 count 必须原样保留（行尾计数）')
+  if (projectChild?.label !== 'D:\\AI\\Dsh') reasons.push('子项的 label 必须原样保留（工作区名）')
+  if (registry2.setNavEntryChildren('no-such-row', []) !== false) {
+    reasons.push('setNavEntryChildren 对不存在的行必须返回 false（不抛）')
+  }
+  // 子项的 run 是唯一动作形态：点了就要真的被调用
+  refreshed?.children?.find((c) => c.id === 'global')?.run?.()
+  if (picked !== 'global') reasons.push('子项 run 必须被调用（切筛选的唯一动作）')
+
+  entryDispose(); flatDispose()
+  registry2.resetNavRegistryForTests()
+
+  /* ── ④ 意图通道：初值回填 / 广播 / 不丢精度 ────────────────────── */
+  const intent = await import(pathToFileURL(intentPath).href)
+  intent.resetWorkbenchIntentForTests()
+
+  if (intent.readMemoryScope() !== 'all') reasons.push('记忆工作区初值必须是 all')
+  if (intent.readGalleryKind() !== 'image') reasons.push('画廊类别初值必须是 image')
+
+  // 三个方向都要能过：all / global / project:<hash>（工作区名里带反斜杠也不能被破坏）
+  intent.requestMemoryScope('project:D:\\AI\\Dsh')
+  if (intent.readMemoryScope() !== 'project:D:\\AI\\Dsh') {
+    reasons.push(`记忆工作区必须原样回填，实得 ${intent.readMemoryScope()}`)
+  }
+  intent.requestMemoryScope('global')
+  if (intent.readMemoryScope() !== 'global') reasons.push('记忆工作区必须能切到 global')
+  // 非法值（人工改坏 localStorage / 升级后格式变了）必须回落，不能让页面卡在空筛选
+  prefs.set(intent.MEMORY_SCOPE_STORE, 'garbage')
+  if (intent.readMemoryScope() !== 'all') reasons.push('记忆工作区的非法值必须回落 all（不能卡空）')
+
+  // 画廊：8 个类别全部可切，越界值回落
+  for (const kind of intent.GALLERY_KIND_ORDER) {
+    intent.requestGalleryKind(kind)
+    if (intent.readGalleryKind() !== kind) reasons.push(`画廊类别 ${kind} 必须能切并回填`)
+  }
+  prefs.set(intent.GALLERY_KIND_STORE, 'not-a-kind')
+  if (intent.readGalleryKind() !== 'image') reasons.push('画廊类别的非法值必须回落 image')
+  // 越界类别写不进去（requestGalleryKind 自己挡）
+  intent.requestGalleryKind('nope')
+  if (intent.readGalleryKind() !== 'image') reasons.push('requestGalleryKind 必须挡掉未知类别')
+
+  // 8 个类别与画廊页的 KIND_ORDER 必须是同一份真相（少一个 = 侧栏少一个入口）
+  if (intent.GALLERY_KIND_ORDER.length !== 8) {
+    reasons.push(`画廊二级菜单必须是 8 个类别，实得 ${intent.GALLERY_KIND_ORDER.length}`)
+  }
+  for (const kind of intent.GALLERY_KIND_ORDER) {
+    if (typeof intent.GALLERY_KIND_LABEL[kind] !== 'string' || intent.GALLERY_KIND_LABEL[kind] === '') {
+      reasons.push(`类别 ${kind} 缺少中文名（侧栏会显示英文 id）`)
+    }
+  }
+
+  // 订阅：写意图必须通知（同树）+ 广播（跨根）。两条线各自独立，缺一条就有
+  // 「页面已经挂着、侧栏点了没反应」的静默失效。
+  let notified = 0
+  const unsubscribe = intent.subscribeWorkbenchIntent(() => { notified += 1 })
+  intent.requestMemoryScope('global')
+  if (notified === 0) reasons.push('意图变化必须通知订阅方（同一 React 树）')
+  const beforeUnsub = notified
+  unsubscribe()
+  intent.requestMemoryScope('all')
+  if (notified !== beforeUnsub) reasons.push('退订后不得再收到通知（否则卸载的页面还在刷新）')
+
+  // 跨根广播：必须真的 dispatch 到 window（页面与侧栏没有共同祖先，只此一条路）
+  dispatched.length = 0
+  intent.requestGalleryKind('pdf')
+  const broadcasted = dispatched.filter((event) => event?.type === intent.WORKBENCH_INTENT_EVENT)
+  if (broadcasted.length === 0) {
+    reasons.push('意图变化必须往 window 广播（跨 React 根的唯一通道）')
+  } else if (broadcasted.at(-1).detail?.galleryKind !== 'pdf') {
+    reasons.push('广播的 payload 必须带上目标类别（订阅方要靠它判断切到哪）')
+  }
+
+  intent.resetWorkbenchIntentForTests()
+  if (intent.readLastIntent() !== null) reasons.push('resetWorkbenchIntentForTests 必须清掉最近意图')
+  delete globalThis.window
+  delete globalThis.localStorage
+
+  if (reasons.length > 0) {
+    fail('侧栏二级菜单 + 意图通道：' + reasons.join('；'))
+  } else {
+    pass('侧栏二级菜单：记忆列工作区/画廊列 8 类 + 展开态持久化 + 高亮现算收敛 + 意图三向同步（初值/订阅/回写）')
+  }
+}
+
+// ── 构建期反引号守卫（2026-10-25 补强后）──────────────────────────────
+//
+// 这组断言盯的是「守卫本身还在、且口径够宽」。当天实际踩的坑是
+// `gallery/styles.ts` 的 `const SHEET = \`…\`` 被 CSS 注释里的反引号打断：
+// **构建成功**，产物一加载就 `ReferenceError: root is not defined`，全套冒烟
+// 在第 270 行死掉，报错指向打包产物、与源码对不上。
+//
+// 原守卫只扫 kr-chat 一个文件、判据是「全文恰好 2 个反引号」，既管不到别的
+// 样式表，也会被「同文件第二个模板」误报。所以这里钉三件事：
+//   1. 守卫必须还在并被调用（删掉它就等于回到靠人肉记的路上）；
+//   2. 判据必须是**扫整个源码树**（不能退回单文件）；
+//   3. 不许再用「全文计数 == 2」那种写法（多模板文件必误报）。
+{
+  const reasons = []
+  const buildSrc = readFileSync(resolve(ROOT, 'build.mjs'), 'utf8')
+  if (!/function assertCssTemplateDelimiters/.test(buildSrc)) {
+    reasons.push('build.mjs 必须保留 assertCssTemplateDelimiters 反引号守卫')
+  }
+  if (!/assertCssTemplateDelimiters\(\)/.test(buildSrc)) {
+    reasons.push('反引号守卫必须在构建前被真正调用（定义了却不调用等于没有）')
+  }
+  // 口径必须覆盖整个 src/client（原版只写死了 kr-chat/styles.ts 一个文件）
+  if (!/walk\(|readdirSync/.test(buildSrc.slice(buildSrc.indexOf('function assertCssTemplateDelimiters')))) {
+    reasons.push('反引号守卫必须递归扫源码树（不能只看单个文件）')
+  }
+  // 不许退回「全文反引号计数」的老判据
+  const guardBody = buildSrc.slice(
+    buildSrc.indexOf('function assertCssTemplateDelimiters'),
+    buildSrc.indexOf('/** Fail the build if the host bundle'),
+  )
+  if (/offsets\.length === 2/.test(guardBody)) {
+    reasons.push('反引号守卫不得退回「全文计数 == 2」判据（同文件多个模板必误报）')
+  }
+
+  // 反向验证：当前源码树必须真的干净（守卫放行的前提）
+  const dirty = []
+  const walkSrc = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = resolve(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'vendor') continue
+        walkSrc(full)
+      } else if (/\.(ts|tsx)$/.test(entry.name)) {
+        const lines = readFileSync(full, 'utf8').split('\n')
+        let openLine = -1
+        for (let i = 0; i < lines.length; i += 1) {
+          const line = lines[i].replace(/\\`/g, '')
+          if (openLine < 0) {
+            if (/=\s*`\s*$/.test(line)) openLine = i
+            continue
+          }
+          if (/^\s*`\s*[;,)`]?\s*$/.test(line)) { openLine = -1; continue }
+          if (line.includes('`')) {
+            dirty.push(`${relative(ROOT, full)}:${i + 1}`)
+            openLine = -1
+          }
+        }
+      }
+    }
+  }
+  walkSrc(resolve(ROOT, 'src/client'))
+  if (dirty.length > 0) {
+    reasons.push(`源码里有被反引号打断的模板字面量：${dirty.join('、')}`)
+  }
+
+  if (reasons.length > 0) {
+    fail('构建期反引号守卫：' + reasons.join('；'))
+  } else {
+    pass('构建期反引号守卫：扫全源码树 + 逐条模板判断 + 构建前调用（防「构建成功、产物加载即崩」）')
+  }
+}
+
+// ── 画廊「空类别不得自动弹回」（2026-10-25）────────────────────────────
+//
+// 类别入口搬到侧栏二级菜单后，用户点「PDF」必须是「停在 PDF」。这条曾经踩过：
+// 页面里有一段既有的「当前类别 0 条 → 回落到首个有内容的类别」，是**页内芯片条**
+// 时代的兜底；搬到侧栏之后它变成了反效果 ——
+//   · 用户明确点了 PDF，页面自己跳去图片，等于否掉他刚那一下；
+//   · 它还会回写意图，把侧栏高亮一起改掉，于是侧栏亮着 PDF、页面显示图片；
+//   · 再点一次侧栏 PDF 毫无反应（值没变、事件不变）。
+// 所以这里钉死：那段自动回落不得存在，且空类别要有自己那一档文案。
+{
+  const reasons = []
+  const gallerySrc = readFileSync(resolve(ROOT, 'src/client/triad/gallery/GalleryPanel.tsx'), 'utf8')
+
+  // 自动回落的特征写法：在 effect 里找 firstAvailable 再 changeKind 过去
+  const autoFallback = /firstAvailable\s*=\s*KIND_ORDER\.find[\s\S]{0,200}?changeKind\(firstAvailable\)/
+  if (autoFallback.test(gallerySrc)) {
+    reasons.push('画廊不得再「当前类别 0 条就自动回落到首个有内容的类别」（会否掉用户在侧栏的点击并改掉侧栏高亮）')
+  }
+  if (/changeKind\(firstAvailable\)/.test(gallerySrc)) {
+    reasons.push('画廊源码里仍残留 changeKind(firstAvailable) 自动回落调用')
+  }
+  // 空类别必须有专门的一档文案（否则一屏空白会被当成页面坏了）
+  if (!/这一类还没有产出/.test(gallerySrc)) {
+    reasons.push('选中空类别时必须有「这一类还没有产出」的专属空态文案')
+  }
+  // 意图三件套仍在（本块只删了自动回落，通道本身不能连带掉）
+  if (!/requestGalleryKind/.test(gallerySrc)) reasons.push('画廊改类别必须仍回写 requestGalleryKind')
+
+  if (reasons.length > 0) {
+    fail('画廊空类别：' + reasons.join('；'))
+  } else {
+    pass('画廊空类别：不自动弹回（尊重侧栏点击）+ 专属空态文案 + 意图回写仍在')
   }
 }
 
@@ -4699,7 +5434,6 @@ if (krEnabled) {
 
     // 6) 开关逐一在位：7 条 host 通道（6 条注入 + 1 条按工作区的「工作区项目记忆记录」）
     //    + 3 条外观偏好。
-    //
     //    行数**从源码推导**（数 `<SettingsRow`），不写死数字：写死过一次，加了新行之后
     //    断言与常量就成了两个事实源，改一处漏一处只会得到一个「看起来在测、其实没测」
     //    的绿勾。同理下面校验 `--row-i` 序号必须是从 0 起连续的整数 —— 新增行忘了顺延
@@ -4717,8 +5451,12 @@ if (krEnabled) {
     // 「工作区记忆」那一组 2026-10-18 改成了**逐工作区列表**（不再是固定的 SettingsRow），
     // 因此不计入这个数字 —— 它的判据在下面 6c。
     const expectedRows = 10
-    // 9 个行序号（0..8）：邮箱两分支共用同一个 index（同一行的两种形态，不该占两个错开槽位）。
-    const expectedIndexes = 9
+    // 10 个行序号（0..9）：邮箱两分支共用同一个 index（同一行的两种形态，不该占两个错开槽位）。
+    // 2026-10-25 由 9 变 10：step 纪律从提示词通道组挪进「任务清单」组，与
+    // 「回合结束自动收口」并列 —— 用户要求「任务清单相关的全部归到一个组」。
+    // 开关**没有合并**：两者作用机理相反（一个写提示词、一个改状态），绑成一个
+    // 开关会强迫用户做无意义的交易（想关"末项转圈"就得连带关掉"少往返"）。
+    const expectedIndexes = 10
     const rowIndexes = [...src.matchAll(/index=\{(\d+)\}/g)].map(m => Number(m[1]))
     const distinctIndexes = [...new Set(rowIndexes)].sort((a, b) => a - b)
     const consecutive = distinctIndexes.length === expectedIndexes
@@ -4927,20 +5665,138 @@ if (krEnabled) {
       fail('紧凑组 hint 缺悬停/聚焦展开（键盘用户与鼠标用户都会读不全说明）')
     } else if (!/@media \(hover: none\)[\s\S]{0,400}?kr-settings__group--compact[\s\S]{0,400}?line-clamp:\s*unset/.test(code)) {
       fail('紧凑组缺触摸设备降级（@media (hover: none) 下必须展开全文，手机没有悬停）')
-    } else if (!/\.kr-settings__hint[^>]*title=\{hint\}|title=\{hint\}/.test(src)) {
+    } else if (!/(?:title=\{hint\}|title=\{fullText\})/.test(src)) {
       fail('hint 未挂原生 title 全文（截断后拿不到完整内容的兜底）')
+    } else if (!/const fullText = title \?\? hint \?\? label/.test(src)) {
+      /* 2026-10-25 排版改造后 title 有了三级回退（显式 title > hint > label）：
+       * 每行的 hint 只剩「差异那半句」，全文挪到 title 上。这条断言钉住回退链
+       * 本身 —— 只写 title={hint} 的话，那些传了独立 title 的行拿不到全文，
+       * 而那既不报错也不打日志。 */
+      fail('SettingsRow 的悬停全文必须有三级回退（显式 title > hint > label）')
     } else {
       pass('大盘设置：「展示」组紧凑排版三件套在位（行数封顶 / 悬停+聚焦展开 / 触摸降级 + title 兜底）')
     }
 
-    // 9d) 「工作区记忆」组不能是紧凑组：它是**注记型**说明（关掉后会发生什么 + 与注入的
-    //     区别），被截成一行就等于读不全。反过来，「展示」组那种共性已提到组说明里的
-    //     短句才适用紧凑排版。混了会把长说明压掉一半，而这既不小也不报错。
-    const projectGroupRule = /<div className="kr-settings__group">\s*\n\s*<span className="kr-settings__group-title">工作区记忆/.test(raw)
-    if (!projectGroupRule) {
-      fail('「工作区记忆」组必须是普通组（不能带 --compact：说明会被压成一行读不全）')
+    // 9d) 「工作区记忆」必须是**下方通栏独立区块**（2026-10-25 用户要求
+    //     「工作区记忆应该放在下方独立的空间」）。
+    //
+    //     这条的前身是「它必须是普通组、不能带 --compact」，理由是它的说明是
+    //     注记型、被截成一行就读不全。结构搬走之后判据整体换了 —— 但那条精神
+    //     仍然成立，所以新断言里也钉了「组说明不许被 line-clamp 截断」。
+    //
+    //     四条判据，每条失效都是静默的：
+    //       · 组件里得有 .kr-settings__ws-zone，且它**不在** .kr-settings__body 之内
+    //         （在里面会被 body 的内边距切断底色，变成悬空的内嵌面板）；
+    //       · 样式表得有这条规则，且带自己的底色（不套卡片外框，靠底色分区）；
+    //       · 组说明不许被截断 —— 它是整组共性，截了没有第二出口；
+    //       · 它必须排在上方两栏之后（DOM 顺序 = 视觉顺序，不靠 order 反排）。
+    /*
+     * 「区块在不在 body 之内」必须靠**真实的 div 深度扫描**判断，不能拿一个
+     * 跨块正则去猜：`[\s\S]*?` 会一路跨过 `</div>`，把「body 之后出现的
+     * ws-zone」也算成在 body 里（实测吃过一次假失败）。
+     *
+     * 做法：从 `<div className="kr-settings__body">` 的起始标签开始，扫描
+     * 开/闭 div 标签维护深度；深度回到 0 那一刻就是 body 的收口位置。
+     * ws-zone 若出现在它之后 = 在 body 之外（正确）；之前 = 还在 body 里（错）。
+     */
+    const zoneInBody = (() => {
+      const bodyAt = raw.indexOf('className="kr-settings__body"')
+      const zoneAt = raw.indexOf('kr-settings__ws-zone"')
+      if (bodyAt < 0 || zoneAt < 0) return false
+      /*
+       * 从 body 的起始标签开始维护 div 深度，回到 0 的那一刻就是 body 的收口。
+       *
+       * ⚠ 循环里**不能**再写 `if (depth === 0) break` 之类的提前退出：起始标签
+       * 本身是第一个匹配项，而那时 depth 还是 0 —— 提前退出会让循环一次都不累加，
+       * closing 变成起始标签的位置，于是「zone 在 body 内」恒为假、断言永远通过
+       * （这是一条会静默失去检测能力的写法，实测踩过）。
+       */
+      let depth = 0
+      let i = 0
+      const tagRe = /<(\/?)div\b[^>]*>/g
+      tagRe.lastIndex = bodyAt
+      let match
+      while ((match = tagRe.exec(raw)) !== null) {
+        depth += match[1] === '/' ? -1 : 1
+        if (depth === 0) {
+          i = match.index
+          return zoneAt > bodyAt && zoneAt < i
+        }
+      }
+      // 扫不到收口（畸形源码）：保守认为在 body 内，让断言把问题喊出来。
+      return true
+    })()
+    const zoneRule = /\.kr-settings__ws-zone\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
+    const zoneNoteRule = /\.kr-settings__ws-zone \.kr-settings__group-note\s*\{([^}]*)\}/.exec(code)?.[1] ?? ''
+    if (!raw.includes('kr-settings__ws-zone')) {
+      fail('「工作区记忆」必须是独立区块 .kr-settings__ws-zone（用户要求「放在下方独立的空间」）')
+    } else if (zoneInBody) {
+      fail('「工作区记忆」区块不能留在 .kr-settings__body 里（body 的内边距会把极淡底色切断，变成悬空的内嵌面板）')
+    } else if (zoneRule === '') {
+      fail('styles.ts 缺 .kr-settings__ws-zone 规则（区块没有底色与分隔线，与上面两栏糊在一起）')
+    } else if (!/border-top:\s*1px solid/.test(zoneRule)) {
+      fail('.kr-settings__ws-zone 缺上方发丝分隔线（分区读不出来）')
+    } else if (!/color-mix\(in srgb,[\s\S]{0,120}?2\.8%/.test(zoneRule)) {
+      fail('.kr-settings__ws-zone 的底色必须是极淡的 color-mix（写死颜色在深色主题下会变成一块脏灰）')
+    } else if (!/background:/.test(zoneRule) || /border-radius|box-shadow/.test(zoneRule)) {
+      fail('.kr-settings__ws-zone 只能靠底色分区，不得套卡片外框（圆角+描边+阴影 = 卡中卡，本仓库老坑）')
+    } else if (/-webkit-line-clamp/.test(zoneNoteRule)) {
+      fail('「工作区记忆」的组说明不许 line-clamp（整组共性被截断没有第二出口）')
     } else {
-      pass('大盘设置：「工作区记忆」走普通排版 + 组说明写「按工作区」这条共性')
+      pass('大盘设置：「工作区记忆」是 body 之外的下方通栏区块（底色分区 + 发丝线，不套卡片外框；组说明不截断）')
+    }
+
+    // 9e) 行排版：**grid 三段定宽**（2026-10-25）。
+    //
+    //     拥挤的直接原因就在这里：原来是 flex，开关跟着说明文字的长度浮动，
+    //     左栏 6 行与右栏 3 行停在两条不同的竖线上。改成 grid 之后开关贴右缘、
+    //     上下对齐成一列。缺 grid-template-columns 就会退回「开关位置随文字浮动」，
+    //     而这既不报错也看不出是"少了条样式"。
+    //
+    //     ⚠ 必须扫**全部**同名规则再挑：窄屏媒体查询里也有 `.kr-settings__row {…}`
+    //     （它只改列定义），取第一个匹配会命中那段，得到假失败。
+    const rowRules = [...code.matchAll(/\.kr-settings__row\s*\{([^}]*)\}/g)].map((m) => m[1] ?? '')
+    if (!rowRules.some((rule) => /display:\s*grid/.test(rule))) {
+      fail('.kr-settings__row 必须是 grid（flex 下开关位置随文字长度浮动，扫视时每栏都要重新找对齐线）')
+    } else if (!rowRules.some((rule) => /grid-template-columns:\s*var\(--kr-settings-label-w[^)]*\)\s+minmax\(0,\s*1fr\)\s+auto/.test(rule))) {
+      fail('.kr-settings__row 必须是「标签定宽 | 说明弹性 | 开关定宽」三列（开关才能上下对齐）')
+    } else if (!/\.kr-settings__main\s*\{[^}]*display:\s*contents/.test(code)) {
+      fail('.kr-settings__main 必须 display:contents（否则 label/hint 挤在一格里，父级三列排不出来）')
+    } else if (!/@media \(max-width: 560px\)[\s\S]{0,300}?\.kr-settings__row[\s\S]{0,160}?minmax\(0,\s*1fr\)\s+auto/.test(code)) {
+      fail('窄屏（≤560px）必须把行降成两列（标签+开关一行、说明独占下一行），否则说明被挤成两三个字一行')
+    } else {
+      pass('大盘设置：行是 grid 三列（标签定宽 / 说明弹性 / 开关定宽，开关排成一列）+ 窄屏降两列')
+    }
+
+    // 9f) 说明默认一行 + 悬停展开：拥挤的根因是 11 个开关常驻 22 行文字。
+    //     这条机制原先是「展示」组的专属优化，2026-10-25 提升为基类默认形态。
+    //     断言钉三处：基类有封顶、基类有展开、触摸设备一律展开（同 9e，扫全部同名规则）。
+    const hintRules = [...code.matchAll(/\.kr-settings__hint\s*\{([^}]*)\}/g)].map((m) => m[1] ?? '')
+    if (!hintRules.some((rule) => /-webkit-line-clamp:\s*1\b/.test(rule))) {
+      fail('.kr-settings__hint 基类必须默认封顶一行（长说明常驻会把 11 个开关撑成 22 行）')
+    } else if (!/\.kr-settings__row:hover \.kr-settings__hint/.test(code)
+      || !/\.kr-settings__row:focus-within \.kr-settings__hint/.test(code)) {
+      fail('基类 hint 缺悬停/聚焦展开（封顶之后读不到全文 = 信息被删掉了）')
+    } else if (!/@media \(hover: none\)[\s\S]{0,300}?\.kr-settings__hint[\s\S]{0,200}?line-clamp:\s*unset/.test(code)) {
+      fail('基类 hint 缺触摸设备降级（@media (hover: none) 下必须展开，手机没有悬停）')
+    } else {
+      pass('大盘设置：说明默认一行 + 悬停/聚焦/触摸三档展开（不是删字，是按需展开）')
+    }
+
+    // 9g) 组头右侧的「适用范围」小字（2026-10-25）。
+    //
+    //     它承担的是**整组共性**：原先「每会话首步注入一次」在团队协作与 step
+    //     纪律两行里各写一遍，「只改本机观感/随浏览器保存」在展示组三行里各写
+    //     一遍。提到组头说一次，各行的短说明才只剩差异。
+    //     缺了它不会报错 —— 只是那些共性又得抄回每一行，拥挤会慢慢长回来。
+    if (!/kr-settings__group-head/.test(raw) || !/kr-settings__group-scope/.test(raw)) {
+      fail('组头缺 .kr-settings__group-head / __group-scope（整组共性无处安放，只能又抄回每行）')
+    } else if (!/\.kr-settings__group-scope\s*\{/.test(code) || !/\.kr-settings__group-head\s*\{/.test(code)) {
+      fail('styles.ts 缺组头 / 适用范围那两条规则（裸 DOM 会折行把组头撑高）')
+    } else if (!/@media \(max-width: 560px\)[\s\S]{0,200}?\.kr-settings__group-scope[\s\S]{0,80}?display:\s*none/.test(code)) {
+      fail('窄屏必须藏掉组头右侧的适用范围（放不下时折行，把标题压到中线以下）')
+    } else {
+      pass('大盘设置：组头右侧承载「整组共性」（提示词通道 / 展示 / 工作区记忆各一句），窄屏自动隐藏')
     }
 
     // 10) 入口位置：齿轮与邮箱按钮在**操作面板卡头右上角**（2026-10-25 用户要求

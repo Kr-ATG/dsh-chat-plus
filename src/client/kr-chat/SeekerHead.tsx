@@ -64,6 +64,21 @@ export interface SeekerHeadProps {
   readonly renderIcon?: (name: string) => ReactElement
   /** 额外类名（新对话页要一版更大的尺寸）。 */
   readonly className?: string
+  /**
+   * 是否渲染右上角那两枚动作按钮（齿轮 + 邮箱）。默认 true。
+   *
+   * **新对话页必须传 false**（2026-10-25 修）：那两枚按钮带固定 id
+   * （`kr-panel-settings-btn` / `kr-mail-btn`），而新对话页的 Hero 卡头是**常驻
+   * DOM** 的 —— 控制器收起它时只设 `style.display = 'none'`，节点并没有被移除。
+   * 于是同一个页面上会同时存在两组同 id 按钮：`getElementById` 只返回第一个，
+   * 而它恰好是隐藏的那个（尺寸 0×0），e2e 与任何按 id 取节点的代码都会拿到
+   * 一个点不动的幽灵按钮 —— 表现是「齿轮明明在，点了没反应」。
+   *
+   * 为什么不是「收起时把节点移除」：Hero 卡头要保留 running 状态、避免每次进出
+   * 空白页都重建 React 根（重建会闪一下）。少渲染两枚按钮更简单 —— 它们在
+   * 新对话页本来也没有意义（那时还没有大盘可设置、也没有邮箱要开）。
+   */
+  readonly chrome?: boolean
 }
 
 /**
@@ -84,6 +99,7 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
     expanded,
     renderIcon,
     className,
+    chrome = true,
   } = props
 
   /*
@@ -224,7 +240,13 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
        * stopPropagation：卡头整块可能是折叠热区，点齿轮不该顺带展开时间线。
        * 用真 button 而不是 span：键盘可达、自带 :active / :focus-visible。
        * id 沿用顶栏那版 —— e2e（test-settings-card / test-mail-drawer）按它找节点。
+       *
+       * ⚠ 这组按钮**只能渲染一处**（chrome=false 时不渲染）：它们带固定 id，而
+       * 新对话页的 Hero 卡头是常驻 DOM（收起时只 display:none，节点还在）。两处
+       * 同时渲染就会出现重复 id，getElementById 拿到隐藏的那个，表现为「齿轮在、
+       * 点了没反应」。详见 SeekerHeadProps.chrome 的注释。
        */}
+      {chrome && (
       <div className="kr-plain-head__tools">
         <button
           type="button"
@@ -272,6 +294,7 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
           </svg>
         </button>
       </div>
+      )}
     </div>
   )
 }

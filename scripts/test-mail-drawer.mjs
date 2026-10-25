@@ -229,7 +229,17 @@ async function main() {
   }
   await sleep(2500)
 
-  // ── 进入一个已有会话（顶栏 tablist 只在会话开张后渲染）─────────────────
+  // ── 进入一个**有轮次**的会话，并等右栏长出来 ────────────────────────────
+  //
+  // ⚠ 两个坑（2026-10-25 与 test-settings-card 同一轮踩到）：
+  //  1. 不能按下标或标题挑会话：打开的往往是空白新会话，而 kr-chat-controller
+  //     对空白新会话整块不渲染右栏（hasConversationContent() 不通过），齿轮/邮箱
+  //     都是右栏卡头里渲染的，于是「顶栏找不到邮箱按钮」。按标题匹配也脆 ——
+  //     会话标题是模型生成的一句话，改个说法就匹配不上。
+  //  2. openSession 是异步生效的，不能 sleep 完就断言：右栏挂载依赖对话流里出现
+  //     [data-chat-turn]，那是官方异步渲染的。必须轮询等。
+  //
+  // 判据用 host 侧事实（turnOutline / sessionStats.turns），不依赖 DOM。
   const entered = await evaluate(`(function(){
     var ctx = window.__dshClientCtx__;
     if (!ctx) return 'NO_CTX';
@@ -237,16 +247,34 @@ async function main() {
     if (!ws || typeof ws.openSession !== 'function') return 'NO_OPEN_SESSION';
     var s = ctx.get('sessions');
     var snap = s && s.list && s.list.getSnapshot ? s.list.getSnapshot() : (s && s.getSnapshot ? s.getSnapshot() : null);
-    var ids = snap && snap.byId ? Object.keys(snap.byId) : [];
+    var byId = (snap && snap.byId) || {};
+    var proj = (snap && snap.projectionsBySession) || {};
+    var ids = Object.keys(byId);
     if (ids.length === 0) return 'NO_SESSIONS';
-    var pick = ids.filter(function(id){ var t = (snap.byId[id].title || '') + ''; return t.indexOf('邮箱') >= 0 })[0]
-      || ids.filter(function(id){ var t = (snap.byId[id].title || '') + ''; return t.indexOf('大盘') >= 0 })[0]
-      || ids[0];
-    ws.openSession(pick);
-    return 'opened:' + pick;
+    function score(id) {
+      var vals = (proj[id] && proj[id].values) || {};
+      var n = 0;
+      if (Array.isArray(vals.turnOutline)) n += vals.turnOutline.length * 10;
+      var stats = vals.sessionStats;
+      if (stats && typeof stats.turns === 'number') n += stats.turns * 10;
+      return n;
+    }
+    ids.sort(function(a, b){ return score(b) - score(a); });
+    ws.openSession(ids[0]);
+    return 'opened:' + ids[0] + ' score=' + score(ids[0]) + ' n=' + ids.length;
   })()`)
   log('enterSession=' + entered)
-  await sleep(6000)
+  let panelOk = false
+  for (let i = 0; i < 40; i += 1) {
+    panelOk = await evaluate(`Boolean(document.querySelector('.kr-split__side') && document.getElementById('kr-mail-btn'))`).catch(() => false)
+    if (panelOk) break
+    await sleep(500)
+  }
+  log('panelReady=' + panelOk)
+  if (!panelOk) {
+    fail('打开了会话但右栏（含卡头邮箱按钮）始终没渲染出来 —— 会话可能仍是空白态')
+  }
+  await sleep(1200)
 
   // ── A. 顶栏三件套顺序 ──────────────────────────────────────────────────
   const order = await evaluate(`(function(){
@@ -255,15 +283,18 @@ async function main() {
     var seeker = document.getElementById('kr-chat-tab-btn');
     if (!mail) return { missing: 'kr-mail-btn' };
     if (!gear) return { missing: 'kr-panel-settings-btn' };
-    var prev = mail.previousElementSibling;
     return {
       mailTag: mail.tagName,
       mailTitle: mail.title,
       mailAria: mail.getAttribute('aria-label'),
       mailHasSvg: mail.querySelectorAll('svg').length,
       mailClass: mail.className,
-      prevId: prev ? prev.id : null,
-      prevPrevId: prev && prev.previousElementSibling ? prev.previousElementSibling.id : null,
+      // 搬家后的真实关系：同一个 .kr-plain-head__tools 里的兄弟，齿轮在前。
+      gearInTools: gear.closest('.kr-plain-head__tools') !== null,
+      mailInTools: mail.closest('.kr-plain-head__tools') !== null,
+      gearInTablist: gear.closest('header [role="tablist"]') !== null,
+      mailInTablist: mail.closest('header [role="tablist"]') !== null,
+      mailPrevId: mail.previousElementSibling ? mail.previousElementSibling.id : null,
       seekerExists: Boolean(seeker),
       gearMarginLeft: getComputedStyle(gear).marginLeft,
       mailMarginLeft: getComputedStyle(mail).marginLeft,
@@ -277,24 +308,41 @@ async function main() {
     };
   })()`)
   log('ORDER=' + JSON.stringify(order))
+  /*
+   * 2026-10-25 判据整体换了：两枚按钮从**顶栏 tablist**（Seeker 标签右侧）搬进了
+   * **操作面板卡头右上角**的 .kr-plain-head__tools 里。
+   *
+   * 旧断言（prevId === 'kr-panel-settings-btn' 且 prevPrevId === 'kr-chat-tab-btn'）
+   * 在那次搬家之后就永久失效了 —— 它检查的是「顶栏里的兄弟顺序」，而按钮已经不在
+   * 顶栏里。留着它只会让人以为搬家没做成功。
+   *
+   * 新判据钉的是搬家后的真实契约：
+   *   · 两枚都在 .kr-plain-head__tools 之内（卡头右上角那一组）；
+   *   · 顺序是 齿轮 → 邮箱（用 nextElementSibling，仍是同一个父节点下的兄弟关系）；
+   *   · 都不在顶栏 tablist 里（搬干净了，没留残影）；
+   *   · 同尺寸同配色（并排读成一对）；
+   *   · 视觉间距够小（同组 flex gap 2px，实测 ~2px）。
+   */
   if (order.missing !== undefined) {
-    fail('顶栏找不到邮箱按钮 #kr-mail-btn（控制器没注入 / 会话还没开张）')
-  } else if (order.prevId !== 'kr-panel-settings-btn') {
-    fail(`邮箱按钮的前一个兄弟是 ${order.prevId}，应为 kr-panel-settings-btn（必须紧贴在齿轮右侧）`)
-  } else if (order.prevPrevId !== 'kr-chat-tab-btn') {
-    fail(`齿轮的前一个兄弟是 ${order.prevPrevId}，应为 kr-chat-tab-btn（顺序必须是 Seeker → 齿轮 → 邮箱）`)
+    fail(`右栏卡头找不到按钮 #${order.missing}（右栏没渲染？看上面的 panelReady）`)
+  } else if (!order.gearInTools || !order.mailInTools) {
+    fail(`按钮不在 .kr-plain-head__tools 里（齿轮 ${order.gearInTools} / 邮箱 ${order.mailInTools}）—— 没搬进卡头右上角`)
+  } else if (order.gearInTablist || order.mailInTablist) {
+    fail(`按钮仍在顶栏 tablist 里（齿轮 ${order.gearInTablist} / 邮箱 ${order.mailInTablist}）—— 搬家没做干净，会与卡头那组重复 id`)
+  } else if (order.mailPrevId !== 'kr-panel-settings-btn') {
+    fail(`邮箱前面的兄弟是 ${order.mailPrevId}，应为 kr-panel-settings-btn（顺序必须是 齿轮 → 邮箱）`)
   } else if (order.mailHasSvg !== 1) {
     fail(`邮箱按钮的图标应为 1 个内联 SVG，实得 ${order.mailHasSvg}`)
   } else if (order.mailAria !== '邮箱') {
     fail(`邮箱按钮 aria-label 应为「邮箱」，实得 ${order.mailAria}`)
   } else if (order.gap === null || order.gap > 8) {
-    fail(`齿轮与邮箱按钮的视觉间距 ${order.gap}px 太大（应并排读成一对；官方 tablist 的 flex gap 需被抵掉）`)
+    fail(`齿轮与邮箱按钮的视觉间距 ${order.gap}px 太大（应并排读成一对）`)
   } else if (order.gearW !== order.mailW) {
     fail(`两枚按钮尺寸不一致（齿轮 ${order.gearW}px / 邮箱 ${order.mailW}px），并排看不出是一对`)
   } else if (order.gearBg !== order.mailBg || order.gearColor !== order.mailColor) {
     fail(`两枚按钮常态配色不一致（齿轮 ${order.gearBg}/${order.gearColor}，邮箱 ${order.mailBg}/${order.mailColor}）`)
   } else {
-    ok(`顶栏顺序正确：Seeker → 齿轮 → 邮箱（并排间距 ${order.gap}px，同尺寸 ${order.gearW}px，同配色）`)
+    ok(`卡头右上角：齿轮 → 邮箱 并排（间距 ${order.gap}px，同尺寸 ${order.gearW}px，同配色，都不在顶栏）`)
   }
 
   // ── B. hover 反馈（用户偏好的微交互）───────────────────────────────────
@@ -445,8 +493,15 @@ async function main() {
   else if (afterBtn.visibility !== 'hidden' || afterBtn.pointerEvents !== 'none') {
     fail(`卡片关闭后仍可见或仍拦点击（visibility=${afterBtn.visibility} pointer-events=${afterBtn.pointerEvents}）`)
   } else if (afterBtn.opacity > 0.02) fail(`卡片关闭后 opacity 仍有 ${afterBtn.opacity}（退场没走完 / 可见性依赖动画）`)
-  else if (btnAttr.open !== 'false' || btnAttr.expanded !== 'false') fail(`按钮打开态属性未复位：${JSON.stringify(btnAttr)}`)
-  else ok(`再点按钮关闭成：卡片 hidden + pointer-events:none + opacity ${afterBtn.opacity}，按钮 data-open/aria-expanded 复位`)
+  /*
+   * 按钮渲染成 `data-open={open || undefined}`，关闭时**属性整个不写**（getAttribute
+   * 得到 null），不是字符串 "false"。旧断言要求 "false"，是把实现细节当契约
+   * （2026-10-25 与 test-settings-card 同一处确认）。真正要钉的是「关掉之后按钮
+   * 不再显示打开态」：aria-expanded 必须是 "false"，data-open 不能残留 "true"。
+   */
+  else if (btnAttr.expanded !== 'false') fail(`按钮 aria-expanded 未复位：${JSON.stringify(btnAttr)}`)
+  else if (btnAttr.open === 'true') fail(`按钮 data-open 仍残留 "true"（关闭后图标一直亮着）：${JSON.stringify(btnAttr)}`)
+  else ok(`再点按钮关闭成：卡片 hidden + pointer-events:none + opacity ${afterBtn.opacity}，按钮 aria-expanded=false / data-open=${JSON.stringify(btnAttr.open)}（属性移除，非 "false"）`)
 
   // ── F2. Esc → 关闭 ────────────────────────────────────────────────────
   await evaluate(`document.getElementById('kr-mail-btn').click(); 'open'`)
@@ -510,35 +565,65 @@ async function main() {
   // ── I. 邮箱卡片与设置抽屉各自独立开合（「不复用设置那份 store」的判据本身）──
   // 只查**按钮上的属性**（由各自 store 驱动），不依赖设置抽屉本体是否挂载 ——
   // KrPanelSettings 由另一条链路装配，别把它的在途改动绑进这条断言。
-  const independence = await evaluate(`(function(){
+  //
+  // ⚠ 必须**一次点击一次读**，中间让出一拍（下面的 sleep 80）。
+  //
+  // 旧写法是在页面里一口气 click → 读 → click → 读，全在同一个 task 里跑完。
+  // React 18 的自动批处理会把这些 setState 攒到 task 结束才渲染，于是每次
+  // getAttribute 读到的都还是**上一帧**的值 —— 实测拿到 {"gear":null,"mail":null}，
+  // 看起来像"两个 store 共用了"，实际上是读得太早。这不是产品 bug，是断言的坑。
+  //
+  // 读值也统一用 `=== 'true'`：关闭态属性不存在（null），见下面那段说明。
+  const readBtnPair = () => evaluate(`(function(){
     var gear = document.getElementById('kr-panel-settings-btn');
     var mail = document.getElementById('kr-mail-btn');
     if (!gear || !mail) return { missing: true };
-    var out = {};
-    // 先确保都关着
-    if (gear.getAttribute('data-open') === 'true') gear.click();
-    if (mail.getAttribute('data-open') === 'true') mail.click();
-    out.start = { gear: gear.getAttribute('data-open'), mail: mail.getAttribute('data-open') };
-    gear.click();
-    out.afterGear = { gear: gear.getAttribute('data-open'), mail: mail.getAttribute('data-open') };
-    mail.click();
-    out.afterMail = { gear: gear.getAttribute('data-open'), mail: mail.getAttribute('data-open') };
-    mail.click();
-    out.afterMailClose = { gear: gear.getAttribute('data-open'), mail: mail.getAttribute('data-open') };
-    gear.click();
-    out.afterGearClose = { gear: gear.getAttribute('data-open'), mail: mail.getAttribute('data-open') };
-    return out;
+    return { gear: gear.getAttribute('data-open'), mail: mail.getAttribute('data-open') };
   })()`)
+  const clickBtn = (id) => evaluate(`(function(){
+    var b = document.getElementById('${id}');
+    if (!b) return false;
+    b.click();
+    return true;
+  })()`)
+  const independence = {}
+  // 先确保都关着（若开着就点一下关掉，然后等一拍）。
+  {
+    const now = await readBtnPair()
+    if (now.missing !== true) {
+      if (now.gear === 'true') { await clickBtn('kr-panel-settings-btn'); await sleep(80) }
+      if (now.mail === 'true') { await clickBtn('kr-mail-btn'); await sleep(80) }
+    }
+  }
+  independence.start = await readBtnPair()
+  await clickBtn('kr-panel-settings-btn'); await sleep(80)
+  independence.afterGear = await readBtnPair()
+  await clickBtn('kr-mail-btn'); await sleep(80)
+  independence.afterMail = await readBtnPair()
+  await clickBtn('kr-mail-btn'); await sleep(80)
+  independence.afterMailClose = await readBtnPair()
+  await clickBtn('kr-panel-settings-btn'); await sleep(80)
+  independence.afterGearClose = await readBtnPair()
   log('INDEPENDENCE=' + JSON.stringify(independence))
+  /*
+   * ⚠ 判据全用 `=== 'true'` / `!== 'true'`，**不能**拿 'false' 比。
+   *
+   * 两枚按钮都渲染成 `data-open={open || undefined}`：关闭时属性整个不存在
+   * （getAttribute 返回 null），不是字符串 "false"。旧断言写 `!== 'false'`，
+   * 在关闭态下必然为真，于是「打开大盘设置把邮箱也带开了」这条恒假失败 ——
+   * 2026-10-25 确认是断言写错了，不是两个 store 真的共用。
+   *
+   * 要钉的事实不变：两个 store 各自独立，打开其中一个不动另一个。
+   */
   if (independence.missing === true) {
     fail('拿不到两枚按钮（邮箱 / 大盘设置，独立开合断言无法进行）')
-  } else if (independence.afterGear.mail !== 'false') {
+  } else if (independence.afterGear.mail === 'true') {
     fail('打开大盘设置把邮箱卡片也带开了（两个 store 被共用）')
   } else if (independence.afterMail.gear !== 'true' || independence.afterMail.mail !== 'true') {
     fail(`打开邮箱时两枚按钮状态不对：${JSON.stringify(independence.afterMail)}（应各自独立）`)
   } else if (independence.afterMailClose.gear !== 'true') {
     fail('关闭邮箱把大盘设置一起关了（两个 store 被共用）')
-  } else if (independence.afterGearClose.gear !== 'false') {
+  } else if (independence.afterGearClose.gear === 'true') {
     fail('再点齿轮没关掉设置抽屉')
   } else {
     ok('邮箱卡片与设置抽屉各自独立开合：开邮箱不动设置、关邮箱不关设置、各自单点可关')
@@ -563,14 +648,33 @@ async function main() {
     fail('开启 prefers-reduced-motion 后刷新，应用没再就绪')
   } else {
     await sleep(2500)
+    // 重载后同样要挑**有轮次**的会话（取 ids[0] 常命中空白新会话，右栏不渲染，
+    // 邮箱按钮就不存在 —— 与 enterSession 同一个坑，见那里的注释）。
     await evaluate(`(function(){
       var ctx = window.__dshClientCtx__;
       var ws = ctx && ctx.get('uiWorkspace');
       var s = ctx && ctx.get('sessions');
       var snap = s && s.list && s.list.getSnapshot ? s.list.getSnapshot() : (s && s.getSnapshot ? s.getSnapshot() : null);
-      var ids = snap && snap.byId ? Object.keys(snap.byId) : [];
-      if (ws && ids.length) ws.openSession(ids[0]);
+      var byId = (snap && snap.byId) || {};
+      var proj = (snap && snap.projectionsBySession) || {};
+      var ids = Object.keys(byId);
+      if (!ws || ids.length === 0) return;
+      function score(id) {
+        var vals = (proj[id] && proj[id].values) || {};
+        var n = 0;
+        if (Array.isArray(vals.turnOutline)) n += vals.turnOutline.length * 10;
+        var stats = vals.sessionStats;
+        if (stats && typeof stats.turns === 'number') n += stats.turns * 10;
+        return n;
+      }
+      ids.sort(function(a, b){ return score(b) - score(a); });
+      ws.openSession(ids[0]);
     })()`)
+    // 等右栏与卡头按钮出现，并拿到可点坐标（重载后首帧尺寸可能还是 0）。
+    for (let i = 0; i < 40; i += 1) {
+      if (await evaluate(`Boolean(document.getElementById('kr-mail-btn'))`).catch(() => false)) break
+      await sleep(500)
+    }
     await sleep(4000)
     const rmBtn = await buttonCenter('kr-mail-btn')
     if (rmBtn === null) {

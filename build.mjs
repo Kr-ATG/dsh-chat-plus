@@ -181,6 +181,96 @@ const hostBundle = {
   }],
 }
 
+/**
+ * **源码级**反引号守卫（2026-10-25 新增，跑在 esbuild 之前）。
+ *
+ * 为什么需要它（本轮踩了四次）：`styles.ts` 的整张样式表是一个模板字面量
+ * （`export const KR_STYLES = \`…\``），而 esbuild **不会**转义模板内部的反引号。
+ * 只要在 CSS 注释里写一个反引号（比如把选择器写成 `\`.kr-foo\``），模板就在那里
+ * 提前闭合，剩下的正文被当成 JS 表达式解析。
+ *
+ * 已有的 `assertInjectedCssStrings()` 是**产物侧**守卫，它能抓住"静默变成 false"
+ * 那一类；但这一次是另一类失败 —— esbuild 直接报
+ * 「Expected ";" but found "kr"」并指向某一行 CSS，报错完全没提"反引号"，
+ * 排查时得自己悟出来。而且它是**构建失败**，不是静默失效，产物侧守卫根本没机会跑。
+ *
+ * 所以这里在构建前就把「模板内部还剩几个反引号」数清楚：必须恰好 2 个（首尾）。
+ * 多出来的每一个都会让构建炸，并报一个与根因无关的错。
+ *
+ * ⚠ 2026-10-25 补强：原版只扫 `src/client/kr-chat/styles.ts` 一个文件，判据是
+ * 「全文恰好 2 个反引号」。这管不到**同一文件里有多个模板**、也管不到**别的
+ * 模块的样式表**——当天实际发生的是 `gallery/styles.ts` 里
+ * `const SHEET = \`…\`` 被注释里的反引号打断，构建**成功**、`lib/client.js`
+ * 一加载就 `ReferenceError: root is not defined`（报错指向打包产物，与源码
+ * 对不上，三个人查了半天）。所以改成扫**整个源码树**，并且逐条模板判断，
+ * 而不是「全文计数」——后者只要文件里有第二个模板就会误报。
+ *
+ * @returns {void} 违规时抛错，正常时静默返回。
+ */
+function assertCssTemplateDelimiters() {
+  const roots = ['src/client']
+  const problems = []
+
+  /** 逐行状态机：找出「模板字面量内部又出现反引号」的位置。 */
+  const checkFile = (file) => {
+    const source = readFileSync(file, 'utf8')
+    // 先把注释里合法出现的反引号之外的情况排除掉太复杂——直接按行扫：
+    // 模板起止行之外，任何反引号都是可疑的（CSS/文本模板里不该出现转义外的
+    // 反引号；真要写反引号请用 \` 转义，这里也会放行）。
+    const lines = source.split('\n')
+    let openLine = -1
+    for (let i = 0; i < lines.length; i++) {
+      const raw = lines[i]
+      // 去掉已转义的反引号，避免把 \` 误判成打断
+      const line = raw.replace(/\\`/g, '')
+      const startsTemplate = /=\s*`\s*$/.test(line)
+      if (openLine < 0) {
+        if (startsTemplate) openLine = i
+        continue
+      }
+      // 单独的 ` 或 `; 或 `, 或 `) 视为正常收尾
+      if (/^\s*`\s*[;,)`]?\s*$/.test(line)) {
+        openLine = -1
+        continue
+      }
+      if (line.includes('`')) {
+        problems.push(`  ${file.replace(HERE + '\\\\', '').replace(HERE + '\\', '')}:${i + 1}（模板自第 ${openLine + 1} 行起）\n    ${raw.trim().slice(0, 140)}`)
+        // 跳过这一段，避免同一处连续报错
+        openLine = -1
+      }
+    }
+  }
+
+  const walk = (dir) => {
+    for (const name of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, name.name)
+      if (name.isDirectory()) {
+        if (name.name === 'node_modules' || name.name === 'vendor') continue
+        walk(full)
+      } else if (/\.(ts|tsx)$/.test(name.name)) {
+        checkFile(full)
+      }
+    }
+  }
+
+  for (const root of roots) {
+    const dir = resolve(HERE, root)
+    if (existsSync(dir)) walk(dir)
+  }
+
+  if (problems.length === 0) return
+
+  throw new Error(
+    'dsh-chat-plus: 源码里的模板字面量被反引号打断了。\n'
+    + `  发现 ${problems.length} 处：\n`
+    + problems.join('\n')
+    + '\n\n  CSS 注释里描述选择器请用「中文角引号」或直接写类名，不要用反引号：\n'
+    + '  它会让模板提前闭合，剩下的正文被当成 JS 求值 —— 构建可能仍然成功，\n'
+    + '  而产物一加载就 ReferenceError（报错行指向打包产物，与源码对不上）。\n'
+    + '  确实需要字面反引号时请写成转义形式。',
+  )
+}
+
 /** Fail the build if the host bundle still hands an unresolvable specifier. */
 function assertHostExternals(outfile) {
   const source = readFileSync(outfile, 'utf8')
@@ -282,6 +372,8 @@ function assertInjectedCssStrings(outfile) {
   return checked
 }
 
+// 源码级守卫先跑：反引号问题会让 esbuild 报一个与根因无关的错，提前拦下更好排查。
+assertCssTemplateDelimiters()
 await Promise.all([esbuild.build(clientBundle), esbuild.build(hostBundle)])
 const hostExternals = assertHostExternals(resolve(HERE, 'lib/index.js'))
 assertInjectedCssStrings(resolve(HERE, 'lib/client.js'))

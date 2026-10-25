@@ -1179,117 +1179,73 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
     pass('api.ts：deleteGalleryPaths（POST + JSON + no-store + 空数组短路）与三个新类型在位')
   }
 
-  // B2：面板里不许再出现两位数的近似计数符号
-  if (/99\+/.test(rawPanel)) {
-    fail('GalleryPanel 里不许再残留 99+ 字面量（分类芯片必须显示真实数字）')
-  } else if (!/kindTotals/.test(panel3)) {
-    fail('面板必须消费 host 下发的 kindTotals（真实计数优先走它，未下发时回落本地计数）')
-  } else if (!/tabular-nums|toLocaleString/.test(panel3)) {
-    fail('真实计数必须做千分位/等宽处理（4~5 位数不能挤成一团）')
-  } else {
-    pass('画廊计数：无 99+ 字面量，kindTotals 优先 + 本地回落')
-  }
-
-  // B2：就地二次确认（芯片原地换内容）+ 自动回退 + Esc 取消
-  if (!/tg-kind__confirm/.test(panel3) || !/tg-kind__yes/.test(panel3) || !/tg-kind__no/.test(panel3)) {
-    fail('分类删除必须是就地二次确认（tg-kind__confirm / tg-kind__yes / tg-kind__no 三件套）')
-  } else if (!/DEL_CONFIRM_MS/.test(panel3) || !/setDelConfirmId\(null\)/.test(panel3)) {
-    fail('确认态必须有自动回退（DEL_CONFIRM_MS 定时器 + 回 idle）')
-  } else if (!/event\.key === 'Escape'/.test(panel3) || !/cancelDel/.test(panel3)) {
-    fail('确认态必须能被 Esc 取消（键盘降级通路）')
-  } else if (!/不可/.test(panel3)) {
-    fail('确认文案必须写明不可逆（含「不可」二字）')
-  } else {
-    pass('分类删除：就地二次确认 + 自动回退 + Esc 取消 + 不可逆文案')
-  }
-
-  // B2：不可逆必须出现在**可见文本**里（不能只写 title / aria-label）。
+  // B2：**按分类批量删除已整条删除**（2026-10-25 用户要求）。
   //
-  // 这条是 Lead 浏览器实测揪出来的真缺陷：原来「不可恢复」只写在两处 title 属性
-  // 上，而 title 是 hover tooltip —— 触屏永远看不到、键盘用户读不到，等于对触摸/
-  // 键盘用户隐瞒了"删磁盘、不可逆"这个后果。
+  // 沿革一次写清，免得后人看到 .tg-kind 的删除样式被删掉又给加回来：
+  //  · 2026-10-16：画廊工具条上有一排类别胶囊（.tg-kind），每枚带删除键，
+  //    能「一次清空整个分类」，就地二次确认 + 不可逆文案 + 触屏常显；
+  //  · 2026-10-25 早：类别主入口搬到侧栏二级菜单，胶囊栏降级为「次级操作条」
+  //    （保留计数与删除，只去掉图标收窄）；
+  //  · 2026-10-25 晚（当前）：用户点名「画廊页面的这些不需要了删除掉」——
+  //    胶囊栏整条去掉，挂着它的**按分类批量删除**一并下线（用户明确选了
+  //    「一起删掉，彻底干净」）。单卡删除完好保留。
   //
-  // 断言口径刻意不看属性：把 .tg-kind__ask 子树的 JSX 属性全部剥掉，剩下的就是
-  // 浏览器 textContent 里会出现的东西，然后要求它含「不可」。只写 title 的版本
-  // 剥完属性就什么都不剩，会直接 fail —— 这正是防止退化回旧写法的关键。
-  const askSubtree = /className="tg-kind__ask"[^>]*>([\s\S]*?)<button/.exec(panel3)?.[1] ?? ''
-  const askVisibleText = askSubtree.replace(/\b[a-zA-Z][a-zA-Z0-9-]*=(?:"[^"]*"|\{[^}]*\})/g, '')
-  const warnText = /className="tg-kind__warn"[^>]*>([^<]*)</.exec(panel3)?.[1] ?? ''
-  if (askSubtree === '') {
-    fail('找不到 .tg-kind__ask 确认态问句（不可逆语义要落在它的可见文本里）')
-  } else if (!/不可/.test(askVisibleText)) {
-    fail('「不可恢复」必须出现在确认态的**可见文本**里（剥掉属性后仍要含「不可」）—— 只写 title/aria-label 触屏与键盘用户看不到')
-  } else if (!/不可/.test(warnText)) {
-    fail('.tg-kind__warn 的可见文本必须含「不可」—— 它是不可逆语义的承载元素，不能只当装饰')
-  } else if (!/\.tg-kind__warn\{/.test(styles3)) {
-    fail('styles.ts 必须有 .tg-kind__warn 样式（不可逆小字）')
-  } else if (!/\.tg-kind__warn\{[^}]*color:var\(--dsw-alias-state-error-primary/.test(styles3)) {
-    fail('.tg-kind__warn 必须用告警色（否则和问句糊成一句，读不出"这是后果"）')
-  } else if (/\.tg-kind__warn\{[^}]*(text-overflow:ellipsis|overflow:hidden)/.test(styles3)) {
-    fail('.tg-kind__warn 不能被省略号/overflow:hidden 裁掉 —— 裁掉「不可恢复」等于回到"后果只有鼠标用户看得到"')
-  } else if (!/@media \(max-width:640px\)[\s\S]{0,400}?\.tg-kind__warn/.test(styles3)) {
-    fail('窄屏必须有确认态收缩档（只降字号与留白，不裁语义），否则加宽后会撑破工具条')
+  // 所以这里断言的是「旧的那套必须真的没了」，而不是「它还在」。
+  if (/tg-kind__confirm|tg-kind__yes|tg-kind__no|tg-kind__del|tg-kind__ask/.test(panel3)) {
+    fail('按分类批量删除已随胶囊栏删除：面板里不得残留 tg-kind__* 确认态 / 删除键')
+  } else if (/className="tg-dock"/.test(panel3)) {
+    fail('画廊页的类别胶囊栏（.tg-dock）必须整条删除')
+  } else if (/kindTotals/.test(panel3)) {
+    fail('胶囊栏删除后 kindTotals 已无消费方（那个数字唯一的去处是胶囊计数），面板不得再读它')
   } else {
-    pass(`不可逆落在可见文本：确认态问句 textContent 含「不可」（warn="${warnText}"）`)
+    pass('按分类批量删除已整条下线（胶囊栏 / tg-kind__* / kindTotals 零残留）')
   }
 
-  // B2：删除键可见性不能依赖动画（不能 display:none / visibility:hidden），且要有触屏/键盘通路
-  if (!/tg-kind__del/.test(panel3)) {
-    fail('每个分类芯片必须带删除键（.tg-kind__del）')
-  } else if (!/<button[\s\S]{0,600}?className="tg-kind__del"/.test(panel3)) {
-    fail('删除键必须是真 button（键盘可 Tab 到 + Enter 触发），不是带 tabIndex 的 span')
-  } else if (!/tg-kind__pick/.test(panel3)) {
-    fail('芯片本体必须是 div + 内层 button（.tg-kind__pick）—— button 不能嵌套 button，确认态里要放两枚真按钮')
-  } else if (!/\.tg-kind__del\{[^}]*opacity:0/.test(styles3) || /\.tg-kind__del\{[^}]*display:none/.test(styles3) || /\.tg-kind__del\{[^}]*visibility:hidden/.test(styles3)) {
-    fail('删除键不能靠 display:none / visibility:hidden 隐藏（触摸与键盘都必须到得了）：用 opacity + pointer-events 控制')
-  } else if (!/\.tg-kind__del:disabled/.test(styles3) || !/disabled=\{count === 0\}/.test(panel3)) {
-    fail('空分类的删除键必须置灰（disabled + :disabled 规则），不能留一枚点了没反应的垃圾桶')
-  } else if (!/@media \(hover:none\)/.test(styles3) || !/tg-kind__del:focus-visible/.test(styles3)) {
-    fail('删除键必须有触屏常显（@media (hover:none)）与键盘聚焦浮现（:focus-visible）两条降级通路')
-  } else {
-    pass('删除键：opacity/pointer-events 浮现 + 真 button 键盘可达 + 触屏常显 + 聚焦浮现')
-  }
-
-  // B2：删除执行 —— 错峰退场动画 → 发请求 → 失败整份回滚/部分失败提示 → data-busy
-  if (!/delStaggerMs|delLeave/.test(panel3) || !/tg-card--out/.test(panel3)) {
-    fail('删除必须先播错峰退场动画（delLeave + tg-card--out）再发请求')
-  } else if (!/delBusyKind|delBusyRef/.test(panel3) || !/data-busy=\{busy/.test(panel3)) {
-    fail('删除期间芯片必须进 data-busy（禁用重复点击 + 显示「删除中…」）')
-  } else if (!/deleteGalleryPaths\(paths\)/.test(panel3)) {
-    fail('删除请求体必须是该分类当前可见条目的路径列表')
+  // B2：**单卡删除必须完好** —— 这是用户没有要求删掉的那一半。
+  if (!/delItemPath/.test(panel3) || !/delItemBusy/.test(panel3)) {
+    fail('单卡删除的确认态（delItemPath / delItemBusy）必须保留')
+  } else if (!/deleteGalleryPaths\(\[item\.path\]\)/.test(panel3)) {
+    fail('单卡删除必须仍调用 deleteGalleryPaths([item.path])')
   } else if (!/rememberGone\(removed\)/.test(panel3) || !/gonePaths/.test(panel3)) {
-    fail('删除成功后路径必须进 gonePaths（条目从清单剔除）')
+    fail('单卡删除成功后路径必须进 gonePaths（条目从清单剔除）')
   } else if (!/useState<ReadonlySet<string>>\(\(\) => new Set\(\)\)/.test(panel3)) {
     fail('gonePaths 必须是纯会话内内存（useState(() => new Set())）—— 不许落 localStorage')
   } else if (/localStorage/.test(panel3)) {
     fail('gonePaths 不许写 localStorage：瞬时读取失败与路径复用都会变成永久隐身，且没有恢复入口（host 每次 /media 都做 statSync 核对，不需要跨会话记忆）')
   } else if (!/tg-del-error/.test(panel3) || !/tg-del-error/.test(styles3)) {
-    fail('删除失败必须在工具条下方给一行 tg-del-error（含条数与首条原因）')
+    fail('删除失败必须在工具条下方给一行 tg-del-error（含原因）')
   } else {
-    pass('删除执行：错峰退场 → 请求 → gonePaths 内存剔除（不落盘）/ 失败错误行 + data-busy')
+    pass('单卡删除完好：确认态 + deleteGalleryPaths + gonePaths 内存剔除（不落盘）/ 失败错误行')
   }
 
-  // B3：样式表 —— 冻结类名齐全、动效进 reduced-motion、CSS 里没有反引号
-  if (!/\.tg-kind__del/.test(styles3) || !/\.tg-kind__confirm/.test(styles3) || !/\.tg-kind__yes/.test(styles3) || !/\.tg-kind__no/.test(styles3)) {
-    fail('styles.ts 必须覆盖冻结的删除键 / 确认态类名（tg-kind__del / __confirm / __yes / __no）')
-  } else if (!/\.tg-card--out/.test(styles3) || !/@keyframes tg-card-out/.test(styles3)) {
+  // B2：删除执行 —— 错峰退场动画（现在只服务单卡删除，节奏常量仍在）
+  if (!/delAnimationMs|delLeave/.test(panel3) || !/tg-card--out/.test(panel3)) {
+    fail('删除必须先播退场动画（delLeave + tg-card--out）再发请求')
+  } else {
+    pass('删除执行：错峰退场动画 → 请求 → gonePaths 剔除')
+  }
+
+  // B3：样式表 —— 卡片退场动画与错误行仍在；胶囊栏那一套类名必须清干净
+  if (!/\.tg-card--out/.test(styles3) || !/@keyframes tg-card-out/.test(styles3)) {
     fail('styles.ts 必须有卡片退场动画 .tg-card--out + @keyframes tg-card-out')
   } else if (!/\.tg-del-error/.test(styles3)) {
     fail('styles.ts 必须有删除错误行 .tg-del-error')
-  } else if (!/data-busy="true"/.test(styles3) || !/@keyframes tg-kind-busy/.test(styles3)) {
-    fail('styles.ts 必须有 data-busy 脉冲（tg-kind-busy）')
+  } else if (/\.tg-kind__confirm\{|\.tg-kind__del\{|@keyframes tg-kind-busy|@keyframes tg-kind-confirm-in/.test(styles3)) {
+    fail('styles.ts 里不得残留已删除的胶囊栏样式（tg-kind__confirm / __del / busy 脉冲）')
+  } else if (/\.tg-dock\{|\.tg-dock__label\{|\.tg-dock__num\{/.test(styles3)) {
+    fail('styles.ts 里不得残留已删除的胶囊栏样式（.tg-dock 系列）')
   } else {
-    pass('styles.ts：删除键 / 确认态 / 退场动画 / 错误行 / busy 脉冲齐全')
+    pass('styles.ts：退场动画 / 错误行仍在，胶囊栏样式零残留')
   }
 
-  // reduced-motion 必须点名覆盖这批新动画（只关动画，不动布局与可见性）
+  // reduced-motion 必须点名覆盖退场与错误行（只关动画，不动布局与可见性）
   const reduced = styles3.slice(styles3.lastIndexOf('prefers-reduced-motion'))
-  if (!/tg-card--out/.test(reduced) || !/tg-kind__del/.test(reduced) || !/tg-del-error/.test(reduced)) {
-    fail('prefers-reduced-motion 必须点名覆盖 tg-card--out / tg-kind__del / tg-del-error')
+  if (!/tg-card--out/.test(reduced) || !/tg-del-error/.test(reduced)) {
+    fail('prefers-reduced-motion 必须点名覆盖 tg-card--out / tg-del-error')
   } else if (/display:none/.test(reduced)) {
-    fail('reduced-motion 只能关动画，不能顺手把删除键 display:none 掉（元素可见性不许依赖动画）')
+    fail('reduced-motion 只能关动画，不能顺手 display:none 掉元素（元素可见性不许依赖动画）')
   } else {
-    pass('reduced-motion 覆盖新动画（且不改布局与可见性）')
+    pass('reduced-motion 覆盖退场与错误行动画（且不改布局与可见性）')
   }
 
   // 注入式 CSS 里出现反引号会让模板字面量提前闭合、整张表静默失效（build.mjs 会拦）

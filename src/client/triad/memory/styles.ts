@@ -1,14 +1,16 @@
 /**
  * dsh-memory — 样式（运行时注入 <style>，卸载时由 loader 清理）。
- * 类名前缀 dsh-memory-；三栏应用布局（按参考设计图复刻，浅色系）：
+ * 类名前缀 dsh-memory-；单列应用布局（按参考设计图复刻，浅色系）：
  *
- *   ┌────────┬─────────────────────────────────────────────┐
- *   │ 左栏    │ 顶栏：搜索框 · 统计 · 关闭                     │
- *   │ 导航    ├─────────────────────────────────────────────┤
- *   │ 项目    │ 筛选行：项目 / 分类 / 排序 pills + 工具动作     │
- *   │ 分类    ├──────────────┬──────────────────────────────┤
- *   │ 设置    │ 中栏列表      │ 右栏详情                       │
- *   └────────┴──────────────┴──────────────────────────────┘
+ *   ┌───────────────────────────────────────────────────────┐
+ *   │ 顶栏：视图切换（首页/全部/变更/修订/回收站 · 设置）        │
+ *   │       搜索框（⌘K）· 分类下拉 · 统计 · 添加                │
+ *   ├──────────────────────────┬────────────────────────────┤
+ *   │ 中栏列表                  │ 右栏详情（关联/历史/相关）    │
+ *   └──────────────────────────┴────────────────────────────┘
+ *
+ * 页内**没有导航栏**（2026-10-25 第三次重做）：工作区（项目）选择搬到侧栏
+ * 「操作间 → 记忆」的二级菜单，视图切换回到顶栏，分类筛选是顶栏的一个下拉。
  *
  * 面板自身是固定浅色皮肤（独立应用窗口心智）：在 .dsh-memory-panel 作用域覆写
  * 常用 --dsw-alias-* 变量，子树内的原生控件与 primitives 自动变浅；显式颜色
@@ -23,8 +25,7 @@ export const css = {
   viewRow: 'dsh-memory-view-row',
   viewActions: 'dsh-memory-view-actions',
   primaryAdd: 'dsh-memory-primary-add',
-  // ── 左栏 ──
-  navIcon: 'dsh-memory-nav-icon',
+  // ── 计数徽章（详情区小节标题等行内用法）──
   navCount: 'dsh-memory-nav-count',
   navCountZero: 'dsh-memory-nav-count-zero',
   navCountPop: 'dsh-memory-nav-count-pop',
@@ -82,19 +83,17 @@ export const css = {
   entryActionPri: 'dsh-memory-entry-action-pri',
   entryActionDanger: 'dsh-memory-entry-action-danger',
   entryCardPend: 'dsh-memory-entry-card-pend',
-  // ── 2026-10 第二轮重做：真正的左侧栏 + 独立顶栏 ──
-  sidebarNav: 'dsh-memory-sidebar-nav',
-  sidebarBrand: 'dsh-memory-sidebar-brand',
-  sidebarBrandIcon: 'dsh-memory-sidebar-brand-icon',
-  sidebarBrandText: 'dsh-memory-sidebar-brand-text',
-  sidebarSection: 'dsh-memory-sidebar-section',
-  sidebarSectionTitle: 'dsh-memory-sidebar-section-title',
-  sidebarSectionCount: 'dsh-memory-sidebar-section-count',
-  sidebarItem: 'dsh-memory-sidebar-item',
-  sidebarItemActive: 'dsh-memory-sidebar-item-active',
-  sidebarItemLabel: 'dsh-memory-sidebar-item-label',
-  sidebarItemCount: 'dsh-memory-sidebar-item-count',
-  sidebarEmpty: 'dsh-memory-sidebar-empty',
+  // ── 2026-10-25 第三次重做：页内左栏删除，视图切换回到顶栏 ──
+  // 侧栏搬进「操作间」的二级菜单之后，页面里不再有任何导航栏；
+  // 视图（首页/全部/变更/修订/回收站/设置）由顶栏的这条分段控件承担。
+  viewTabs: 'dsh-memory-view-tabs',
+  viewTab: 'dsh-memory-view-tab',
+  viewTabActive: 'dsh-memory-view-tab-active',
+  viewTabCount: 'dsh-memory-view-tab-count',
+  /** 低频入口（设置）推到行尾的修饰类。 */
+  viewTabTail: 'dsh-memory-view-tab-tail',
+  /** 顶栏「分类」下拉（原侧栏分类区的替代入口）。 */
+  categorySelect: 'dsh-memory-category-select',
   searchWrap: 'dsh-memory-search-wrap',
   searchInput: 'dsh-memory-search-input',
   searchKbd: 'dsh-memory-search-kbd',
@@ -282,67 +281,64 @@ const SHEET = `
   color:var(--m-text);
 }
 
-/* ── 面板骨架 ─────────────────────────────────────────────────────── */
+/* 面板骨架 ─────────────────────────────────────────────────────── */
 .dsh-memory-modal-body{overflow:hidden;display:flex;flex-direction:column}
-/* 面板：侧栏 + 内容两栏。原来是 column（顶栏压在上面），
-   现在导航进侧栏，改成 row 才能左右布局。 */
-.dsh-memory-panel{flex:1;width:100%;height:100%;min-height:0;display:flex;flex-direction:row;gap:0;overflow:hidden;padding:0;box-sizing:border-box}
+/* 面板：单列（2026-10-25 第三次重做）。
+   页内那条 212px 左栏整条删除 —— 导航（工作区）搬进「操作间」的二级菜单，
+   视图切换回到顶栏，所以这里不再需要 row 两栏。只留右侧内容列，让它直接填满。 */
+.dsh-memory-panel{flex:1;width:100%;height:100%;min-height:0;display:flex;flex-direction:column;gap:0;overflow:hidden;padding:0;box-sizing:border-box}
 
-/* ══ 左侧栏（2026-10 第二轮重做）════════════════════════════════════
-   旧版根本没有侧栏：6 个导航 tab 全挤在顶部一行，项目/分类是两个下拉框。
-   数据只有十几个项目两个分类，下拉框完全是过度设计——看不见选项就得先点开。
-   新方案：真侧栏，导航 / 项目 / 分类全部平铺可点，一眼看全。 */
-
-/* 面板整体改成「侧栏 + 右侧内容」两栏。
-   注意 .dsh-memory-panel 原本是 flex-direction:column，现在改成 row。 */
-.dsh-memory-sidebar-nav{
-  flex:none;width:212px;align-self:stretch;box-sizing:border-box;
-  display:flex;flex-direction:column;gap:2px;
-  padding:14px 10px 16px;
-  overflow-y:auto;overflow-x:hidden;
-  background:color-mix(in srgb,var(--m-text-3) 4%,var(--dsw-alias-bg-layer-1,#fff));
-  border-right:1px solid var(--m-border);
-}
-/* 品牌头：图标 + 标题。它不是装饰——它给这个侧栏一个「这是哪」的锚点。 */
-.dsh-memory-sidebar-brand{display:flex;align-items:center;gap:9px;padding:4px 8px 14px;flex:none}
-.dsh-memory-sidebar-brand-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:8px;background:var(--m-primary-soft);color:var(--m-primary)}
-.dsh-memory-sidebar-brand-text{font-size:14px;font-weight:650;line-height:19px;color:var(--m-text);letter-spacing:-.005em}
-
-/* 分区：标题 + 条目列表。分区之间靠 margin 分隔，不用分割线（线多了像表格）。 */
-.dsh-memory-sidebar-section{display:flex;flex-direction:column;gap:1px;margin-top:14px}
-.dsh-memory-sidebar-section-title{
-  display:flex;align-items:center;gap:6px;
-  padding:0 9px 6px;
-  font-size:10.5px;font-weight:600;line-height:15px;
-  color:var(--m-text-3);letter-spacing:.06em;text-transform:uppercase;
-}
-.dsh-memory-sidebar-section-count{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:500;opacity:.75}
-
-/* 侧栏条目：整行可点，左图标 + 文字 + 右侧计数。
-   选中态用「主色柔底 + 主色文字」，不用左侧色条（色条在窄栏里太吵）。 */
-.dsh-memory-sidebar-item{
-  display:flex;align-items:center;gap:9px;width:100%;box-sizing:border-box;
-  padding:7px 9px;border:none;border-radius:8px;
-  background:transparent;color:var(--m-text-2);
-  font-family:inherit;font-size:var(--m-fs-body);line-height:19px;font-weight:500;
-  text-align:left;cursor:pointer;
-  transition:background .15s cubic-bezier(.2,.8,.2,1),color .15s cubic-bezier(.2,.8,.2,1),
-             transform .15s cubic-bezier(.2,.8,.2,1);
-}
-.dsh-memory-sidebar-item:hover{background:var(--m-hover);color:var(--m-text)}
-.dsh-memory-sidebar-item:active{transform:scale(.985)}
-.dsh-memory-sidebar-item:focus-visible{outline:2px solid var(--m-primary);outline-offset:-2px}
-.dsh-memory-sidebar-item-active,.dsh-memory-sidebar-item-active:hover{background:var(--m-primary-soft);color:var(--m-primary);font-weight:600}
-.dsh-memory-sidebar-item-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-memory-sidebar-item-count{flex:none;min-width:18px;text-align:right;font-size:var(--m-fs-caption);line-height:15px;font-variant-numeric:tabular-nums;color:var(--m-text-3);opacity:.85}
-.dsh-memory-sidebar-item-active .dsh-memory-sidebar-item-count{color:var(--m-primary);opacity:1;font-weight:600}
-.dsh-memory-sidebar-empty{padding:6px 9px;font-size:var(--m-fs-caption);line-height:16px;color:var(--m-text-3);opacity:.8}
-
-/* 右侧内容列：顶栏 + 主区纵向堆叠，自己管滚动边界。 */
+/* 右侧内容列：顶栏 + 主区纵向堆叠，自己管滚动边界。
+   flex:1 让它在单列面板里吃满高度（左栏没了，这里就是唯一的一栏）。 */
 .dsh-memory-content-col{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-/* ══ 顶栏（2026-10 第二轮重做）══════════════════════════════════════
-   旧版顶部塞了两行：第一行 6 个 tab + 4 个统计 + 添加按钮，第二行搜索 + 2 个下拉 + 胶囊。
-   现在导航进了侧栏，顶栏只留三样东西：搜索框（占主位）、统计、主按钮。 */
+/* ══ 顶栏（2026-10-25 第三次重做）════════════════════════════════════
+   左栏删掉之后，视图切换（首页/全部/变更/修订/回收站/设置）搬回这里，分两行：
+     第一行 = 视图分段条（整页导航，独占一行）
+     第二行 = 搜索 + 分类下拉 + 统计 + 添加
+   为什么分两行：六个视图 + 搜索 + 分类下拉 + 统计 + 添加挤在一行时，视图条会被
+   压到最右侧、和统计数字贴成一团（实测截图确认），看不出它是整页层级最高的导航。
+   独立成行只多约 34px，换来一眼可辨的层级。 */
+.dsh-memory-view-tabs{
+  flex:none;display:flex;align-items:center;gap:2px;
+  width:100%;box-sizing:border-box;padding:6px 16px 0;
+  min-width:0;overflow-x:auto;overflow-y:hidden;
+  /* 横向滚动条不占高度：这行只有 34px，出现滚动条会把 tab 顶歪 */
+  scrollbar-width:none;
+  /* 与下面那行筛选之间一条发丝线：视图是「在哪一页」，筛选是「看哪一批」，
+     是两层不同的事，分开比挤在一起好读。 */
+  border-bottom:1px solid var(--m-border);
+}
+.dsh-memory-view-tabs::-webkit-scrollbar{display:none}
+.dsh-memory-view-tab{
+  flex:none;display:inline-flex;align-items:center;gap:6px;
+  height:30px;padding:0 10px;box-sizing:border-box;
+  border:none;border-radius:var(--m-r-ctrl);
+  background:transparent;color:var(--m-text-2);
+  font-family:inherit;font-size:var(--m-fs-body);font-weight:500;line-height:19px;
+  white-space:nowrap;cursor:pointer;
+  transition:background .15s cubic-bezier(.2,.8,.2,1),color .15s cubic-bezier(.2,.8,.2,1);
+}
+.dsh-memory-view-tab:hover{background:var(--m-hover);color:var(--m-text)}
+.dsh-memory-view-tab:active{transform:scale(.98)}
+.dsh-memory-view-tab:focus-visible{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--m-primary) 35%,transparent)}
+/* 选中态与左栏时代同一套语言：主色柔底 + 主色文字，不用下划线（顶栏里下划线太吵）。 */
+.dsh-memory-view-tab-active,.dsh-memory-view-tab-active:hover{background:var(--m-primary-soft);color:var(--m-primary);font-weight:600}
+.dsh-memory-view-tab-count{
+  flex:none;display:inline-flex;align-items:center;justify-content:center;
+  min-width:18px;height:16px;box-sizing:border-box;padding:0 5px;
+  border-radius:var(--m-r-pill);
+  background:var(--m-count-bg);color:var(--m-text-3);
+  font-size:10.5px;font-weight:600;line-height:16px;
+  font-variant-numeric:tabular-nums;letter-spacing:.2px;
+}
+.dsh-memory-view-tab-active .dsh-memory-view-tab-count{background:color-mix(in srgb,var(--m-primary) 16%,transparent);color:var(--m-primary)}
+/* 设置是低频入口：用 auto 左边距把它推到行尾，与前面五个视图拉开距离。 */
+.dsh-memory-view-tab-tail{margin-left:auto}
+
+/* 顶栏「分类」下拉：原侧栏分类区的替代入口（筛选能力不能丢）。
+   与「变更」工具行的范围下拉同一副皮（.dsh-memory-filter-select 那套），
+   只是宽度更收敛——它要在顶栏挤进去。 */
+.dsh-memory-category-select{flex:none;height:32px;max-width:170px}
 
 /* 搜索框：从「带图标的输入框 + 右侧 ⌘K 角标」重做成「胶囊容器 + 内嵌清除键」。
    重点变化：高度 36→38、圆角改胶囊、聚焦时主色描边 + 柔和光晕。 */
@@ -389,9 +385,7 @@ const SHEET = `
 /* 顶栏按钮区：统计弱化成一行小字，添加按钮改成实心主色胶囊。 */
 .dsh-memory-top-actions{display:flex;align-items:center;gap:var(--m-sp-3);flex:none;margin-left:auto}
 
-/* ── 左侧栏：品牌 / 添加 / 导航 / 项目 / 分类 / 设置竖排 ───────── */
-/* 一级：视图 tabs 收进分段控件底座，跟下面的胶囊拉开层级 */
-.dsh-memory-nav-icon{flex:none;display:inline-flex;align-items:center;color:inherit}
+/* ── 计数徽章 ─────────────────────────────────────────────────────── */
 /* 计数徽章：取代「标签 + 裸数字」（旧样式在 4 位数时把整条导航撑得很难看）。
    小胶囊 + 紧凑记数（4407 → 4.4k，悬停看精确值）+ 选中态实心 + 数值变化弹一下。 */
 .dsh-memory-nav-count{margin-left:auto;flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;box-sizing:border-box;padding:0 6px;border-radius:var(--m-r-pill);background:var(--m-count-bg);color:var(--m-text-3);font-size:var(--m-fs-caption);font-weight:600;line-height:18px;letter-spacing:.2px;font-variant-numeric:tabular-nums;transition:background .18s cubic-bezier(.2,.8,.2,1),color .18s cubic-bezier(.2,.8,.2,1),box-shadow .18s ease}
@@ -400,9 +394,8 @@ const SHEET = `
 @keyframes dsh-memory-count-pop{0%{transform:scale(.72);opacity:.25}55%{transform:scale(1.14)}100%{transform:scale(1);opacity:1}}
 /* 行内用法（详情区小节标题）：不顶到行尾 */
 .dsh-memory-nav-count-inline{margin-left:0}
-/* 「更多分类」的展开箭头不是计数，别套胶囊 */
 @media (prefers-reduced-motion:reduce){.dsh-memory-nav-count-pop{animation:none}}
-/* 二级布局：导航行占满首行，项目 / 分类各起新行；胶囊更小更轻 */
+/* 分类圆点：详情区「关联信息 · 分类」卡与分类下拉旁共用（色板按标签名哈希取）。 */
 .dsh-memory-cat-dot{flex:none;width:9px;height:9px;border-radius:50%;background:var(--dot,#5b8def)}
 
 /* ── 顶栏：搜索框 + 统计 + 关闭 ───────────────────────────────────── */
@@ -907,7 +900,8 @@ const SHEET = `
    「文字全被裁掉」的截图。
    现在：窄屏下详情栏改成「浮层覆盖」——不参与 flex 分配，不挤压列表。 */
 @media (max-width: 900px) {
-  .dsh-memory-panel{flex-direction:column}
+  /* 2026-10-25：面板本身已经是单列（页内左栏删除），这里不再需要改方向；
+     只保留「详情栏浮层化」那套窄屏策略。 */
   /* 详情栏：脱离文档流，浮在列表右侧。它只在选中条目时出现，
      用浮层不会有「关不掉」的问题（点其他条目就换内容，点空白可加关闭）。 */
   .dsh-memory-detail-col{
@@ -928,16 +922,22 @@ const SHEET = `
 
 /* 超窄屏（手机竖屏）：搜索框与统计行改为独占一行。 */
 @media (max-width: 640px) {
-  /* 侧栏限高：410px 宽时 15 个条目平铺会吃掉 309px（近半屏），
-     列表只剩一小条。改成横向滚动的窄带，高度锁在 96px。 */
-  .dsh-memory-sidebar-nav{max-height:96px;overflow-y:hidden;overflow-x:auto;padding:6px 8px}
-  .dsh-memory-sidebar-section{flex-direction:row !important;flex-wrap:nowrap !important;gap:4px !important;margin-top:0 !important}
-  .dsh-memory-sidebar-item{width:auto !important;flex:none;white-space:nowrap}
-  .dsh-memory-sidebar-item-count{display:none}
   .dsh-memory-top-bar{padding:10px 12px}
-  .dsh-memory-view-row{flex-wrap:wrap;gap:8px;height:auto}
+  .dsh-memory-view-row{flex-wrap:wrap;gap:8px;height:auto;padding-bottom:8px}
+  /* 视图条与搜索行在窄屏各占整宽、各占一行。
+     ⚠ 这里绝不能再给 view-tabs 写 order:-1 与 flex-basis：它在 2026-10-25
+     已经移到 view-row **外面**、成为顶栏的第一行；再加 flex/order 会让它参与
+     搜索行的布局（顶栏是 flex-column，order:-1 会把它排到搜索行**之后**），
+     实测在 420px 下会被压成一条、并与「3 条记忆 / ★ 置顶」重叠。 */
+  .dsh-memory-view-tabs{width:100%;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;padding:4px 2px 0;
+    scrollbar-width:none}
+  .dsh-memory-view-tabs::-webkit-scrollbar{display:none}
+  .dsh-memory-view-tab{flex:none;white-space:nowrap}
+  /* 「设置」的 margin-left:auto 在可滚动容器里会把前面五个挤没，窄屏取消。 */
+  .dsh-memory-view-tab-tail{margin-left:0}
   .dsh-memory-search-wrap{max-width:none;flex:1 1 100%}
   .dsh-memory-top-actions{width:100%;justify-content:space-between}
+  .dsh-memory-category-select{max-width:140px}
   .dsh-memory-detail-col{width:100% !important;position:fixed;left:0;right:0;top:auto;bottom:0;
     height:70vh;border-radius:16px 16px 0 0;box-shadow:0 -8px 28px rgba(0,0,0,.18)}
 }
@@ -952,8 +952,12 @@ const SHEET = `
 /* ── 顶部两级工具筛选栏 ── */
 .dsh-memory-top-bar{flex:none;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1,#fff);border-bottom:1px solid var(--m-border);z-index:5}
 
-/* 一级：视图分段器 + 统计 + 新增按钮 */
-.dsh-memory-view-row{display:flex;align-items:center;justify-content:space-between;gap:var(--m-sp-3);height:46px;padding:0 16px;box-sizing:border-box}
+/* 一级：搜索 + 分类下拉 + 统计 + 新增按钮。
+   ⚠ 高度必须是 auto/min-height 而不是写死 height：窄屏下这行会 flex-wrap 成
+   两行（搜索独占一行、分类与统计/按钮第二行），写死 46px 会让内容溢出到
+   上一行的视图条上 —— 实测 420px 下统计与「置顶」直接盖住了视图条。
+   宽屏时内容只有一行，min-height 维持在 46px 与原设计一致。 */
+.dsh-memory-view-row{display:flex;align-items:center;justify-content:space-between;gap:var(--m-sp-3);min-height:46px;padding:0 16px;box-sizing:border-box}
 .dsh-memory-view-actions{display:flex;align-items:center;gap:var(--m-sp-3)}
 .dsh-memory-primary-add{display:inline-flex;align-items:center;gap:var(--m-sp-2);height:28px;padding:0 12px;border-radius:var(--m-r-ctrl);border:none;background:var(--m-primary,#3b82f6);color:var(--m-on-primary);font-size:var(--m-fs-body);font-weight:600;font-family:inherit;cursor:pointer;transition:all 140ms ease}
 .dsh-memory-primary-add:hover{background:var(--m-primary-hover);box-shadow:0 2px 10px rgba(59,130,246,.35)}

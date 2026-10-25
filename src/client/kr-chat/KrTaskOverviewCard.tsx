@@ -291,17 +291,18 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
           {task.content}
         </div>
 
-        {/* 仅在进行中时提供微小状态标识，已完成依靠对勾图标自然传达，杜绝视觉垃圾。
-            停滞行换灰色「未完成」：说清事实，但不是错误——下一轮模型收口后会自愈。
+        {/* 行尾标签现在**只剩「未完成」一种**（2026-10-25 按用户要求去掉「进行中」）。
+            原话：「任务概览的进行中标识去掉」。
+            去掉的理由：进行中这件事已经有三个出口——行首转圈图标、左侧呼吸竖条、
+            行底淡色，再挂一枚灰底胶囊是同一句话说第四遍；它还是整行最靠右的一块
+            底色，视线扫清单时总被拽到那里。
+
+            停滞行仍保留灰色「未完成」：说清事实，但不是错误——下一轮模型收口后会自愈。
             2026-10-10：从「未收口」改口「未完成」并扩到 pending 行。原因是自动收口
             会把残留 in_progress 降级成 pending，此时说「未收口」已不准确——它已经
             被收口过了，只是**没做完**。
-            两个分支互斥：回合在跑 → 进行中；回合停了 → 未完成（含 pending 行）。 */}
-        {isInProgress && !rowStalled && (
-          <span className="kr-task-item__tag kr-task-item__tag--running">
-            进行中
-          </span>
-        )}
+            注意：「未完成」与「进行中」曾是互斥两支，删掉前者以外的分支后，这里
+            只剩 rowStalled 一支；isInProgress 仍被行首状态图标消费（转圈），不要一起删。 */}
         {rowStalled && (
           <span className="kr-task-item__tag kr-task-item__tag--stalled">
             未完成

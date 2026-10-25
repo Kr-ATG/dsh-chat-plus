@@ -99,6 +99,11 @@ function SeekerHeroHead({ running }: { readonly running: boolean }): ReactElemen
         thinking={thinking}
         browserEntry={browserEntry}
         browserOn={browserOn}
+        /* 不渲染齿轮/邮箱（chrome=false）：这两枚按钮带固定 id，而 Hero 卡头是
+           常驻 DOM（收起时只 display:none）—— 与右栏那段同时渲染就会出现重复 id，
+           getElementById 拿到隐藏的那个，表现为「齿轮在、点了没反应」。
+           新对话页本来也没有大盘可设置、没有邮箱要开，不渲染它们没有损失。 */
+        chrome={false}
       />
     </div>
   )

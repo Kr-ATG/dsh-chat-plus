@@ -35,6 +35,14 @@
  * 动效（渐进式微调，不推翻工作台既有骨架）：卡片入场级联上浮、hover 浮起 +
  * 缩略图缓推、类别徽标下滑浮现、骨架屏微光、刷新图标旋转。全部尊重
  * prefers-reduced-motion（样式表里统一关）。
+ *
+ * 类别导航的去向（2026-10-25）——**导航在侧栏，操作在页内**：
+ * 用户要求「画廊的分类也可以变为二级菜单」，于是 8 个类别的主入口搬进侧栏
+ * 「操作间 → 画廊」，页内那条芯片条降级成一条**精简胶囊条**，只做侧栏做不到的
+ * 三件事：切一下当前批次、看这一类实时有几条、把这一类整批删掉（分类删除与
+ * 实时计数侧栏都没有，整条删掉就是丢功能）。所以它保留功能、去掉图标并收窄
+ * 字号行高，视觉上明确从「主导航」退成「次级筛选」。类别的真值与侧栏双向同步，
+ * 通道见 hub/workbench-intent.ts（两个 React 根之间没有别的通路）。
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -70,9 +78,7 @@ import { openWorkspacePreview } from '../../open-preview.js'
 import { getClientCtx } from '../../client-ctx.js'
 import { openWithDefaultApp } from '../../open-default-app.js'
 import { openWithDefaultBrowser } from '../../open-file.js'
-
-/** 类别 chips 的展示顺序（全部之后，按产出频率排）。 */
-const KIND_ORDER: readonly GalleryKind[] = ['image', 'page', 'video', 'pdf', 'slide', 'sheet', 'doc', 'audio']
+import { readGalleryKind, requestGalleryKind, subscribeWorkbenchIntent } from '../hub/workbench-intent.js'
 
 /** 筛选状态：当前选中的分类。 */
 type KindFilter = GalleryKind
@@ -90,15 +96,15 @@ interface DayGroup {
 
 const WEEKDAY_LABEL = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const
 
-/* ── 分类删除的节奏常量（2026-10-16）────────────────────────────────────
+/* ── 单卡删除的节奏常量 ────────────────────────────────────────────────
  *
- * 与 kr-chat 的 KrMemoryCard 同一套节奏参数（确认自动回退 6s、每行错峰 45ms、
- * 封顶 900ms），只是这里的单位是「卡片」而不是「记忆行」：两处同频，用户在同一
- * 个产品里学一次就够了。
+ * 与 kr-chat 的 KrMemoryCard 同一套节奏参数（错峰 45ms、封顶 900ms），只是
+ * 这里的单位是「卡片」：两处同频，用户在一个产品里学一次就够了。
+ *
+ * 2026-10-25：分类删除（一次清空一整类）随页内类别胶囊栏一起删除，原先为它
+ * 服务的「确认态自动回退 6s」常量与「第 N 张卡片错峰」函数已无消费方，一并删。
+ * 单卡删除仍是「点一次进确认态、再点一次真删」，但它由 delItemPath 自己管。
  */
-
-/** 确认态无操作自动回退（毫秒）。放着不管时过几秒自己回到常态，压掉误触窗口。 */
-const DEL_CONFIRM_MS = 6000
 
 /** 每张卡片错峰退场的间隔（毫秒）。 */
 const DEL_STAGGER_MS = 45
@@ -108,11 +114,6 @@ const DEL_CARD_MS = 260
 
 /** 错峰等待封顶：条目多时不再线性拉长，否则点一下要等好几秒才发请求。 */
 const DEL_STAGGER_CAP = 900
-
-/** 第 N 张卡片退场的延后量。与 .tg-card--out 的内联 animation-delay 对应。 */
-function delStaggerMs(index: number): number {
-  return index * DEL_STAGGER_MS
-}
 
 /** 退场动画整体要等多久（与卡片数相关，封顶见上）。 */
 function delAnimationMs(count: number): number {
@@ -271,80 +272,6 @@ function PlayBadge(): JSX.Element {
       </svg>
     </span>
   )
-}
-
-/** 分类切换微图标。 */
-function KindTabIcon({ kind, size = 18 }: { readonly kind: GalleryKind; readonly size?: number }): JSX.Element {
-  const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
-  switch (kind) {
-    case 'image':
-      return (
-        <svg {...common}>
-          <rect x="3" y="3" width="18" height="18" rx="3" />
-          <circle cx="8.5" cy="8.5" r="1.5" />
-          <path d="M21 15l-5-5L5 21" />
-        </svg>
-      )
-    case 'page':
-      return (
-        <svg {...common}>
-          <rect x="3" y="3" width="18" height="18" rx="3" />
-          <path d="M3 9h18M9 21V9" />
-        </svg>
-      )
-    case 'video':
-      return (
-        <svg {...common}>
-          <polygon points="5 3 19 12 5 21 5 3" />
-        </svg>
-      )
-    case 'pdf':
-      return (
-        <svg {...common}>
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-          <line x1="9" y1="15" x2="15" y2="15" />
-        </svg>
-      )
-    case 'slide':
-      return (
-        <svg {...common}>
-          <rect x="2" y="3" width="20" height="14" rx="2" />
-          <line x1="12" y1="17" x2="12" y2="21" />
-          <line x1="8" y1="21" x2="16" y2="21" />
-        </svg>
-      )
-    case 'sheet':
-      return (
-        <svg {...common}>
-          <rect x="3" y="3" width="18" height="18" rx="2" />
-          <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
-        </svg>
-      )
-    case 'doc':
-      return (
-        <svg {...common}>
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-          <line x1="8" y1="13" x2="16" y2="13" />
-          <line x1="8" y1="17" x2="13" y2="17" />
-        </svg>
-      )
-    case 'audio':
-      return (
-        <svg {...common}>
-          <path d="M9 18V5l12-2v13" />
-          <circle cx="6" cy="18" r="3" />
-          <circle cx="18" cy="16" r="3" />
-        </svg>
-      )
-    default:
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="9" />
-        </svg>
-      )
-  }
 }
 
 /* ── 缩略图降采样（滚动性能的关键）────────────────────────────────────── */
@@ -644,6 +571,7 @@ const GalleryCard = ({ item, index, sessionTitle, now, onOpen, onPreview, onUnre
       className="tg-card__peek"
       title="就地预览"
       aria-hidden="true"
+      style={deleteArmed ? { display: 'none' } : undefined}
       onClick={(event) => {
         if (leaving) return
         event.stopPropagation()
@@ -726,7 +654,7 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
   const [stale, setStale] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  const [kind, setKind] = useState<KindFilter>('image')
+  const [kind, setKind] = useState<KindFilter>(() => readGalleryKind())
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   /** 弹窗当前打开的条目下标（null = 关着）。可见清单变了由渲染处的上界守卫兜住。 */
@@ -767,6 +695,8 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
   }, [])
   /** 视图形态（网格 ⇄ 时间轴）；默认时间轴（用户 2026-10-04 指定）。 */
   const [view, setView] = useState<ViewMode>('timeline')
+  /** 时间轴已收起的日期 key 集合（默认全展开）。 */
+  const [collapsedDays, setCollapsedDays] = useState<ReadonlySet<string>>(() => new Set())
   /** 显式时间筛选（时钟钮弹层设置）；null = 不限。 */
   const [timeFilter, setTimeFilter] = useState<TimeRange | null>(null)
   const [timePopover, setTimePopover] = useState(false)
@@ -777,91 +707,67 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
   const mounted = useRef(true)
   const popoverRef = useRef<HTMLDivElement | null>(null)
 
-  /* ── 分类删除（2026-10-16）────────────────────────────────────────────
+  /* ── 类别意图通道（2026-10-25）────────────────────────────────────────
    *
-   * 状态机与 kr-chat 记忆卡的「一键删除」同构，只多了一层"哪个分类正在确认"：
+   * 侧栏与画廊页是两个互不相邻的 React 根（侧栏是插进官方 DOM 的裸节点），
+   * 没有共同祖先、也没有共享 context，所以「侧栏点一行 → 这里换一批」只能
+   * 走 hub/workbench-intent.ts（localStorage 回填 + window 事件原地切换）。
    *
-   *   delConfirmId   待确认的分类（芯片原地变「删除 N 项？确认/取消」）
-   *   delBusyKind    请求在飞的分类（芯片 data-busy + 显示「删除中…」，禁止重复点击）
-   *   delLeave       正在退场的路径 → 延迟量（错峰动画期间卡片仍在 DOM 里）
-   *   delError       删除失败/部分失败的一行提示
+   * 三个方向缺一都会静默分叉（侧栏高亮 PDF、页面显示图片）：
+   *  · 初值  —— useState 初始化时 readGalleryKind()，从侧栏进来不必再点一次；
+   *  · 收意图 —— 订阅事件，读回目标类别；
+   *  · 回写  —— 页面内改变类别时 requestGalleryKind()，侧栏高亮跟得上。
    *
-   * 三者分开而不是揉成一个 phase：退场动画播完就要发请求，而动画期间确认态已经
-   * 收掉了（芯片在 busy 态）；把「要不要显示错误」和「现在能不能点」塞进同一个
-   * 枚举会让这几个独立事实互相覆盖。
+   * **必须做变更检测**：记忆页的工作区意图广播到同一个事件上，若「有事件就
+   * setState」，切记忆工作区会顺手把画廊重渲染一遍；更糟的是侧栏与页面各自
+   * 回写会互相触发成环。所以值没变就不 set。
+   *
+   * 反过来，「从意图来」的那条**不回写** —— 它就是侧栏写下的值，再写一次
+   * 只是把同一个事件绕回自己。
    */
-  /**
-   * 单卡删除的确认态（2026-10-24）：指向「再点一次就真删」的那一条。
+
+  /** 页面内改类别：先改本地，再回写给侧栏（唯一写入口，自动回切也走它）。 */
+  const changeKind = useCallback((next: KindFilter) => {
+    setKind(next)
+    requestGalleryKind(next)
+  }, [])
+
+  useEffect(() => subscribeWorkbenchIntent(() => {
+    const next = readGalleryKind()
+    setKind((current) => (current === next ? current : next))
+  }), [])
+
+  /* ── 单卡删除（2026-10-24）──────────────────────────────────────────
    *
-   * 与分类删除的 delConfirmId 刻意分成两份 state：两者都可能在屏幕上同时存在
-   * （芯片亮着「删除 N 项？」时，卡片上的垃圾桶也能点），但它们的取消判据、
-   * 自动回退时长、目标集合完全不同。塞进同一个枚举只会互相覆盖。
+   * 2026-10-25 起，按分类批量删除（一次清空整个「图片」分类）随页内的类别
+   * 胶囊栏一起删除：类别的主入口已经在侧栏二级菜单（操作间 → 画廊），页内那
+   * 条胶囊栏整条去掉，挂着它的「分类删除」也就没有容身处了。单卡删除不受影响，
+   * 仍然是每条卡片右侧那枚垃圾桶。
+   *
+   * 下面这几个状态**只服务单卡删除**，与已删除的分类删除无关：
+   *   delItemPath   待确认的路径（再点一次就真删）
+   *   delItemBusy   请求在飞的路径集合
+   *   delLeave      正在退场的路径 → 延迟量（错峰动画期间卡片仍在 DOM 里）
+   *   delError      删除失败/部分失败的一行提示
    */
   const [delItemPath, setDelItemPath] = useState<string | null>(null)
   /** 单卡删除请求在飞的路径（同一时刻可能只有一条，用 Set 是为了将来放开并发）。 */
   const [delItemBusy, setDelItemBusy] = useState<ReadonlySet<string>>(() => new Set())
-  const [delConfirmId, setDelConfirmId] = useState<GalleryKind | null>(null)
-  const [delBusyKind, setDelBusyKind] = useState<GalleryKind | null>(null)
   const [delLeave, setDelLeave] = useState<ReadonlyMap<string, number>>(() => new Map())
   const [delError, setDelError] = useState<string | null>(null)
-  /**
-   * host 下发的全局分类计数（未截断口径）与它是否被截断。
-   *
-   * 单独存在 state 里而不是从 items 现算：它可能比 items 的条目数大（截断），
-   * 也可能在用户还没拿到 items 时就有了（stale 快照），两者不是一回事。
-   * truncated 决定"本地计数能不能拿来当准"（见 totalOf）。
-   */
-  const [kindTotals, setKindTotals] = useState<Readonly<Record<string, number>> | null>(null)
-  const [truncated, setTruncated] = useState(false)
 
-  /** 确认态的自动回退定时器。 */
-  const delConfirmTimerRef = useRef<number | null>(null)
-  /** 清单代次：退场动画期间用户刷新/切筛选时用它判断"这批还算不算当前视图"。 */
+  /**
+   * 清单代次：退场动画期间用户刷新/切筛选时用它判断「这批还算不算当前视图」
+   * —— 代次变了就别再触发一次全量拉取（那次刷新自己会做）。
+   * 单卡删除用它；原先的分类删除也共用这一份。
+   */
   const delGenRef = useRef(0)
   /** 退场动画期间的挂起定时器（卸载时收掉）。 */
   const delTimersRef = useRef<number[]>([])
-  /** 请求在飞（同步可读，避免同一帧内连点两次进入两条删除流程）。 */
-  const delBusyRef = useRef(false)
 
-  /** 收掉确认态的回退定时器（进删除 / 取消 / 卸载时都要先收）。 */
-  const cancelDelConfirmTimer = useCallback(() => {
-    if (delConfirmTimerRef.current !== null) {
-      window.clearTimeout(delConfirmTimerRef.current)
-      delConfirmTimerRef.current = null
-    }
-  }, [])
-
-  /** 取消分类删除：收回确认态，什么都不改。 */
-  const cancelDel = useCallback(() => {
-    cancelDelConfirmTimer()
-    setDelConfirmId(null)
-  }, [cancelDelConfirmTimer])
-
-  // 点别处 / Esc → 收回确认态（与时间弹层同一套"就地反悔"出口）。
-  // 判据钉在**同一枚芯片**上：点另一枚分类芯片也算"别处"（它会把选中分类切走，
-  // 而确认态里那个 N 是按旧分类算的，留着就成了张冠李戴）。
-  useEffect(() => {
-    if (delConfirmId === null) return undefined
-    const onPointer = (event: MouseEvent) => {
-      const target = event.target as Node
-      const chip = target instanceof Element ? target.closest('.tg-kind') : null
-      if (chip?.getAttribute('data-kind') !== delConfirmId) cancelDel()
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') cancelDel()
-    }
-    document.addEventListener('mousedown', onPointer)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onPointer)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [delConfirmId, cancelDel])
-
-  // 卸载：把两处定时器收干净（退场等待里的 setState 在 React 18 下是无害 no-op，
-  // 但继续 await 完请求会让"删除中"停在真空中，所以真正要拦的是 delBusyRef）。
+  // 卸载：把退场等待里的定时器收干净（setState 在 React 18 下是无害 no-op，
+  // 但继续 await 完请求会让"删除中"停在真空中）。
   useEffect(() => () => {
-    if (delConfirmTimerRef.current !== null) window.clearTimeout(delConfirmTimerRef.current)
     for (const timer of delTimersRef.current) window.clearTimeout(timer)
     delTimersRef.current = []
   }, [])
@@ -899,8 +805,6 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
       }
       setItems(payload.items ?? [])
       setSessions(payload.sessions ?? [])
-      setKindTotals(payload.kindTotals ?? null)
-      setTruncated(payload.truncated === true)
       setStale(payload.stale === true)
       setError(null)
     } catch (cause) {
@@ -941,16 +845,22 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
     return counts
   }, [items, sessionId, gonePaths])
 
-  // 首次载入后：若默认选中的 'image' 分类没有内容，而其他分类有内容，自动切到首个有内容的分类。
-  useEffect(() => {
-    if (items === null || items.length === 0) return
-    if ((kindCounts.get(kind) ?? 0) === 0) {
-      const firstAvailable = KIND_ORDER.find((entry) => (kindCounts.get(entry) ?? 0) > 0)
-      if (firstAvailable !== undefined) {
-        setKind(firstAvailable)
-      }
-    }
-  }, [items, kindCounts, kind])
+  /* 载入后**不再**自动切走「当前类别一条都没有」的情况（2026-10-25 改）。
+   *
+   * 历史：这里原本有一段「0 条就回落到首个有内容的类别」，是给**页内芯片条**
+   * 时代写的兜底 —— 那时类别只有一排芯片可点，落在空类别上等于给用户一屏空白，
+   * 自动带他去有东西的地方算体贴。
+   *
+   * 但现在（本次改造）类别的主入口搬到了**侧栏二级菜单**，语义全变了：
+   *   · 用户是在侧栏**明确点了「PDF」**，页面却自己跳到「图片」，等于否掉了
+   *     他刚刚那一下 —— 侧栏还亮着 PDF、页面显示图片，两处当场分叉；
+   *   · 空类别本身是有意义的信息（「这一类我还没产出过」），该显示空态，
+   *     而不是偷偷换成另一类；
+   *   · 而且这段逻辑会**回写意图**，把侧栏高亮也一起改掉，用户点第二下都没反应
+   *     （值没变、事件不变）。
+   *
+   * 所以彻底去掉自动回落，空类别就老老实实显示空态。用户想去别的类别，
+   * 侧栏就在旁边，一步就到。 */
 
   /** 搜索词里的时间表达（认出来就按时间过滤，不再按文本匹配搜索词）。 */
   const queryTimeRange = useMemo(() => parseTimeQuery(query, now), [query, now])
@@ -1003,43 +913,109 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
   /** 时间轴分组（visible 的按天折叠）。 */
   const dayGroups = useMemo(() => groupByDay(visible, now), [visible, now])
 
-  /** 切换筛选时网格重建（key 变化 → 入场动画重播，形成「换一批」的视觉反馈）。 */
-  const gridKey = `${kind}|${sessionId ?? 'all'}|${query.trim().toLowerCase()}|${view}|${effectiveRange?.from ?? ''}-${effectiveRange?.to ?? ''}`
+  /** 折叠/展开某一天。 */
+  const toggleDay = useCallback((key: string) => {
+    setCollapsedDays((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
 
-  /* ── 真实计数（2026-10-16：不再用两位数的近似符号）─────────────────────
+  /** 是否全部日期组都已折叠。 */
+  const allCollapsed = dayGroups.length > 0 && dayGroups.every((group) => collapsedDays.has(group.key))
+
+  /** 全部折叠 ⇄ 全部展开。 */
+  const toggleAllDays = useCallback(() => {
+    setCollapsedDays((prev) => {
+      if (dayGroups.length === 0) return prev
+      const isAll = dayGroups.every((group) => prev.has(group.key))
+      if (isAll) return new Set()
+      return new Set(dayGroups.map((group) => group.key))
+    })
+  }, [dayGroups])
+
+  /**
+   * 「换一批」的视觉反馈 —— **不再靠 key 重建整棵子树**（2026-10-25 改）。
    *
-   * 用户问的是「画廊里究竟有多少张图」，一个近似符号回答不了。
-   * 口径分两种，混用就会骗人：
-   *  · 无任何筛选（会话 / 时间 / 搜索词）时优先用 host 下发的 kindTotals ——
-   *    它是**未截断**的全局口径（items 会在 MAX_RESPONSE_ITEMS 处被截，本地数
-   *    出来只会偏小）；旧 host 不下发时静默回落本地计数。
-   *  · 有任一筛选时只有本地 kindCounts 是对的 —— 用户在问「筛出来的这批里有几条」。
+   * 原先这里是 `key={gridKey}`（gridKey 里含 kind），意图是让容器整体重建、
+   * 顺带重播 `.tg-card` 的入场动画。实测代价极大：
+   *   · 切到「图片」（140 张卡片）→ 整棵子树重建，**145 个 <img> 全部重新创建**，
+   *     主线程出现 67ms 长任务，从点击到卡片稳定要 **1.3–1.7 秒**；
+   *   · 切到「网页」（9 张）只要 ~100ms —— 差值几乎完全来自缩略图重建数量。
+   * 用户报的「画廊切换二级菜单很慢有延迟」就是这个。
    *
-   * kindTotals 是 host 侧"删除前 / 下一次刷新前"的快照，本地计数则已经把本次会话
-   * 里刚删掉的剔掉了，所以两者取小的那个（刚删过就别让数字挂在原位）。唯一的例外
-   * 是 truncated：清单被截到 MAX_RESPONSE_ITEMS 时本地计数天生偏小，此时只能听
-   * host 的（宁可暂时多算刚删掉的几条，也不能给出一个明显缺斤少两的数）。
+   * 关键：**入场动画本来就不需要 key**。`.tg-card` 的
+   * `animation: tg-card-in 320ms ... backwards` 挂在卡片自身的 CSS 上，
+   * 元素一旦被创建就会播；切换类别时新出现的卡片自然播一次，而**已经存在的
+   * 卡片（同一 path）会被 React 复用、不重播** —— 这恰恰是我们想要的：
+   * 换类别时大部分卡片本来就该原样留着。
+   *
+   * 所以 key 只保留「必须整棵重建」的那一维：**视图形态**（网格 ⇄ 时间轴）。
+   * 这两种布局的 DOM 结构完全不同（一个是 grid，一个是按天分组的 section），
+   * 复用节点没有意义。
+   */
+  const viewKey = view
+
+  /**
+   * 渐进式渲染的「已渲染条数」。
+   *
+   * 为什么需要（2026-10-25 用户报「画廊切换二级菜单很慢有延迟」）：
+   * 实测切换方向不同、耗时差一个量级 ——
+   *   · 图片(140) → 网页(9)：首次变化 8–12ms，完全稳定 55–93ms；
+   *   · 任意 → 图片(140)：首次变化 54–100ms，完全稳定 **344–467ms**。
+   * 差异全在「一次要挂 140 张卡片」：每张卡片要建 DOM、起 CSS 入场动画、
+   * 解码缩略图，140 张挤在同一帧里，浏览器只能排队处理。
+   *
+   * 做法：先渲染首屏够用的**一批**（保证「点了立刻有反应」），剩下的按帧补齐。
+   * 用户感知就从「等半秒看空白」变成「立刻看到前几十张、其余陆续到位」。
+   *
+   * 三条约束：
+   *   · 首批必须**足够填满一屏**，否则用户会看到「先出来几个、下面一片空」，
+   *     比等一下更慌 —— 按 4 列 × 6 行 ≈ 24 张取 30；
+   *   · 补齐用 requestAnimationFrame 而不是 setTimeout：跟着浏览器自己的帧走，
+   *     帧率高时补得快、主线程忙时自动让路；
+   *   · 切换筛选（kind/搜索/时间/会话）时重置回首批 —— 那是一个全新的清单。
+   */
+  const FIRST_BATCH = 30
+  const BATCH_SIZE = 60
+  const [renderLimit, setRenderLimit] = useState(FIRST_BATCH)
+
+  // 清单变了就回到首批（依赖用「决定清单内容的那些筛选」，不含 items 本身，
+  // 否则刷新数据也会把已经补齐的列表又缩回去，滚到一半会跳）。
+  useEffect(() => {
+    setRenderLimit(FIRST_BATCH)
+  }, [kind, sessionId, query, view, effectiveRange?.from, effectiveRange?.to])
+
+  // 还有没渲染完的就按帧继续补，直到补齐或清单变化。
+  useEffect(() => {
+    if (renderLimit >= visible.length) return undefined
+    let cancelled = false
+    let raf = 0
+    const step = (): void => {
+      if (cancelled) return
+      setRenderLimit((current) => {
+        const next = current + BATCH_SIZE
+        return next >= visible.length ? visible.length : next
+      })
+      raf = requestAnimationFrame(step)
+    }
+    raf = requestAnimationFrame(step)
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(raf)
+    }
+  }, [renderLimit, visible.length])
+
+  /* ── 当前是否有任何筛选 ──────────────────────────────────────────────
+   *
+   * 2026-10-25 起，这里只剩 hasFilter 一个消费方（空态文案要区分「真的一条
+   * 都没有」与「被筛选筛没了」）。原先配套的 totalOf / kindTotals / truncated
+   * 一整套「真实计数」口径随页内类别胶囊栏一起删除 —— 那个数字唯一的去处就是
+   * 胶囊上的计数徽标，胶囊没了就没有消费方，留着只会让 load() 白解析两个字段。
    */
   const hasFilter = sessionId !== null || effectiveRange !== null || query.trim() !== ''
-  const totalOf = useCallback((entry: GalleryKind): number => {
-    const local = kindCounts.get(entry) ?? 0
-    if (hasFilter) return local
-    const remote = kindTotals?.[entry]
-    if (remote === undefined) return local
-    return truncated ? remote : (local < remote ? local : remote)
-  }, [hasFilter, kindTotals, kindCounts, truncated])
-
-  /** 平板风格底部 Dock 展示的分类清单（核心常用 + 任何有产出物的类别）。 */
-  const dockKinds = useMemo(() => {
-    // 判据用上面那套「真实计数」口径：host 给了 kindTotals 时，哪怕本地 items
-    // 还没落地 / 被截断，有产出的分类也该出现在工具条上（否则芯片会说「没有」）。
-    const withItems = KIND_ORDER.filter((entry) => totalOf(entry) > 0)
-    if (withItems.length >= 3) {
-      return KIND_ORDER.filter((entry) => totalOf(entry) > 0 || kind === entry)
-    }
-    const defaultCore: readonly GalleryKind[] = ['image', 'page', 'video', 'pdf', 'doc']
-    return KIND_ORDER.filter((entry) => totalOf(entry) > 0 || defaultCore.includes(entry) || kind === entry)
-  }, [totalOf, kind])
 
   /** 应用一个时间预设（'all' = 清除）。 */
   const applyPreset = useCallback((id: Exclude<TimePresetId, 'custom'>) => {
@@ -1245,123 +1221,15 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
     }
   }, [delItemPath])
 
-  /* ── 分类删除的执行（2026-10-16）───────────────────────────────────── */
-
-  /** 某个分类的待删清单：当前筛过（会话 / 时间 / 搜索）的清单里该分类的条目。 */
-  const entriesFor = useCallback(
-    (entry: GalleryKind): readonly GalleryItem[] => filteredBase.filter((item) => item.kind === entry),
-    [filteredBase],
-  )
-
-  /**
-   * 点芯片上那枚垃圾桶：进确认态（并起一个自动回退定时器）。
-   *
-   * 与 KrMemoryCard 的 armClear 同款：一次只允许一个分类亮着确认态，点第二个
-   * 时先把上一个收掉 —— 两处确认态同时亮着，用户分不清「确认」会删哪一批。
-   */
-  const armDel = useCallback((entry: GalleryKind) => {
-    if (delBusyRef.current) return
-    setDelError(null)
-    setDelConfirmId(entry)
-    cancelDelConfirmTimer()
-    delConfirmTimerRef.current = window.setTimeout(() => {
-      delConfirmTimerRef.current = null
-      setDelConfirmId(null)
-    }, DEL_CONFIRM_MS)
-  }, [cancelDelConfirmTimer])
-
-  /**
-   * 真正执行分类删除。
-   *
-   * 时序刻意分两段 —— **先播退场动画、动画走完再发请求**：
-   *  · 进 busy 态、把这批路径按索引标成错峰退场，卡片逐条淡出下沉；
-   *  · 动画跑完（条数越多等得越久，但封顶 900ms）才发请求；成功即把这批路径并进
-   *    gonePaths，卡片从清单里消失 —— 消失那一刻它早就淡到透明，接得上。
-   *
-   * 为什么不等请求回来再播动画：失败时动画已经播完，就得把卡片重新插回来，
-   * 那一下「删掉的东西又长回来」比不播动画更吓人。现在整批失败是**一条都没动**
-   * （不在 gonePaths 里，卡片本来就还在屏幕上，动画结束只是淡入复原），工具条
-   * 下方留一行错误说明原因。
-   *
-   * 代次校验（delGenRef）拦的是「动画这段窗口里用户点了刷新 / 切了筛选」：清单
-   * 已经被换掉，成功后就别再触发一次全量拉取（那次刷新会自己做这件事）。
-   */
-  const runDel = useCallback(async (entry: GalleryKind) => {
-    if (delBusyRef.current) return
-    const targets = entriesFor(entry)
-    if (targets.length === 0) {
-      cancelDelConfirmTimer()
-      setDelConfirmId(null)
-      return
-    }
-    const paths = targets.map((item) => item.path)
-    const generation = delGenRef.current
-    cancelDelConfirmTimer()
-    delBusyRef.current = true
-    setDelBusyKind(entry)
-    setDelConfirmId(null)
-    setDelError(null)
-    setDelLeave(new Map(paths.map((path, index) => [path, delStaggerMs(index)])))
-
-    await new Promise<void>((resolvePromise) => {
-      const timer = window.setTimeout(resolvePromise, delAnimationMs(paths.length))
-      delTimersRef.current.push(timer)
-    })
-    if (!mounted.current) { delBusyRef.current = false; return }
-
-    const result = await deleteGalleryPaths(paths)
-    if (!mounted.current) { delBusyRef.current = false; return }
-
-    const failed = result.failed ?? []
-    const failedPaths = new Set(failed.map((entryFail) => entryFail.path))
-    /**
-     * 哪些路径真的没了。
-     *
-     * **只有 host 明确说「删掉了东西」时才移除**：整批失败（403/405/400/500
-     * 这类响应只有 {ok:false,error}，没有 failed 字段）时 failed 是空数组，
-     * 若按「非失败即成功」推断会把一整批留在磁盘上的文件标成"已删除"—— 用户
-     * 看到的是「删掉了」而文件其实还在，正是契约里点名不许出现的状态。
-     * 判据取 deleted（host 给的真实条数）：>0 才认领非 failed 的那些。
-     */
-    const removed = result.ok === true || (result.deleted ?? 0) > 0
-      ? paths.filter((path) => !failedPaths.has(path))
-      : []
-    rememberGone(removed)
-
-    setDelLeave(new Map())
-    setDelBusyKind(null)
-    delBusyRef.current = false
-
-    if (result.ok === true) {
-      setDelError(null)
-      // 与 host 对齐（并发删除 / 别的客户端同时写），顺带把 kindTotals 拉成最新。
-      // 代次不一致说明用户已经刷新过清单，这一次就不用再拉了。
-      if (delGenRef.current === generation) void load(false)
-      return
-    }
-
-    // 失败：只有真正删掉的那部分进 gonePaths（上面已处理），其余的留在清单里，
-    // 并把这行提示的文案说清楚 —— 用户必须知道「哪些还在」以及「为什么」。
-    if (removed.length === 0) {
-      setDelError(failed.length === 0
-        ? (result.message ?? '删除失败')
-        : `这 ${failed.length} 项都没删掉，仍留在画廊里：${humanDeleteReason(failed[0]?.error ?? '')}`)
-      return
-    }
-    const first = failed[0]
-    setDelError(`有 ${failed.length} 项没删掉，仍留在画廊里（已删除 ${removed.length} 项）：${first !== undefined ? humanDeleteReason(first.error) : ''}`)
-  }, [cancelDelConfirmTimer, entriesFor, rememberGone, load])
-
   // 每次清单/筛选变化都推进代次：退场动画期间用户切了筛选或刷新，这次删除就不再
   // 去认领新清单（卡片早已从可见集合里消失，认领会把不相干的东西标成"正在退场"）。
   useEffect(() => { delGenRef.current += 1 }, [items, kind, sessionId, query, timeFilter])
 
-  /**
-   * 工具条右侧那个总数。
+  /* ── 工具条右侧那个总数 ───────────────────────────────────────────────
    *
    * 不能直接数 items.length：刚删掉的条目在 host 下一次 /media 回来之前仍留在
-   * items 里（客户端还有 15s 索引缓存），那时右边写着「199 项」而左边每一类都
-   * 已经少了几条 —— 同一块工具条上两个数字互相打脸。所以这里与清单同口径剔除。
+   * items 里（客户端还有 15s 索引缓存），那时右边写着「199 项」而清单里已经少了
+   * 几条 —— 同一块工具条上两个数字互相打脸。所以这里与清单同口径剔除。
    */
   const totalCount = useMemo(
     () => (items ?? []).reduce((sum, item) => (gonePaths.has(item.path) ? sum : sum + 1), 0),
@@ -1392,7 +1260,9 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
             </span>
           )}
         </label>
-        {/* 右侧工具组：时间 / 视图 / 分类 / 数量 / 刷新。
+        {/* 右侧工具组：时间 / 视图 / 数量 / 刷新。
+            （原先中间还有一排类别胶囊，2026-10-25 按用户要求整条删除 —— 类别
+            入口在侧栏二级菜单里。）
             整组 margin-left:auto 贴右，且**作为一个整体换行**（justify-content:flex-end）——
             窄屏折行时仍贴右，不会散到左边去。 */}
         <div className="tg-tools">
@@ -1486,119 +1356,26 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
             </svg>
           </button>
         </div>
-        {/* 类别筛选（图片 / 网页 / PDF / 音频…）：**分类在前、数量与刷新在后**
-            （用户 2026-10 要求）。
-            形态简化：只有「图标 + 文字 + 数字」，不再叠图标盒、悬浮角标、选中圆点
-            三层装饰——一枚 chip 里塞四个视觉元素，扫视时反而认不出主信息。 */}
-        <nav className="tg-dock" role="tablist" aria-label="内容分类导航">
-          {dockKinds.map((entry) => {
-            const count = totalOf(entry)
-            const isActive = kind === entry
-            const confirming = delConfirmId === entry
-            const busy = delBusyKind === entry
-            // 确认态 / 删除中显示的条数 = 这次**真的会删掉**的那几条（当前可见清单
-            // 里该分类的条目），而不是芯片上那个全局数字 —— 两者在有筛选时不同，
-            // 而「确认」要回答的正是"会删掉什么"。
-            const targetCount = confirming || busy ? entriesFor(entry).length : count
-            const exact = count.toLocaleString('zh-CN')
-            /* 芯片本体是**外层 div + 内层 button**，不是单个 button。
-               原因：确认态里要放「确认 / 取消」两枚真按钮，而 HTML 不允许 button
-               嵌套 button（React 会告警、浏览器会拆 DOM，点击目标也乱）。所以外层
-               只做布局与 data 态（role=tab 的语义仍挂在它上面），内层 button 承担
-               「选中这个分类」这一个动作，删除键与确认键各自独立。 */
-            return (
-              <div
-                key={entry}
-                role="tab"
-                aria-selected={isActive}
-                className="tg-dock__item tg-kind"
-                // 确认态"点别处就取消"靠它判"别处"是哪一枚（见上面的 mousedown 监听）。
-                data-kind={entry}
-                data-active={isActive ? 'true' : undefined}
-                data-busy={busy ? 'true' : undefined}
-                data-confirm={confirming ? 'true' : undefined}
-                title={confirming
-                  ? `删除「${KIND_LABEL[entry]}」分类下的 ${targetCount} 项？从磁盘删除，不可恢复`
-                  : `${KIND_LABEL[entry]}（${exact} 项）${count > 0 ? ' · 可分类删除' : ''}`}
-              >
-                {confirming ? (
-                  /* 就地二次确认：芯片原地换成「删除 N 项？不可恢复 确认 / 取消」。
-                     不弹系统对话框 —— 反悔就在这一枚胶囊里完成，不跳走、不失焦。
-                     busy 态沿用同一个容器（只为共用脉冲与布局），文案换成「删除中…」。
-
-                     「不可恢复」**必须落在可见文本里**（而不是只写 title）：这一步删的是
-                     磁盘文件、不可逆，而 title 是 hover tooltip —— 触屏永远看不到、键盘
-                     用户也读不到，只写 title 等于对触摸/键盘用户隐瞒后果。做成独立小字
-                     元素是为了给它自己的字号与告警色（视觉上不与问句抢主位），文本仍与
-                     问句连读成一句完整的话。 */
-                  <span className="tg-kind__confirm">
-                    <span className="tg-kind__ask">
-                      删除 {targetCount} 项？<span className="tg-kind__warn">不可恢复</span>
-                    </span>
-                    <button
-                      type="button"
-                      className="tg-kind__yes"
-                      // aria-label 与可见文本同义（同样含「不可恢复」）：可见文本里
-                      // 「不可恢复确认取消」是连读的（视觉上有 gap，朗读没有），显式
-                      // 给按钮一个自足的句子，屏幕阅读器才不会把它读成一句怪话。
-                      aria-label={`确认删除「${KIND_LABEL[entry]}」分类下的 ${targetCount} 项，不可恢复`}
-                      title={`确认从磁盘删除这 ${targetCount} 项（不可恢复）`}
-                      onClick={() => { void runDel(entry) }}
-                    >
-                      确认
-                    </button>
-                    <button
-                      type="button"
-                      className="tg-kind__no"
-                      aria-label={`取消删除「${KIND_LABEL[entry]}」分类的条目`}
-                      title="取消，什么都不改"
-                      onClick={cancelDel}
-                    >
-                      取消
-                    </button>
-                  </span>
-                ) : busy ? (
-                  <span className="tg-kind__confirm">
-                    <span className="tg-kind__ask">删除中…</span>
-                  </span>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="tg-kind__pick"
-                      // 删除中 / 确认中不接受切换：busy 的 pointer-events:none 已挡住
-                      // 鼠标，这里再拦一道键盘（Tab 之后按回车仍会触发 click）。
-                      disabled={busy || confirming}
-                      aria-label={`筛选${KIND_LABEL[entry]}`}
-                      onClick={() => { setKind(entry) }}
-                    >
-                      <KindTabIcon kind={entry} size={14} />
-                      <span className="tg-dock__label">{KIND_LABEL[entry]}</span>
-                      {count > 0 && <span className="tg-dock__num" title={`${exact} 项`}>{exact}</span>}
-                    </button>
-                    {/* 每个分类都带删除键（契约 B2-2）；但一枚都没有时置灰 ——
-                        否则点下去只会得到「删除 0 项？」再自己取消，是条纯噪声的死路
-                        （空分类很常见：切筛选、刚删完都会出现）。 */}
-                    <button
-                      type="button"
-                      className="tg-kind__del"
-                      disabled={count === 0}
-                      aria-label={count === 0
-                        ? `「${KIND_LABEL[entry]}」分类没有可删除的条目`
-                        : `删除「${KIND_LABEL[entry]}」分类的全部 ${count} 项`}
-                      title={count === 0
-                        ? `「${KIND_LABEL[entry]}」当前没有条目`
-                        : `删除「${KIND_LABEL[entry]}」分类下的全部 ${count} 项…`}
-                      onClick={() => { armDel(entry) }}
-                    >
-                      <TrashIcon size={12} />
-                    </button>
-                  </>
-                )}
-              </div>
-            )
-          })}
-        </nav>
+        {/* 时间轴视图下的全部收起 / 全部展开快捷按钮 */}
+        {view === 'timeline' && dayGroups.length > 0 && (
+          <button
+            type="button"
+            className="tg-icon-btn"
+            title={allCollapsed ? '展开全部日期' : '收起全部日期'}
+            aria-label={allCollapsed ? '展开全部日期' : '收起全部日期'}
+            onClick={toggleAllDays}
+          >
+            {allCollapsed ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M7 6l5 5 5-5M7 13l5 5 5-5" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M7 11l5-5 5 5M7 18l5-5 5 5" />
+              </svg>
+            )}
+          </button>
+        )}
         <span className="tg-count">
           {visible.length === totalCount ? `${totalCount} 项` : `${visible.length} / ${totalCount} 项`}
         </span>
@@ -1714,8 +1491,9 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
                   data-c={pos === 'c' ? '1' : undefined}
                   data-p={pos === 'p' ? String(dist) : undefined}
                   data-n={pos === 'n' ? String(dist) : undefined}
-                  onClick={() => { if (delBusyKind === null) openItem(item) }}
-                  aria-disabled={delBusyKind !== null ? true : undefined}
+                  // 分类删除已随胶囊栏删除，卡片点击不再需要「删除进行中」的锁。
+                  // 单卡删除进行中的锁由卡片自己（delItemBusy）承担。
+                  onClick={() => { openItem(item) }}
                   title={displayNameOf(item)}
                 >
                   <GalleryCardThumb item={item} now={now} onUnresolvable={hideUnresolvable} />
@@ -1725,7 +1503,6 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
                     title="就地预览"
                     aria-hidden="true"
                     onClick={(event) => {
-                      if (delBusyKind !== null) return
                       event.stopPropagation()
                       previewItem(item)
                     }}
@@ -1777,54 +1554,86 @@ export function GalleryPanel({ onClose }: GalleryPanelProps): JSX.Element {
               <path d="M8 34l9-9 6 5.5 5-4.5 12 10" />
             </svg>
           </span>
-          <span className="tg-empty__title">{totalCount === 0 ? '还没有多媒体产出' : '没有匹配的条目'}</span>
+          {/*
+            * 三档空态文案。中间的「这一类还没有内容」是 2026-10-25 新增的：
+            * 类别入口搬到侧栏二级菜单后，用户点一个空类别（如 PDF）会**停在这
+            * 里**（不再自动弹回有内容的类别），所以必须有一句话明确回答「这一类
+            * 确实没有」，否则一屏空白会被当成页面坏了。
+            * 判据用 else 分支而不是精确相等：只要不是「全空」也不是「其它筛选
+            * 造成为空」，剩下的就只可能是「当前类别自身为空」。
+            */}
+          <span className="tg-empty__title">
+            {totalCount === 0
+              ? '还没有多媒体产出'
+              : !hasFilter && (kindCounts.get(kind) ?? 0) === 0
+                ? `「${KIND_LABEL[kind]}」这一类还没有产出`
+                : '没有匹配的条目'}
+          </span>
           <span className="tg-empty__hint">
             {totalCount === 0
               ? '对话中生成的图片、网页、演示、文档、音视频会出现在这里。产出物来自全部会话的工具调用记录，新对话完成后点右上角刷新即可看到。'
-              : '换一个类别、清空搜索词或时间筛选（工具条时钟钮），或清除会话筛选试试。'}
+              : !hasFilter && (kindCounts.get(kind) ?? 0) === 0
+                ? `侧栏「画廊」下换一个类别（图片 / 网页 / 视频 / PDF / 演示 / 表格 / 文档 / 音频），或直接在对话里产出${KIND_LABEL[kind]}类内容。`
+                : '换一个类别、清空搜索词或时间筛选（工具条时钟钮），或清除会话筛选试试。'}
           </span>
         </div>
       ) : view === 'timeline' ? (
-        /* 时间轴：左侧竖轨 + 按天分组，日期头钉住，卡片仍是同一张 GalleryCard。 */
-        <div className="tg-scroll" key={gridKey}>
-          {dayGroups.map((group, groupIndex) => (
-            <section
-              className="tg-day"
-              key={group.key}
-              style={{ '--tg-day-i': Math.min(groupIndex, 12) } as CSSProperties}
-            >
-              <header className="tg-day__head">
-                <span className="tg-day__dot" aria-hidden="true" />
-                <span className="tg-day__label">{group.label}</span>
-                <span className="tg-day__weekday">{group.weekday}</span>
-                <span className="tg-day__count">{group.items.length}</span>
-                <span className="tg-day__rule" aria-hidden="true" />
-              </header>
-              <div className="tg-day__tiles">
-                {group.items.map((item, index) => (
-                  <GalleryCard
-                    key={item.path + '|' + item.sessionId}
-                    item={item}
-                    index={index}
-                    sessionTitle={sessionById.get(item.sessionId)?.title ?? null}
-                    now={now}
-                    onOpen={openItem}
-                    onPreview={previewItem}
-                    onUnresolvable={hideUnresolvable}
-                    onDelete={(target) => { void runItemDel(target) }}
-                    deleteArmed={delItemPath === item.path}
-                    compact
-                    outMs={delLeave.get(item.path)}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
+        /* 时间轴：左侧极简细轨 + 按天折叠，日期头作为收起/展开开关，卡片走 compact 方格。
+           key 只随**视图形态**变化（见 viewKey 的说明）：切类别时不再整棵重建。 */
+        <div className="tg-scroll" key={viewKey}>
+          {dayGroups.map((group, groupIndex) => {
+            const isCollapsed = collapsedDays.has(group.key)
+            return (
+              <section
+                className="tg-day"
+                key={group.key}
+                data-collapsed={isCollapsed ? 'true' : undefined}
+                style={{ '--tg-day-i': Math.min(groupIndex, 12) } as CSSProperties}
+              >
+                <button
+                  type="button"
+                  className="tg-day__head"
+                  onClick={() => { toggleDay(group.key) }}
+                  aria-expanded={!isCollapsed}
+                  title={isCollapsed ? `展开「${group.label}」（${group.items.length} 项）` : `收起「${group.label}」`}
+                >
+                  <span className="tg-day__dot" aria-hidden="true" />
+                  <span className="tg-day__chevron" aria-hidden="true">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </span>
+                  <span className="tg-day__label">{group.label}</span>
+                  <span className="tg-day__weekday">{group.weekday}</span>
+                  <span className="tg-day__count">{group.items.length} 项</span>
+                </button>
+                <div className="tg-day__tiles" aria-hidden={isCollapsed}>
+                  {group.items.map((item, index) => (
+                    <GalleryCard
+                      key={item.path + '|' + item.sessionId}
+                      item={item}
+                      index={index}
+                      sessionTitle={sessionById.get(item.sessionId)?.title ?? null}
+                      now={now}
+                      onOpen={openItem}
+                      onPreview={previewItem}
+                      onUnresolvable={hideUnresolvable}
+                      onDelete={(target) => { void runItemDel(target) }}
+                      deleteArmed={delItemPath === item.path}
+                      compact
+                      outMs={delLeave.get(item.path)}
+                    />
+                  ))}
+                </div>
+              </section>
+            )
+          })}
         </div>
       ) : (
         <div className="tg-scroll">
-          <div className="tg-grid" key={gridKey}>
-            {visible.map((item, index) => (
+          {/* key 只随视图形态变化：切类别不再重建网格（否则 140 张缩略图全部重载） */}
+          <div className="tg-grid" key={viewKey}>
+            {visible.slice(0, renderLimit).map((item, index) => (
               <GalleryCard
                 key={item.path + '|' + item.sessionId}
                 item={item}
