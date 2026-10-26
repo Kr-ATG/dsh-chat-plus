@@ -51,12 +51,16 @@ export interface AskPair {
  * 这次提问在卡片上该呈现成什么样。
  *
  *  · waiting     —— 模型正在等用户回答（面板可重开）
- *  · answered    —— 用户答完了
- *  · closed      —— 面板已关/超时且没有答案（模型按"用户没答"继续了）
- *  · cancelled   —— 用户主动取消
- *  · interrupted —— 回合被中断
+ *  · answered    —— 用户答完了（部分题跳过也算 answered，逐题读数见 answeredCount）
+ *  · resumed     —— 等待超时 / 面板被关 / 结果里根本没有答案，模型按"用户没答"
+ *                   继续往下做了。**这是超时提问唯一能被观测到的形态**：
+ *                   legacy 模式下超时不会留下 ASK_TIMED_OUT，也不会留下 pending
+ *                   结果，只留下"调用已结束、答案为空"这一个事实。
+ *                   措辞上必须与"用户主动跳过"分开：这里没人做选择，是时间到了。
+ *  · cancelled   —— 用户主动取消了这次提问
+ *  · interrupted —— 调用被中断（ASK_ABORTED，或回合被用户停止）
  */
-export type AskState = 'waiting' | 'answered' | 'closed' | 'cancelled' | 'interrupted'
+export type AskState = 'waiting' | 'answered' | 'resumed' | 'cancelled' | 'interrupted'
 
 export interface AskView {
   readonly state: AskState
@@ -65,6 +69,14 @@ export interface AskView {
   readonly pairs: readonly AskPair[]
   /** 用户真正给了答案的题数（含自定义补充）。 */
   readonly answeredCount: number
+  /**
+   * 这次提问是不是**等待超时**收场的。
+   *
+   * 只影响措辞（"超时未答" vs "未提交回答"），不影响状态机：legacy 模式下超时
+   * 是静默的（既没有 ASK_TIMED_OUT 也没有 pending 结果），所以这里的 false
+   * 不代表"不是超时"，只代表"没有证据说是超时"。措辞必须诚实到这个粒度。
+   */
+  readonly timedOut: boolean
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -208,7 +220,13 @@ export function isPendingAskResult(text: string): boolean {
   return isRecord(parsed) && parsed.pending === true && typeof parsed.callId === 'string'
 }
 
-/** 结果里的错误码（ASK_CANCELLED / ASK_ABORTED / TOOL_OUTCOME_UNKNOWN）。 */
+/**
+ * 结果里的错误码（ASK_CANCELLED / ASK_ABORTED / ASK_TIMED_OUT / TOOL_OUTCOME_UNKNOWN）。
+ *
+ * ASK_TIMED_OUT 只在 timed 模式、且客户端真的把倒计时跑到零时才会落到结果里；
+ * legacy 模式下超时是**静默**的（见 AskState.resumed 的注释），所以状态机里
+ * 超时主要靠"running 已结束 + 没有答案"这条路认出来，这里的码只做加分项。
+ */
 export function askErrorCode(block: unknown): string | undefined {
   if (!isRecord(block)) return undefined
   const error = block.error
@@ -244,18 +262,124 @@ export function buildAskView(input: AskViewInput): AskView {
   const pairs = pairAskAnswers(questions, answers)
   const answeredCount = pairs === null ? 0 : pairs.filter((pair) => pair.values.length > 0).length
 
+  /*
+   * 状态机的顺序本身就是优先级，几条别动：
+   *  1. 显式错误码最硬（用户取消 / 调用被中断），它盖过一切推断；
+   *  2. **还在跑，或投影说仍可作答** → waiting。这两条必须排在 answered 之前：
+   *     迟到回答的场景是"超时后用户又答了"，面板还开着，卡片不该读成已收口；
+   *  3. 有答案 → answered；
+   *  4. 其余 = 调用结束、没有答案 —— 即 resumed（超时 / 面板关闭 / 用户没答）。
+   *     **绝不能落到 waiting**：那会让一张早已作废的卡片永远转着等待动效，
+   *     正是"超时的提问显示不出来"这条反馈的成因。
+   */
   let state: AskState
   if (input.errorCode === 'ASK_CANCELLED') state = 'cancelled'
   else if (input.errorCode === 'ASK_ABORTED') state = 'interrupted'
-  else if (pairs !== null && answeredCount > 0) state = 'answered'
   else if (input.running) state = 'waiting'
   else if (input.answerable || isPendingAskResult(input.resultText)) state = 'waiting'
-  else state = 'closed'
+  else if (pairs !== null && answeredCount > 0) state = 'answered'
+  else state = 'resumed'
 
   return {
     state,
     questions: questions ?? [],
     pairs: pairs ?? [],
     answeredCount,
+    timedOut: state === 'resumed' && input.errorCode === 'ASK_TIMED_OUT',
   }
+}
+
+/* ══ 展开后的结论行与题干分段（纯函数，smoke 可直接断言） ═══════════════════ */
+
+/** 结论行该用什么语气上色（与卡头状态读数同一套语义）。 */
+export type AskVerdictTone = 'waiting' | 'answered' | 'unanswered'
+
+export interface AskVerdict {
+  readonly tone: AskVerdictTone
+  /** 一行结论，直接印在展开后正文的第一行。 */
+  readonly text: string
+}
+
+/**
+ * 展开后正文顶部那一行结论：**先给结果，再给细节**。
+ *
+ * 为什么需要它：折叠态只有卡头一行读数（"已回答 / 未回答"），展开后如果直接跳到
+ * 问题清单，读者得自己把"这些问题有没有被答"算一遍。超时那种情形尤其糟 ——
+ * 清单看起来和"正在等你答"一模一样，而事实是这一轮早就过去了。
+ *
+ * 措辞口径（用户点名过的三条）：
+ *  · 「已跳过」只留给用户**主动**跳过，超时绝不能写成跳过（没人做选择）；
+ *  · 超时能确认时明说"超时"（timed 模式有 ASK_TIMED_OUT）；
+ *  · 确认不了时只说"未提交回答"——不猜，也不含糊其辞。
+ */
+export function askVerdict(view: AskView): AskVerdict {
+  const total = view.questions.length
+  const picked = view.answeredCount
+  const progress = total > 0 && picked > 0 && picked < total ? `${picked}/${total} 已回答` : ''
+  switch (view.state) {
+    case 'waiting':
+      return { tone: 'waiting', text: total > 1 ? `等待回答（共 ${total} 题）` : '等待回答' }
+    case 'answered':
+      return { tone: 'answered', text: progress === '' ? '已提交回答' : `已提交回答（${progress}）` }
+    case 'cancelled':
+      return { tone: 'unanswered', text: '已取消，未提交回答' }
+    case 'interrupted':
+      return { tone: 'unanswered', text: '本轮已中断，未提交回答' }
+    default:
+      return {
+        tone: 'unanswered',
+        text: view.timedOut ? '等待超时，未提交回答' : '未提交回答，模型已继续',
+      }
+  }
+}
+
+/** 题干的一段：正文 or 括号里的补充说明（后者用次级色）。 */
+export interface AskTextSegment {
+  readonly kind: 'text' | 'note'
+  readonly text: string
+}
+
+/**
+ * 题干切成「正文 / 括号说明」两段。
+ *
+ * 读者扫问题清单时看的是**问题本身**，括号里那截（范围、默认值、补充限定）
+ * 属于注解。两者用同一个字色时，长题干会连成一片灰，眼睛得逐字读才知道哪截是
+ * 重点。拆开之后括号走次级色，问题骨架立刻浮出来。
+ *
+ * 只认成对括号（全角「（）」与半角「()」都算），**落单的括号不拆** —— 把
+ * "价格 (元/斤" 这种半截括号也切开，会得到一段凭空多出来的灰色尾巴。
+ */
+export function splitAskQuestionText(text: string): readonly AskTextSegment[] {
+  if (typeof text !== 'string' || text === '') return []
+  const segments: AskTextSegment[] = []
+  let cursor = 0
+  for (let index = 0; index < text.length; index += 1) {
+    const open = text[index]
+    if (open !== '（' && open !== '(') continue
+    const closeChar = open === '（' ? '）' : ')'
+    const close = text.indexOf(closeChar, index + 1)
+    if (close === -1) continue
+    if (index > cursor) segments.push({ kind: 'text', text: text.slice(cursor, index) })
+    segments.push({ kind: 'note', text: text.slice(index, close + 1) })
+    cursor = close + 1
+    index = close
+  }
+  if (cursor < text.length) segments.push({ kind: 'text', text: text.slice(cursor) })
+  return segments.length > 0 ? segments : [{ kind: 'text', text }]
+}
+
+/**
+ * 题干里该被加粗的**前导关键词**：冒号（全角/半角）之前那一截。
+ *
+ * 模型写问题几乎都是一个句式：「要不要改渲染方式：现在这样……」。冒号前那截
+ * 就是这条问题的标签，加粗它，一屏五六条问题时能竖着扫完；没有冒号就整句不加粗
+ * （给半句随机加粗比不加更吵）。
+ *
+ * 只在**短前导**上生效（≤ 24 字）：一长串带冒号的正文不是标签，是真句子。
+ */
+export function askQuestionLead(text: string): string | null {
+  if (typeof text !== 'string') return null
+  const hit = /^([^：:]{1,24})[：:]/.exec(text)
+  const lead = hit?.[1]?.trim()
+  return lead !== undefined && lead !== '' ? lead : null
 }

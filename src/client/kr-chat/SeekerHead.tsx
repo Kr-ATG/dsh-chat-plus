@@ -23,7 +23,9 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactElement } from 'react'
-import { WhalePortrait } from './WhalePortrait.tsx'
+import { SeekerStage } from './SeekerStage.tsx'
+import { idleClipFor, type MotionClipId } from './motion-clips.ts'
+import type { StageMode } from './stage-mode.ts'
 import { activateBrowserWindow } from '../browser-flag/activate.ts'
 import { browserFlagTitle, type BrowserActivitySession } from '../browser-flag/store.ts'
 import { getPanelSettingsStore } from './panel-settings-store.ts'
@@ -44,8 +46,20 @@ export interface SeekerHeadLine {
 }
 
 export interface SeekerHeadProps {
-  /** 立绘动画开关（系统「减少动态效果」时为 false）。 */
+  /** 动画开关（系统「减少动态效果」时为 false）。 */
   readonly motion?: boolean
+  /**
+   * 卡头此刻演哪一段（见 stage-mode.ts）。默认 'idle'。
+   *
+   * 右栏由 KrPlainTimelineCard 按当前动作算好传进来；新对话页只有「在思考中 /
+   * 没在干活」两档，直接给 thinking / idle。
+   */
+  readonly stageMode?: StageMode
+  /**
+   * 空闲时段对应的片段。不传就按 {@link SeekerHeadProps.idleLine} 的文案反查
+   * （idle-phrase.ts 的三个说法各对应一段，见 motion-clips.ts 的 idleClipFor）。
+   */
+  readonly idleClip?: MotionClipId
   /** 当前这一行要显示什么；null 表示没有动作，显示 {@link idleLine}。 */
   readonly line?: SeekerHeadLine | null
   /** 没动作时显示的那句话（休息中 / 吃饭中 / 在思考中…）。 */
@@ -90,6 +104,8 @@ export interface SeekerHeadProps {
 export function SeekerHead(props: SeekerHeadProps): ReactElement {
   const {
     motion = true,
+    stageMode = 'idle',
+    idleClip,
     line = null,
     idleLine,
     thinking = false,
@@ -188,7 +204,18 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
         }
       }}
     >
-      <WhalePortrait size={92} motion={motion} />
+      {/*
+       * 立绘位现在是**任务动画**（2026-10-26 用户给的 9 个 GIF 转成的透明底
+       * WebM，见 SeekerStage.tsx / motion-clips.ts）。
+       *
+       * 盒子尺寸不变（92×164，见 styles.ts 的 .kr-stage）：用户点名
+       * 「不需要动」—— 卡头的排版一个像素都不该因为换素材而位移。
+       */}
+      <SeekerStage
+        mode={stageMode}
+        idleClip={idleClip ?? idleClipFor(idleLine)}
+        motion={motion}
+      />
       {/*
        * 名字 + 浏览器标志（同一行）。
        *

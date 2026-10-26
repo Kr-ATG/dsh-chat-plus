@@ -32,29 +32,20 @@ import { getBrowserFlagEntry, subscribeBrowserFlag } from '../browser-flag/store
 import { latestChatSessionId } from '../tool-summary/TurnProcessShadowView.tsx'
 import { getPanelSettingsStore } from './panel-settings-store.ts'
 import { getMailDrawerStore } from './mail-drawer-store.ts'
+import { idlePhraseFor, THINKING_PHRASE } from './idle-phrase.ts'
+import { idleClipFor } from './motion-clips.ts'
 
 /** 容器 id（幂等复用 + 冒烟断言）。 */
 export const HERO_HEAD_ID = 'dsh-seeker-hero-head'
 
-/** 空闲文案：新对话页没有「本轮」，永远用空闲那几句（按钟点选）。 */
-const IDLE_SLOTS: ReadonlyArray<readonly [number, number, string]> = [
-  [0, 5, '休息中'],
-  [5, 9, '晒太阳'],
-  [9, 11, '小憩中'],
-  [11, 13, '吃饭中'],
-  [13, 17, '晒太阳'],
-  [17, 19, '小憩中'],
-  [19, 24, '休息中'],
-]
-
-/** 按当前时间挑一句空闲文案（与 KrPlainTimelineCard 的时段表逐字一致）。 */
-function idlePhraseFor(now: Date): string {
-  const hour = now.getHours()
-  for (const slot of IDLE_SLOTS) {
-    if (hour >= slot[0] && hour < slot[1]) return slot[2]
-  }
-  return '休息中'
-}
+/*
+ * 空闲文案（观月中 / 吃饭中 / 小憩中，按钟点选）来自 idle-phrase.ts —— 右栏那张
+ * 操作面板卡读的是**同一份**。
+ *
+ * 原先这里自己抄了一张时段表（注释还写着"与 KrPlainTimelineCard 逐字一致"，而
+ * 这种保证只能靠人盯着）。2026-10-26 换词时正是它差点漏改的：只改右栏那张表，
+ * 新对话页就会在夜里说"小憩中"。现在两处 import 同一个模块，物理上不可能分叉。
+ */
 
 /**
  * 新对话页的卡头内容。
@@ -97,6 +88,9 @@ function SeekerHeroHead({ running }: { readonly running: boolean }): ReactElemen
       <SeekerHead
         idleLine={idleLine}
         thinking={thinking}
+        /* 动画：新对话页只有两档 —— 本轮在跑就是「思考中」，否则按钟点空闲。 */
+        stageMode={thinking ? 'thinking' : 'idle'}
+        idleClip={idleClipFor(idleLine)}
         browserEntry={browserEntry}
         browserOn={browserOn}
         /* 不渲染齿轮/邮箱（chrome=false）：这两枚按钮带固定 id，而 Hero 卡头是
@@ -108,9 +102,6 @@ function SeekerHeroHead({ running }: { readonly running: boolean }): ReactElemen
     </div>
   )
 }
-
-/** 「在思考中」——与操作面板卡头同一句话（见 KrPlainTimelineCard 的 THINKING_PHRASE）。 */
-const THINKING_PHRASE = '在思考中'
 
 /** 跨 bundle 共享的挂载句柄（live reload 后旧根不能重复 createRoot）。 */
 const HOST_KEY = '__dshSeekerHeroHeadHost__'

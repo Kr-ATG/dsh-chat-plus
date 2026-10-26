@@ -48,6 +48,7 @@ import { applyOpenPathRoutes } from './open-path/index.ts'
 import { applyOpenFileRoutes } from './open-file/index.ts'
 import { applyOfficePreview } from './office/index.ts'
 import { applyFontRoutes } from './fonts/index.ts'
+import { applyMotionRoutes } from './motion/index.ts'
 import { applyTriadHost } from './triad/host.ts'
 import { applyProviderHub, providerHubServices } from './provider/index.ts'
 import { applyMailHost } from './mail/index.ts'
@@ -57,6 +58,8 @@ import { applyBrowserActivity } from './browser-activity/index.ts'
 import { applyRunningApps } from './running-apps/index.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
 export { applyFontRoutes, FONT_ROUTE } from './fonts/index.ts'
+// 「任务动画」资产（/api/chat-flow/motion/*）：9 段透明底 WebM + 首帧海报。
+export { applyMotionRoutes, MOTION_ROUTE } from './motion/index.ts'
 // 「用默认浏览器 / 默认应用打开文件」（2026-10-21）：纯判定面导出给冒烟。
 // 这三条（路径绝对化基准 / 可执行类型拒绝 / 浏览器命令解析）判错了都不会抛错，
 // 只会表现为「点了没反应」或「打开了不相干的东西」，只能断言。
@@ -284,6 +287,11 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
     //
     // 2026-10-14 曾随「界面字体」整块下线，2026-10-25 按用户要求装回来。
     applyFontRoutes(webCtx)
+    // 「任务动画」资产（/api/chat-flow/motion/*，2026-10-26）：操作面板卡头那 9 段
+    // 透明底 WebM（思考 / 开始操作 / 操作中 / 查看照片 / 操作结束 / 完成 / 吃饭 /
+    // 观月 / 小憩）与各自的首帧海报。与字体同一条理由：2.57MB 的动画若内联进
+    // client.js，关掉动画的人也要白下载一次；走路由后只拉当前在播的那一段。
+    applyMotionRoutes(webCtx)
     // Office / PDF 页图与 PDF 渲染（/api/chat-flow/office/*）：画廊 ppt/word 缩略图、
     // 产出物弹窗内联预览、官方侧边栏 ppt/word 接管三处共用。挂载时顺带校正
     // process.env.TEMP —— 官方 office-to-pdf 的 LibreOffice 转换要求 scratch 落在

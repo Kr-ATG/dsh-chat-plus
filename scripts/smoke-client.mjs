@@ -1714,13 +1714,24 @@ if (krEnabled) {
       pass('操作面板默认收起 + 卡头耗时已隐藏、明细行耗时保留')
     }
 
-    // 卡头形态：竖排「鲸鱼娘立绘 / 名字(+浏览器标志) / 一行当前动作」，点一下展开全部。
+    // 卡头形态：竖排「任务动画 / 名字(+浏览器标志) / 一行当前动作」，点一下展开全部。
     // 卡头已抽成 SeekerHead.tsx（操作面板卡与新对话页共用），断言改查那个文件。
+    // 2026-10-26：立绘位从静态 WhalePortrait 换成 9 段任务动画（SeekerStage）。
     const seekerHeadSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/SeekerHead.tsx'), 'utf8')
+    // 空闲文案的唯一真相（2026-10-26 从两处重复的表抽成一个模块）。
+    const idleSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/idle-phrase.ts'), 'utf8')
     if (!/className="kr-plain-head__name">Seeker</.test(seekerHeadSrc)) {
       fail('操作面板卡头必须显示名字（Seeker）')
-    } else if (!/WhalePortrait size=\{/.test(seekerHeadSrc)) {
-      fail('操作面板卡头必须挂鲸鱼娘立绘（WhalePortrait）')
+    } else if (!/<SeekerStage/.test(seekerHeadSrc) || !/idleClip=\{/.test(seekerHeadSrc)) {
+      /*
+       * 立绘位 2026-10-26 换成**任务动画**：用户给了 9 个 GIF，转成透明底 WebM 后
+       * 按卡头状态播放（SeekerStage + motion-clips.ts）。原 WhalePortrait 已删除。
+       *
+       * 同时钉住 idleClip 这个传参：空闲片段（观月中/吃饭中/小憩中）是按钟点那句
+       * 话反查出来的，漏传就永远只播默认那一段 —— 界面上不报错，只是「夜里她也在
+       * 打盹」，只能靠断言看出来。
+       */
+      fail('操作面板卡头必须挂任务动画（SeekerStage，且传 idleClip）')
     } else if (!/className="kr-plain-head__name-row"/.test(seekerHeadSrc)
       || !/className="kr-plain-head__browser"/.test(seekerHeadSrc)) {
       /*
@@ -1850,16 +1861,18 @@ if (krEnabled) {
       fail('卡头必须有「当前动作」这一行')
     } else if (/\.kr-plain-view\b/.test(cardSrc)) {
       fail('卡头不该再挂简要/详细按钮（点击整块卡头就是展开详细）')
-    } else if (!/const IDLE_SLOTS: ReadonlyArray<readonly \[number, number, string\]> = \[/.test(cardSrc)) {
+    } else if (!/IDLE_SLOTS/.test(cardSrc) || !/idlePhraseFor\(new Date\(clockTick\)\)/.test(cardSrc)) {
       /*
        * 空闲文案必须**按真实时间**选（2026-10-25 用户：「这几个状态要根据时间来」）。
        *
-       * 时段表是核心：四个词都得在表里出现，且必须是 IDLE_SLOTS 这种
-       * [start, end, phrase] 形状 —— 只写一个数组、按计数或随机轮，等于没做。
+       * 2026-10-26 改词：删掉「休息中 / 晒太阳」，改成夜里的「观月中」+ 白天的
+       * 「小憩中」+ 11–13 点的「吃饭中」。时段表本身搬进了 idle-phrase.ts
+       * （右栏与新对话页共用一份，两处各抄一遍必然分叉），所以这里改为断言
+       * 「卡片确实用了那张表」：引用 IDLE_SLOTS 的模块 + 按 clockTick 现算。
        */
-      fail('空闲文案必须按时间段选（IDLE_SLOTS 表：休息中 / 吃饭中 / 小憩中 / 晒太阳）')
-    } else if (!/export function idlePhraseFor\(now: Date\): string/.test(cardSrc)) {
-      fail('idlePhraseFor 必须吃一个 Date（可测；用全局 Date 就没法断言时段边界）')
+      fail('空闲文案必须按时间段选（引用 idle-phrase.ts 的 IDLE_SLOTS，并按 clockTick 现算）')
+    } else if (!/idlePhraseFor\(new Date\(clockTick\)\)/.test(cardSrc)) {
+      fail('空闲文案必须随分钟级 clockTick 重算（否则跨时段后用户得刷新页面才看到对的钟点）')
     } else if (!/if \(!running\) return null/.test(cardSrc)) {
       /*
        * 收口后必须回到空闲文案（2026-10-25 用户：「结束之后怎么不[变]回去呢」）。
@@ -1868,20 +1881,28 @@ if (krEnabled) {
        * 清单」这类句子 —— 读起来像她还在干这件事。现在收口返回 null，走空闲文案。
        */
       fail('本轮收口后卡头必须回到空闲文案（currentAction 在 !running 时返回 null）')
-    } else if (!/const IDLE_PHRASES: readonly string\[\] = \['休息中', '吃饭中', '小憩中', '晒太阳'\]/.test(cardSrc)) {
+    } else if (!/const IDLE_PHRASES: readonly string\[\] = \['观月中', '小憩中', '吃饭中'\]/.test(idleSrc)) {
       /*
-       * 卡头空闲文案（2026-10-25 用户要求）：「不要显示等待本轮开始，显示休息中、
-       * 吃饭中、小憩、晒太阳；当我发送出去对话的时候就变成在思考中」。
+       * 卡头空闲文案（2026-10-25 提，2026-10-26 定稿）：「不要显示等待本轮开始，
+       * 显示休息中、吃饭中、小憩、晒太阳；当我发送出去对话的时候就变成在思考中」。
        *
-       * 两件事都要在：① 空闲时是那几句拟人化说法（不是系统措辞「等待本轮开始」）；
-       * ② 刚发出消息、还没有任何动作时是「在思考中」。
+       * 2026-10-26 用户删掉「休息中 / 晒太阳」、加回「观月中 / 小憩中」，判据改成
+       * 按**夜里**分：19:00–次日 05:00 观月中。这三个说法各对应一段动画，所以
+       * 这张表同时是动画片段的入口（idleClipFor）。
        *
-       * ②尤其容易退化：只写 ① 的话，消息发出到第一个工具调用之间那段空窗会
-       * 显示"休息中" —— 而模型明明已经在处理了。
+       * 断言读 idle-phrase.ts 而不是卡片源码：那张表是唯一真相，两处共用。
        */
-      fail('卡头空闲文案必须是拟人化轮换（休息中 / 吃饭中 / 小憩中 / 晒太阳）')
+      fail('卡头空闲文案必须是「观月中 / 小憩中 / 吃饭中」三档（IDLE_PHRASES 表）')
+    } else if (!/^\s*\[0, 5, '观月中'\],$/m.test(idleSrc)
+      || !/^\s*\[19, 24, '观月中'\],$/m.test(idleSrc)) {
+      /*
+       * 「观月中」必须真的覆盖**夜里**（用户 2026-10-26：「根据晚上进行判断」）。
+       * 跨零点拆成 [0,5] 与 [19,24] 两段 —— 只写一段会让 1 点显示成别的说法，
+       * 而那恰恰是最该出现月亮的时候。
+       */
+      fail('「观月中」必须覆盖 19:00–次日 05:00（IDLE_SLOTS 里 [0,5] 与 [19,24] 两段都要在）')
     } else if (!/if \(running && empty\) return THINKING_PHRASE/.test(cardSrc)
-      || !/const THINKING_PHRASE = '在思考中'/.test(cardSrc)) {
+      || !/export const THINKING_PHRASE = '在思考中'/.test(idleSrc)) {
       fail('刚发出消息、还没有任何动作时必须显示「在思考中」'
         + '（判据 running && empty：本轮在跑但时间线里一条动作都没有）')
     } else if (/等待本轮开始/.test(stripComments(cardSrc)) || /已收口/.test(stripComments(cardSrc))) {

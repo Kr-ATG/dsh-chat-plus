@@ -273,6 +273,8 @@ else pass('deferred webServer callback executed')
 // 改成 prefix 会动到 /generated-images 这条既有契约的路由形状。
 // fonts 是「界面字体」的资产路由（霞鹜新致宋 woff2 不内联进 client 产物）。
 // 2026-10-14 曾随「界面字体」整块下线，2026-10-25 按用户要求装回来 —— 计数 +1。
+// motion 是「任务动画」的资产路由（2026-10-26）：卡头的 9 段透明底 WebM 与首帧
+// 海报。同样不内联（2.57MB），漏注册的表现是「卡头只有首帧不动」，界面上不报错。
 // browser-activity 是 2026-10-20 新增：会话行 / 标题栏「浏览器操作中」标志的
 // 数据源（只读轮询）。它注册在插件自己的延迟注入里，与其它路由同生共死，
 // 所以计数一并 +1 —— 漏注册的表现是「图标永远不亮」，只能靠计数断言钉住。
@@ -283,8 +285,8 @@ else pass('deferred webServer callback executed')
 // 拉到前台（用户：「点击浏览器图标自动进入到ego那个工作空间」）。它挂在
 // running-apps 的延迟注入里、共用同一个常驻 PowerShell 采集器 —— 漏注册的表现
 // 是「点了图标没反应」，界面上同样没有任何报错，只能靠计数断言钉住。
-if (registered.length !== 12) {
-  fail(`expected exactly 12 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
+if (registered.length !== 13) {
+  fail(`expected exactly 13 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
 } else {
   const exacts = registered.filter(spec => spec?.kind === 'exact')
   const prefix = registered.filter(spec => spec?.kind === 'prefix')
@@ -345,6 +347,12 @@ if (registered.length !== 12) {
     fail(`missing font asset route (prefix /api/chat-flow/fonts): ${JSON.stringify(prefix)}`)
   } else {
     pass('registered /api/chat-flow/fonts (kind=prefix, woff2 + license)')
+  }
+  const motion = prefix.find(spec => spec?.path === '/api/chat-flow/motion')
+  if (motion === undefined) {
+    fail(`missing motion asset route (prefix /api/chat-flow/motion): ${JSON.stringify(prefix)}`)
+  } else {
+    pass('registered /api/chat-flow/motion (kind=prefix, 9 webm + 9 poster)')
   }
   for (const spec of registered) {
     if (typeof spec?.handler !== 'function') fail(`route handler is not a function: ${spec?.path}`)
@@ -435,6 +443,106 @@ if (registered.length !== 12) {
         if (res.status !== 404) fail(`未知名应 404（防任意文件读），${bad} 实得 ${res.status}`)
       }
       pass('未知/穿越文件名一律 404（不回落成任意文件读）')
+    } finally {
+      await new Promise(resolve => server.close(resolve))
+    }
+  }
+}
+
+/* ── 任务动画：资产必须真的随包存在 + 路由真的吐得出来 ─────────────────────
+ *
+ * 与字体那块同一套理由（失效方式全是静默的）：
+ *  · 资产没进包 → 卡头的 9 个 <video> 全部 404，界面**不报错**，只是永远停在
+ *    首帧海报上（看起来像「动画没做」而不是「文件丢了」）；
+ *  · 路由把任意文件名也放行 → 变成任意文件读；
+ *  · MIME 给错 → 浏览器拒绝解码（video 元素只会触发 error，不显示任何提示）。
+ */
+{
+  const MOTION_DIR = resolve(ROOT, 'assets', 'motion')
+  const CLIPS = ['thinking', 'start-op', 'working', 'photo', 'end-op', 'done', 'meal', 'moon', 'nap']
+  const missing = []
+  let totalBytes = 0
+  for (const id of CLIPS) {
+    for (const ext of ['.webm', '.webp']) {
+      const file = resolve(MOTION_DIR, id + ext)
+      if (!existsSync(file)) { missing.push(id + ext); continue }
+      totalBytes += statSync(file).size
+    }
+  }
+  if (missing.length > 0) {
+    fail(`任务动画资产缺失：${missing.join(', ')}（缺的片段会永远停在首帧，界面上不报错）`)
+  } else if (totalBytes < 1024 * 1024) {
+    fail(`任务动画资产合计只有 ${(totalBytes / 1024).toFixed(0)} KB，明显偏小（可能被截断）`)
+  } else {
+    pass(`任务动画资产在位（9 段 webm + 9 张海报，合计 ${(totalBytes / 1024 / 1024).toFixed(2)} MB）`)
+  }
+
+  // 产物必须**不**内联动画：2.57MB 的 base64 会让所有用户白下载 3.4MB。
+  const clientBundle = readFileSync(resolve(ROOT, 'lib/client.js'), 'utf8')
+  if (clientBundle.includes('data:video/webm;base64,')) {
+    fail('client 产物内联了动画 base64（必须走 host 路由，否则关掉动画的人也要白下载）')
+  } else {
+    pass('client 产物未内联动画（按需拉取当前在播的那一段）')
+  }
+
+  const http = await import('node:http')
+  const motionRegs = []
+  const motionWebCtx = {
+    logger: { warn: () => {}, error: () => {}, info: () => {}, debug: () => {} },
+    effect(fn) { const d = fn(); return typeof d === 'function' ? d : () => {} },
+    webServer: { register(spec) { motionRegs.push(spec); return () => {} } },
+  }
+  mod.applyMotionRoutes(motionWebCtx)
+  const motionRoute = motionRegs.find(spec => spec?.path === '/api/chat-flow/motion')
+  if (motionRoute === undefined) {
+    fail('applyMotionRoutes 未注册 /api/chat-flow/motion')
+  } else {
+    const server = http.createServer((req, res) => motionRoute.handler(req, res))
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = server.address().port
+    const request = (method, path) => new Promise((resolve) => {
+      const req = http.request({ host: '127.0.0.1', port, path, method }, (res) => {
+        const chunks = []
+        res.on('data', (c) => chunks.push(c))
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }))
+      })
+      req.on('error', () => resolve({ status: 0, headers: {}, body: Buffer.alloc(0) }))
+      req.end()
+    })
+    try {
+      let webmOk = true
+      for (const id of CLIPS) {
+        const hit = await request('GET', '/api/chat-flow/motion/' + id + '.webm')
+        // EBML 魔数：0x1A45DFA3。断言真实字节而不是只看 200 —— 200 空体同样
+        // 会让 video 停在首帧，是最难发现的那种坏法。
+        const magic = hit.body.subarray(0, 4)
+        if (hit.status !== 200) { fail(`动画 ${id}.webm 应 200，实得 ${hit.status}`); webmOk = false }
+        else if (hit.headers['content-type'] !== 'video/webm') { fail(`动画 ${id}.webm 的 content-type 应为 video/webm，实得 ${hit.headers['content-type']}`); webmOk = false }
+        else if (magic[0] !== 0x1a || magic[1] !== 0x45 || magic[2] !== 0xdf || magic[3] !== 0xa3) { fail(`动画 ${id}.webm 不是 EBML/WebM（魔数 ${magic.toString('hex')}）`); webmOk = false }
+        else if (Number(hit.headers['content-length']) !== hit.body.length) { fail(`动画 ${id}.webm 的 content-length 与字节数不符`); webmOk = false }
+        else if (!/immutable/.test(String(hit.headers['cache-control']))) { fail(`动画 ${id}.webm 应带 immutable 缓存头`); webmOk = false }
+      }
+      if (webmOk) pass('9 段动画端到端可用（EBML 魔数 + video/webm + immutable 缓存）')
+
+      const posterHit = await request('GET', '/api/chat-flow/motion/moon.webp')
+      const riff = posterHit.body.subarray(0, 4).toString('latin1')
+      const webpTag = posterHit.body.subarray(8, 12).toString('latin1')
+      if (posterHit.status !== 200) fail(`海报应 200，实得 ${posterHit.status}`)
+      else if (posterHit.headers['content-type'] !== 'image/webp') fail(`海报 content-type 应为 image/webp，实得 ${posterHit.headers['content-type']}`)
+      else if (riff !== 'RIFF' || webpTag !== 'WEBP') fail(`海报不是 WebP（${riff}/${webpTag}）`)
+      else pass('首帧海报可经路由取到（真 WebP 字节）')
+
+      const head = await request('HEAD', '/api/chat-flow/motion/thinking.webm')
+      if (head.status !== 200 || head.body.length !== 0) fail(`HEAD 应 200 且无体，实得 ${head.status}/${head.body.length}`)
+      else pass('HEAD 请求回 200 无体（浏览器探测不白传整段动画）')
+
+      // 未知文件名必须 404 —— 这条路由族**不能**变成任意文件读。
+      let badOk = true
+      for (const bad of ['/api/chat-flow/motion/../../../etc/passwd', '/api/chat-flow/motion/secret.webm', '/api/chat-flow/motion/']) {
+        const res = await request('GET', bad)
+        if (res.status !== 404) { fail(`未知名应 404（防任意文件读），${bad} 实得 ${res.status}`); badOk = false }
+      }
+      if (badOk) pass('动画路由：未知/穿越文件名一律 404（不回落成任意文件读）')
     } finally {
       await new Promise(resolve => server.close(resolve))
     }

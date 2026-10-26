@@ -27,7 +27,8 @@
  *     本身就是事实，折叠成一行会把它抹掉；
  *  3. 不自己算进度百分比——进行中 / 已完成 / 失败三个计数已经够了。
  *
- * 头像（鲸鱼娘）见 WhalePortrait.tsx：位图分层，尾巴单独摇。
+ * 头像位（鲸鱼娘）见 SeekerStage.tsx：9 段透明底 WebM，按状态切换（2026-10-26
+ * 起替掉了原来那张静态立绘 WhalePortrait）。
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
@@ -39,8 +40,10 @@ import type { PlainTimeline } from './plain-timeline.ts'
 import type { SubagentCatalogView } from './subagent-catalog.ts'
 import { workspaceCwdOf } from '../client-ctx.ts'
 import { tryOpenInSidebar } from '../open-preview.ts'
-import { WhalePortrait } from './WhalePortrait.tsx'
 import { SeekerHead } from './SeekerHead.tsx'
+import { idleClipFor, type MotionClipId } from './motion-clips.ts'
+import { idlePhraseFor, THINKING_PHRASE } from './idle-phrase.ts'
+import { useStageMode } from './stage-mode.ts'
 import { getBrowserFlagEntry, subscribeBrowserFlag } from '../browser-flag/store.ts'
 
 /**
@@ -75,7 +78,7 @@ const LIST_MAX_ROWS = 13
 const LIST_MAX_ROWS_SQUEEZED = 9
 
 /*
- * ══ 卡头的「没在干活」文案（2026-10-25 用户要求）═══════════════════════════
+ * ══ 卡头的「没在干活」文案（2026-10-25 起，2026-10-26 改词）════════════════
  *
  * 用户原话：「不要显示等待本轮开始，显示休息中、吃饭中、小憩、晒太阳；当我发送
  * 出去对话的时候就变成在思考中，后面就正常了」。
@@ -89,60 +92,14 @@ const LIST_MAX_ROWS_SQUEEZED = 9
  *     还挂着"休息中"—— 她明明已经在处理了。
  *   · **有动作** → 照旧显示当前这一件事（正常流程）。
  *
- * 轮换**按轮次推进**而不是定时器：每轮换一次说法（同一轮里保持不变），这样它
- * 不是"每秒闪一下"的装饰，而更像"她这轮歇着的时候在做什么"。
+ * 2026-10-26 用户定稿：删掉「休息中」「晒太阳」，改成按夜里的时段说「观月中」，
+ * 白天说「小憩中」，11–13 点说「吃饭中」。这三个说法各自对应一段动画
+ * （观月中 → 月亮 / 吃饭中 → 吃饭 / 小憩中 → 打盹），见 motion-clips.ts。
+ *
+ * 时段表**不在这个文件里**了：新对话页的卡头也要用同一份，两处各抄一遍必然
+ * 分叉（改一处忘了另一处 = 两处说法不一致）。现在它是 idle-phrase.ts 的
+ * 唯一真相，这里只 import。
  */
-const IDLE_PHRASES: readonly string[] = ['休息中', '吃饭中', '小憩中', '晒太阳']
-
-/*
- * 空闲文案**按真实时间**选（2026-10-25 用户要求：「这几个状态要根据时间来」）。
- *
- * 时段划分按中国日常作息，而不是机械四等分：
- *   00–05 休息中   （这个点在睡觉，说"晒太阳"是胡说）
- *   05–09 晒太阳   （起床后那段）
- *   09–11 小憩中
- *   11–13 吃饭中   （唯一一个真跟吃饭绑定的时段）
- *   13–17 晒太阳
- *   17–19 小憩中
- *   19–24 休息中
- *
- * 边界左闭右开：11 点整算吃饭中，13 点整算晒太阳。
- * 不按"每 6 小时轮一个"那种均分 —— 凌晨 3 点显示"晒太阳"会立刻暴露这是假状态。
- *
- * 四个词全都用得上，但**用哪个由钟点决定**，不由随机或计数决定：抬头看一眼
- * 卡头，它和你此刻的时间对得上。
- */
-const IDLE_SLOTS: ReadonlyArray<readonly [number, number, string]> = [
-  [0, 5, '休息中'],
-  [5, 9, '晒太阳'],
-  [9, 11, '小憩中'],
-  [11, 13, '吃饭中'],
-  [13, 17, '晒太阳'],
-  [17, 19, '小憩中'],
-  [19, 24, '休息中'],
-]
-
-/**
- * 按当前时间挑一句空闲文案。
- *
- * 取**本地时间**（用户看的是自己墙上的钟，不是 UTC）。传入 now 是为了让这个
- * 函数可测：组件里传 new Date()，测试里传固定时刻，不必 mock 全局 Date。
- *
- * @param now - 当前时刻。
- * @returns 该时段对应的空闲短语。
- */
-export function idlePhraseFor(now: Date): string {
-  const hour = now.getHours()
-  for (const slot of IDLE_SLOTS) {
-    const start = slot[0]
-    const end = slot[1]
-    const phrase = slot[2]
-    if (hour >= start && hour < end) return phrase
-  }
-  return IDLE_PHRASES[0] ?? '休息中'
-}
-/** 刚发出消息、还没有任何动作时的一句话。 */
-const THINKING_PHRASE = '在思考中'
 
 export interface KrPlainTimelineCardProps {
   readonly timeline: PlainTimeline
@@ -487,7 +444,7 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
    * 取值口径（两条，顺序即优先级）：
    *  1. 有一条 running → 就是它（同时只可能有一条，模型是串行执行的）；
    *  2. 没有 running 但**本轮还在跑** → 取最后一条（刚做完、正在起下一步）；
-   *  3. **本轮已收口 → null**，卡头回到空闲文案（休息中 / 吃饭中 / 小憩中 / 晒太阳）。
+   *  3. **本轮已收口 → null**，卡头回到空闲文案（观月中 / 吃饭中 / 小憩中，按钟点）。
    *
    * 第 3 条是 2026-10-25 用户点名改的：「结束之后怎么不[变]回去呢」。原先收口后
    * 卡头会一直挂着**最后一条动作**（截图里那句「收口任务清单」），读起来像"她还在
@@ -509,6 +466,31 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
     if (!running) return null
     return all[all.length - 1] ?? null
   }, [timeline.steps, running])
+  /**
+   * 此刻是否**真有一条**在跑（与 currentAction 故意不同口径）。
+   *
+   * currentAction 在「本轮在跑、但两条动作之间」时会退回最后一条 done 动作 ——
+   * 卡头那一行该这么显示（总比空着好），但**动画不行**：那时候她并没有在做那件事，
+   * 而「没有一条在跑」正是「收尾」的判据之一（见 stage-mode.ts）。
+   */
+  const hasRunningStep = useMemo(
+    () => timeline.steps.some((step) => step.status === 'running'),
+    [timeline.steps],
+  )
+
+  /**
+   * 卡头此刻演哪一段动画（2026-10-26）。
+   *
+   * 判定全在 stage-mode.ts 里（含收尾那 900ms 滞回），这里只把数据喂进去。
+   * icon 传的是**当前正在跑的那一条**的图标，而不是 currentAction 的 —— 原因同上：
+   * 两次动作之间退回的那条 done 动作不该让动画变成「查看照片」。
+   */
+  const stageMode = useStageMode({
+    running,
+    empty,
+    hasRunningStep,
+    icon: hasRunningStep ? (currentAction?.icon ?? null) : null,
+  })
 
   /*
    * 卡头「没在干活」时显示哪一句（见文件顶部的 IDLE_SLOTS 说明）。
@@ -517,11 +499,13 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
    *  1. **正在跑但一个动作都还没有** → 「在思考中」。
    *     消息发出去、模型在思考、还没调工具，卡头不能还挂着「休息中」——
    *     她明明已经在处理了。判据 running && empty。
-   *  2. **没在跑** → 按**真实时间**选一句（休息中 / 吃饭中 / 小憩中 / 晒太阳）。
+   *  2. **没在跑** → 按**真实时间**选一句（观月中 / 吃饭中 / 小憩中）。
    *
-   * 时间来自 clockTick：跨时段时文案要自己换掉（19:59 → 20:00 从「小憩中」
-   * 变「休息中」），否则用户得刷新页面才看到对的钟点。分钟级滴答足够 ——
+   * 时间来自 clockTick：跨时段时文案要自己换掉（18:59 → 19:00 从小憩中
+   * 变观月中），否则用户得刷新页面才看到对的钟点。分钟级滴答足够 ——
    * 时段边界全是整点，一分钟的误差看不出来。
+   *
+   * 时段表与那句话本身在 idle-phrase.ts（新对话页的卡头读同一份）。
    */
   const idleLine = useMemo(() => {
     if (running && empty) return THINKING_PHRASE
@@ -534,12 +518,13 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
        * 卡头：竖排「鲸鱼娘立绘 / 名字 / 当前动作」。
        *
        * 与旧版（横向图标 + 标题 + 详细切档）的差别：
-       *  · 头像位给的是**活物**（WhalePortrait，尾巴会摇），不是一枚线条图标；
+       *  · 头像位给的是**活物**：2026-10-26 起是 9 段任务动画（SeekerStage，
+        * 随状态切换的透明底 WebM），不再是那张静态立绘；
        *  · 不再有「详细 / 简要」两枚常驻按钮 —— 它俩在这个尺寸下是最吵的元素，
        *    而且默认档就是简要，多数人从不切换。现在整个卡头都可点，点一下展开
        *    完整时间线（内含切档按钮与全部历史）。
        *  · 动作行**只显示一条**（当前进行中优先），新动作把它顶掉；本轮收口后
-       *    回到空闲文案（休息中 / 吃饭中 / 小憩中 / 晒太阳，按钟点选）。
+       *    回到空闲文案（观月中 / 吃饭中 / 小憩中，按钟点选）。
        *    这是用户点名要的：不堆流水，只看此刻。
        */}
       <SeekerHead
@@ -553,6 +538,9 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
         }}
         idleLine={idleLine}
         thinking={idleLine === THINKING_PHRASE}
+        /* 动画：模式由 stage-mode.ts 判定，空闲片段按钟点那句话反查。 */
+        stageMode={stageMode}
+        idleClip={idleClipFor(idleLine)}
         browserEntry={browserEntry}
         browserOn={browserOn}
         expanded={open}

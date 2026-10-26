@@ -22,6 +22,16 @@
  *   · **回合收口时自动收起**（inline 模式，与思考过程卡同一套行为）：回答落定、
  *     正式回复出来之后，问答退成标题一行让位给正文，点标题随时能再展开；
  *   · 展开/收起走 useHeightAnimation 的高度补间，不是 display 硬切。
+ *
+ * 展开后的版式（2026-10-26 按用户给的样式重做）：
+ *
+ *   本轮已中断，未提交回答          ← 结论行（次级色，独立一行）
+ *   · 要不要改渲染方式：现在这样…    ← 问题清单，一条一项、圆点在前
+ *   · 卡片宽度（跟随对话流列宽）…
+ *
+ * 三件事缺一不可：**先说结果、再列问题**；每条问题前面有圆点（读作清单，不是
+ * 一坨段落）；问题里冒号前那截加粗、括号里的补充说明降一档灰。超时/中断那句
+ * 话不再混进问题行里 —— 之前它和问题挤在一起时，读者会误以为那是问题的一部分。
  */
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useHeightAnimation, useMotionAllowed } from '../motion-utils.ts'
@@ -29,8 +39,11 @@ import { toolArgsRaw } from '../tool-summary/activity-view-model.ts'
 import { isRunning } from '../tool-summary/tool-stats.ts'
 import {
   askErrorCode,
+  askQuestionLead,
   askResultText,
+  askVerdict,
   buildAskView,
+  splitAskQuestionText,
   type AskPair,
   type AskView,
 } from './ask-parse.ts'

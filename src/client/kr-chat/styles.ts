@@ -2184,7 +2184,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 
 /* ══ 操作面板 · 卡头（2026-10-24 竖排形态） ══════════════════════════════
 
-   结构：鲸鱼娘立绘 / Seeker / 一行当前动作。
+   结构：任务动画（鲸鱼娘）/ Seeker / 一行当前动作。
 
    为什么竖排：用户点名要的（对照一张「头像 · 名字 · 状态」的参考图）。横排把
    头像、名字、动作挤在一行里，440px 右栏下动作文字只能分到一半宽度，
@@ -2617,8 +2617,8 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
  * 没有动作时的那一行（2026-10-25 改）。
  *
  * 原先写的是「等待本轮开始 / 已收口」—— 系统视角的措辞，读起来像报错提示。
- * 现在这里显示的是**鲸鱼娘自己的状态**：休息中 / 吃饭中 / 小憩中 / 晒太阳，
- * 以及刚发出消息时的「在思考中」（见 KrPlainTimelineCard 的 IDLE_PHRASES）。
+ * 现在这里显示的是**鲸鱼娘自己的状态**：观月中 / 小憩中 / 吃饭中，以及刚发出
+ * 消息时的「在思考中」（按钟点选哪一句见 idle-phrase.ts，那里是唯一真源）。
  *
  * 文案换说法时给一个极轻的淡入：三秒一跳会显得廉价，而这一行在一轮里只变
  * 一次，淡入正好让"换了个说法"这件事被看见、又不打断阅读。
@@ -2660,110 +2660,112 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   animation: kr-pulse 1.4s var(--kr-ease-loop) infinite;
 }
 
-/* ══ 鲸鱼娘立绘 ══════════════════════════════════════════════════════════
+/* ══ 任务动画（卡头立绘位，2026-10-26 换掉静态立绘）══════════════════════
 
-   位图分层（见 WhalePortrait.tsx）：整张立绘 + 单独一层尾鳍。
-   容器固定尺寸、内部舞台用 transform:scale() 缩放 —— 两层严格对位。 */
-.kr-whale {
+   素材：用户给的 9 个 GIF 转成的透明底 WebM（见 motion-clips.ts 与
+   src/motion/index.ts）。播放器在 SeekerStage.tsx。
+
+   两条硬约束（用户点名）：
+    1. **卡头盒子不动**。宽度沿用立绘那版的 92px，高度按素材比例放到 164px
+       —— 素材是 320x640（比原立绘更瘦长），按 164 高算出来正好 82 宽，
+       居中后左右各留 5px。不做裁剪、不拉伸、不改卡头其它元素的排布。
+    2. **背景羽化**（用户选了「2羽化」）。素材的白底是在 Node 里用边沿洪泛
+       抠掉的，轮廓边缘难免留一圈极淡的残影；羽化遮罩把最外一圈压到透明，
+       让它在深色卡片上没有硬边。
+
+   为什么用 mask 而不是再抠一次图：mask 是纯 CSS 的，不增加一个字节的素材，
+   而且改羽化范围只需改一行数字。 */
+.kr-stage {
   position: relative;
   flex: none;
-  /* 舞台缩到容器尺寸后会溢出，必须裁掉（否则会盖住卡片正文） */
+  /* 盒子：宽 92（与原立绘那版一致）、高 164（素材比例）。 */
+  width: 92px;
+  height: 164px;
+  /* 身后的柔光与视频都不该溢出到卡头其它元素上 */
   overflow: hidden;
-  /* 立绘底部自然收尖，给一点柔和的落地感 */
+  /* 落地感：与原来那张立绘同一套投影语言 */
   filter: drop-shadow(0 6px 14px rgba(60, 110, 170, .16));
   transition: filter var(--kr-dur-fade) var(--kr-ease-soft);
 }
 
-.kr-card:hover .kr-whale {
+.kr-card:hover .kr-stage {
   filter: drop-shadow(0 8px 18px rgba(60, 110, 170, .24));
 }
 
-.kr-whale__stage {
+/*
+ * 身后的柔光：素材是透明底的，直接贴在深色卡片上会显得「浮」。
+ * 一圈极淡的主色径向渐变把人物坐回卡片里 —— 它是羽化的另一半：
+ * mask 负责边缘渐隐，它负责让人物与背景之间有一层过渡色。
+ * 只动 opacity / 不参与布局，卡片 250ms 重渲染也不会掉帧。
+ */
+.kr-stage__glow {
   position: absolute;
+  /* 铺满舞台盒、纵向略高（人物是瘦长的）：用椭圆渐变而不是圆，贴得更准。 */
   left: 0;
-  top: 0;
-  transform-origin: 0 0;
-  will-change: transform;
-}
-
-.kr-whale__sway {
-  position: absolute;
-  inset: 0;
-  transform-origin: 50% 97%;
-  animation: kr-whale-sway 4.6s cubic-bezier(.42, 0, .58, 1) infinite;
-}
-
-@keyframes kr-whale-sway {
-  0%, 100% { transform: translateY(0) rotate(0); }
-  33%      { transform: translateY(-2.6px) rotate(-.4deg); }
-  70%      { transform: translateY(1.5px) rotate(.35deg); }
-}
-
-.kr-whale__body {
-  position: absolute;
-  left: 0;
-  top: 0;
+  top: 50%;
   width: 100%;
+  height: 132px;
+  margin-top: -66px;
+  background: radial-gradient(ellipse 50% 50% at 50% 50%, rgba(96, 165, 250, .14) 0%, rgba(96, 165, 250, .05) 52%, transparent 76%);
+  pointer-events: none;
+}
+
+/*
+ * 视频本体：9 个节点全在 DOM 里，只有当前那个 data-active。
+ *
+ * 高度铺满 164，宽度按 320/640 比例自动算出 82 —— 不做 object-fit: cover，
+ * 那是「填满盒子」的做法，会把人物裁掉左右。素材本来就完整，等比缩放即可。
+ * 水平居中靠 left:50% + translateX(-50%)，这样窄到 82 也仍然是居中。
+ */
+.kr-stage__clip {
+  position: absolute;
+  left: 50%;
+  top: 0;
   height: 100%;
+  width: auto;
+  max-width: none;
+  transform: translateX(-50%);
   display: block;
+  background: transparent;
   pointer-events: none;
   -webkit-user-select: none;
   user-select: none;
+  /* 未激活的一律不可见（而不是 display:none：那会让浏览器销毁解码器） */
+  opacity: 0;
+  transition: opacity 140ms var(--kr-ease-soft);
+  /*
+   * 羽化：只压最外一圈（上下 7%、左右 8%），人物主体一个像素都不碰。
+   * 两条 linear-gradient 用 mask-composite: intersect 相交，得到「四边渐隐、
+   * 中间完全不透明」的圆角矩形羽化。
+   */
+  -webkit-mask-image:
+    linear-gradient(to bottom, transparent 0%, #000 7%, #000 93%, transparent 100%),
+    linear-gradient(to right, transparent 0%, #000 8%, #000 92%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to bottom, transparent 0%, #000 7%, #000 93%, transparent 100%),
+    linear-gradient(to right, transparent 0%, #000 8%, #000 92%, transparent 100%);
+  mask-composite: intersect;
 }
 
-/* 尾鳍：绕根部（左上角）摇 —— 这张卡上唯一"活着"的大动作 */
-.kr-whale__tail {
-  position: absolute;
-  display: block;
-  pointer-events: none;
-  -webkit-user-select: none;
-  user-select: none;
-  transform-origin: 2% 3%;
-  animation: kr-whale-tail 2.7s cubic-bezier(.42, 0, .58, 1) infinite;
+.kr-stage__clip[data-active] {
+  opacity: 1;
+  /* 激活的那个压在其它之上，避免切换那一帧两个片段叠着闪 */
+  z-index: 1;
 }
 
-@keyframes kr-whale-tail {
-  0%   { transform: rotate(-7deg) translateY(1.2px); }
-  25%  { transform: rotate(1.2deg) translateY(-2.8px); }
-  50%  { transform: rotate(7.5deg) translateY(0); }
-  75%  { transform: rotate(-.6deg) translateY(2.4px); }
-  100% { transform: rotate(-7deg) translateY(1.2px); }
-}
-
-/* 头顶冒泡：纯 CSS，不占素材体积 */
-.kr-whale__bubbles {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.kr-whale__bubbles i {
-  position: absolute;
-  border-radius: 50%;
-  background: radial-gradient(circle at 32% 28%, #fff, rgba(150, 210, 245, .55));
-  border: .5px solid rgba(110, 185, 230, .5);
-  animation: kr-whale-bubble 4s ease-in-out infinite;
-}
-
-@keyframes kr-whale-bubble {
-  0%   { opacity: 0; transform: translateY(8px) scale(.4); }
-  22%  { opacity: .9; }
-  70%  { opacity: .7; }
-  100% { opacity: 0; transform: translateY(-26px) scale(1.05); }
-}
-
-/* 关动效：宿主或调用方显式关掉（截图、reduced-motion） */
-.kr-whale[data-motion="off"] .kr-whale__sway,
-.kr-whale[data-motion="off"] .kr-whale__tail,
-.kr-whale[data-motion="off"] .kr-whale__bubbles i {
-  animation: none;
+/*
+ * 关动效（调用方传 motion=false，见 motion-utils 的 useMotionAllowed）：
+ * 播放/暂停由 SeekerStage 的 JS 负责，这里只保证**静止画面**不抖 ——
+ * 关掉过渡，切片段时直接换图，不带淡入。
+ */
+.kr-stage[data-motion="off"] .kr-stage__clip {
+  transition: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .kr-whale__sway,
-  .kr-whale__tail,
-  .kr-whale__bubbles i {
-    animation: none;
+  .kr-stage__clip {
+    transition: none;
   }
 }
 
