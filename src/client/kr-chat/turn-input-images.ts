@@ -116,20 +116,105 @@ function collectTurnUserNodes(snapshot: any, turn: number): any[] {
 }
 
 /**
+ * 快照里**最新的一条**用户输入节点（user / steering，按 anchorSeq / seq 取最大）。
+ *
+ * @param snapshot - 官方 chat 快照。
+ * @returns 最新用户输入节点；没有则 null。
+ */
+function collectLatestUserNode(snapshot: any): any | null {
+  if (snapshot === null || snapshot === undefined) return null
+  const seqOf = (node: any): number => {
+    const candidates = [node?.anchorSeq, node?.data?.seq, node?.payload?.seq, node?.seq]
+    for (const value of candidates) if (typeof value === 'number') return value
+    return -1
+  }
+  const scan = (iterable: Iterable<any> | null | undefined): any | null => {
+    let best: any | null = null
+    let bestSeq = -1
+    if (iterable === null || iterable === undefined) return null
+    for (const node of iterable) {
+      if (node === undefined || node === null) continue
+      // steering（用户在一轮中途追发的消息）也承载用户输入，图可能从那儿来。
+      if (node.kind !== 'user' && node.kind !== 'steering') continue
+      const seq = seqOf(node)
+      if (seq >= bestSeq) {
+        bestSeq = seq
+        best = node
+      }
+    }
+    return best
+  }
+  try {
+    if (typeof snapshot?.nodes?.values === 'function') {
+      const found = scan(snapshot.nodes.values())
+      if (found !== null) return found
+    }
+  } catch { /* 快照形状不认识：走 order */ }
+  try {
+    if (Array.isArray(snapshot?.order)) {
+      const nodes: any[] = []
+      for (const key of snapshot.order) {
+        const node = snapshot?.nodes?.get?.(key)
+        if (node !== undefined && node !== null) nodes.push(node)
+      }
+      return scan(nodes)
+    }
+  } catch { /* 同上 */ }
+  return null
+}
+
+/**
  * 本轮用户输入里带了几张图片。
  *
  * @param snapshot - 官方 chat 快照。
  * @param turn - 本轮轮次号。
+ * @param options - `latest: true` 表示调用方正在看**最新一轮**（而不是翻历史轮次），
+ *   只在这种情况才允许"最新一条用户消息"兜底 —— 翻历史时若用最新消息兜底，
+ *   会把"上一轮发的图"错算成"这一轮的图"，卡头就会在纯文字的历史轮次上演看图。
  * @returns 图片数量（0 = 没带图）。
  */
-export function turnInputImageCount(snapshot: any, turn: number): number {
-  let total = 0
-  for (const node of collectTurnUserNodes(snapshot, turn)) {
-    // 节点自身就是 user 消息：payload / data 两处都可能放 content。
-    const payload = node?.payload ?? node?.data ?? node
-    total += countImages(payload?.content)
+export function turnInputImageCount(
+  snapshot: any,
+  turn: number,
+  options?: { readonly latest?: boolean },
+): number {
+  const counted = (nodes: readonly any[]): number => {
+    let total = 0
+    for (const node of nodes) {
+      /*
+       * content 三处都可能挂：`data`（官方 chatNode 的渲染负载 —— 实证见
+       * dsh-client-ui-chat 的 messageDefinition：`content: event.data.content`
+       * 被原样塞进 `data`）、`payload`（历史投影）、节点自身（扁平形状）。
+       *
+       * 三处**分别数**而不是 `??` 择一：官方节点只有 `data`，而某些投影会同时
+       * 挂一个不含 content 的 `payload`；择一会在那种形状下漏判，等于整个动画
+       * 都不演（正是这次要修的 bug 的同类）。
+       */
+      const data = node?.data
+      const payload = node?.payload
+      const own = node?.content
+      total += countImages(data?.content)
+      if (payload !== data) total += countImages(payload?.content)
+      if (own !== data?.content && own !== payload?.content) total += countImages(own)
+    }
+    return total
   }
-  return total
+
+  const thisTurn = counted(collectTurnUserNodes(snapshot, turn))
+  if (thisTurn > 0) return thisTurn
+  if (options?.latest !== true) return 0
+  /*
+   * 兜底（仅限最新一轮）：按轮次没数到图时，再看**最新一条用户消息**。
+   *
+   * 用户刚把图发出去的那一刻，快照的 navigation 往往还没把 turn 号推进到新一轮，
+   * 于是 `turn` 参数还停在上一轮 —— 按轮次过滤必然数不到。而此刻"最新一条
+   * 用户消息"正是用户刚发的那条，语义上等价于"本轮输入"。
+   *
+   * 不会误报上一轮的图：用户若在本轮只发了文字，最新用户消息就是这条纯文字，
+   * 数出来仍是 0；翻历史轮次时压根不走这条路（见 options.latest）。
+   */
+  const latest = collectLatestUserNode(snapshot)
+  return latest === null ? 0 : counted([latest])
 }
 
 /**
@@ -146,7 +231,7 @@ export function shouldPlayPhotoStage(input: {
   readonly toolNames: readonly string[]
 }): boolean {
   try {
-    if (turnInputImageCount(input.snapshot, input.turn) > 0) return true
+    if (turnInputImageCount(input.snapshot, input.turn, { latest: true }) > 0) return true
   } catch { /* 快照形状异常：退回工具名判据 */ }
   for (const name of input.toolNames) {
     if (IMAGE_READ_TOOLS.has(name)) return true

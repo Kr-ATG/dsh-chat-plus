@@ -1932,6 +1932,25 @@ if (krEnabled) {
        * 只改文案不改 inputImages，卡头就会出现「写着查看照片中、演着思考中」。
        */
       fail('卡头必须按本轮输入里的图片块切「查看照片中」（turnInputImageCount → inputImageCount → inputImages）')
+    } else if (!/total \+= countImages\(data\?\.content\)/.test(turnImgSrc)
+      || !/countImages\(payload\?\.content\)/.test(turnImgSrc)
+      || !/options\?\.latest !== true/.test(turnImgSrc)
+      || !/latest: !isViewingHistory/.test(readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8'))) {
+      /*
+       * 判据的**取数部位**必须钉住（2026-10-26 二次加固）。
+       *
+       * 官方 chatNode 把 user/message 的 content 原样塞进 `data`（实证见
+       * dsh-client-ui-chat 的 messageDefinition：`content: event.data.content`），
+       * 历史投影才用 `payload`。此前只读 `payload ?? data ?? node` 择一，一旦
+       * 投影同时挂了个不含 content 的 payload，就整段判据失效 —— 表现正好是用户
+       * 报的「发图却没有查看图片的动作」，而且不报错、极难查。所以三处**分别累加**。
+       *
+       * `latest` 那条是「刚发出去、轮次号还没推进」的兜底，必须**只在看最新一轮**
+       * 时启用：翻历史时用最新消息兜底，会把别的轮次的图算进来，纯文字的旧轮次
+       * 就会莫名演「查看照片中」。
+       */
+      fail('图片判据必须同时从 data.content / payload.content 取数（写死一处会静默失效），'
+        + '且「最新用户消息」兜底只在看最新一轮时启用（latest: !isViewingHistory）')
     } else if (!/\| 'viewing'/.test(stageModeSrc)
       || !/if \(input\.empty\) return 'viewing'/.test(stageModeSrc)
       || stageModeSrc.indexOf("return 'viewing'") > stageModeSrc.indexOf("return 'thinking'")) {

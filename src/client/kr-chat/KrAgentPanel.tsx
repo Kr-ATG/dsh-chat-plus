@@ -256,14 +256,20 @@ export const KrAgentPanel = memo(function KrAgentPanel({
    *
    * 与 turnData 同一套引用稳定化：这个 memo 每 250ms 会被重算，而它返回的是
    * **数字**，天然是稳定值，不需要再包缓存。这里只保护「快照形状异常不抛」。
+   *
+   * `latest` 只在**没翻历史**时为真（2026-10-26）：用户刚发图的那一瞬间，
+   * navigation 可能还没把轮次推到新一轮，此时按轮次过滤数不到图，需要退到
+   * "最新一条用户消息"。翻历史时不能这么兜底，否则会把别的轮次的图算进来。
    */
   const inputImageCount = useMemo(() => {
     try {
-      return turnInputImageCount(getCurrentChatSnapshot(), displayTurn)
+      return turnInputImageCount(getCurrentChatSnapshot(), displayTurn, {
+        latest: !isViewingHistory,
+      })
     } catch {
       return 0
     }
-  }, [displayTurn, actTick, snapTick])
+  }, [displayTurn, actTick, snapTick, isViewingHistory])
 
   const now = useNow(isTurnRunning && !isViewingHistory)
 
