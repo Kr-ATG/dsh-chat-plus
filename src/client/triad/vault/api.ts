@@ -45,6 +45,13 @@ import {
   type VaultScene,
   type VaultStats,
 } from '../../../triad/vault/types.js'
+import {
+  DEFAULT_VAULT_SYNC,
+  parseGithubRepo,
+  type VaultSyncPatch,
+  type VaultSyncPublic,
+  type VaultSyncRun,
+} from '../../../triad/vault/sync-types.js'
 
 /** 路由前缀（宿主半身按此前缀挂路由）。 */
 export const VAULT_API_BASE = '/api/dsh-vault'
@@ -625,6 +632,108 @@ export async function restoreVaultBackup(password: string, packageText: string):
     replaced: result.replaced === true,
     ...(typeof result.createdAt === 'string' && result.createdAt !== '' ? { createdAt: result.createdAt } : {}),
   }
+}
+
+/* ───────────────────────── 云端同步（GitHub 私库）───────────────────────── */
+
+/**
+ * 读同步状态。
+ *
+ * 返回的 VaultSyncPublic 里**没有令牌与口令明文**（宿主只回后四位与「有没有」）。
+ * 这条纪律在类型上就写死了：前端拿不到能直接用的凭据，也就没有「顺手把它渲染
+ * 出来」的机会。
+ */
+export async function getVaultSync(): Promise<VaultSyncPublic> {
+  const response = await request<{ ok: boolean; sync: VaultSyncPublic }>('/sync')
+  return normalizeSync(response.sync)
+}
+
+/** 保存同步设置（仓库地址 / 令牌 / 口令 / 开关 / 间隔）。 */
+export async function saveVaultSync(patch: VaultSyncPatch): Promise<VaultSyncPublic> {
+  const response = await request<{ ok: boolean; sync: VaultSyncPublic }>('/sync', patch)
+  return normalizeSync(response.sync)
+}
+
+/**
+ * 立即同步一次。
+ *
+ * **同步失败不是抛错**：宿主把失败原因放在 run.error 里（中文一句话），页面
+ * 据此显示在状态行上。抛错只用于「请求本身没送达」——那两种情况的处置完全
+ * 不同（一个去改仓库配置，一个去重启 DSH）。
+ */
+export async function syncVaultNow(): Promise<{ run: VaultSyncRun; sync: VaultSyncPublic }> {
+  const response = await request<{ ok: boolean; run: VaultSyncRun; sync: VaultSyncPublic }>('/sync-now')
+  if (response.run === undefined || response.run === null) throw new Error('档案服务没有返回同步结果')
+  return { run: response.run, sync: normalizeSync(response.sync) }
+}
+
+/** 只校验仓库（是否可达、是否私有），不上传。 */
+export async function verifyVaultSyncRepo(): Promise<{
+  probe: { private: boolean; branch: string; repo: string; tokenSource: string }
+  sync: VaultSyncPublic
+}> {
+  const response = await request<{
+    ok: boolean
+    probe: { private: boolean; branch: string; repo: string; tokenSource: string }
+    sync: VaultSyncPublic
+  }>('/sync-verify')
+  if (response.probe === undefined || response.probe === null) throw new Error('档案服务没有返回仓库校验结果')
+  return { probe: response.probe, sync: normalizeSync(response.sync) }
+}
+
+/**
+ * 规范化同步状态（版本错位窗口的防御）。
+ *
+ * 与 normalizeRecord 同一个理由：client 刷新即生效、host 要重启 DSH 才换，
+ * 这段窗口里旧 host 可能根本没有 /sync 路由（请求会以 503 + 中文错误失败），
+ * 也可能回了缺字段的对象。缺什么补什么，页面就不会在 undefined 上崩。
+ */
+function normalizeSync(raw: VaultSyncPublic | undefined): VaultSyncPublic {
+  const fallback = DEFAULT_VAULT_SYNC
+  if (raw === undefined || raw === null) {
+    throw new Error('档案服务没有返回同步状态')
+  }
+  return {
+    repo: typeof raw.repo === 'string' ? raw.repo : '',
+    repoInput: typeof raw.repoInput === 'string' ? raw.repoInput : '',
+    repoValid: raw.repoValid === true,
+    repoUrl: typeof raw.repoUrl === 'string' ? raw.repoUrl : '',
+    tokenSet: raw.tokenSet === true,
+    tokenTail: typeof raw.tokenTail === 'string' ? raw.tokenTail : '',
+    tokenSource: raw.tokenSource === 'gh' || raw.tokenSource === 'stored' ? raw.tokenSource : 'none',
+    passphraseSet: raw.passphraseSet === true,
+    enabled: raw.enabled !== false,
+    everyHours: Number.isFinite(raw.everyHours) ? raw.everyHours : fallback.everyHours,
+    includePhotos: raw.includePhotos === true,
+    lastAt: typeof raw.lastAt === 'string' ? raw.lastAt : '',
+    lastStatus: raw.lastStatus === 'ok' || raw.lastStatus === 'error' ? raw.lastStatus : 'never',
+    lastError: typeof raw.lastError === 'string' ? raw.lastError : '',
+    lastBytes: Number.isFinite(raw.lastBytes) ? raw.lastBytes : 0,
+    lastSha: typeof raw.lastSha === 'string' ? raw.lastSha : '',
+    lastCommit: typeof raw.lastCommit === 'string' ? raw.lastCommit : '',
+    running: raw.running === true,
+    nextAt: typeof raw.nextAt === 'string' ? raw.nextAt : '',
+    repoPrivate: raw.repoPrivate === true ? true : raw.repoPrivate === false ? false : 'unknown',
+    repoReachable: raw.repoReachable === true ? true : raw.repoReachable === false ? false : 'unknown',
+    needsSetup: raw.needsSetup === true,
+    suggestedRepo: typeof raw.suggestedRepo === 'string' ? raw.suggestedRepo : '',
+    history: (Array.isArray(raw.history) ? raw.history : [])
+      .filter((item) => item !== null && typeof item === 'object'),
+  }
+}
+
+/** 前端预校验：地址能不能解析成 owner/repo（与宿主同一个函数，口径不会漂）。 */
+export function describeGithubRepo(input: string): { valid: boolean; fullName: string; url: string; hint: string } {
+  const parsed = parseGithubRepo(input)
+  if (parsed === null) {
+    return {
+      valid: false,
+      fullName: '',
+      url: '',
+      hint: input.trim() === '' ? '' : '看不懂这个地址：形如 https://github.com/用户名/仓库名，或直接写 用户名/仓库名',
+    }
+  }
+  return { valid: true, fullName: parsed.fullName, url: parsed.htmlUrl, hint: '' }
 }
 
 /**

@@ -323,6 +323,24 @@ export function ClockIcon({ size = 13, className }: VaultIconProps): JSX.Element
   )
 }
 
+/**
+ * 云（云端备份 / GitHub 私库自动上传）。
+ *
+ * 为什么是云而不是 GitHub 的章鱼猫：这个功能对用户的意义是「传到别人看不见的
+ * 地方去」，仓库服务只是实现手段（将来换 GitLab 也不该换图标）。而且 GitHub
+ * 官方 mark 的授权条款对「用作品牌标识」有额外要求，用通用云朵更省心。
+ */
+export function CloudIcon({ size = 14, className }: VaultIconProps): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} className={className} fill="none"
+      stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M7.5 18.5h9.2a3.8 3.8 0 0 0 .5-7.57 5.5 5.5 0 0 0-10.62-1.3A3.9 3.9 0 0 0 7.5 18.5Z" />
+      <path d="M12 14.6V9.6" />
+      <path d="M9.9 11.7 12 9.6l2.1 2.1" />
+    </svg>
+  )
+}
+
 /** 复制到剪贴板。 */
 export function CopyIcon({ size = 13, className }: VaultIconProps): JSX.Element {
   return (

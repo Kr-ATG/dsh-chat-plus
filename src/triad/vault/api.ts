@@ -30,6 +30,8 @@ import { VaultCipher } from './crypto.js'
 import { auditVault } from './health.js'
 import { generatePassword } from './passgen.js'
 import type { VaultStore } from './store.js'
+import type { VaultSync } from './sync.js'
+import type { VaultSyncPatch } from './sync-types.js'
 import { generateTotp, parseTotpSecret } from './totp.js'
 import {
   DEFAULT_VAULT_CONFIG,
@@ -74,13 +76,24 @@ const SHA_PATTERN = /^[a-f0-9]{64}$/
 
 /* ───────────────────────── 挂载 ───────────────────────── */
 
-/** 挂载全部路由（返回 disposer，交给 ctx.effect）。 */
-export function mountVaultRoutes(ctx: Context, store: VaultStore, config: VaultConfig): () => void {
+/**
+ * 挂载全部路由（返回 disposer，交给 ctx.effect）。
+ *
+ * sync 可缺省：云端同步引擎是档案模块的**可选件**（构造它需要 cipher，而
+ * cipher 在某些降级环境里是 null）。缺省时 /sync* 一律回 503，页面据此显示
+ * 「云端备份不可用」——而不是让整个档案面板挂掉。
+ */
+export function mountVaultRoutes(
+  ctx: Context,
+  store: VaultStore,
+  config: VaultConfig,
+  sync: VaultSync | null = null,
+): () => void {
   return ctx.webServer.register({
     kind: 'prefix',
     path: ROUTE_PREFIX,
     handler: (req, res) => {
-      void handle(ctx, store, config, req, res)
+      void handle(ctx, store, config, sync, req, res)
     },
   })
 }
@@ -91,6 +104,7 @@ async function handle(
   ctx: Context,
   store: VaultStore,
   config: VaultConfig,
+  sync: VaultSync | null,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
@@ -283,6 +297,50 @@ async function handle(
       await handleRotate(store, req, res)
       return
     }
+    // ── 云端同步（GitHub 私库自动上传）──────────────────────────────
+    //
+    // 这组路由是**唯一会主动向外部发请求**的地方，因此三条纪律比别处更硬：
+    //   · 令牌与口令只进不出（GET /sync 只回后四位与「有没有」）；
+    //   · 保存令牌/口令走 POST /sync，明文只在请求体里经过一次，落盘即密文；
+    //   · 上传目标必须是私有仓库（引擎内部硬校验，不靠前端）。
+    if (rest === '/sync' && method === 'GET') {
+      if (sync === null) { json(res, 503, { ok: false, error: '云端备份不可用：本机加密密钥未就绪' }); return }
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(JSON.stringify({ ok: true, sync: await sync.publicView() }))
+      return
+    }
+    if (rest === '/sync' && method === 'POST') {
+      if (sync === null) { json(res, 503, { ok: false, error: '云端备份不可用：本机加密密钥未就绪' }); return }
+      const body = await readBody(req)
+      if (body === null) { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return }
+      try {
+        json(res, 200, { ok: true, sync: await sync.save(body as VaultSyncPatch) })
+      } catch (error) {
+        // 校验失败（地址解析不了 / 口令太短 / 令牌形状不对）是**用户输入问题**，
+        // 回 400 而不是 500：页面据此把提示挂在输入框旁边。
+        json(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+      }
+      return
+    }
+    if (rest === '/sync-now' && method === 'POST') {
+      if (sync === null) { json(res, 503, { ok: false, error: '云端备份不可用：本机加密密钥未就绪' }); return }
+      const run = await sync.runNow('manual')
+      // 同步失败**不是 HTTP 错误**：请求本身成功处理了，结果在 run.status 里。
+      // 这样页面能拿到完整的 run（含中文原因）而不必解析 5xx 的响应体。
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(JSON.stringify({ ok: true, run, sync: await sync.publicView() }))
+      return
+    }
+    if (rest === '/sync-verify' && method === 'POST') {
+      if (sync === null) { json(res, 503, { ok: false, error: '云端备份不可用：本机加密密钥未就绪' }); return }
+      try {
+        json(res, 200, { ok: true, probe: await sync.verify(), sync: await sync.publicView() })
+      } catch (error) {
+        json(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+      }
+      return
+    }
+
     // ── 强口令生成（服务端 crypto.randomInt，绝不用 Math.random）────
     if (method === 'POST' && rest === '/password') {
       const body = await readBody(req)

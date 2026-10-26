@@ -35,6 +35,10 @@ const ENGINE_SOURCES = [
   ['store', 'store.ts'],
   ['crypto', 'crypto.ts'],
   ['types', 'types.ts'],
+  /* sync.ts 一起打：路由层要测 /sync*，而它要一个真的 VaultSync 实例。
+   * 用假的会让「保存设置时加密落盘」这条最关键的纪律逃出测试范围。 */
+  ['sync', 'sync.ts'],
+  ['sync-types', 'sync-types.ts'],
 ]
 await build({
   entryPoints: ENGINE_SOURCES.map(([, file]) => resolve(ROOT, 'src/triad/vault', file)),
@@ -50,7 +54,9 @@ const api = await import(pathToFileURL(join(OUT_DIR, 'api.mjs')).href)
 const storeModule = await import(pathToFileURL(join(OUT_DIR, 'store.mjs')).href)
 const types = await import(pathToFileURL(join(OUT_DIR, 'types.mjs')).href)
 const VaultCipher = (await import(pathToFileURL(join(OUT_DIR, 'crypto.mjs')).href)).VaultCipher
+const syncModule = await import(pathToFileURL(join(OUT_DIR, 'sync.mjs')).href)
 const VaultStore = storeModule.VaultStore
+const VaultSync = syncModule.VaultSync
 const DEFAULT_VAULT_CONFIG = types.DEFAULT_VAULT_CONFIG
 const { mountVaultRoutes } = api
 
@@ -69,7 +75,8 @@ const fakeCtx = {
   logger: { warn: () => {}, info: () => {}, debug: () => {} },
 }
 const config = { ...DEFAULT_VAULT_CONFIG }
-mountVaultRoutes(fakeCtx, store, config)
+const vaultSync = new VaultSync(store, cipher, { info: () => {}, warn: () => {}, debug: () => {} })
+mountVaultRoutes(fakeCtx, store, config, vaultSync)
 assert(typeof handler === 'function', 'mountVaultRoutes registers a handler')
 
 const server = createServer((req, res) => handler(req, res))
@@ -252,6 +259,85 @@ const rotatedStay = await call('/reveal', { method: 'POST', body: { id: rotateA,
 assert(rotatedStay.json.value === rot.json.rotated.find((i) => i.id === rotateA).password, 'the rotated password is the one actually stored')
 const noIds = await call('/rotate', { method: 'POST', body: {} })
 assert(noIds.status === 400, 'rotate without ids is refused')
+// ── 云端同步路由（/sync 系列）───────────────────────────────────────────
+/* 这一组路由是**唯一会主动向插件外部发请求**的地方，所以除了「通不通」，还要
+ * 验三件在真实使用里会出事的东西：
+ *   1. 响应里绝不能出现令牌 / 口令明文（它是页面能拿到的东西）；
+ *   2. 地址解析失败要回 400（用户输入问题），而不是 500（看起来像插件坏了）；
+ *   3. 同步失败要以 200 + run.status='error' 回，页面才拿得到中文原因。 */
+const emptySync = await call('/sync')
+assert(emptySync.status === 200 && emptySync.json.ok === true, 'GET /sync answers ok')
+assert(emptySync.json.sync.needsSetup === true, 'a fresh install reports needsSetup=true (so the UI can prompt)')
+assert((emptySync.headers.get('cache-control') ?? '') === 'no-store', 'the sync status is never cached')
+
+const SYNC_TOKEN = 'ghp_' + 'Zz9Yy8Xx7Ww6Vv5Uu4Tt3Ss2Rr1Qq0Pp9Oo8'
+const SYNC_PASS = ['route', 'smoke', 'B2'].join('-')
+const savedSync = await call('/sync', {
+  method: 'POST',
+  body: { repo: 'https://github.com/kr-route-test/vault-db', token: SYNC_TOKEN, passphrase: SYNC_PASS },
+})
+assert(savedSync.status === 200 && savedSync.json.ok === true, 'POST /sync saves the settings')
+assert(savedSync.json.sync.repo === 'kr-route-test/vault-db', 'the repo is normalized to owner/repo')
+assert(savedSync.json.sync.needsSetup === false, 'fully configured => needsSetup=false')
+const syncText = JSON.stringify(savedSync.json)
+assert(!syncText.includes(SYNC_TOKEN), 'the save response never carries the token')
+assert(!syncText.includes(SYNC_PASS), 'the save response never carries the passphrase')
+assert(savedSync.json.sync.tokenTail === SYNC_TOKEN.slice(-4), 'only the token tail is exposed')
+
+const badRepo = await call('/sync', { method: 'POST', body: { repo: 'https://gitlab.com/a/b' } })
+assert(badRepo.status === 400 && badRepo.json.ok === false, 'a non-github repo is refused with 400 (user input, not a server bug)')
+assert(typeof badRepo.json.error === 'string' && badRepo.json.error.includes('GitHub'), 'the 400 carries a readable reason')
+
+const badPass = await call('/sync', { method: 'POST', body: { passphrase: 'short' } })
+assert(badPass.status === 400, 'a too-short passphrase is refused with 400')
+
+/* 同步到不可达的仓库：请求本身成功（200），失败写在 run 里。
+ * 这样页面能显示 host 给的中文原因，而不必解析 5xx 的响应体。 */
+const failedRun = await call('/sync-now', { method: 'POST', body: {} })
+assert(failedRun.status === 200 && failedRun.json.ok === true, '/sync-now answers 200 even when the sync fails')
+assert(failedRun.json.run.status === 'error', 'the failed run is reported in run.status')
+assert(typeof failedRun.json.run.error === 'string' && failedRun.json.run.error.length > 0, 'the failed run carries a reason')
+assert((failedRun.headers.get('cache-control') ?? '') === 'no-store', 'the sync result is never cached')
+const afterFailed = await call('/sync')
+assert(afterFailed.json.sync.lastStatus === 'error', 'the failure is persisted for the next page load')
+
+const badVerify = await call('/sync-verify', { method: 'POST', body: {} })
+assert(badVerify.status === 400 && badVerify.json.ok === false, '/sync-verify reports an unreachable repo as 400')
+
+/*
+ * 清除令牌：存着的令牌必须消失。
+ *
+ * ⚠ 这里**不能断言 tokenSource==='none'**：清掉用户填的令牌后，引擎会按设计
+ * 回退到本机 gh 登录态（这台机器装了 gh 且已登录，所以会变成 'gh'）。那正是
+ * 「少一步配置」的预期行为，不是 bug——写死 'none' 的断言在开发机上必挂，
+ * 在没装 gh 的 CI 上才会过，属于那种"换台机器就翻"的假测试。
+ * 要验的是「存的那一份没了」，所以断言 tokenSource 不再是 'stored'。
+ */
+const cleared = await call('/sync', { method: 'POST', body: { token: '' } })
+assert(cleared.status === 200, 'clearing the token succeeds')
+assert(cleared.json.sync.tokenSource !== 'stored', 'the stored token is really gone (falls back to gh or none)')
+
+// 没有 sync 实例时（降级环境：cipher 不可用）必须 503 而不是崩。
+const degradedHandler = (() => {
+  let captured = null
+  mountVaultRoutes({
+    webServer: { register: (route) => { captured = route.handler; return () => { captured = null } } },
+    logger: { warn: () => {}, info: () => {}, debug: () => {} },
+  }, store, config, null)
+  return captured
+})()
+const degraded = await new Promise((ok) => {
+  const server2 = createServer((req, res) => degradedHandler(req, res))
+  server2.listen(0, '127.0.0.1', () => {
+    fetch('http://127.0.0.1:' + String(server2.address().port) + '/api/dsh-vault/sync')
+      .then(async (response) => ok({ status: response.status, json: await response.json() }))
+      .catch(() => ok({ status: 0, json: null }))
+      .finally(() => server2.close())
+  })
+})
+assert(degraded.status === 503, 'without a sync engine the route answers 503 (not a crash)')
+assert(degraded.json !== null && degraded.json.ok === false, 'the 503 body is a normal { ok:false, error }')
+
 // ── 收尾 ────────────────────────────────────────────────────────────────
 await store.flush()
 await new Promise((ok) => server.close(ok))

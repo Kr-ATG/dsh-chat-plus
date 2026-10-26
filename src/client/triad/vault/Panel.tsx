@@ -40,10 +40,13 @@ import type {
   VaultStats,
 } from '../../../triad/vault/types.js'
 import type { VaultHealthReport, VaultRestoreResult } from './api.js'
+import type { VaultSyncPublic } from '../../../triad/vault/sync-types.js'
 import {
   deleteVaultScene,
   fetchVaultHealth,
   formatVaultBytes,
+  formatVaultStamp,
+  getVaultSync,
   listVault,
   maintainVault,
   readVaultScene,
@@ -57,6 +60,7 @@ import { css, ensureVaultStyles } from './styles.js'
 import {
   AlertIcon,
   ChevronRightIcon,
+  CloudIcon,
   CloseIcon,
   EmptyIcon,
   ExternalIcon,
@@ -71,6 +75,7 @@ import {
 import { VaultDetailDrawer } from './DetailDrawer.js'
 import { VaultHealthDrawer, pendingIssueCount, worstSeverityOf } from './HealthDrawer.js'
 import { VaultBackupPanel } from './BackupPanel.js'
+import { VaultSyncPanel } from './SyncPanel.js'
 import { VaultModal } from './Shell.js'
 import { PopoverShell, PshBody } from '../popover-shell.js'
 
@@ -172,6 +177,15 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
   const [health, setHealth] = useState<VaultHealthReport | null>(null)
   const [healthOpen, setHealthOpen] = useState<boolean>(false)
   const [backupOpen, setBackupOpen] = useState<boolean>(false)
+  /**
+   * 云端备份（GitHub 私库）那一屏。
+   *
+   * 与备份/健康**互斥**（同一个 VaultModal 槽位），但数据流不同：这里的状态
+   * 还要驱动页面顶部那条「还没配置好」的提示，所以同步状态挂在父级而不是面板
+   * 内部——否则关掉弹窗就看不到「还没配置」这条提醒了。
+   */
+  const [syncOpen, setSyncOpen] = useState<boolean>(false)
+  const [syncState, setSyncState] = useState<VaultSyncPublic | null>(null)
 
   /** 拉全量（首屏与「刷新 / 重试」共用一条路径）。 */
   const refresh = useCallback(async (): Promise<void> => {
@@ -223,6 +237,24 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
 
   useEffect(() => { void loadHealth() }, [loadHealth])
 
+  /**
+   * 读云端备份状态（首屏与「配置变化后」共用）。
+   *
+   * 失败**静默**：旧版 host 根本没有 /sync 路由（client 刷新即生效、host 要重启
+   * DSH），那时请求会 503。让整个档案页显示一条红字「云端备份不可用」，会把
+   * 一个可选功能的问题放大成主功能故障。所以这里失败只是让提示条不出现，
+   * 用户点进「云端备份」时会在面板里看到具体原因。
+   */
+  const loadSync = useCallback(async (): Promise<void> => {
+    try {
+      setSyncState(await getVaultSync())
+    } catch {
+      setSyncState(null)
+    }
+  }, [])
+
+  useEffect(() => { void loadSync() }, [loadSync])
+
   // 侧栏场景意图：页面已挂载时原地切换（写的是同一把 localStorage 键，
   // 所以「侧栏点击 → 页面切换」与「重开页面回到上次场景」共用一条状态）。
   useEffect(() => subscribeVaultScene((sceneId) => {
@@ -236,6 +268,10 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
       if (event.key !== 'Escape') return
       // 顺序＝层叠顺序：最上面那层先关，一次 Esc 只关一层（否则「按一下
       // 全关掉」会让用户找不回刚才看的位置）。
+      if (syncOpen) {
+        setSyncOpen(false)
+        return
+      }
       if (backupOpen) {
         setBackupOpen(false)
         return
@@ -252,7 +288,7 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
     }
     window.addEventListener('keydown', onKey)
     return () => { window.removeEventListener('keydown', onKey) }
-  }, [openId, creatingScene, healthOpen, backupOpen])
+  }, [openId, creatingScene, healthOpen, backupOpen, syncOpen])
 
   // flash 自动消失（定时器随文本变化重置）。
   useEffect(() => {
@@ -450,6 +486,26 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
       ? '密码健康：没发现问题'
       : '密码健康：有 ' + String(healthCount) + ' 项待处理'
 
+  /* ── 云端备份入口的展示值 ──
+   * 三态：读不到（null，旧 host / 403）/ 已就绪 / 还缺东西。缺东西时按钮上挂
+   * 一个感叹号角标，并在页面顶部出一条常显提示——用户明确要求「以后别人用这个
+   * 插件时都会提示他填 GitHub 地址」，所以这条提示不能藏在弹窗里。 */
+  const syncNeedsSetup = syncState !== null && syncState.needsSetup
+  const syncTone = syncState === null
+    ? 'low'
+    : syncState.lastStatus === 'error'
+      ? 'bad'
+      : syncNeedsSetup
+        ? 'warn'
+        : 'good'
+  const syncTitle = syncState === null
+    ? '云端备份（把加密档案包定时上传到 GitHub 私有仓库）'
+    : syncNeedsSetup
+      ? '云端备份还没配置好：点开填一个 GitHub 私有仓库地址'
+      : syncState.lastStatus === 'ok'
+        ? '云端备份正常：上次 ' + formatVaultStamp(syncState.lastAt)
+        : '云端备份（把加密档案包定时上传到 GitHub 私有仓库）'
+
   const shell = (children: JSX.Element): JSX.Element => (
     embedded
       ? <div className={css.root}>{children}</div>
@@ -477,7 +533,7 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
             data-tone={healthTone}
             title={healthTitle}
             aria-label={healthTitle}
-            onClick={() => { setBackupOpen(false); setHealthOpen(true) }}
+            onClick={() => { setBackupOpen(false); setSyncOpen(false); setHealthOpen(true) }}
           >
             <ShieldIcon size={13} />
             {healthLabel}
@@ -488,8 +544,18 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
           <button
             type="button"
             className={css.ghostBtn}
+            title={syncTitle}
+            data-tone={syncTone}
+            onClick={() => { setHealthOpen(false); setBackupOpen(false); setSyncOpen(true); void loadSync() }}
+          >
+            <CloudIcon size={13} /> 云端
+            {syncNeedsSetup && <span className={css.healthBadge}>!</span>}
+          </button>
+          <button
+            type="button"
+            className={css.ghostBtn}
             title="备份密钥与恢复（换机器时用）"
-            onClick={() => { setHealthOpen(false); setBackupOpen(true) }}
+            onClick={() => { setHealthOpen(false); setSyncOpen(false); setBackupOpen(true) }}
           >
             <KeyIcon size={13} /> 备份
           </button>
@@ -583,6 +649,30 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
       )}
 
       {flash !== '' && <div className={css.notice}>{flash}</div>}
+
+      {/*
+        「还没配 GitHub 私库」的常显提示条。
+        用户明确要求：以后别人用这个插件时都要提示他填这个地址。所以它不是弹窗、
+        不是一次性 toast，而是配好之前一直在的一条。点「去配置」直接开那一屏。
+        配好之后立刻消失（判据是 host 回算的 needsSetup，前端不自己再推一遍）。
+      */}
+      {syncNeedsSetup && (
+        <div className={css.notice} data-tone="warn">
+          <span style={{ display: 'inline-flex', flex: 'none', marginTop: 1 }}><CloudIcon size={13} /></span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            档案还没有云端备份：填一个<b>你自己的</b> GitHub <b>私有</b>仓库地址，之后每
+            {' '}{String(syncState?.everyHours ?? 5)} 小时自动传一份加密备份上去（换机器、重装系统后靠它恢复）。
+          </span>
+          <button
+            type="button"
+            className={css.ghostBtn}
+            style={{ height: 24, flex: 'none' }}
+            onClick={() => { void loadSync(); setSyncOpen(true) }}
+          >
+            去配置
+          </button>
+        </div>
+      )}
 
       {filteredScene !== null && (
         <div className={css.notice}>
@@ -794,6 +884,33 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
              一条记录不该把整页压暗，也不该从右边滑出来。
 
            三块互斥（同一时刻只开一个），所以各自一段条件渲染、不共用状态。 */}
+      {syncOpen && (
+        <VaultModal label="云端备份" onClose={() => { setSyncOpen(false) }}>
+          <div className={css.panelHead}>
+            <span style={{ display: 'inline-flex', color: 'var(--v-text-2)' }}><CloudIcon size={16} /></span>
+            <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, lineHeight: '22px' }}>
+              云端备份（GitHub 私库）
+            </div>
+            <button
+              type="button"
+              className={css.panelClose}
+              aria-label="关闭云端备份"
+              title="关闭（Esc）"
+              onClick={() => { setSyncOpen(false) }}
+            >
+              <CloseIcon size={15} />
+            </button>
+          </div>
+          <div className={css.panelBody}>
+            <VaultSyncPanel
+              onError={(message) => { setActionError(message) }}
+              onFlash={(message) => { setFlash(message) }}
+              onSynced={() => { void loadSync(); void refresh() }}
+            />
+          </div>
+        </VaultModal>
+      )}
+
       {healthOpen && (
         <VaultModal label="密码健康检查" onClose={() => { setHealthOpen(false) }}>
           <VaultHealthDrawer

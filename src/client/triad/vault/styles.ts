@@ -428,6 +428,18 @@ const SHEET = `
   padding:9px 20px 0;
   font-size:11.5px;line-height:17px;color:var(--v-text-2);
 }
+/* 需要用户动手的提示（目前只有一条：还没配 GitHub 私库）。
+   暖色而不是红色：它不是错误，是一件待办；红色留给 .dsh-vault-error。
+   用左侧竖线 + 淡底而不是整块填色卡片——这条提示会长期挂在列表上方，
+   填满底色会压住下面所有分组卡（用户第一版反馈里那种「灰蒙蒙」的翻版）。 */
+.dsh-vault-notice[data-tone="warn"]{
+  margin:8px 20px 0;padding:8px 10px;
+  border-left:2px solid var(--v-warn);
+  border-radius:var(--v-r-ctrl);
+  background:color-mix(in srgb,var(--v-warn) 7%,transparent);
+  color:var(--v-text-2);
+}
+.dsh-vault-notice[data-tone="warn"] b{color:var(--v-text);font-weight:600}
 
 /* ══ 详情面板：内容本体 + 两种外壳 ══════════════════════════════════
    同一条记录有两种呈现方式，壳不同、内容完全一样（Panel 与 DetailDrawer 共用
