@@ -57,6 +57,16 @@ function restingClipFor(mode: StageMode, idleClip: MotionClipId): MotionClipId {
   switch (mode) {
     case 'thinking':
       return 'thinking'
+    case 'viewing':
+      /*
+       * 用户发来的图看完了 —— **留在看图这一幕**（重播），不回到「操作中」。
+       *
+       * 与 photo（有读图工具在跑）的差别正在这里：那种情况下一步多半是继续操作，
+       * 演完该走；而用户发图之后她往往看完就直接作答、一次工具都不调，回「操作中」
+       * 会让人以为她在乱点东西。所以这一段要靠 SeekerStage 的定时兜底**再播一遍**，
+       * 直到真的动起工具（mode 变 acting）为止。
+       */
+      return 'photo'
     case 'acting':
     case 'photo':
       return 'working'
@@ -88,6 +98,7 @@ function bootClipFor(mode: StageMode, idleClip: MotionClipId): MotionClipId {
     case 'thinking':
       return 'thinking'
     case 'photo':
+    case 'viewing':
       return 'photo'
     case 'wrapping':
       return 'end-op'
@@ -168,6 +179,7 @@ export function SeekerStage({
         setClip(prev === 'thinking' || prev === 'idle' ? 'start-op' : 'working')
         break
       case 'photo':
+      case 'viewing':
         setClip('photo')
         break
       case 'wrapping':
@@ -206,8 +218,28 @@ export function SeekerStage({
   useEffect(() => {
     const spec = MOTION_CLIPS[clip]
     if (spec.loop) return undefined
+    /*
+     * 「看图」这一幕要**反复重播**（2026-10-26）。
+     *
+     * viewing 的落点就是 photo 本身（见 restingClipFor），所以 `rest === clip`
+     * 时 setClip 不会触发重渲染 —— 一次性片段播完就停在最后一帧了。这在这里是错的：
+     * 用户发来的图还没看完（模型经常看完直接作答、一次工具都不调），画面必须一直是
+     * 「她在看图」。所以这里显式把 currentTime 拉回 0 再播。
+     *
+     * 用 effect 里的 el 而不是 setClip：走 setClip 是"换片段"，浏览器会重新解码
+     * 首帧、闪一下；把同一个片段倒回去是瞬时的。
+     */
     const timer = window.setTimeout(() => {
-      const rest = restingClipFor(modeRef.current, idleRef.current)
+      const mode = modeRef.current
+      const rest = restingClipFor(mode, idleRef.current)
+      if (mode === 'viewing') {
+        const el = nodesRef.current.get(clip)
+        if (el !== undefined) {
+          try { el.currentTime = 0 } catch { /* 元数据还没到：下一轮再说 */ }
+          if (el.paused) void el.play()?.catch(() => {})
+        }
+        return
+      }
       if (rest !== clipRef.current) setClip(rest)
     }, spec.durationMs + 250)
     return () => { window.clearTimeout(timer) }
@@ -313,7 +345,20 @@ export function SeekerStage({
 
   /** 一次性片段播完：立刻推进到该状态的静止片段（定时器是兜底）。 */
   const onEnded = useCallback(() => {
-    const rest = restingClipFor(modeRef.current, idleRef.current)
+    const mode = modeRef.current
+    /*
+     * viewing：播完**原地重播**（与定时兜底那条路同一个理由，见 effect ③）。
+     * 这里不能走 setClip —— 落点就是自己，setClip 会被 React 判成无变化。
+     */
+    if (mode === 'viewing') {
+      const el = nodesRef.current.get(clipRef.current)
+      if (el !== undefined) {
+        try { el.currentTime = 0 } catch { /* 没有元数据：定时兜底会再兜一次 */ }
+        if (el.paused) void el.play()?.catch(() => {})
+      }
+      return
+    }
+    const rest = restingClipFor(mode, idleRef.current)
     if (rest !== clipRef.current) setClip(rest)
   }, [])
 

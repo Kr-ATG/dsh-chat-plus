@@ -17,6 +17,7 @@ import { ShotPanel } from '../shot/Panel.tsx'
 import { collectMessages, deriveCurrentDialogueTitle, type ShotRange, type ShotMessage } from '../shot/collect.ts'
 import { useModalClose } from '../modal-animation.ts'
 import { buildPlainTimeline } from './plain-timeline.ts'
+import { turnInputImageCount } from './turn-input-images.ts'
 import { spawnsSubagents } from './plain-language.ts'
 import { KrPlainTimelineCard } from './KrPlainTimelineCard.tsx'
 import { KrSubagentsCard } from './KrSubagentsCard.tsx'
@@ -244,6 +245,24 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     if (cached !== null && cached.sig === sig) return cached.data
     turnDataCacheRef.current = { sig, data: raw }
     return raw
+  }, [displayTurn, actTick, snapTick])
+
+  /*
+   * 本轮用户输入里带了几张图（2026-10-26）。
+   *
+   * 只服务一件事：卡头动画该不该演「查看照片」。用户发图 / 图+文字过来时，
+   * 那一刻还没有任何工具调用，steps 是空的 → 卡头会判成「思考中」，与用户的
+   * 事实（"我给了她一张图"）对不上。判据与理由见 turn-input-images.ts。
+   *
+   * 与 turnData 同一套引用稳定化：这个 memo 每 250ms 会被重算，而它返回的是
+   * **数字**，天然是稳定值，不需要再包缓存。这里只保护「快照形状异常不抛」。
+   */
+  const inputImageCount = useMemo(() => {
+    try {
+      return turnInputImageCount(getCurrentChatSnapshot(), displayTurn)
+    } catch {
+      return 0
+    }
   }, [displayTurn, actTick, snapTick])
 
   const now = useNow(isTurnRunning && !isViewingHistory)
@@ -979,6 +998,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
             squeezed={panelSqueezed}
             sessionId={latestChatSessionId}
             subagentCatalog={subagentCatalog}
+            inputImageCount={inputImageCount}
           />
         )}
 

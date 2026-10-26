@@ -42,7 +42,7 @@ import { workspaceCwdOf } from '../client-ctx.ts'
 import { tryOpenInSidebar } from '../open-preview.ts'
 import { SeekerHead } from './SeekerHead.tsx'
 import { idleClipFor, type MotionClipId } from './motion-clips.ts'
-import { idlePhraseFor, THINKING_PHRASE } from './idle-phrase.ts'
+import { idlePhraseFor, THINKING_PHRASE, VIEWING_PHRASE } from './idle-phrase.ts'
 import { useStageMode } from './stage-mode.ts'
 import { getBrowserFlagEntry, subscribeBrowserFlag } from '../browser-flag/store.ts'
 
@@ -120,6 +120,16 @@ export interface KrPlainTimelineCardProps {
    * 否则读者会以为卡里漏了东西。
    */
   readonly subagentCatalog?: SubagentCatalogView | null
+  /**
+   * 本轮用户输入里带了几张图片（0 / undefined = 没带）。
+   *
+   * 只服务卡头动画：用户发图或「图 + 文字」过来时，那一刻一条工具调用都还没有，
+   * 卡头会按 `empty` 判成「思考中」—— 而她其实该先**看**那张图。用户 2026-10-26
+   * 点名要这个：「发送的是图片或图片+文字时，查看图片的动作没有出来，直接出来的
+   * 是思考」。判据由 turn-input-images.ts 算出（在 KrAgentPanel 里做，因为那里
+   * 才拿得到 chat 快照），这里只是个入参。
+   */
+  readonly inputImageCount?: number
 }
 
 /**
@@ -323,6 +333,7 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
   squeezed = false,
   sessionId = null,
   subagentCatalog = null,
+  inputImageCount = 0,
 }: KrPlainTimelineCardProps) {
   /*
    * 默认**收起**（2026-10-24 按用户要求）。
@@ -490,6 +501,15 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
     empty,
     hasRunningStep,
     icon: hasRunningStep ? (currentAction?.icon ?? null) : null,
+    /*
+     * 用户这一轮发了图（或「图 + 文字」）→ 先演「查看照片」。
+     *
+     * 为什么必须从**输入**判、而不是等某个读图工具跑起来：图片在模型这一步的
+     * **输入**里，不在某个工具的产出里。模型看到图之后经常一次工具都不调、直接
+     * 开始写回答，于是「等工具跑」的判据永远等不到 —— 卡头就一路「思考中」到底，
+     * 正是用户 2026-10-26 报的那个现象。
+     */
+    inputImages: inputImageCount,
   })
 
   /*
@@ -508,9 +528,16 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
    * 时段表与那句话本身在 idle-phrase.ts（新对话页的卡头读同一份）。
    */
   const idleLine = useMemo(() => {
-    if (running && empty) return THINKING_PHRASE
+    /*
+     * 「还没动工具」这一档又分两半（2026-10-26）：本轮输入里带图 → 「查看照片中」，
+     * 否则才是「在思考中」。判据与动画共用同一个信号（inputImageCount），
+     * 保证文字与动画说的是同一件事。
+     */
+    if (running && empty) {
+      return inputImageCount > 0 ? VIEWING_PHRASE : THINKING_PHRASE
+    }
     return idlePhraseFor(new Date(clockTick))
-  }, [running, empty, clockTick])
+  }, [running, empty, clockTick, inputImageCount])
 
   return (
     <div className="kr-card kr-card--plain" data-empty={empty || undefined}>
@@ -537,7 +564,7 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
           status: currentAction.status,
         }}
         idleLine={idleLine}
-        thinking={idleLine === THINKING_PHRASE}
+        thinking={idleLine === THINKING_PHRASE || idleLine === VIEWING_PHRASE}
         /* 动画：模式由 stage-mode.ts 判定，空闲片段按钟点那句话反查。 */
         stageMode={stageMode}
         idleClip={idleClipFor(idleLine)}

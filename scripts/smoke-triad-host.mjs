@@ -193,11 +193,35 @@ try {
   // 让结果只取决于代码本身，不取决于跑测试时用户恰好把开关拨到哪边。
   mod.apply(ctx, { mail: { enabled: true, injectEnabled: true } })
   pass('apply(ctx) completed without throwing')
-  const deadline = Date.now() + 3000
-  while (Date.now() < deadline && ![...routes.keys()].some((p) => p.startsWith('/api/dsh-memory'))) {
+  /*
+   * 等待条件必须覆盖**整条挂载链**，不能只等第一个出现的路由。
+   *
+   * 原先只等 /api/dsh-memory，可它在 applyTriadHost 里是**靠前**挂的，后面的
+   * usage/skills、skill-toggles、mcp-*、画廊都还在各自的 await 里排着；循环一
+   * 看到 memory 就退出，画廊（装配顺序最后一块）于是有一半概率还没注册 ——
+   * 表现为同一份 bundle 连跑 6 次里有 1~2 次红在
+   * 「media gallery route registered」。这是**测试竞态**，不是挂载缺陷：
+   * 单独等久一点它必绿。
+   *
+   * 现在改成等一组**都必须出现**的前缀齐全为止（画廊放在最后判，因为它最晚挂），
+   * 超时上限也从 3s 放宽到 8s：本机实测全部挂完约 200~600ms，8s 只是兜底。
+   */
+  const mustMount = [
+    '/api/dsh-memory',
+    '/api/usage-stats',
+    '/api/skill-manager',
+    '/api/triad/mcp-status',
+    '/api/triad/gallery',
+  ]
+  const deadline = Date.now() + 8000
+  const allMounted = () => {
+    const keys = [...routes.keys()]
+    return mustMount.every((prefix) => keys.some((p) => p.startsWith(prefix)))
+  }
+  while (Date.now() < deadline && !allMounted()) {
     await new Promise((resolve) => setTimeout(resolve, 25))
   }
-  pass('deferred async mounts (memory/usage/skills/toggles/mcp) settled')
+  pass('deferred async mounts (memory/usage/skills/toggles/mcp/gallery) settled')
 } catch (error) {
   fail(`apply(ctx) threw: ${error?.stack ?? error}`)
 }

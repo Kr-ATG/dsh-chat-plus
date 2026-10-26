@@ -1720,6 +1720,12 @@ if (krEnabled) {
     const seekerHeadSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/SeekerHead.tsx'), 'utf8')
     // 空闲文案的唯一真相（2026-10-26 从两处重复的表抽成一个模块）。
     const idleSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/idle-phrase.ts'), 'utf8')
+    // 「这一轮的输入里有没有图」的判据（2026-10-26 新增，卡头据此先演「查看照片」）。
+    const turnImgSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/turn-input-images.ts'), 'utf8')
+    // 文案与动画的共同上游：判据拆到 stage-mode.ts 里，两处共用同一个函数。
+    const stageModeSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/stage-mode.ts'), 'utf8')
+    // 卡头舞台的样式（深色主题补光那条断言读它）。
+    const krPlainStyle = readFileSync(resolve(ROOT, 'src/client/kr-chat/styles.ts'), 'utf8')
     if (!/className="kr-plain-head__name">Seeker</.test(seekerHeadSrc)) {
       fail('操作面板卡头必须显示名字（Seeker）')
     } else if (!/<SeekerStage/.test(seekerHeadSrc) || !/idleClip=\{/.test(seekerHeadSrc)) {
@@ -1901,10 +1907,62 @@ if (krEnabled) {
        * 而那恰恰是最该出现月亮的时候。
        */
       fail('「观月中」必须覆盖 19:00–次日 05:00（IDLE_SLOTS 里 [0,5] 与 [19,24] 两段都要在）')
-    } else if (!/if \(running && empty\) return THINKING_PHRASE/.test(cardSrc)
-      || !/export const THINKING_PHRASE = '在思考中'/.test(idleSrc)) {
+    } else if (!/if \(running && empty\) \{[\s\S]{0,200}?inputImageCount > 0 \? VIEWING_PHRASE : THINKING_PHRASE/
+      .test(cardSrc)
+      || !/export const THINKING_PHRASE = '在思考中'/.test(idleSrc)
+      || !/export const VIEWING_PHRASE = '查看照片中'/.test(idleSrc)) {
+      /*
+       * 2026-10-26 用户：「在对话发送的是图片或图片+文字时查看图片的动作没有出来，
+       * 直接出来的是思考」。根因是判据取错了位置 —— 图片在模型这一步的**输入**里，
+       * 不在某个工具的产出里；模型看到图之后常常一次工具都不调，于是「等读图工具
+       * 跑起来」永远等不到，卡头一路「在思考中」。
+       *
+       * 现在两条分支共用同一个信号 inputImageCount（本轮用户消息里 image 块的数量）：
+       * 带图 → 「查看照片中」/ photo 动画；不带图 → 「在思考中」/ thinking 动画。
+       * 文字与动画必须是**同一判据**，否则又会出现「说在思考、演在查看照片」。
+       */
       fail('刚发出消息、还没有任何动作时必须显示「在思考中」'
-        + '（判据 running && empty：本轮在跑但时间线里一条动作都没有）')
+        + '（判据 running && empty）；本轮输入带图时同一位置必须换成「查看照片中」')
+    } else if (!/readonly inputImageCount\?: number/.test(cardSrc)
+      || !/inputImages: inputImageCount/.test(cardSrc)
+      || !/export function turnInputImageCount/.test(turnImgSrc)
+      || !/type: 'image'/.test(turnImgSrc)) {
+      /*
+       * 图片判据必须来自**用户消息里的 image 内容块**，且同时喂给文案与动画。
+       * 只改文案不改 inputImages，卡头就会出现「写着查看照片中、演着思考中」。
+       */
+      fail('卡头必须按本轮输入里的图片块切「查看照片中」（turnInputImageCount → inputImageCount → inputImages）')
+    } else if (!/\| 'viewing'/.test(stageModeSrc)
+      || !/if \(input\.empty\) return 'viewing'/.test(stageModeSrc)
+      || stageModeSrc.indexOf("return 'viewing'") > stageModeSrc.indexOf("return 'thinking'")) {
+      /*
+       * stage-mode 是文案与动画的**共同上游**：'viewing' 排在「没在跑 → idle」之后、
+       * 「空 → thinking」之前 —— 顺序反了的话带图那一步就落回 thinking。
+       */
+      fail('stage-mode 必须有 viewing 档，且排在 idle 之后、thinking 之前（inputImages > 0 && empty）')
+    } else if (!/body\[data-ds-dark-theme\] \.kr-stage \{\s*filter: brightness\((1\.\d+)\) contrast\(0\.\d+\)/
+      .test(krPlainStyle)
+      || Number(RegExp.$1) < 1.05 || Number(RegExp.$1) > 1.2
+      || !/body\[data-ds-dark-theme\] \.kr-stage__glow/.test(krPlainStyle)) {
+      /*
+       * 深色主题下脸部发黑（2026-10-26 用户：「优化下深色主题下脸部变黑的问题」）。
+       *
+       * 实测结论先记在这里，免得后来人再去素材里找原因：9 段片子逐帧量过脸区，
+       * 最暗一帧 YAVG 也有 92.7、没有一帧掉到 60 以下；tv/full 两种 range 各解一遍、
+       * 再和原始 GIF 比，L = 101.7 / 103.6 / 102.9 —— 素材与转码都没问题。真实 CSS
+       * 在 #16181d 上跑 full / 去 mask / 去 filter / 裸 video 四种变体，脸部亮度
+       * 完全一样（L = 102.4），所以也不是遮罩或投影干的。
+       *
+       * 真正的原因是明度分工在深底上反转：皮肤本身是冷调中低明度（L ≈ 101），
+       * 而同屏的白蕾丝与高光裙面在 L ≈ 220 以上。白底上这是「白底上一段灰」，
+       * 深底上它就成了整块画面里最暗的一层。补偿 = 背后一圈中性浅光 + 整体微提亮
+       * 略降对比（L 101 → 114），两招都在 .kr-stage 这一层做完，不减素材、不加滤镜实例。
+       *
+       * ⚠ brightness 必须落在 (1.05, 1.2]：低于 1.05 看不出差别，高于 1.2 白蕾丝先过曝，
+       *    人物会「发光」而不是「变清楚」。这条区间就是验收标准。
+       */
+      fail('深色主题必须给卡头人物补光（body[data-ds-dark-theme] .kr-stage 提亮 1.05–1.2 + 背光），'
+        + '否则冷调皮肤在暗底上会成为全场最暗的一层、被读成「脸变黑」')
     } else if (/等待本轮开始/.test(stripComments(cardSrc)) || /已收口/.test(stripComments(cardSrc))) {
       // 必须剥注释再查：这两句在这一轮的注释里被反复引用（"原来写的是…"），
       // 拿原文匹配会把说明文字当成残留 —— 本文件里 stripComments 已有定义。

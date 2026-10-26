@@ -26,8 +26,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { PHOTO_ICONS } from './motion-clips.ts'
 
-/** 卡头的动画态。片段选择见 motion-clips.ts 的 MOTION_CLIPS。 */
-export type StageMode = 'thinking' | 'acting' | 'photo' | 'wrapping' | 'idle'
+/**
+ * 卡头的动画态。片段选择见 motion-clips.ts 的 MOTION_CLIPS。
+ *
+ * `photo` 与 `viewing` **共用「查看照片」那段素材，但落点不同**（2026-10-26）：
+ *  · `photo`  —— 有个**读图类工具正在跑**（截图 / 看文件 / 看屏幕）。片段演完
+ *    就回「操作中」的循环，因为下一步多半是继续操作；
+ *  · `viewing` —— 用户这一轮**发来了图片**，她正在看这张图。这时一条工具都还没
+ *    跑，也不会马上跑（模型常常看完图直接作答），所以要**停在看图这一幕**
+ *    并反复重播，直到真的开始动工具。
+ *
+ * 拆成两档而不是复用 `photo`：两者该停在哪完全相反（一个走、一个留），用同一个
+ * 值就必须把"要不要继续播"的外部上下文塞进 SeekerStage，反而更绕。
+ */
+export type StageMode = 'thinking' | 'acting' | 'photo' | 'viewing' | 'wrapping' | 'idle'
 
 /** 判定的输入。 */
 export interface StageModeInput {
@@ -39,6 +51,15 @@ export interface StageModeInput {
   readonly hasRunningStep: boolean
   /** 卡头那一行动作的图标键；没有动作时 null。 */
   readonly icon: string | null
+  /**
+   * 本轮**用户输入**里带了几张图片（0 / 省略 = 没带）。
+   *
+   * 为什么这个信号要从输入侧来：图片是模型这一步的**输入**，不是哪个工具的
+   * 产出。用户发图过来时，那一刻通常一条工具调用都还没有（`empty` 为真），
+   * 若只按「有没有在跑的工具」判，就必然落到「思考中」—— 而用户看到的事实是
+   * 「我给了她一张照片」，她该先去看图。用户 2026-10-26 点名要这个。
+   */
+  readonly inputImages?: number
 }
 
 /**
@@ -66,6 +87,23 @@ export const WRAP_DWELL_MS = 2200
  */
 export function stageModeOf(input: StageModeInput): Exclude<StageMode, 'wrapping'> {
   if (!input.running) return 'idle'
+  /*
+   * 带图的输入**压过「在思考中」**（2026-10-26）。
+   *
+   * 顺序很关键：`empty`（还没有任何工具调用）几乎必然为真 —— 用户刚把图和
+   * 文字发出去，模型正在读上下文。这时候判「思考中」在技术上没错，但用户看到的
+   * 是自己的照片发过去了、她却在发呆。所以只要本轮输入里有图，就先演「查看
+   * 照片」，等她真的开始动工具，再由下面两条接管。
+   *
+   * 不压「收尾」：收尾是在本轮末尾判的（那时工具早就跑完了），两者不会同时成立。
+   */
+  if (input.inputImages !== undefined && input.inputImages > 0) {
+    /*
+     * 已经动过工具之后（非 empty）就不再被带图信号劫持：那时卡片已经能说清
+     * 「她在操作中」，一直演看照片反而与卡头那行文字（正在做什么）打架。
+     */
+    if (input.empty) return 'viewing'
+  }
   if (input.empty) return 'thinking'
   if (input.icon !== null && PHOTO_ICONS.has(input.icon)) return 'photo'
   return 'acting'
@@ -110,7 +148,7 @@ export function useStageMode(input: StageModeInput): StageMode {
   }, [settleReady])
 
   /*
-   * 收尾**压过**基础态（包括 photo）：收尾时那一步已经做完了，"还在看照片"是错的
+   * 收尾**压过**基础态（包括 photo / viewing）：收尾时那一步已经做完了，"还在看照片"是错的
    * 读数；而 end-op 是一段 5 秒的收尾动作，正好该在这时说。
    * 只有 idle 不被压——本轮已经结束，收尾自然结束。
    */

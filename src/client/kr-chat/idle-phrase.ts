@@ -78,3 +78,15 @@ export function idlePhraseFor(now: Date): string {
 
 /** 刚发出消息、还没有任何动作时的一句话（不是空闲文案，见 KrPlainTimelineCard）。 */
 export const THINKING_PHRASE = '在思考中'
+
+/**
+ * 用户发来图片（或图 + 文字）时卡头那一句话（2026-10-26）。
+ *
+ * 与 {@link THINKING_PHRASE} 是**同一位置的两个分支**：那一刻确实还没有任何
+ * 工具调用，但把「在思考中」写在一张刚发过来的照片旁边，读起来像她没看见图。
+ * 换成「查看照片中」既能对上动画（photo 片段），也对上用户的事实。
+ *
+ * 只在**本轮用户输入带图、且还没有任何工具调用**时用；一旦动起工具，卡头就回到
+ * 「当前正在做的事」那一行。
+ */
+export const VIEWING_PHRASE = '查看照片中'
