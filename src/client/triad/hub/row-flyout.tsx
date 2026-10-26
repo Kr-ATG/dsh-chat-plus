@@ -6,7 +6,7 @@
  * 反而像「某个 tab 的内容」而不是一个独立板块。现在侧栏那一行「工作台」
  * 承担全部导航语义：
  *
- *  - hover 行 → 右侧滑出小卡列出四个分类（图标 + 名字 + 一句说明），点谁进谁；
+ *  - hover 行 → 右侧滑出小卡列出各分类（图标 + 名字 + 一句说明），点谁进谁；
  *  - 停留在行上滚轮 → 不弹浮层，直接把当前分类滚到下一个/上一个（页面原地换）；
  *  - 单击行 → 进工作台，落在「上次看过的分类」（localStorage 回填）。
  *
@@ -59,6 +59,7 @@ export const WORKBENCH_TABS: readonly WorkbenchTabMeta[] = [
   { id: 'skills', label: 'SKILL', desc: '技能包与技能开关' },
   { id: 'usage', label: '用量', desc: 'Token 消耗与活动热力' },
   { id: 'gallery', label: '画廊', desc: '图片 · 网页 · 文档产出' },
+  { id: 'vault', label: '档案', desc: '账号 · 支付 · 证件' },
 ] as const
 
 /** 读当前分类（localStorage 回填，非法值回落记忆页）。 */
@@ -156,6 +157,10 @@ export function WorkbenchTabIcon({ tab, size = 14 }: { tab: WorkbenchTab; size?:
       return (<svg {...common}><path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20v-6" /></svg>)
     case 'gallery':
       return (<svg {...common}><rect width="18" height="18" x="3" y="3" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></svg>)
+    case 'vault':
+      // 档案 = 带锁的卡片：钱包与密码管理器的共同意象，同时区别于「记忆」的
+      // 大脑（档案是实体 + 字段，不是陈述句）。
+      return (<svg {...common}><rect x="3" y="6" width="18" height="14" rx="2.5" /><path d="M3 10h18" /><path d="M8 15.5h2.5" /><path d="M15.5 4v4" /><circle cx="15.5" cy="2.5" r="1" /></svg>)
   }
 }
 
@@ -291,7 +296,7 @@ export function attachWorkbenchRowFlyout(): () => void {
   }
 }
 
-/** 浮层本体：四个分类行 + 一句滚轮提示。 */
+/** 浮层本体：分类行 + 一句滚轮提示。 */
 function Flyout({ top, left, current, onEnter, onLeave }: {
   top: number
   left: number

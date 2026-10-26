@@ -2661,6 +2661,28 @@ if (krEnabled) {
 // 隐藏，而 ask_user_question 走 tool-call 节点 —— 问答整段从对话流里消失，用户
 // 看不到自己答过什么。所以这张卡是问答的**唯一出口**，五件事缺一就静默失效：
 // 开关在、组件在、解析层在、样式在、挂在思考卡下方且在对话流里。
+/**
+ * 内联卡左侧竖线是否按「伪元素细线 + 上下内缩」画。
+ *
+ * 只看命令式搜索不够：整份 styles.ts 里 top/bottom: 6px 到处都有（缩略图、按钮、
+ * 浮层），全局命中等于没检查。这里把每张卡自己的 ::before 块切出来单独核对，
+ * 顺便确认它**不再**用 border-left 画竖线（那会退回"贴边拉满 + 露出线头"的老形态）。
+ *
+ * @param css - 已剥注释的样式表正文。
+ * @param card - 卡后缀（reasoning / ask）。
+ */
+function railInsetOk(css, card) {
+  const block = new RegExp('\\.kr-card--' + card + '\\[data-inline\\]::before\\s*\\{([^}]*)\\}').exec(css)
+  if (block === null) return false
+  const body = block[1]
+  const insetTop = /top:\s*6px/.test(body)
+  const insetBottom = /bottom:\s*6px/.test(body)
+  const hairline = /width:\s*1\.5px/.test(body)
+  // 竖线本体若还带 border-left，说明旧实现没退干净（两套并存会画出双线）。
+  const leftoverBorder = /border-left:\s*\d/.test(body)
+  return insetTop && insetBottom && hairline && !leftoverBorder
+}
+
 if (krEnabled) {
   const enabledSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/enabled.ts'), 'utf8')
   const askCardVisible = /export const KR_ASK_CARD_VISIBLE = (true|false)/.exec(enabledSrc)?.[1] === 'true'
@@ -2684,10 +2706,27 @@ if (krEnabled) {
       + '只显示用户实际选中的答案，完整候选走官方「查看回答」面板')
   } else if (!/kr-ask-row__answer/.test(askCardSrc) || !/kr-ask-pick/.test(askCardSrc)) {
     fail('问答卡必须渲染答案行（.kr-ask-row__answer + .kr-ask-pick）')
+  } else if (!/kr-ask-verdict/.test(askCardSrc) || !/kr-ask-list/.test(askCardSrc)) {
+    // 2026-10-26 按用户给的样式重做展开版式：**先给结论、再列问题清单**。
+    // 之前展开后直接铺问题行，超时那次看起来与"正在等你答"一模一样——读者
+    // 得自己算这些问题到底答没答。结论行就是这个判断的唯一出口。
+    fail('问答卡展开后必须先给结论行（.kr-ask-verdict）再列问题清单（.kr-ask-list）')
+  } else if (!/export function askVerdict/.test(askParseSrc)
+    || !/export function splitAskQuestionText/.test(askParseSrc)
+    || !/export function askQuestionLead/.test(askParseSrc)) {
+    // 结论行措辞与题干分段都是纯函数：写在组件里就没法单测，
+    //「超时不得写成已跳过」这条口径也就没法钉住。
+    fail('ask-parse.ts 必须导出 askVerdict / splitAskQuestionText / askQuestionLead')
   } else if (!/export function buildAskView/.test(askParseSrc)
     || !/export function parseAskQuestions/.test(askParseSrc)
     || !/export function pairAskAnswers/.test(askParseSrc)) {
     fail('ask-parse.ts 必须导出 buildAskView / parseAskQuestions / pairAskAnswers')
+  } else if (!/else state = 'resumed'/.test(askParseSrc) || /state = 'closed'/.test(askParseSrc)) {
+    // 超时的提问显示不出来，根因就在这一行：调用结束又没有答案时，旧实现把它
+    // 判成 waiting，卡片于是一直转着等待动效、把一次早已作废的提问渲染成
+    // "正在等你回答"。结束且无答案必须落到 resumed，才有如实说明的余地。
+    fail('调用结束且没有答案时必须落到 resumed 状态（不得再判成 waiting / closed），'
+      + '否则超时的提问会被渲染成等待态')
   } else if (!/KR_ASK_CARD_VISIBLE/.test(thinkingSrc)
     || !/<KrAskCard asks=\{turnAsks\} inline summarizing=\{summarizing\} \/>/.test(thinkingSrc)) {
     fail('问答卡必须由 ThinkingStepNodeView 以 inline 形态挂载并接收 summarizing'
@@ -2740,6 +2779,18 @@ if (krEnabled) {
     // 现在只留卡片入场（kr-card-in）与高度补间两次整体过渡。
     fail('问答卡不得再逐行/逐项播入场动画（kr-ask-row-in / kr-ask-pick-in）：'
       + '展开时只该有卡片入场与高度补间两次整体过渡')
+  } else if (!/\.kr-card--reasoning\[data-inline\]::before\s*\{[^}]*width:\s*1\.5px/.test(askCss)
+    || !/\.kr-card--ask\[data-inline\]::before\s*\{[^}]*width:\s*1\.5px/.test(askCss)) {
+    // 2026-10-26 用户要求「思考过程和提问左侧那条线优化下」。原先两卡都是
+    // border-left: 2px + border-l2（10% 黑）：一条实心灰杠贴着卡片上下边缘拉满，
+    // 折叠成一行时两端露出线头，展开成几百像素时又压过正文。改成 ::before 画的
+    // 1.5px 细线、上下各内缩 6px，线只陪着内容走。
+    fail('思考卡与提问卡的左侧竖线必须是 ::before 画的 1.5px 细线（上下内缩，不再贴边拉满）')
+  } else if (!railInsetOk(askCss, 'reasoning') || !railInsetOk(askCss, 'ask')) {
+    // 内缩量就是「线陪着内容」的那个量：贴边画（top/bottom 为 0）等于退回 border-left。
+    // 检查限定在每张卡自己的 ::before 块里 —— 整份样式表里别的元素也有 6px 的
+    // top/bottom（缩略图、按钮之类），只做全局 search 等于没检查。
+    fail('竖线必须上下各内缩 6px（贴边画等于退回 border-left，折叠态会露出线头）')
   } else if (/kr-ask-breathe[^}]*border-left-color/.test(askCss)) {
     // 等待态呼吸若动 border-left-color，会**每帧重绘整张卡的边框**（12px 圆角 +
     // 多层嵌套），叠加高度补间就是"卡一下"的主因。现在呼吸走 ::after 的 opacity。
@@ -2753,7 +2804,8 @@ if (krEnabled) {
     // 组件里已无 .kr-ask-opt 渲染点，样式表里残留规则只会在下次改版时误导人。
     fail('样式表不该再留 .kr-ask-opt 规则（组件已不渲染候选项，只显示选中的答案）')
   } else {
-    pass('提问与回答卡：挂在思考卡下方 + 折叠窗解除 + 单层过渡 + 只显示答案 + 解析层 + 开关在位')
+    pass('提问与回答卡：挂在思考卡下方 + 折叠窗解除 + 单层过渡 + 只显示答案 + 解析层 + 开关在位'
+      + ' + 结论行/问题清单 + 竖线细线内缩')
   }
 }
 
@@ -3393,11 +3445,14 @@ if (krEnabled) {
   if (!/activeTab === 'memory'[\s\S]{0,300}MemoryPanel/.test(hubSrc)) {
     reasons.push('「记忆」必须是独立分类，直接挂 MemoryPanel')
   }
-  // 分类表：四个分类，且顺序稳定（横滑条与浮层都遍历它，不另起一份真相）。
+  // 分类表：五个分类，且顺序稳定（横滑条与浮层都遍历它，不另起一份真相）。
+  // 「档案」(vault) 是 2026-10 新增的第五类：账号密码 / 支付方式 / 证件照片。
+  // 它与记忆模块刻意解耦（不受工作区「自动记忆 / 排除注入」两个开关管辖），
+  // 所以是一条独立的分类，不并进 memory。
   const tabsBlock = /export const WORKBENCH_TABS: readonly WorkbenchTabMeta\[\] = \[([\s\S]*?)\] as const/.exec(flyoutSrc)
   const tabIds = tabsBlock === null ? [] : [...tabsBlock[1].matchAll(/id: '([a-z]+)'/g)].map(m => m[1])
-  if (tabIds.join(',') !== 'memory,skills,usage,gallery') {
-    reasons.push(`WORKBENCH_TABS 必须是 memory/skills/usage/gallery 四项，实得 [${tabIds.join(', ')}]`)
+  if (tabIds.join(',') !== 'memory,skills,usage,gallery,vault') {
+    reasons.push(`WORKBENCH_TABS 必须是 memory/skills/usage/gallery/vault 五项，实得 [${tabIds.join(', ')}]`)
   }
   if (!/return 'memory'/.test(flyoutSrc)) {
     reasons.push("readWorkbenchTab 的非法值回落必须是 'memory'")

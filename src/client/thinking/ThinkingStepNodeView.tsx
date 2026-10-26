@@ -489,13 +489,41 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
         candidate !== undefined && candidate.kind === 'assistant-step'
       ))
   })
+  /*
+   * 本轮工具节点：与 reasoningItems / firstReasoningStepKey **同一套两级取数**
+   * （locations 优先，拿不到就扫全量节点）。
+   *
+   * 原来只读 locations.getTurn：工具间隙与紧凑模式下官方会把节点从 locations
+   * 摘掉，于是 ask_user_question 那条调用读不到，审核轮次的「提问与回答」卡整块
+   * 消失 —— 这正是用户反馈"超时的提问没有办法显示出来"的一半成因（另一半是
+   * 状态机把超时判成了 waiting，见 ask-parse 的状态注释）。
+   *
+   * 全量那路必须按 data.turn 过滤：nodes 是整场会话的节点池，不过滤会把上几轮
+   * 的提问一起捞进来。
+   */
   const toolNodes = useChat(snapshot => {
     if (turnNumber === undefined) return EMPTY_TOOLS
-    return snapshot.locations.getTurn(turnNumber)
-      .map(key => snapshot.nodes.get(key))
-      .filter((candidate): candidate is ChatNode<'tool-call'> => (
-        candidate !== undefined && candidate.kind === 'tool-call'
-      ))
+    try {
+      const fromLocations = snapshot.locations.getTurn(turnNumber)
+        .map(key => snapshot.nodes.get(key))
+        .filter((candidate): candidate is ChatNode<'tool-call'> => (
+          candidate !== undefined && candidate.kind === 'tool-call'
+        ))
+      if (fromLocations.length > 0) return fromLocations
+      const collected: ChatNode<'tool-call'>[] = []
+      const nodes = snapshot?.nodes
+      if (nodes === undefined || nodes === null || typeof nodes.values !== 'function') return EMPTY_TOOLS
+      for (const node of nodes.values()) {
+        if (node?.kind !== 'tool-call') continue
+        const loc = node.location
+        const locTurn = node.data?.turn ?? (typeof loc?.turn === 'number' ? loc.turn : loc?.turn?.turn)
+        if (locTurn !== turnNumber) continue
+        collected.push(node)
+      }
+      return collected.length > 0 ? collected : EMPTY_TOOLS
+    } catch {
+      return EMPTY_TOOLS
+    }
   })
   const localReasoning = useMemo<readonly ReasoningItem[]>(() => steps.flatMap(step => {
     const stepRunning = step.data.status === 'running'

@@ -38,6 +38,7 @@ import { applySkillHealth } from './skill-health.js'
 import { applyMcpRecommended } from './mcp-recommended.js'
 import { applyMcpStatus } from './mcp-status.js'
 import { applyGallery } from './gallery/index.ts'
+import { applyVault } from './vault/index.js'
 import { installBundledSkills } from './bundled-skills.js'
 import type { MemoryConfig } from './memory/types.js'
 
@@ -62,6 +63,8 @@ export interface TriadConfig {
   memory?: Partial<MemoryConfig>
   /** Usage/account overrides，转发给 vendor 的 usage host。 */
   usage?: Record<string, unknown>
+  /** 个人档案（vault）配置覆盖；未给的键回落到 DEFAULT_VAULT_CONFIG。 */
+  vault?: Record<string, unknown>
 }
 
 /**
@@ -155,6 +158,26 @@ export async function applyTriadHost(ctx: Context, config: TriadConfig = {}): Pr
   } catch (error) {
     ctx.logger?.warn?.(
       `[dsh-chat-plus] triad mcp status failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+    )
+  }
+
+  // ── 个人档案（结构化账号 / 支付 / 联系方式 / 证件，/api/dsh-vault/*）──
+  // 与记忆库**互不隶属**：不受工作区 autoMemory / injectExcluded 两道闸门
+  // 管辖，有自己的 autoRecord / autoInject 开关（默认全开）。敏感字段加密
+  // 落盘且绝不出现在注入文本里。装配失败只 warn（档案面不可用，对话照常）。
+  //
+  // 位置在记忆引擎之后是刻意的：两者都注册 agent/pre-step，而档案注入用
+  // prepend: true 注册，注册更晚反而更靠前——确保它跑在记忆库那两道闸门
+  // 之前（记忆库被关掉时档案仍要注入）。
+  try {
+    // ctx 是完整的 cordis Context，而 applyVault 只声明它真正用到的那几样
+    // （理由见 vault/index.ts 里 VaultHostContext 的注释）。这里是一次已知
+    // 安全的收窄：形状是 Context 的子集，运行期行为不受影响。
+    await applyVault(ctx as never, config.vault)
+    ctx.logger?.info?.('[dsh-chat-plus] triad vault mounted')
+  } catch (error) {
+    ctx.logger?.warn?.(
+      `[dsh-chat-plus] triad vault failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
     )
   }
 

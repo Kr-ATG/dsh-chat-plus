@@ -6,6 +6,9 @@
  *  2. 能力 (Skills)    — 技能与 MCP 工具包管理
  *  3. 用量 (Usage)     — Token 消耗总览、24小时/月度平滑曲线与 52 周全局热力大盘
  *  4. 画廊 (Gallery)   — 多媒体画廊：所有对话生成的图片 / 网页 / 演示 / 文档一站查看
+ *  5. 档案 (Vault)     — 结构化个人档案：账号密码 / 支付方式 / 联系方式 / 证件
+ *                        （与记忆库**互不隶属**：不受工作区开关管辖，敏感值加密
+ *                        落盘且绝不进模型上下文；侧栏二级菜单 = 场景分组）
  *
  * 供应商与网络代理**不在这里**（2026-10-05 用户点名「还是把供应商配置和代理
  * 放在设置里面吧」）：两者都在官方「设置」弹窗的「供应商」页
@@ -24,6 +27,7 @@ import { MemoryPanel } from '../memory/Panel.js'
 import { SkillsPanel } from '../usage/dashboard/SkillsPanel.js'
 import { UsagePanel } from '../usage/dashboard/UsagePanel.js'
 import { GalleryPanel } from '../gallery/GalleryPanel.js'
+import { VaultPanel } from '../vault/Panel.js'
 import { createMemoryApi } from '../memory/api.js'
 import { PopoverShell } from '../popover-shell.js'
 import {
@@ -33,7 +37,7 @@ import {
   WORKBENCH_TABS,
 } from './row-flyout.js'
 
-export type WorkbenchTab = 'memory' | 'skills' | 'usage' | 'gallery'
+export type WorkbenchTab = 'memory' | 'skills' | 'usage' | 'gallery' | 'vault'
 
 /**
  * 默认 Tab。
@@ -78,7 +82,9 @@ function PageHead({ tab }: { tab: WorkbenchTab }): JSX.Element | null {
   // 用量页头在 UsagePanel 嵌入分支内（与英雄区同一组件树）；
   // SKILL 页头由 SkillsPanel 自己的刊头（Skills / 索引 + 三格统计）承担，
   // 这里再画一次会变成「SKILL / 会什么」压着「Skills 索引」两个大标题。
-  if (head === undefined || tab === 'usage' || tab === 'skills') return null
+  // usage / skills / vault 三个面板自带页头（巨型标题 + 说明），这里再画一次
+  // 会变成两层大标题压在一起。
+  if (head === undefined || tab === 'usage' || tab === 'skills' || tab === 'vault') return null
   return (
     <header className="wb2-head wb2-rise">
       <div className="wb2-head-l">
@@ -169,6 +175,11 @@ export function WorkbenchPanel({ onClose, initialTab = DEFAULT_TAB }: WorkbenchP
               <PageHead tab="gallery" />
               <GalleryPanel onClose={onClose} />
             </div>
+          )}
+
+          {/* 档案：自带页头（标题 + 一句说明 + 搜索条），所以不叠 PageHead。 */}
+          {activeTab === 'vault' && (
+            <VaultPanel key="vault" onClose={onClose} embedded />
           )}
 
         </div>

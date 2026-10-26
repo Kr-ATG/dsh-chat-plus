@@ -1628,8 +1628,9 @@ body[data-kr-resizing="true"] * {
  * 口径——对话流卡片去全部底色，只留文字、线条与动效。
  *
  * 三个决定：
- * 1. **竖线用 border-left 而不是伪元素**。卡片是 content-box，border-left
- *    会随卡片高度整条拉满（含折叠态），不需要额外的 absolute 定位与高度同步。
+ * 1. **竖线用伪元素而不是 border-left**。border-left 会随卡片高度整条拉满
+ *    （含折叠态），线头贴着卡片上下边缘；伪元素可以上下各内缩一段，线只陪
+ *    着内容走（2026-10-26 从 border-left 改过来，见下面 ::before 的注释）。
  * 2. **底色透明**。浅色主题下卡片底色与对话区底色本来就是同一个纯白
  *    （--dsw-alias-bg-base 与 --dsw-alias-bg-layer-1 都指向
  *    --dsw-static-neutral-bluish-00），铺任何底色都是在白底上再铺一层白；
@@ -1638,19 +1639,66 @@ body[data-kr-resizing="true"] * {
  *    各露出一道缺口；右圆左直是「附着在竖线上的一块内容」的正确画法。
  */
 .kr-card--reasoning[data-inline] {
-  --kr-reasoning-rail: var(--dsw-alias-border-l2, rgba(0, 0, 0, .10));
+  /*
+   * 竖线色（2026-10-26 按用户要求调静）。
+   *
+   * 原先用 border-l2（10% 黑）+ 2px 宽，在浅色底上是一条**很实**的灰杠：
+   * 一段 600px 高的思考旁边钉着这么一根，视线会被它拽住 —— 用户的原话是
+   * "那条线优化下"。现在改成 mix 到 7% 的黑，并把线宽收到 1.5px（见下面的
+   * ::before）：它退成一道"这里的边界"，而不是"这里有一根线"。
+   *
+   * 为什么不用 border-l1（6%）：那一档在深色主题下几乎看不见（6% 白压
+   * 深底），而这条线是这张卡**唯一**的边界 —— 没有底色、没有投影，线没了
+   * 就等于卡片消失了。7% + hover 30% 这一档两个主题都还站得住。
+   */
+  --kr-reasoning-rail: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 7%, transparent);
   box-shadow: none;
   border: none;
-  border-left: 2px solid var(--kr-reasoning-rail);
+  /*
+   * 竖线改用 ::before 伪元素画（2026-10-26）。
+   *
+   * 改之前是 border-left: 2px —— 它有个改不掉的性质：**贴着卡片上下边缘
+   * 整条拉满**。折叠态只有一行高时，这条线仍然从头到脚顶着，两端各露出一
+   * 小截"多余的线头"；展开态长到几百 px 时，它又变成一根贯穿全高的实体，
+   * 视觉重量和正文完全不成比例。
+   *
+   * 伪元素版改成「上下各内缩 6px 的一段」：线只陪着内容，不贴边，读起来是
+   * 一段被引号括起来的思考，而不是一个带边框的盒子。宽度也收到 1.5px（半
+   * 像素落在 DPR≥2 的屏上是清晰的细线，1px 在深色主题下又太细）。
+   *
+   * 用 ::before 而不是 ::after：::after 在提问卡上被"等待呼吸"占用了，
+   * 两张卡保持同一套伪元素分工（before=线，after=状态覆盖层），以后加
+   * 状态动效不会再撞车。
+   */
+  position: relative;
   border-radius: 0 12px 12px 0;
   background: transparent;
   /* 基类的 transition 管 border-color / box-shadow / transform；这里补上
      底色与竖线色的过渡，hover 的反馈才是「渐次加深」而不是「啪一下换色」。 */
   transition:
     background-color .18s ease,
-    border-left-color .18s ease,
     box-shadow var(--kr-dur-fade) var(--kr-ease-soft),
     transform var(--kr-dur-fade) var(--kr-ease-soft);
+}
+
+/*
+ * 竖线本体。
+ *
+ * 上下内缩 6px 是"线陪着内容"的那个量：再少就贴边、再多线就短得像残段。
+ * 圆角只给右端 —— 左端是线的起点，给它圆角会让细线两头的像素糊成一团。
+ * 颜色过渡与宽度写在这里，hover 只改 background 一处。
+ */
+.kr-card--reasoning[data-inline]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 1.5px;
+  border-radius: 0 2px 2px 0;
+  background: var(--kr-reasoning-rail);
+  pointer-events: none;
+  transition: background-color .18s ease;
 }
 
 /*
@@ -1667,17 +1715,21 @@ body[data-kr-resizing="true"] * {
 .kr-card--reasoning[data-inline]:hover {
   box-shadow: none;
   transform: none;
-  border-left-color: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 30%, transparent);
   background: transparent;
+}
+
+/* hover 只加深那一段线（同上一段注释：不铺底色、不位移）。 */
+.kr-card--reasoning[data-inline]:hover::before {
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 30%, transparent);
 }
 
 /*
  * 折叠态：只留标题行 + 一枚 chevron。
  *
- * 只收上下内距，**左右保持与展开态完全一致**（12px）：竖线是 border-left，
- * 落在 padding box 之外，所以两态的正文左缘都等于「容器左 + 2px 竖线 +
- * 12px 内距」。这里若顺手把左内距也加 2px 去「补竖线」，标题会在展开/折叠
- * 之间横向跳一格——展开动画正跑到一半时最明显。
+ * 只收上下内距，**左右保持与展开态完全一致**（12px）：竖线是绝对定位的
+ * ::before，不占盒模型宽度，两态的正文左缘都等于「容器左 + 12px 内距」。
+ * 这里若顺手把左内距也加 2px 去「给竖线腾位置」，标题会在展开/折叠之间
+ * 横向跳一格——展开动画正跑到一半时最明显。
  */
 .kr-card--reasoning[data-inline]:not([data-open]) {
   padding-top: 4px;
@@ -5637,7 +5689,9 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
   --kr-card-border: var(--dsw-alias-border-l1, rgba(0, 0, 0, .06));
   --kr-card-hover: var(--dsw-alias-border-l2, rgba(0, 0, 0, .16));
   --kr-hover-bg: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, .06));
-  --kr-ask-rail: var(--dsw-alias-border-l2, rgba(0, 0, 0, .10));
+  /* 竖线色与思考卡同一档（7% 中性），"等待回答"时由下面那条规则覆盖成品牌蓝。
+     理由见 .kr-card--reasoning[data-inline] 里 --kr-reasoning-rail 那段注释。 */
+  --kr-ask-rail: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 7%, transparent);
   font-family: var(--dsw-font-family, inherit);
   /* 宽度口径与思考卡、总结卡一致：**占满整列，不随内容自适应**。
      只写 stretch 不写 width:100%：卡片是 content-box（padding + 边框会外溢），
@@ -5646,44 +5700,62 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
   max-width: 100%;
   box-shadow: none;
   border: none;
-  border-left: 2px solid var(--kr-ask-rail);
+  /* 竖线改 ::before（同思考卡：border-left 会贴边拉满全高，见那边注释）。 */
+  position: relative;
   border-radius: 0 12px 12px 0;
   background: transparent;
   padding: 8px 12px;
   gap: 6px;
   transition:
     background-color .18s ease,
-    border-left-color .18s ease,
     box-shadow var(--kr-dur-fade) var(--kr-ease-soft),
     transform var(--kr-dur-fade) var(--kr-ease-soft);
+}
+
+/* 竖线本体：与思考卡逐项同参（上下内缩 6px、宽 1.5px），两张卡才读作同一列。 */
+.kr-card--ask[data-inline]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 1.5px;
+  border-radius: 0 2px 2px 0;
+  background: var(--kr-ask-rail);
+  pointer-events: none;
+  transition: background-color .18s ease;
 }
 
 /*
  * 等待回答：竖线是品牌蓝，并且**呼吸**。
  *
- * ⚠ 呼吸动的是 ::after 伪元素的 opacity，**不是 border-left-color**。
+ * ⚠ 呼吸动的是 ::after 伪元素的 opacity，**不是竖线自身的颜色**。
  *
- * 上一版把呼吸写成 border-left-color 的颜色插值（42% ↔ 100%）。那是这张卡
+ * 更早一版把呼吸写成 border-left-color 的颜色插值（42% ↔ 100%）。那是这张卡
  * 卡顿的主因：border 颜色变化会**每帧重绘整张卡的边框**，而这张卡带着 12px 圆角、
  * 多层嵌套（group / row / options / opt）、以及一行行文字 —— 一个 2.4s 的无限
  * 循环每帧触发一次整卡 paint，叠加高度补间就是用户报的"展开卡卡的"。
  *
- * 现在：竖线本体是静态的 border-left（只画一次），呼吸交给一个绝对定位的
- * ::after 覆盖条，只动 opacity —— 纯合成器属性，零重绘、零重排。
+ * 现在：竖线本体是静态的 ::before（只画一次，颜色不做动画），呼吸交给另一个
+ * 绝对定位、与它逐像素重合的 ::after，只动 opacity —— 纯合成器属性，零重绘、
+ * 零重排。（若把颜色动画挪到 ::before 上，重绘量一样，只是换了个伪元素。）
  */
 .kr-card--ask[data-inline][data-state="waiting"] {
   --kr-ask-rail: var(--kr-accent);
-  position: relative;
 }
 
+/*
+ * 呼吸覆盖层：与 ::before 的竖线**逐像素重合**（同样的 left/top/bottom/width/圆角），
+ * 只叠一层 opacity 动画。几何一旦对不上，就会看见"一根线在另一根线里喘"。
+ */
 .kr-card--ask[data-inline][data-state="waiting"]::after {
   content: '';
   position: absolute;
   left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  border-radius: 0 12px 12px 0;
+  top: 6px;
+  bottom: 6px;
+  width: 1.5px;
+  border-radius: 0 2px 2px 0;
   background: var(--kr-accent);
   pointer-events: none;
   animation: kr-ask-breathe 2.4s var(--kr-ease-loop) infinite;
@@ -5699,8 +5771,12 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
 .kr-card--ask[data-inline]:hover {
   box-shadow: none;
   transform: none;
-  border-left-color: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 30%, transparent);
   background: transparent;
+}
+
+/* 与思考卡同款：hover 只把那一段线加深一档，不动别的。 */
+.kr-card--ask[data-inline]:hover::before {
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #000) 30%, transparent);
 }
 
 /* 折叠态只收上下内距，左右与展开态完全一致（同思考卡：左右一变标题会横向跳）。 */
@@ -5789,6 +5865,50 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
 }
 
 /*
+ * 结论行（展开后第一行）：**先说结果，再列问题**。
+ *
+ * 字号与正文同档而不是小一号：这一行是整张卡最重要的信息（答没答、超时了没），
+ * 把它压成辅助字号等于让读者去读次要信息。颜色按语气分三档，与卡头读数同一套
+ * 语义 —— 等待是品牌蓝、已回答是正文色、未回答是次级灰。
+ */
+.kr-ask-verdict {
+  margin: 0;
+  font-size: var(--kr-fs-body, 12.5px);
+  line-height: 1.55;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-ask-verdict[data-tone="waiting"] {
+  color: var(--kr-accent);
+}
+
+.kr-ask-verdict[data-tone="answered"] {
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-ask-verdict[data-tone="unanswered"] {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/*
+ * 问题清单：一条一项、圆点在前。
+ *
+ * 圆点由每项自己的 ::before 画在左侧栅格列里（grid-template-columns 的第一列），
+ * 不用 • 字符：字符会被复制进剪贴板，换行时第二行也不会自动缩进对齐。
+ * 用 list-style 也可以，但那样圆点的位置由浏览器决定，各主题下基线会漂；
+ * 这里要的是「圆点与首行文字基线严格对齐」，所以自己画。
+ */
+.kr-ask-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+/*
  * 收起/展开的**淡入淡出**与思考卡同款（见 .kr-reasoning-list:not([data-open])）：
  * 高度补间由 useHeightAnimation 用 WAAPI 改 inline height，这里只叠一层透明度——
  * 收口那一下内容在被压扁的同时淡掉，不会出现「字挤在 0 高度里闪一帧」。
@@ -5839,16 +5959,65 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
  * 现在只留**一次**整体过渡：卡片自己的 kr-card-in（入场）与高度补间（展开/收起）。
  * 行与选项只做静态呈现，不再有各自的动画。
  */
+/*
+ * 一项 = 圆点 + 内容。
+ *
+ * 两列栅格：第一列是圆点（固定宽，不参与换行），第二列是题干与答案。圆点用
+ * ::before 画成 4px 的小方块（圆角 50% 即圆点），宽度按字级缩放 —— 字号轴推到
+ * 22px 时正文已经 20.5px，一个写死 4px 的圆点会缩成看不见的墨迹。
+ * 用 border-radius 50% 的方块而不是 SVG：这是纯装饰，不该有独立元素与绘制层。
+ */
 .kr-ask-row {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  /* 圆点直径：跟随字号轴缩放（4px 基线）；写死会在放大档缩成看不见的墨迹。 */
+  --kr-ask-bullet: max(3px, calc(4px + var(--dsh-content-font-delta, 0px) * 0.2));
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 5px;
+  align-items: start;
   min-width: 0;
 }
 
+.kr-ask-row::before {
+  content: '';
+  /*
+   * 圆点落在首行文字的**中线**上：首行行高 = 字级 × 1.6（见 .kr-ask-row__q），
+   * 中线即 0.8 个字级，减去半径把圆点中心对上那条线。写死 px 的话，字号一调
+   * 圆点就离文字基线越来越远。
+   */
+  margin-top: calc(var(--kr-fs-body, 12.5px) * .8 - var(--kr-ask-bullet) / 2);
+  width: var(--kr-ask-bullet);
+  height: var(--kr-ask-bullet);
+  border-radius: 50%;
+  /* 圆点比正文浅一档：它是段落标记，不是内容。 */
+  background: var(--dsw-alias-label-tertiary);
+}
+
+/*
+ * 圆点所在列之后的每一段内容都要落在第二列 —— 否则标签、题干、答案会各自
+ * 从第一列开始，一列圆点把整段内容劈成两半。
+ */
+.kr-ask-row > * {
+  grid-column: 2;
+  min-width: 0;
+}
+
+/*
+ * 全部答完的项，圆点转成品牌色：一列扫下来，"哪几条答了"一眼可见，
+ * 不必逐条读下面的答案行。
+ */
+.kr-ask-row[data-answered]::before {
+  background: var(--kr-accent);
+}
+
 .kr-ask-row__tag {
-  align-self: flex-start;
-  /* 问题分组小标：字级跟随官方字号轴（见「字号轴」段）。 */
+  /*
+   * 小标现在**嵌在问句首行里**（不再单独占一行，见 KrAskCard 的注释）：
+   * 所以是 inline 的胶囊样式 + 右外边距，不是原来那个 align-self 的块级标签。
+   * 字号仍跟随官方字号轴（见「字号轴」段）。
+   */
+  display: inline-block;
+  margin-right: 6px;
   font-size: var(--kr-fs-11, 11px);
   /*
    * 行高也必须跟着字级走，不能写死 16px。
@@ -5869,6 +6038,28 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
   font-size: var(--kr-fs-body, 12.5px);
   line-height: 1.6;
   color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+/*
+ * 题干里的前导关键词（冒号之前那截）：加粗但**不加色**。
+ *
+ * 加色会和"答案/等待"等状态色抢通道；只加字重，读起来是"这句话的重点"，
+ * 不是"这句话有个不同的状态"。600 而不是 700：中文粗体的 700 在 12.5px 上
+ * 会糊成一团墨，600 在多数中文字体里仍有明显对比。
+ */
+.kr-ask-row__lead {
+  font-weight: 600;
+}
+
+/*
+ * 括号里的补充说明：降一档灰。
+ *
+ * 保持与括号外同样的字号（缩小一级会让同一句话里出现两种字级，读者会以为
+ * 括号里是脚注），只压颜色 —— 这是"注解"最轻的表达方式。
+ */
+.kr-ask-row__note {
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .kr-ask-row__detail {
@@ -5936,7 +6127,13 @@ body[data-dsh-kr-chat="true"] [data-chat-flow-kind="plan"] {
   /* 三点不跳时保持常态不透明度（同 .kr-agent-dots：静止的点仍是"这里有活动"
      的信号，整组抹掉反而丢信息）。 */
   .kr-ask-dots > i { opacity: .55; }
-  .kr-card--ask[data-inline][data-state="waiting"] { border-left-color: var(--kr-accent); }
+  /* 呼吸关掉后，等待态由静态竖线色承担（现在是 ::before 上的 background）。 */
+  .kr-card--ask[data-inline][data-state="waiting"]::before { background: var(--kr-accent); }
+  .kr-card--reasoning[data-inline]::before,
+  .kr-card--ask[data-inline]::before,
+  .kr-card--ask[data-inline][data-state="waiting"]::after {
+    transition: none;
+  }
 }
 
 /* ══ 大盘设置（顶栏齿轮 + 视口居中弹卡片）═══════════════════════════════════

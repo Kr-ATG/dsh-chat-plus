@@ -3,15 +3,15 @@
  *
  * ── 用户要的东西（2026-10-25）────────────────────────────────────────
  * 「更多」下面是一行**操作间**菜单；点它 → 工作区（会话浏览区）隐藏、
- * 这一行文字变成**工作区**、下方列出记忆 / SKILL / 用量 / 画廊；点这一行
- * → 工作区回来、那四个条目收起。以后加新菜单要方便。
+ * 这一行文字变成**工作区**、下方列出记忆 / SKILL / 用量 / 画廊 / 档案；点这一行
+ * → 工作区回来、那五个条目收起。以后加新菜单要方便。
  *
  * ── 实现方式：一张注册表 + 一个切换行 ─────────────────────────────────
  * 侧栏不再有「横滑分类条」这种一次性写死的入口，全部收敛成
  * `./nav-registry.js` 里的两级数据：
  *
  *   区域 section（工作区 / 操作间 / 以后更多）
- *     └ 条目 entry（记忆 / SKILL / 用量 / 画廊 / 以后更多）
+ *     └ 条目 entry（记忆 / SKILL / 用量 / 画廊 / 档案 / 以后更多）
  *
  * 本文件只做三件事：
  *   1. 在官方 `sidebar.workspaces` 之前插一个 host（= 「更多」下面）；
@@ -78,6 +78,14 @@ import {
   type NavSectionIcon,
 } from './nav-registry.js'
 import { fetchWorkspaces, projectsToChildren } from './workspace-source.js'
+import {
+  clearVaultScene,
+  fetchVaultSceneChildren,
+  readVaultScene,
+  requestVaultScene,
+  VAULT_SCENE_EVENT,
+} from '../vault/api.js'
+import { SceneAccountsIcon } from '../vault/icons.js'
 
 /** host id（本模块创建）。 */
 const HOST_ID = 'dsh-sidebar-nav-sections'
@@ -134,7 +142,7 @@ const DEFAULT_SECTIONS: readonly NavSectionDef[] = [
 ]
 
 /**
- * 条目图标：工作台四个分类各一枚线性图标。
+ * 条目图标：工作台五个分类各一枚线性图标。
  *
  * 与 `row-flyout.tsx` 的 `WorkbenchTabIcon` 同形（那边是浮层用），这里不直接
  * 复用它是因为注册表只接受 `{ size }` 形态的组件，需要一层适配。
@@ -170,6 +178,17 @@ function tabIcon(tab: (typeof WORKBENCH_TABS)[number]['id']): NavSectionIcon {
             <rect width="18" height="18" x="3" y="3" rx="2" />
             <circle cx="9" cy="9" r="2" />
             <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+          </svg>
+        )
+      case 'vault':
+        // 档案 = 带锁的卡片（与 row-flyout 的浮层图标同一枚，免得两处各画一套）
+        return (
+          <svg {...common}>
+            <rect x="3" y="6" width="18" height="14" rx="2.5" />
+            <path d="M3 10h18" />
+            <path d="M8 15.5h2.5" />
+            <path d="M15.5 4v4" />
+            <circle cx="15.5" cy="2.5" r="1" />
           </svg>
         )
     }
@@ -351,6 +370,24 @@ const GALLERY_CHILDREN: readonly NavChildDef[] = GALLERY_KIND_ORDER.map((kind, i
   run: () => { requestGalleryKind(kind) },
 }))
 
+/**
+ * 档案行的固定子项：全部分组。
+ *
+ * 与记忆那两行同理——这一项与数据无关（任何场景清单都含这一档）。区别是
+ * 档案的场景完全由用户定义（能新建、能改名），所以固定项只留「全部分组」，
+ * 其余由宿主下发的场景补齐。子项 id 与 readVaultScene() 的返回值同构
+ * （`null` = 全部），这里用空串占位并在 run 里调 clearVaultScene 清意图。
+ */
+const VAULT_FIXED_CHILDREN: readonly NavChildDef[] = [
+  {
+    id: 'all',
+    label: '全部分组',
+    icon: SceneAccountsIcon,
+    order: 10,
+    run: () => { clearVaultScene() },
+  },
+]
+
 /** 条目行「有没有二级菜单」那几项字段（行本体与 target 不在这里）。 */
 /** 条目行「有没有二级菜单」那几项字段（行本体与 target 不在这里）。 */
 type BranchFields = Pick<NavEntryDef, 'children' | 'activeChild'>
@@ -382,6 +419,13 @@ function branchFields(tab: (typeof WORKBENCH_TABS)[number]['id']): BranchFields 
       return {
         children: GALLERY_CHILDREN,
         activeChild: () => readGalleryKind(),
+      }
+    case 'vault':
+      // 场景清单是**数据**（用户能新建场景），首帧只有「全部分组」这一项固定项，
+      // 真实场景等宿主 `/list` 回来后由 refreshVaultChildren() 推过来。
+      return {
+        children: VAULT_FIXED_CHILDREN,
+        activeChild: () => readVaultScene(),
       }
     default:
       // 返回空对象 = `children` 保持 undefined = 不画箭头。
@@ -964,6 +1008,32 @@ export function attachSidebarSections(): () => void {
     ])
   }
 
+  /**
+   * 把档案场景清单写进「档案」那一行（固定项 + 每个场景一行）。
+   *
+   * 与工作区同理由侧栏自己拉：等档案页面挂载后再推，会让「没进过档案页」的
+   * 用户永远只看到「全部分组」一项。失败**保持原样子项**（不推空数组）——
+   * 空数组的语义是「有下级但此刻没数据」，会让人以为场景被删光了。
+   */
+  const pushVaultChildren = async (): Promise<void> => {
+    try {
+      const scenes = await fetchVaultSceneChildren()
+      if (disposed) return
+      setNavEntryChildren('workbench-vault', [
+        ...VAULT_FIXED_CHILDREN,
+        ...scenes.map((scene, index) => ({
+          id: scene.id,
+          label: scene.label,
+          order: 20 + index * 10,
+          count: scene.count,
+          run: () => { requestVaultScene(scene.id) },
+        })),
+      ])
+    } catch {
+      // 宿主还没起来 / 路由 404：保持固定项，侧栏照常可用。
+    }
+  }
+
   const host = (): HTMLDivElement | null => document.getElementById(HOST_ID) as HTMLDivElement | null
   let root: Root | null = null
   let observer: MutationObserver | undefined
@@ -1048,6 +1118,13 @@ export function attachSidebarSections(): () => void {
   // 侧栏自带的工作区数据源：挂载即拉，与「记忆页面有没有被访问过」无关。
   // 只拉一次（不轮询）：工作区清单变动频率极低，而 1.5s 轮询已经在跑。
   void pushWorkspaceChildren()
+  // 档案场景同理（侧栏自己拉，不进档案页也要有菜单）。
+  void pushVaultChildren()
+  // 页面里增删场景后侧栏的计数要跟上：档案页会在场景变动时广播一次场景意图
+  // 事件（requestVaultScene / clearVaultScene 都发），这里借它当刷新信号——
+  // 比另开一套「场景变了」事件少一条通道，且行为一致（切场景本来就要重算）。
+  const onVaultScene = (): void => { void pushVaultChildren() }
+  window.addEventListener(VAULT_SCENE_EVENT, onVaultScene)
   const timer = window.setInterval(() => {
     place()
     if (observer === undefined) watchParent()
@@ -1056,6 +1133,7 @@ export function attachSidebarSections(): () => void {
   return () => {
     disposed = true
     window.clearInterval(timer)
+    window.removeEventListener(VAULT_SCENE_EVENT, onVaultScene)
     stopAnchorWatch()
     observer?.disconnect()
     observer = undefined

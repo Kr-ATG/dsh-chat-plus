@@ -110,16 +110,61 @@ export function collectAsks(tools: readonly unknown[]): readonly AskEntry[] {
  * 想回看完整候选（含当时没选的），走卡片头上官方那行的「查看回答」面板 ——
  * 那是官方为"重看整份问卷"准备的出口，比在这里堆列表更合适。
  */
-function AskPairRow({ pair, settled }: {
+/**
+ * 题干排版：**冒号前那截加粗、括号里的补充说明降一档灰**。
+ *
+ * 一屏列出五六条问题时，读者是竖着扫的——每条第一个逗号前的那几个字就是这条
+ * 问题的标签（"要不要改渲染方式：……"）。整句同字重时标签得逐字读才找得出来，
+ * 加粗之后一列词头自动浮出来。
+ *
+ * 括号那截（范围、默认值、补充限定）是注解不是正文，压到次级色：长短不一的
+ * 括号内容混在主句里，会让每条问题的"骨架"看起来都不一样长。
+ */
+function AskQuestionText({ text }: { readonly text: string }) {
+  const lead = askQuestionLead(text)
+  // 有前导关键词时正文从冒号起算（冒号本身留在正文里，读起来才是一句话）。
+  const rest = lead === null ? text : text.slice(text.indexOf(lead) + lead.length)
+  return (
+    <>
+      {lead !== null && <b className="kr-ask-row__lead">{lead}</b>}
+      {splitAskQuestionText(rest).map((segment, index) => (
+        segment.kind === 'note'
+          ? <span className="kr-ask-row__note" key={index}>{segment.text}</span>
+          : <span key={index}>{segment.text}</span>
+      ))}
+    </>
+  )
+}
+
+/**
+ * 清单里的一项：**圆点 + 题干 + 答案**。
+ *
+ * 圆点由 CSS 的 ::before 画在左侧栅格列里（不用 • 字符：字符会被复制进剪贴板，
+ * 也会跟着字号轴变形，而且换行时第二行不会缩进对齐）。
+ *
+ * 没答的题不再写「已跳过」：这个措辞只留给用户**主动**跳过，而这条路看不出来
+ * 是谁的决定（超时、面板被关、回合被停都是这个形状）。这里只陈述「未选择」，
+ * 是谁没选、为什么没选，交给顶上的结论行说清楚。
+ */
+function AskItem({ pair, unanswered }: {
   readonly pair: AskPair
-  /** 整次提问已经收口（不再是"等待回答"）：未答的题才该标「已跳过」。 */
-  readonly settled: boolean
+  /** 整次提问已经收口（不再等回答）：未答的题才标「未选择」。 */
+  readonly unanswered: boolean
 }) {
   const { question, values } = pair
   return (
-    <div className="kr-ask-row" data-answered={values.length > 0 || undefined}>
-      {question.header !== undefined && <span className="kr-ask-row__tag">{question.header}</span>}
-      <span className="kr-ask-row__q">{question.question}</span>
+    <li className="kr-ask-row" data-answered={values.length > 0 || undefined}>
+      {/*
+       * 小标（header）**并进问句那一行**，不再单独占行。
+       *
+       * 单独占行时圆点会落在小标那一行上（栅格的第一项是小标），读起来像「圆点
+       * 属于小标」，而这条清单一共几项、每项问的是什么就散了。并进首行后，圆点、
+       * 小标、问句骨架在同一条基线上，一列扫下来是整齐的清单。
+       */}
+      <span className="kr-ask-row__q">
+        {question.header !== undefined && <span className="kr-ask-row__tag">{question.header}</span>}
+        <AskQuestionText text={question.question} />
+      </span>
       {question.detail !== undefined && <span className="kr-ask-row__detail">{question.detail}</span>}
 
       {/*
@@ -134,9 +179,9 @@ function AskPairRow({ pair, settled }: {
           ))}
         </div>
       ) : (
-        settled && <span className="kr-ask-row__skip">未选择，已跳过</span>
+        unanswered && <span className="kr-ask-row__skip">未选择</span>
       )}
-    </div>
+    </li>
   )
 }
 
@@ -198,13 +243,18 @@ export const KrAskCard = memo(function KrAskCard({ asks, inline = false, summari
     setOpen(false)
   }, [inline, summarizing])
 
-  // 汇总状态：只要还有一次在等回答，整张卡就是"等待回答"。
+  /*
+   * 汇总状态：只要还有一次在等回答，整张卡就是"等待回答"。
+   *
+   * 卡头读数只有三个词：等待回答 / 已回答 / 未回答。多问时补一个进度。
+   * **超时不在这里区分**——卡头一行塞不下"超时"和"已继续"的差别，硬塞会让
+   * 那行读数变成一句话；结论行（展开后的第一行）才是说清楚的地方。
+   */
   const summary = useMemo(() => {
     const waiting = asks.filter((entry) => entry.view.state === 'waiting').length
     const answered = asks.filter((entry) => entry.view.state === 'answered').length
     const total = asks.reduce((count, entry) => count + entry.view.questions.length, 0)
     const picked = asks.reduce((count, entry) => count + entry.view.answeredCount, 0)
-    // 状态读数只留必要的：等待 / 已回答 / 未回答。多问时补一个进度。
     const label = waiting > 0
       ? '等待回答'
       : answered > 0
@@ -278,28 +328,46 @@ export const KrAskCard = memo(function KrAskCard({ asks, inline = false, summari
           aria-hidden={open ? undefined : true}
           {...(!open ? { inert: '' } : {})}
         >
-          {bodyPresent && asks.map((entry) => (
-            <div className="kr-ask-group" key={entry.id}>
-              {entry.view.pairs.length > 0 ? (
-                entry.view.pairs.map((pair) => (
-                  <AskPairRow
-                    key={pair.question.id}
-                    pair={pair}
-                    settled={entry.view.state !== 'waiting'}
-                  />
-                ))
-              ) : (
-                /*
-                 * 问题解析失败（形状不认识）时的降级：只报状态，不猜内容。
-                 * 半懂不懂地渲染半截问题，比什么都不显示更糟——用户会以为那就是
-                 * 模型问的原话。
-                 */
-                <span className="kr-ask-fallback">
-                  {entry.view.state === 'waiting' ? '模型正在提问，内容暂不可读' : '这次提问的内容无法解析'}
-                </span>
-              )}
-            </div>
-          ))}
+          {bodyPresent && asks.map((entry) => {
+            const verdict = askVerdict(entry.view)
+            const listing = entry.view.pairs.length > 0
+            return (
+              <div className="kr-ask-group" key={entry.id}>
+                {/*
+                 * 结论行：展开后第一眼先看结果。"问了什么"是细节，"答没答"才是
+                 * 读者点开这张卡想知道的第一件事——尤其超时那次，清单长得跟
+                 * "正在等你答"一模一样，而事实是这一轮早过去了。
+                 */}
+                <p className="kr-ask-verdict" data-tone={verdict.tone}>
+                  {verdict.text}
+                </p>
+                {listing ? (
+                  /*
+                   * 问题清单：一条一项、圆点在前（读作清单而不是一坨段落）。
+                   * 答案是选项 label 或手打内容，挂在同一项的下一行。
+                   */
+                  <ul className="kr-ask-list">
+                    {entry.view.pairs.map((pair) => (
+                      <AskItem
+                        key={pair.question.id}
+                        pair={pair}
+                        unanswered={entry.view.state !== 'waiting'}
+                      />
+                    ))}
+                  </ul>
+                ) : (
+                  /*
+                   * 问题解析失败（形状不认识）时的降级：只报状态，不猜内容。
+                   * 半懂不懂地渲染半截问题，比什么都不显示更糟——用户会以为那就是
+                   * 模型问的原话。结论行已经交代了结果，这里只补一句"内容读不到"。
+                   */
+                  <span className="kr-ask-fallback">
+                    {entry.view.state === 'waiting' ? '模型正在提问，内容暂不可读' : '这次提问的内容无法解析'}
+                  </span>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

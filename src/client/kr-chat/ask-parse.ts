@@ -375,11 +375,17 @@ export function splitAskQuestionText(text: string): readonly AskTextSegment[] {
  * 就是这条问题的标签，加粗它，一屏五六条问题时能竖着扫完；没有冒号就整句不加粗
  * （给半句随机加粗比不加更吵）。
  *
- * 只在**短前导**上生效（≤ 24 字）：一长串带冒号的正文不是标签，是真句子。
+ * 三条门槛，缺一条就不加粗——**加粗必须稀有**，乱加一遍等于全都不加：
+ *  · 短：≤ 12 字。实测 17 字的"任务概览卡里「进行中」有两处"已经是一句完整
+ *    的判断，加粗后整条问题一半是黑体，反而看不出重点；
+ *  · 干净：不含句读（。，、；！？…）。带逗号的前导是叙述，不是标签；
+ *  · 单行：不许跨行（\n），跨行的"前导"必然是整段正文。
  */
 export function askQuestionLead(text: string): string | null {
   if (typeof text !== 'string') return null
-  const hit = /^([^：:]{1,24})[：:]/.exec(text)
+  const hit = /^([^：:\n]{1,12})[：:]/.exec(text)
   const lead = hit?.[1]?.trim()
-  return lead !== undefined && lead !== '' ? lead : null
+  if (lead === undefined || lead === '') return null
+  if (/[。，、；！？…]/.test(lead)) return null
+  return lead
 }
