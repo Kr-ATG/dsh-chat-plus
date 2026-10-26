@@ -50,7 +50,14 @@ const OUT_DIR = resolve(ROOT, '_tmp', 'test-vault-bundle')
 try { rmSync(OUT_DIR, { recursive: true, force: true }) } catch { /* 忽略 */ }
 mkdirSync(OUT_DIR, { recursive: true })
 
-const sources = ['types', 'crypto', 'blobs', 'store', 'inject', 'health', 'totp', 'backup']
+/*
+ * extract 也打进来（v2 起）：待确认机制退役的核心证据之一是「applyVaultOps 写出来
+ * 的记录上不再有 pending 字段」，而那只有把应用层一起 import 才断言得到。它 import
+ * 了 ../../vendor/dsh-llm（createUserMessage / BlockAssembler），是仓库内的 vendored
+ * 叶子模块、没有外部依赖，实测能正常打进这个 ESM 包——所以不退回「只断言 store/inject」
+ * 的降级方案。
+ */
+const sources = ['types', 'crypto', 'blobs', 'store', 'inject', 'health', 'totp', 'backup', 'extract']
   .map((name) => "export * from '" + slash(resolve(ROOT, 'src/triad/vault', name + '.ts')) + "'")
   .join('\n')
 const entryFile = join(OUT_DIR, 'entry.ts')
@@ -89,6 +96,8 @@ const {
   createBackupPackage, readBackupPackage, keyFingerprint,
   // 注入引导语：模型「看得见」的那段文案，下面有断言钉住它的关键纪律。
   VAULT_INJECTION_RULE,
+  // v2 起（待确认机制退役）用来钉住迁移与应用层的行为。
+  VAULT_SCHEMA_VERSION, migrate, applyVaultOps,
 } = vault
 
 // ── 2. 建库（隔离目录 + 真密钥）─────────────────────────────────────────
@@ -156,8 +165,24 @@ assert(/必须是用户刚给出的/.test(VAULT_INJECTION_RULE),
 // 四条纪律的原文必须在场（防止后续精简时被顺手删掉）。
 // 注意判据要取规则里**真正连续出现**的词：比如「没有明文」在原文里是
 // 「只有字段名，没有密码 / 卡号 / 证件号的明文」，中间被括注打断，不能直接 includes。
-for (const mustKeep of ['待确认', '只有字段名', '非敏感字段', '索引里没有的账户']) {
+// 这里原先还有一项 '待确认'（对应「标了「待确认」的记录来自自动抽取，可能有误」
+// 那条纪律）。2026-10-27 用户要求档案不需要确认，该纪律整条删除、其余六条重排，
+// 所以这一项从 mustKeep 里拿掉，改由下面的 mustDrop 反过来钉住它不许回来。
+for (const mustKeep of ['只有字段名', '非敏感字段', '索引里没有的账户']) {
   assert(VAULT_INJECTION_RULE.includes(mustKeep), 'the injection rule keeps the "' + mustKeep + '" clause')
+}
+
+/*
+ * 待确认机制退役后，规则文本里**不能再出现**任何指向「确认」的话。
+ *
+ * 这不是洁癖：规则每步都进上下文，留着「标了「待确认」的记录…引用之前先跟用户
+ * 确认一句」就等于让模型去找一个已经不存在的标记，或者把每一条正常记录（现在
+ * 自动抽取的结果和人手录的完全一样）都当成可疑数据。文案没有类型检查兜底，
+ * 只能靠这两条否向断言钉住。
+ */
+for (const mustDrop of ['待确认', '跟用户确认一句']) {
+  assert(!VAULT_INJECTION_RULE.includes(mustDrop),
+    'the injection rule no longer mentions "' + mustDrop + '" (the pending mechanism was retired in v2)')
 }
 // 规则本身绝不含任何敏感明文（它每步都进上下文）。
 assert(!VAULT_INJECTION_RULE.includes(SECRET), 'the rule text itself carries no secret')
@@ -436,6 +461,143 @@ assert(ciphertextOnDisk.startsWith('secret:v1:'), 'the on-disk password is still
 assert(restoredCipher.decrypt(ciphertextOnDisk) === NEW_SECRET,
   'the rebuilt cipher decrypts the stored ciphertext back to the real password')
 assert(VaultCipher.fromKey(Buffer.alloc(16)) === null, 'a wrong-length key is refused instead of half-working')
+// ── 17. 待确认（pending）机制退役（v2，2026-10-27 用户要求「档案不需要确认」）───
+/*
+ * 这一节钉的是「待确认机制整块消失了」这件事本身。
+ *
+ * 为什么必须在冒烟里钉：状态退役是**减法**，减法的失败模式不是报错，而是
+ * 「以为删干净了、其实还留着一半」——比如迁移不主动清标记，老库里那些挂过
+ * 待确认的记录就永远带着一个再没人读的僵尸字段；比如应用层还偷偷写
+ * pending: true，新抽出来的记录又会挂上而页面上已经没有确认入口。这些都
+ * 不会崩，只会静默错，所以只能靠断言。
+ */
+assert(VAULT_SCHEMA_VERSION === 2, 'the vault schema version is 2 (the pending mechanism was retired)')
+
+// ① 确认动作的写入口整体没了：store 上不该再有 setPending。
+assert(typeof store.setPending !== 'function',
+  'the store no longer exposes setPending (that was the only way to touch the old pending flag)')
+
+/*
+ * ② migrate 的 v1→v2 一级：老库里挂着的 pending 必须被**主动删掉**。
+ *
+ * 不能只是「从此不再写它」：老库已经挂着的记录会一直带着这个标记，而页面上的
+ * 确认入口已经整块拆掉——用户看到一条「待确认」却没有任何地方能确认，那就是
+ * 个永久挂着的假状态。删标记＝把它当作已生效，这正是用户要的语义。
+ */
+const v1Data = {
+  schemaVersion: 1,
+  records: [
+    {
+      id: 'rec_v1_pending',
+      scene: 'accounts',
+      title: 'v1 时代挂过待确认的记录',
+      fields: [{ key: 'username', label: '用户名', type: 'text', value: 'legacy-user', updatedAt: '2026-09-01T00:00:00.000Z' }],
+      photos: [],
+      tags: [],
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+      source: 'extract',
+      confidence: 0.42,
+      version: 7,
+      changes: [],
+      // 这就是 v1 带过来的待确认标记（以及当时顺手记下的低可信度）。
+      pending: true,
+    },
+    {
+      id: 'rec_v1_plain',
+      scene: 'accounts',
+      title: 'v1 时代没挂过待确认的记录',
+      fields: [{ key: 'username', label: '用户名', type: 'text', value: 'plain-user', updatedAt: '2026-09-02T00:00:00.000Z' }],
+      photos: [],
+      tags: [],
+      createdAt: '2026-09-02T00:00:00.000Z',
+      updatedAt: '2026-09-02T00:00:00.000Z',
+      source: 'manual',
+      confidence: 1,
+      version: 1,
+      changes: [],
+    },
+  ],
+  scenes: [],
+}
+const migratedFromV1 = migrate(v1Data)
+const migratedPending = migratedFromV1.records.find((record) => record.id === 'rec_v1_pending')
+assert(migratedFromV1.schemaVersion === 2, 'migrate bumps a v1 store to schema version 2')
+assert(migratedPending !== undefined && !('pending' in migratedPending),
+  'migrate deletes the legacy pending flag instead of just no longer writing it')
+assert(migratedFromV1.records.length === 2, 'migrate keeps every record (the flag goes, the data stays)')
+assert(migratedFromV1.records.every((record) => !('pending' in record)),
+  'migrate leaves no record carrying a pending flag (including ones that never had it)')
+// 迁移只该动「待确认」这一件事：溯源与版本号必须原样带过去，否则「改了什么」无从追查。
+assert(migratedPending.confidence === 0.42, 'migrate preserves confidence (it is provenance, not a pending marker)')
+assert(migratedPending.version === 7, 'migrate preserves the record version counter')
+assert(migratedPending.source === 'extract', 'migrate preserves the record source')
+
+/*
+ * ③ 应用层：applyVaultOps 写出来的记录上**没有** pending 字段。
+ *
+ * 这是整条链上最容易漏的一环——迁移把老标记清了，但应用层要是还在 create 路径
+ * 写 pending: true，新抽出来的记录又会挂上去。所以这里真跑一次 create + 一次
+ * update，然后到 store 里读回来验。
+ */
+const extractScenes = await store.listScenes()
+const applyResult = await applyVaultOps(store, [
+  {
+    action: 'create',
+    scene: 'accounts',
+    title: 'Smoke · 抽取直接生效',
+    fields: [
+      { key: 'username', label: '用户名', type: 'text', value: 'smoke-extract-user' },
+      { key: 'password', label: '密码', type: 'secret', value: 'smoke-extract-pw', sensitive: true },
+    ],
+    confidence: 0.66,
+  },
+], { scenes: extractScenes })
+assert(applyResult.created === 1 && applyResult.updated === 0 && applyResult.skipped === 0,
+  'applyVaultOps reports exactly created=1 (the result shape no longer has pending counters)')
+const extractedRecord = (await store.listRecords()).find((record) => record.title === 'Smoke · 抽取直接生效')
+assert(extractedRecord !== undefined, 'the extracted record is in the store right away (no confirmation step)')
+assert(!('pending' in extractedRecord),
+  'a record created by applyVaultOps carries no pending flag (extraction results take effect immediately)')
+// confidence 仍然要写：它只是溯源信息，不是「等人确认」的意思。
+assert(extractedRecord.confidence === 0.66, 'applyVaultOps still records confidence as provenance')
+
+// update 路径同样不该挂任何标记（原来会按配置把整条记录标成 pending）。
+const applyUpdate = await applyVaultOps(store, [
+  { action: 'update', recordId: extractedRecord.id, fields: [{ key: 'username', label: '用户名', type: 'text', value: 'smoke-extract-user-2' }] },
+], { scenes: extractScenes })
+assert(applyUpdate.updated === 1, 'applyVaultOps applies the update instead of parking it for confirmation')
+const afterExtractUpdate = await store.getRecord(extractedRecord.id)
+assert(!('pending' in afterExtractUpdate),
+  'an extracted update leaves no pending flag behind either')
+assert(afterExtractUpdate.fields.find((field) => field.key === 'username').value === 'smoke-extract-user-2',
+  'the extracted value is live immediately (the next turn already sees it)')
+
+// ④ 注入正文（记录行）里也不该再出现待确认字样：原来 formatRecordLine 会加
+//    「·（自动记录，待确认）」后缀，标注一个已经不存在的状态。
+const injectionAfterExtract = injector.buildInjectionText(await store.listRecordsRevealed(), await store.listScenes())
+assert(!injectionAfterExtract.includes('待确认'), 'the injection body no longer annotates records as pending')
+assert(!injectionAfterExtract.includes('自动记录'), 'the injection body no longer marks auto-extracted records at all')
+
+/*
+ * ⑤ 路由面：/confirm 必须连路由一起删掉。
+ *
+ * 只删页面不算完——留着那条路由就等于留着一个「能远程删记录」的口子
+ * （原来 accept=false 的语义是直接删记录），而它保护的那个状态已经不存在了。
+ * 判据要匹配**路由注册**的形态（rest === '/confirm'）而不是简单 includes：
+ * 源码里刻意留了一段解释「这里原有 POST /confirm」的注释，那是给后来人看的。
+ */
+const hostApiSource = readFileSync(resolve(ROOT, 'src/triad/vault/api.ts'), 'utf8')
+assert(!/rest\s*===\s*'\/confirm'/.test(hostApiSource),
+  'the host no longer registers a /confirm route (it would still be able to delete records)')
+const clientApiSource = readFileSync(resolve(ROOT, 'src/client/triad/vault/api.ts'), 'utf8')
+assert(!/['"]\/confirm['"]/.test(clientApiSource),
+  'the client api no longer wraps a /confirm call')
+const clientPanelSource = readFileSync(resolve(ROOT, 'src/client/triad/vault/Panel.tsx'), 'utf8')
+  + readFileSync(resolve(ROOT, 'src/client/triad/vault/DetailDrawer.tsx'), 'utf8')
+assert(!/\bpending\b|badgePending|confirmVaultRecord/.test(clientPanelSource),
+  'the vault panel and detail drawer no longer reference pending / badgePending / confirmVaultRecord')
+
 // ── 收尾 ────────────────────────────────────────────────────────────────
 await store.flush()
 try { rmSync(SMOKE_HOME, { recursive: true, force: true }) } catch { /* 忽略 */ }

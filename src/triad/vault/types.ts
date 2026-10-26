@@ -27,8 +27,16 @@
  * 覆盖新数据，丢字段是静默的。
  */
 
-/** 当前数据结构版本。加字段/改语义时 +1，并补一级 migrate。 */
-export const VAULT_SCHEMA_VERSION = 1
+/**
+ * 当前数据结构版本。加字段/改语义时 +1，并补一级 migrate。
+ *
+ * v2（2026-10-27）：档案整体退役「待确认（pending）」机制。用户明确要求档案
+ * 不需要确认——自动抽取的结果直接生效，不再挂标记等人在页面上点确认。记录上的
+ * pending 字段与配置里的 trustAutoUpdates 一起删除；老库里已经挂着的标记由
+ * store.migrate 的 v1→v2 逐条清掉（不清的话老记录会永远挂着，而页面已经没有
+ * 任何确认入口，标记就成了纯噪音）。
+ */
+export const VAULT_SCHEMA_VERSION = 2
 
 /**
  * 敏感字段在 HTTP 响应里的掩码（**客户端与 host 必须用同一个字面量**）。
@@ -217,12 +225,12 @@ export interface VaultRecord {
   /**
    * 抽取可信度 0-1（人工录入恒 1）。
    *
-   * 自动抽取的低可信度结果挂 pending 等确认——尤其「改已有字段」这种破坏性
-   * 操作，宁可先挂着也不要静默覆盖掉正确值。
+   * v2 起它只是**溯源信息**（事后能看出这条是模型报的、模型当时有多确定），
+   * 不再影响任何可见性。原注释写的是「低可信度挂 pending 等确认、宁可先挂着
+   * 也不要静默覆盖」，那是确认制时代的策略——用户 2026-10-27 明确要求档案
+   * 不需要确认，覆盖就覆盖，错了下一轮抽取会再改回来。
    */
   confidence: number
-  /** true = 自动抽取未确认（页面单列一栏；仍注入但标注「未确认」）。 */
-  pending?: boolean
   /** true = 已归档（软删，保留数据与历史，不注入）。 */
   archived?: boolean
   /** 条目版本号（每次内容变更 +1）。 */
@@ -382,13 +390,6 @@ export interface VaultConfig {
   injectBudget: number
   /** 注入最多带多少条记录（超出按最近更新优先）。 */
   injectMaxRecords: number
-  /**
-   * 自动抽取的字段修改是否直接生效。
-   *
-   * false（默认）= 新记录直接生效，但对**已有记录的字段修改**挂 pending 等
-   * 确认——覆盖别人的密码比漏记严重得多。
-   */
-  trustAutoUpdates: boolean
   /** 展示图长边。 */
   displayMaxEdge: number
   /** 缩略图长边。 */
@@ -416,7 +417,6 @@ export const DEFAULT_VAULT_CONFIG: VaultConfig = {
   prefilter: true,
   injectBudget: 4000,
   injectMaxRecords: 40,
-  trustAutoUpdates: false,
   displayMaxEdge: 1600,
   thumbMaxEdge: 512,
   imageQuality: 0.75,
@@ -441,12 +441,19 @@ export const VAULT_NUMBER_BOUNDS = {
   photoRetentionDays: { min: 0, max: 3650, int: true, step: 30 },
 } as const satisfies Record<string, { min: number; max: number; int: boolean; step: number }>
 
-/** 可调布尔字段名。 */
-export type VaultBooleanKey = 'autoRecord' | 'autoInject' | 'prefilter' | 'trustAutoUpdates' | 'keepOriginal' | 'encryptSecrets'
+/**
+ * 可调布尔字段名。
+ *
+ * 这里曾经还有一项 trustAutoUpdates（「自动抽取的字段修改是否直接生效」）。
+ * v2 退役待确认机制后它没有意义了：档案不需要确认，自动改动一律直接生效，
+ * 没有「信不信任」这一层选择。删掉它的连带影响是 publicVaultConfig 自动不再
+ * 回吐这个键——它按 VAULT_BOOLEAN_KEYS 逐项取值，不硬编码字段名。
+ */
+export type VaultBooleanKey = 'autoRecord' | 'autoInject' | 'prefilter' | 'keepOriginal' | 'encryptSecrets'
 
 /** 可调布尔字段（顺序 = 面板顺序）。 */
 export const VAULT_BOOLEAN_KEYS: readonly VaultBooleanKey[] = [
-  'autoRecord', 'autoInject', 'prefilter', 'trustAutoUpdates', 'keepOriginal', 'encryptSecrets',
+  'autoRecord', 'autoInject', 'prefilter', 'keepOriginal', 'encryptSecrets',
 ]
 
 /** 可调数值字段名。 */

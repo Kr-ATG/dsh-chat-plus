@@ -21,7 +21,6 @@ export {
   patchVaultField,
   deleteVaultRecord,
   archiveVaultRecord,
-  confirmVaultRecord,
   revealVaultField,
   saveVaultScene,
   deleteVaultScene,
@@ -94,9 +93,11 @@ export type {
 export { ensureVaultStyles, css as vaultCss } from './styles.js'
 export { sceneIconOf, SceneAccountsIcon, SceneDocumentIcon } from './icons.js'
 
-// 新增的三个子视图。VaultHealthDrawer / VaultBackupPanel 由 Panel 内部挂载，
+// 子视图。VaultHealthDrawer / VaultBackupPanel 由 Panel 内部挂进 VaultModal，
 // 这里一并导出是为了让将来别处（例如侧栏入口直接开备份）能复用同一份实现，
-// 而不是各自再写一个「点开就是备份」的抽屉。
+// 而不是各自再写一个「点开就是备份」的弹窗。
+export { VaultModal } from './Shell.js'
+export type { VaultModalProps } from './Shell.js'
 export { VaultHealthDrawer, pendingIssueCount, worstSeverityOf } from './HealthDrawer.js'
 export type { VaultHealthDrawerProps } from './HealthDrawer.js'
 export { VaultBackupPanel } from './BackupPanel.js'

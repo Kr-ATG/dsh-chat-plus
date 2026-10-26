@@ -4,7 +4,9 @@
  * ── 这个页面在做什么 ────────────────────────────────────────────────
  * 它把「档案」按**场景**分组铺成卡片流（用户给的参考图是 Chrome 密码管理器
  * 的那种分组卡）：每张卡 = 一个场景，卡头是「图标 + 场景名 + 数量 + 加一条」，
- * 卡内是记录行（图标 + 标题 + 一行摘要）。点行开右侧详情抽屉。
+ * 卡内是记录行（图标 + 标题 + 一行摘要）。点行就在**那一行下面原地展开**详情
+ * （不遮页面、不滑抽屉）；「加一条」才是居中弹窗——新建时列表里还没有对应那一
+ * 行可展开，只能浮起来。
  *
  * 它不是记忆库的第二份界面：记忆库存陈述句、可模糊检索；档案存实体与字段，
  * 同一账户再来一次「密码是 xxx」是**就地改字段**，不是追加一条。所以这个页面
@@ -13,7 +15,7 @@
  * ── 为什么摘要里的敏感字段是圆点 ────────────────────────────────────
  * 两个理由叠在一起：/list 下发的本来就是掩码（宿主 store.toPlainRecord 换过），
  * 页面手上根本没有明文；另外列表是一眼扫过的界面，就算拿得到也不该把密码铺在
- * 每一行上。所以列表只出圆点，要看明文得点开抽屉、再点眼睛（30 秒后自动回隐）。
+ * 每一行上。所以列表只出圆点，要看明文得点开那条记录、再点眼睛（30 秒后自动回隐）。
  *
  * ── 三种状态一个都不能少 ────────────────────────────────────────────
  * 加载态用与真实行同高的骨架（避免切换时跳一下）；错误态给一行中文 + 重试；
@@ -29,7 +31,7 @@
  * 相邻的 React 根，没有别的通路。
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, JSX } from 'react'
 import type {
   VaultConfig,
@@ -69,6 +71,7 @@ import {
 import { VaultDetailDrawer } from './DetailDrawer.js'
 import { VaultHealthDrawer, pendingIssueCount, worstSeverityOf } from './HealthDrawer.js'
 import { VaultBackupPanel } from './BackupPanel.js'
+import { VaultModal } from './Shell.js'
 import { PopoverShell, PshBody } from '../popover-shell.js'
 
 /** 面板 props（与记忆 / 技能面板同形，便于接进统一工作台）。 */
@@ -258,7 +261,7 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
     return () => { window.clearTimeout(timer) }
   }, [flash])
 
-  /** 记录被更新（改字段 / 照片增删 / 确认 / 归档）：替换本地那一份。 */
+  /** 记录被更新（改字段 / 照片增删 / 归档）：替换本地那一份。 */
   const onRecord = useCallback((next: VaultRecord): void => {
     setRecords((previous) => {
       const index = previous.findIndex((item) => item.id === next.id)
@@ -401,21 +404,14 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
     return map
   }, [records, scenes, query, showArchived])
 
-  /** 待确认条数（顶部提醒用）。 */
-  const pendingCount = useMemo(
-    () => records.filter((record) => record.pending === true && record.archived !== true).length,
-    [records],
-  )
-
+  /** 原地展开着的那条记录（null = 没有展开的）。 */
   const openRecord = openId === null
     ? null
     : records.find((record) => record.id === openId) ?? null
-  const openScene = creatingScene !== null
-    ? creatingScene
-    : openRecord === null
-      ? null
-      : scenes.find((scene) => scene.id === openRecord.scene) ?? null
-  const drawerOpen = creatingScene !== null || (openRecord !== null && openId !== null)
+  /** 原地展开那条记录所属的场景（详情里的照片区块要用它的 photoFirst）。 */
+  const openScene = openRecord === null
+    ? null
+    : scenes.find((scene) => scene.id === openRecord.scene) ?? null
 
   /** 当前可见的场景（侧栏选中时只留一个）。 */
   const visibleScenes = useMemo(() => {
@@ -588,12 +584,6 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
 
       {flash !== '' && <div className={css.notice}>{flash}</div>}
 
-      {pendingCount > 0 && (
-        <div className={css.notice}>
-          有 {String(pendingCount)} 条自动记录下来的内容等你确认（点开记录，底部有「确认 / 驳回」）。
-        </div>
-      )}
-
       {filteredScene !== null && (
         <div className={css.notice}>
           <span>只看「{filteredScene.label}」</span>
@@ -690,27 +680,54 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
                       </span>
                     </div>
                   ) : (
-                    list.map((record) => (
-                      <button
-                        key={record.id}
-                        type="button"
-                        className={css.row + (openId === record.id ? ' ' + css.rowSel : '')}
-                        onClick={() => { setCreatingScene(null); setOpenId(record.id) }}
-                      >
-                        <span className={css.rowIcon}><Icon size={15} /></span>
-                        <span className={css.rowMain}>
-                          <span className={css.rowTitle}>
-                            {record.title === '' ? '（未命名）' : record.title}
-                          </span>
-                          <span className={css.rowSub}>{vaultRowSummary(record)}</span>
-                        </span>
-                        <span className={css.rowTail}>
-                          {record.pending === true && <span className={css.badgePending}>待确认</span>}
-                          {record.archived === true && <span className={css.badgeArchived}>已归档</span>}
-                          <span className={css.rowArrow}><ChevronRightIcon size={13} /></span>
-                        </span>
-                      </button>
-                    ))
+                    list.map((record) => {
+                      const isOpen = openId === record.id
+                      return (
+                        <Fragment key={record.id}>
+                          <button
+                            type="button"
+                            className={css.row + (isOpen ? ' ' + css.rowSel : '')}
+                            aria-expanded={isOpen}
+                            // 点已展开的那一行＝收起来。再点一次还得给个出口，
+                            // 否则用户只能去找那个小小的关闭按钮。
+                            onClick={() => { setCreatingScene(null); setOpenId(isOpen ? null : record.id) }}
+                          >
+                            <span className={css.rowIcon}><Icon size={15} /></span>
+                            <span className={css.rowMain}>
+                              <span className={css.rowTitle}>
+                                {record.title === '' ? '（未命名）' : record.title}
+                              </span>
+                              <span className={css.rowSub}>{vaultRowSummary(record)}</span>
+                            </span>
+                            <span className={css.rowTail}>
+                              {record.archived === true && <span className={css.badgeArchived}>已归档</span>}
+                              <span className={css.rowArrow}><ChevronRightIcon size={13} /></span>
+                            </span>
+                          </button>
+                          {/*
+                            原地展开的详情：就在被点开那一行的正下方，与它同处一个
+                            分组卡里。key 用记录 id 保证「换一条」是重新挂载——已显示
+                            的明文、标题草稿、行内编辑态必须跟着换人，不然上一条的密码
+                            会挂在新记录上（光看界面发现不了的串台）。
+                          */}
+                          {isOpen && (
+                            <div className={css.expand} key={'expand:' + record.id}>
+                              <VaultDetailDrawer
+                                record={record}
+                                scene={scenes.find((item) => item.id === record.scene) ?? null}
+                                config={config}
+                                shell="expand"
+                                onError={(message) => { setActionError(message) }}
+                                onRecord={onRecord}
+                                onSaved={onSaved}
+                                onDeleted={onDeleted}
+                                onClose={() => { setOpenId(null) }}
+                              />
+                            </div>
+                          )}
+                        </Fragment>
+                      )
+                    })
                   )}
                 </div>
               )}
@@ -766,75 +783,76 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
         </footer>
       </div>
 
-      {/* 健康抽屉与备份抽屉：都盖在页面上、都要先有一层 scrim。
-          三个抽屉互斥（同一时刻只开一个），所以各自一段条件渲染、不共用状态。 */}
+      {/* ── 三块浮层，形态按语义分两种 ───────────────────────────────
+
+           · 新建记录 / 健康检查 / 备份恢复 → 居中弹窗。
+             它们都是「一次性的整块任务」，背后没有「对应的那一行」可以展开：
+             新建时记录还不存在，健康与备份是整库报告。
+
+           · 查看 / 编辑一条已有记录 → 不在这里，而是**原地展开**在那一行下面
+             （见上面 list.map 里的 VaultDetailDrawer）。用户要的就是这个：点开
+             一条记录不该把整页压暗，也不该从右边滑出来。
+
+           三块互斥（同一时刻只开一个），所以各自一段条件渲染、不共用状态。 */}
       {healthOpen && (
-        <>
-          <div className={css.scrim} onClick={() => { setHealthOpen(false) }} aria-hidden="true" />
+        <VaultModal label="密码健康检查" onClose={() => { setHealthOpen(false) }}>
           <VaultHealthDrawer
             onOpenRecord={onOpenHealthIssue}
             onRotated={onRotated}
             onClose={() => { setHealthOpen(false) }}
           />
-        </>
+        </VaultModal>
       )}
 
       {backupOpen && (
-        <>
-          <div className={css.scrim} onClick={() => { setBackupOpen(false) }} aria-hidden="true" />
-          <div className={css.drawer} role="dialog" aria-modal="true" aria-label="备份与恢复">
-            <div className={css.drawerHead}>
-              <span style={{ display: 'inline-flex', color: 'var(--v-text-2)' }}><KeyIcon size={16} /></span>
-              <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, lineHeight: '22px' }}>
-                备份与恢复
-              </div>
-              <button
-                type="button"
-                className={css.drawerClose}
-                aria-label="关闭备份与恢复"
-                title="关闭（Esc）"
-                onClick={() => { setBackupOpen(false) }}
-              >
-                <CloseIcon size={15} />
-              </button>
+        <VaultModal label="备份与恢复" onClose={() => { setBackupOpen(false) }}>
+          <div className={css.panelHead}>
+            <span style={{ display: 'inline-flex', color: 'var(--v-text-2)' }}><KeyIcon size={16} /></span>
+            <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, lineHeight: '22px' }}>
+              备份与恢复
             </div>
-            <div className={css.drawerBody}>
-              <VaultBackupPanel
-                onRestored={onRestored}
-                onError={(message) => { setActionError(message) }}
-                onFlash={(message) => { setFlash(message) }}
-              />
-            </div>
+            <button
+              type="button"
+              className={css.panelClose}
+              aria-label="关闭备份与恢复"
+              title="关闭（Esc）"
+              onClick={() => { setBackupOpen(false) }}
+            >
+              <CloseIcon size={15} />
+            </button>
           </div>
-        </>
+          <div className={css.panelBody}>
+            <VaultBackupPanel
+              onRestored={onRestored}
+              onError={(message) => { setActionError(message) }}
+              onFlash={(message) => { setFlash(message) }}
+            />
+          </div>
+        </VaultModal>
       )}
 
-      {drawerOpen && (
-        <>
-          <div
-            className={css.scrim}
-            onClick={() => { setOpenId(null); setCreatingScene(null) }}
-            aria-hidden="true"
-          />
+      {creatingScene !== null && (
+        <VaultModal label="新建档案记录" onClose={() => { setCreatingScene(null) }}>
           <VaultDetailDrawer
             /*
-             * key 让「换一条记录 / 换一个场景新建」变成**重新挂载**而不是改 props。
-             * 不加 key 的话，从 A 的加号直接点 B 的加号时，抽屉里那份「按场景模板
+             * key 让「换一个场景新建」变成**重新挂载**而不是改 props。
+             * 不加 key 的话，从 A 的加号直接点 B 的加号时，弹窗里那份「按场景模板
              * 预填的草稿」还是 A 的字段表——新建出来的记录带着上一个场景的字段，
              * 而且界面上完全看不出异常。重新挂载顺带把已显示的明文、标题草稿、
              * 行内编辑态一起清干净，比逐个 useEffect 复位更不容易漏。
              */
-            key={creatingScene !== null ? 'new:' + creatingScene.id : 'rec:' + (openRecord?.id ?? '')}
-            record={creatingScene !== null ? null : openRecord}
-            scene={openScene}
+            key={'new:' + creatingScene.id}
+            record={null}
+            scene={creatingScene}
             config={config}
+            shell="modal"
             onError={(message) => { setActionError(message) }}
             onRecord={onRecord}
             onSaved={onSaved}
             onDeleted={onDeleted}
-            onClose={() => { setOpenId(null); setCreatingScene(null) }}
+            onClose={() => { setCreatingScene(null) }}
           />
-        </>
+        </VaultModal>
       )}
     </>,
   )

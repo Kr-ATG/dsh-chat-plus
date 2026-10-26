@@ -1,10 +1,11 @@
 /**
- * 健康抽屉 —— 密码健康审计的报告页（分数 + 按严重度分组的问题清单）。
+ * 密码健康 —— 审计报告页（分数 + 按严重度分组的问题清单）。
  *
- * ── 为什么单独一个抽屉而不是塞进主页面 ────────────────────────────────
+ * ── 为什么是弹窗而不是主页面上一块 ──────────────────────────────────
  * 审计结论是**一次性的巡检报告**，不是常驻信息：用户看完、去改几条密码，
  * 这份报告就过期了。把它做主页面上的一块，等于让一份会过期的数据占据每天
- * 都在看的位置。做成抽屉＝「点开才查一次」，语义正好。
+ * 都在看的位置。做成弹窗＝「点开才查一次」，语义正好。
+ * 外壳（居中弹窗）由 Panel 的 VaultModal 提供，本文件只出内容。
  *
  * ── 为什么分数是主角，清单是配角 ────────────────────────────────────
  * 这一页要回答的唯一问题是「我现在危不危险」。所以顶部先给一个 0-100 的数
@@ -79,7 +80,7 @@ function toneOf(score: number): 'good' | 'warn' | 'bad' {
 const SEVERITY_RANK: Record<VaultIssueSeverity, number> = { high: 0, medium: 1, low: 2 }
 
 export interface VaultHealthDrawerProps {
-  /** 点某条问题 → 跳到那条记录（父级负责关抽屉并打开详情）。 */
+  /** 点某条问题 → 跳到那条记录（父级负责关弹窗并原地展开那条记录）。 */
   onOpenRecord: (recordId: string) => void
   /**
    * 批量轮换成功 → 父级重新 /list 并重算健康。
@@ -87,7 +88,7 @@ export interface VaultHealthDrawerProps {
    * 了，父级那份 records 已经不新鲜，必须重拉。
    */
   onRotated: (result: VaultRotateResult) => void
-  /** 关闭抽屉。 */
+  /** 关闭弹窗。 */
   onClose: () => void
 }
 
@@ -178,7 +179,7 @@ export function VaultHealthDrawer({ onOpenRecord, onRotated, onClose }: VaultHea
   /**
    * 拉报告。
    *
-   * 首次失败 → 整块错误态（此时空白抽屉没有别的内容可看）；
+   * 首次失败 → 整块错误态（此时空白弹窗没有别的内容可看）；
    * 已有报告再刷新失败 → 只出一行提示，保留上次的数字（同主页面的两段式
    * 策略：把用户正在看的东西换成红屏是最差的选择）。
    */
@@ -197,12 +198,13 @@ export function VaultHealthDrawer({ onOpenRecord, onRotated, onClose }: VaultHea
 
   useEffect(() => { void load() }, [load])
 
-  // 卸载时收掉复制提示的定时器（否则抽屉关了还会对已卸载组件 setState）。
+  // 卸载时收掉复制提示的定时器（否则弹窗关了还会对已卸载组件 setState）。
   useEffect(() => () => {
     if (copiedTimer.current !== undefined) window.clearTimeout(copiedTimer.current)
   }, [])
 
-  // Esc 关闭（抽屉盖在页面上，键盘用户需要一个出口）。
+  // Esc 关闭。Panel 那边也有一份同样的监听（它要按层叠顺序裁决关哪一层），
+  // 两处都调 onClose 是幂等的：谁先跑都只是把同一个 state 置回关闭。
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
@@ -314,7 +316,7 @@ export function VaultHealthDrawer({ onOpenRecord, onRotated, onClose }: VaultHea
 
   const body = loading && report === null
     ? (
-      <div className={css.drawerBody}>
+      <div className={css.panelBody}>
         {[0, 1, 2].map((index) => (
           <div key={index} className={css.skeleton} style={{ height: 64 }} />
         ))}
@@ -322,7 +324,7 @@ export function VaultHealthDrawer({ onOpenRecord, onRotated, onClose }: VaultHea
     )
     : error !== '' && report === null
       ? (
-        <div className={css.drawerBody}>
+        <div className={css.panelBody}>
           <div className={css.error}>
             <span style={{ display: 'inline-flex', flex: 'none' }}><AlertIcon size={15} /></span>
             <div className={css.errorText}>健康检查失败：{error}</div>
@@ -336,7 +338,7 @@ export function VaultHealthDrawer({ onOpenRecord, onRotated, onClose }: VaultHea
         </div>
       )
       : (
-        <div className={css.drawerBody}>
+        <div className={css.panelBody}>
           {error !== '' && (
             <div className={css.error}>
               <span style={{ display: 'inline-flex', flex: 'none' }}><AlertIcon size={15} /></span>
@@ -449,7 +451,7 @@ export function VaultHealthDrawer({ onOpenRecord, onRotated, onClose }: VaultHea
                 </div>
               ))}
 
-              {/* 结果面板：新明文密码列在这里。它在这个抽屉的**最后**，但语义上
+              {/* 结果面板：新明文密码列在这里。它在这个弹窗的**最后**，但语义上
                   最重要——用户离开这一屏之前必须把每条抄到对应站点去。所以只要
                   有结果就常驻，不随重拉报告消失。 */}
               {rotated !== null && rotated.rotated.length > 0 && (
@@ -531,16 +533,17 @@ export function VaultHealthDrawer({ onOpenRecord, onRotated, onClose }: VaultHea
         </div>
       )
 
+  // 外壳（居中弹窗）由 Panel 的 VaultModal 提供，这里只出头部 + 内容。
   return (
-    <div className={css.drawer} role="dialog" aria-modal="true" aria-label="密码健康检查">
-      <div className={css.drawerHead}>
+    <>
+      <div className={css.panelHead}>
         <span style={{ display: 'inline-flex', color: 'var(--v-text-2)' }}><ShieldIcon size={16} /></span>
         <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, lineHeight: '22px' }}>
           密码健康
         </div>
         <button
           type="button"
-          className={css.drawerClose}
+          className={css.panelClose}
           title="重新检查"
           aria-label="重新检查"
           disabled={loading}
@@ -548,12 +551,12 @@ export function VaultHealthDrawer({ onOpenRecord, onRotated, onClose }: VaultHea
         >
           <RefreshIcon size={14} />
         </button>
-        <button type="button" className={css.drawerClose} aria-label="关闭健康检查" title="关闭（Esc）" onClick={onClose}>
+        <button type="button" className={css.panelClose} aria-label="关闭健康检查" title="关闭（Esc）" onClick={onClose}>
           <CloseIcon size={15} />
         </button>
       </div>
       {body}
-    </div>
+    </>
   )
 }
 

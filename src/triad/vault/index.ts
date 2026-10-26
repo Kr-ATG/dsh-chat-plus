@@ -223,15 +223,17 @@ async function extractTurn(
     }
     return
   }
+  // 不传 config：applyVaultOps 只在「要不要挂 pending」时需要配置，
+  // 待确认机制退役后它不再读任何配置项。
   const applied = await applyVaultOps(store, result.ops, {
-    config,
     scenes,
     sessionId: agent.session.id,
     turn: turnNumber,
   })
-  if (applied.created + applied.updated + applied.pendingCreated + applied.pendingUpdated > 0) {
-    ctx.logger?.info?.('[dsh-vault] 新建 ' + String(applied.created) + ' 条、更新 ' + String(applied.updated)
-      + ' 条、待确认 ' + String(applied.pendingCreated + applied.pendingUpdated) + ' 条')
+  // 只报「新建 / 更新」两种：v2 退役待确认机制后，抽取结果一律直接生效，
+  // 没有第三类「挂成待确认」的计数可报（原先这里还会拼一段「待确认 N 条」）。
+  if (applied.created + applied.updated > 0) {
+    ctx.logger?.info?.('[dsh-vault] 新建 ' + String(applied.created) + ' 条、更新 ' + String(applied.updated) + ' 条')
     // 配额在写入后立刻校一次：照片是唯一能吃满磁盘的东西，等定时任务太晚。
     void store.enforceQuota(config.quotaBytes).catch((error) => log2(ctx, 'quota', error))
   }

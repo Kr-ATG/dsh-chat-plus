@@ -47,7 +47,6 @@ export const css = {
   rowSub: 'dsh-vault-row-sub',
   rowTail: 'dsh-vault-row-tail',
   rowArrow: 'dsh-vault-row-arrow',
-  badgePending: 'dsh-vault-badge-pending',
   badgeArchived: 'dsh-vault-badge-archived',
   empty: 'dsh-vault-empty',
   emptyIcon: 'dsh-vault-empty-icon',
@@ -59,14 +58,15 @@ export const css = {
   errorText: 'dsh-vault-error-text',
   errorRetry: 'dsh-vault-error-retry',
   notice: 'dsh-vault-notice',
-  // ── 抽屉 ──
-  scrim: 'dsh-vault-scrim',
-  drawer: 'dsh-vault-drawer',
-  drawerHead: 'dsh-vault-drawer-head',
-  drawerTitleInput: 'dsh-vault-drawer-title-input',
-  drawerClose: 'dsh-vault-drawer-close',
-  drawerBody: 'dsh-vault-drawer-body',
-  drawerFoot: 'dsh-vault-drawer-foot',
+  // ── 详情面板（内容本体 + 两种外壳）──
+  backdrop: 'dsh-vault-backdrop',
+  modal: 'dsh-vault-modal',
+  expand: 'dsh-vault-expand',
+  panelHead: 'dsh-vault-panel-head',
+  panelTitleInput: 'dsh-vault-panel-title-input',
+  panelClose: 'dsh-vault-panel-close',
+  panelBody: 'dsh-vault-panel-body',
+  panelFoot: 'dsh-vault-panel-foot',
   section: 'dsh-vault-section',
   sectionHead: 'dsh-vault-section-head',
   sectionTitle: 'dsh-vault-section-title',
@@ -183,6 +183,9 @@ const SHEET = `
   --v-border:var(--dsw-alias-border-l1,rgba(127,127,127,.16));
   --v-border-2:var(--dsw-alias-border-l2,rgba(127,127,127,.26));
   --v-card:var(--dsw-alias-bg-layer-1,transparent);
+  /* 浮层实底：--v-card 可能是 transparent（贴底色），弹窗与原地展开卡必须是不
+     透明的一层，否则会透出后面的列表看起来像蒙了灰。 */
+  --v-raise:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1,#16181d));
   --v-hover:color-mix(in srgb,var(--v-text-3) 10%,transparent);
   --v-soft:color-mix(in srgb,var(--v-text-3) 6%,transparent);
   --v-sunk:color-mix(in srgb,var(--v-text-3) 4%,transparent);
@@ -367,17 +370,13 @@ const SHEET = `
 .dsh-vault-row:hover .dsh-vault-row-arrow{opacity:1;transform:translateX(1px)}
 .dsh-vault-row:focus-visible .dsh-vault-row-arrow{opacity:1}
 
-/* 待确认 / 已归档 徽标：两者都是「这条记录现在不太一样」，用中性色 + 圆点
-   区分，不给它们各自上色（一页里两种彩色徽标会把强调色稀释掉）。 */
-.dsh-vault-badge-pending,.dsh-vault-badge-archived{
+/* 已归档徽标：唯一一种「这条记录现在不太一样」的行内标记，用中性色而不是强调色
+   ——一页里铺满彩色徽标会把强调色稀释掉。（原来的「待确认」徽标已随待确认机制
+   一起退役：档案现在没有待确认态，行尾只剩这一枚。） */
+.dsh-vault-badge-archived{
   display:inline-flex;align-items:center;gap:4px;
   height:17px;padding:0 6px;border-radius:var(--v-r-pill);
   font-size:10.5px;font-weight:600;line-height:17px;white-space:nowrap;
-}
-.dsh-vault-badge-pending{
-  color:var(--v-warn);background:color-mix(in srgb,var(--v-warn) 13%,transparent);
-}
-.dsh-vault-badge-archived{
   color:var(--v-text-3);background:color-mix(in srgb,var(--v-text-3) 14%,transparent);
 }
 
@@ -421,7 +420,7 @@ const SHEET = `
   font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;
 }
 .dsh-vault-error-retry:hover{background:color-mix(in srgb,var(--v-err) 12%,transparent)}
-/* 顶部提示条（「已保存」「有 N 条待确认」「只看某分组」）。
+/* 顶部提示条（「已保存」「只看某分组」）。
    默认中性二级字色：红色留给真正的错误（.dsh-vault-error）——把「已保存」
    也涂成红的话，红色就不再表示「出事了」。 */
 .dsh-vault-notice{
@@ -430,58 +429,90 @@ const SHEET = `
   font-size:11.5px;line-height:17px;color:var(--v-text-2);
 }
 
-/* ══ 详情抽屉 ══════════════════════════════════════════════════════
-   抽屉挂在 .dsh-vault 内部（position:absolute 而不是 fixed）：这个页面在官方
-   main 槽位里，fixed 会连侧栏与顶栏一起盖住；absolute 只覆盖本页面区域，
-   行为上就是「贴在这一屏右侧」。 */
-.dsh-vault-scrim{
+/* ══ 详情面板：内容本体 + 两种外壳 ══════════════════════════════════
+   同一条记录有两种呈现方式，壳不同、内容完全一样（Panel 与 DetailDrawer 共用
+   同一份组件）：
+
+   · .dsh-vault-expand —— **列表里原地展开**（查看 / 编辑已有记录）。
+     它就长在被点开的那一行下面，是页面内容的一部分，所以没有遮罩、没有浮层
+     投影，只有一圈描边把「这是展开出来的」和「这是列表行」分开。
+     这是用户明确要的形态：点开一条记录不该把整页压暗、也不该从右边滑出来。
+
+   · .dsh-vault-modal —— **居中弹窗**（新建记录 / 健康检查 / 备份恢复）。
+     这三个都是「一次性的整块任务」：新建时列表里根本没有对应那一行可展开，
+     健康与备份是巡检报表、不属于任何一条记录，所以给弹窗。
+     ⚠ 外壳必须是 position:absolute 而不是 fixed：这个页面在官方 main 槽位里，
+     fixed 会连侧栏与顶栏一起盖住。absolute 只覆盖 .dsh-vault 这一屏，
+     语义是「在这块区域里居中」，用户仍然看得见侧栏、能随时切走。 */
+.dsh-vault-backdrop{
   position:absolute;inset:0;z-index:20;
-  background:color-mix(in srgb,var(--v-text) 22%,transparent);
-  animation:dsh-vault-fade .18s ease;
+  display:flex;align-items:center;justify-content:center;
+  padding:32px 24px;box-sizing:border-box;
+  /* 遮罩几乎透明：只负责吃掉点击与一点点聚焦感，绝不再把整页压暗。
+     用户说的「灰蒙蒙」就是旧版那层 22% 文字色盖在列表上造成的。 */
+  background:color-mix(in srgb,var(--v-text) 6%,transparent);
+  animation:dsh-vault-fade .16s ease;
 }
-.dsh-vault-drawer{
-  position:absolute;top:0;right:0;bottom:0;z-index:21;
-  width:min(440px,100%);
+.dsh-vault-modal{
+  position:relative;
   display:flex;flex-direction:column;
+  width:min(560px,100%);
+  max-height:100%;min-height:0;
   background:var(--v-card);
-  border-left:1px solid var(--v-border);
+  /* 弹窗底必须是实色：--v-card 在官方主题里可能是 transparent（贴底色），
+     那样会透出后面的列表、又变成「灰蒙蒙」。这里用底色 token 兜底纯色。 */
+  background-color:var(--dsw-alias-bg-layer-1,var(--v-raise));
+  border:1px solid var(--v-border-2);
+  border-radius:var(--v-r-card);
   box-shadow:var(--v-shadow);
-  animation:dsh-vault-slide .24s cubic-bezier(.2,.8,.2,1);
   box-sizing:border-box;
+  animation:dsh-vault-pop .22s cubic-bezier(.2,.8,.2,1);
 }
-.dsh-vault-drawer-head{
+.dsh-vault-expand{
+  position:relative;
+  display:flex;flex-direction:column;
+  margin:2px 8px 10px;
+  background:var(--v-card);
+  background-color:var(--dsw-alias-bg-layer-1,var(--v-raise));
+  border:1px solid var(--v-border-2);
+  border-radius:var(--v-r-card);
+  box-sizing:border-box;
+  overflow:hidden;
+  animation:dsh-vault-rise .2s cubic-bezier(.2,.8,.2,1);
+}
+.dsh-vault-panel-head{
   flex:none;display:flex;align-items:center;gap:8px;
   padding:14px 12px 12px 18px;
   border-bottom:1px solid var(--v-border);
   box-sizing:border-box;
 }
-.dsh-vault-drawer-title-input{
+.dsh-vault-panel-title-input{
   flex:1;min-width:0;
   border:1px solid transparent;border-radius:var(--v-r-ctrl);
   background:transparent;padding:4px 8px;margin:0 -8px;
   font-family:inherit;font-size:15px;font-weight:600;line-height:22px;color:var(--v-text);
   transition:border-color .15s ease,background .15s ease;
 }
-.dsh-vault-drawer-title-input:hover{border-color:var(--v-border)}
-.dsh-vault-drawer-title-input:focus{
-  outline:none;border-color:var(--v-accent);background:var(--v-card);
+.dsh-vault-panel-title-input:hover{border-color:var(--v-border)}
+.dsh-vault-panel-title-input:focus{
+  outline:none;border-color:var(--v-accent);background:var(--v-raise);
   box-shadow:0 0 0 3px color-mix(in srgb,var(--v-accent) 12%,transparent);
 }
-.dsh-vault-drawer-close{
+.dsh-vault-panel-close{
   flex:none;display:inline-flex;align-items:center;justify-content:center;
   width:28px;height:28px;padding:0;border:none;border-radius:8px;
   background:transparent;color:var(--v-text-2);cursor:pointer;
   transition:background .14s ease,color .14s ease;
 }
-.dsh-vault-drawer-close:hover{background:var(--v-hover);color:var(--v-text)}
-.dsh-vault-drawer-body{
+.dsh-vault-panel-close:hover{background:var(--v-hover);color:var(--v-text)}
+.dsh-vault-panel-body{
   flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
   padding:14px 18px 18px;box-sizing:border-box;
   display:flex;flex-direction:column;gap:18px;
 }
-.dsh-vault-drawer-body::-webkit-scrollbar{width:8px}
-.dsh-vault-drawer-body::-webkit-scrollbar-thumb{background:var(--v-border-2);border-radius:4px}
-.dsh-vault-drawer-foot{
+.dsh-vault-panel-body::-webkit-scrollbar{width:8px}
+.dsh-vault-panel-body::-webkit-scrollbar-thumb{background:var(--v-border-2);border-radius:4px}
+.dsh-vault-panel-foot{
   flex:none;display:flex;align-items:center;gap:8px;
   padding:12px 18px;box-sizing:border-box;
   border-top:1px solid var(--v-border);
@@ -1005,13 +1036,16 @@ const SHEET = `
 /* ── 动效 ───────────────────────────────────────────────────────── */
 @keyframes dsh-vault-rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 @keyframes dsh-vault-fade{from{opacity:0}to{opacity:1}}
-@keyframes dsh-vault-slide{from{opacity:.4;transform:translateX(28px)}to{opacity:1;transform:translateX(0)}}
+/* 弹窗入场：从下方 8px 轻微上浮 + 缩放淡入。不用整块飞入——120ms 内的位移一大
+   就会读成「界面在晃」，而这里只是把「刚刚出现」这件事说出来。 */
+@keyframes dsh-vault-pop{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
 @keyframes dsh-vault-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
 
 /* 减弱动效：只关动画帧，不动布局与可见性（否则「看不看得见」会取决于这条
    媒体查询是否命中）。 */
 @media (prefers-reduced-motion:reduce){
-  .dsh-vault-group,.dsh-vault-scrim,.dsh-vault-drawer,.dsh-vault-lightbox{animation:none!important}
+  .dsh-vault-group,.dsh-vault-backdrop,.dsh-vault-modal,.dsh-vault-expand,
+  .dsh-vault-lightbox{animation:none!important}
   .dsh-vault-skeleton-row{animation:none!important}
   .dsh-vault-row,.dsh-vault-row-arrow,.dsh-vault-ghost-btn,.dsh-vault-group-add,
   .dsh-vault-photo-upload,.dsh-vault-btn,.dsh-vault-field-eye,.dsh-vault-photo-del,
@@ -1021,17 +1055,20 @@ const SHEET = `
   }
 }
 
-/* ── 窄屏：抽屉整宽、头部说明句折行 ────────────────────────────── */
+/* ── 窄屏：弹窗整宽、头部说明句折行 ────────────────────────────── */
 @media (max-width:720px){
   .dsh-vault-head{padding:12px 14px 10px}
   .dsh-vault-scroll{padding:12px 14px 32px}
-  .dsh-vault-drawer{width:100%}
+  /* 窄屏没有多余留白可给：弹窗铺到只剩一圈能让点击落在外面关掉的缝。 */
+  .dsh-vault-backdrop{padding:16px 10px}
+  .dsh-vault-modal{width:100%}
+  .dsh-vault-expand{margin:2px 4px 10px}
   .dsh-vault-head-main{flex-wrap:wrap}
   .dsh-vault-hint{flex-basis:100%;order:3}
   .dsh-vault-group-desc{display:none}
 }
 
-/* 深色主题：只覆盖必须手写颜色的两处（图片占位与抽屉投影）。
+/* 深色主题：只覆盖必须手写颜色的两处（图片占位与浮层投影）。
    其余全部走 --dsw-alias-* token，随主题自动切换。 */
 body[data-ds-dark-theme] .dsh-vault{
   --v-shadow:0 10px 32px rgba(0,0,0,.56);

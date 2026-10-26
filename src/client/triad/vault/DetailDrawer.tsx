@@ -1,5 +1,16 @@
 /**
- * 详情抽屉 —— 点开一条记录后的全部编辑能力。
+ * 详情面板 —— 点开一条记录（或新建一条）后的全部编辑能力。
+ *
+ * ── 为什么组件本身不带外壳 ──────────────────────────────────────────
+ * 同一条记录要以两种形态出现：查看 / 编辑已有记录是**列表里原地展开**（不遮
+ * 页面、不滑出侧栏），新建记录是**居中弹窗**（那时列表里还没有对应那一行可
+ * 展开）。两者内容一字不差，所以外壳留给调用方（Panel），这里只出内容 + 头部
+ * + 页脚三件套；外壳通过 shell 属性决定。这样「再要第三种形态」时只改外壳。
+ *
+ * ── 保留 Drawer 这个名字的原因 ──────────────────────────────────────
+ * 组件与导出名继续叫 VaultDetailDrawer：改名会波及 index.ts 的导出面与下游
+ * 引用，而这个文件解决的仍然是「一条记录的详情」，语义没有变——变的只是它被
+ * 谁套了一层什么壳。
  *
  * ── 分工：为什么字段「就地改」，标题「整体保存」────────────────────
  * 这两条路走的是不同的 HTTP 路由，取舍很明确：
@@ -31,7 +42,6 @@ import type { JSX } from 'react'
 import {
   archiveVaultRecord,
   deleteVaultRecord,
-  confirmVaultRecord,
   describeEntropy,
   formatVaultStamp,
   formatVaultTime,
@@ -109,7 +119,10 @@ function draftFromScene(scene: VaultScene): VaultRecord {
   }
 }
 
-/** 抽屉属性。 */
+/** 面板形态：新建成弹窗，查看 / 编辑已有记录在列表里原地展开。 */
+export type VaultDetailShell = 'modal' | 'expand'
+
+/** 详情面板属性。 */
 export interface VaultDetailDrawerProps {
   /** 要编辑的记录；null = 新建（此时 scene 必填，用来取模板）。 */
   record: VaultRecord | null
@@ -119,7 +132,7 @@ export interface VaultDetailDrawerProps {
   config: Partial<VaultConfig>
   /** 错误上报（父级统一渲染一行中文错误 + 重试）。 */
   onError: (message: string) => void
-  /** 记录被更新（改字段 / 照片增删 / 确认）。只更新数据，不触发「已保存」提示。 */
+  /** 记录被更新（改字段 / 照片增删 / 归档）。只更新数据，不触发「已保存」提示。 */
   onRecord: (record: VaultRecord) => void
   /**
    * 保存 / 创建成功（与 onRecord 分开是为了让父级只在这一个动作上弹提示：
@@ -128,12 +141,20 @@ export interface VaultDetailDrawerProps {
   onSaved?: (record: VaultRecord) => void
   /** 记录被删除（父级从列表里摘掉并关抽屉）。 */
   onDeleted: (id: string) => void
-  /** 关闭抽屉。 */
+  /** 关闭面板（弹窗＝关掉；原地展开＝收起这一块）。 */
   onClose: () => void
+  /**
+   * 外壳形态。
+   *
+   * 由调用方给而不是自己判断「有没有 id」：健康检查里点某条问题跳到详情时，
+   * 那条记录是有 id 的，但它出现在列表里，一样该原地展开。形态取决于「它长在
+   * 页面里还是浮在页面之上」，那是调用方的知识。
+   */
+  shell?: VaultDetailShell
 }
 
 export function VaultDetailDrawer({
-  record, scene, config, onError, onRecord, onSaved, onDeleted, onClose,
+  record, scene, config, onError, onRecord, onSaved, onDeleted, onClose, shell = 'modal',
 }: VaultDetailDrawerProps): JSX.Element {
   // 新建态用一个本地草稿；编辑态直接用父级那份 record（它是唯一真相，
   // 任何一次 /field 回来后父级会替换它，于是这里自动跟上）。
@@ -479,20 +500,6 @@ export function VaultDetailDrawer({
     }
   }
 
-  /** 确认 / 驳回一条自动抽取的待确认记录。 */
-  const onConfirm = async (accept: boolean): Promise<void> => {
-    if (current === null || current.id === '') return
-    setBusy('confirm')
-    try {
-      const next = await confirmVaultRecord(current.id, accept)
-      onRecord(next)
-    } catch (error) {
-      reportError('确认失败：' + (error instanceof Error ? error.message : String(error)))
-    } finally {
-      setBusy('')
-    }
-  }
-
   /** 新增字段：key 自动生成（人只填显示名），提交走 /field。 */
   const onAddField = async (): Promise<void> => {
     if (current === null || newField === null) return
@@ -540,15 +547,13 @@ export function VaultDetailDrawer({
 
   if (current === null) {
     // 既没有 record 也没有 scene：父级在构造参数时出错了，给一行可读提示
-    // 而不是渲染一个空白抽屉。
+    // 而不是渲染一个空白面板。
     return (
-      <div className={css.drawer} role="dialog" aria-label="档案详情">
-        <div className={css.drawerHead}>
-          <div className={css.errorText} style={{ flex: 1 }}>没有可显示的记录</div>
-          <button type="button" className={css.drawerClose} aria-label="关闭" onClick={onClose}>
-            <CloseIcon size={15} />
-          </button>
-        </div>
+      <div className={css.panelHead}>
+        <div className={css.errorText} style={{ flex: 1 }}>没有可显示的记录</div>
+        <button type="button" className={css.panelClose} aria-label="关闭" onClick={onClose}>
+          <CloseIcon size={15} />
+        </button>
       </div>
     )
   }
@@ -556,7 +561,7 @@ export function VaultDetailDrawer({
   const scenePhotoFirst = scene?.photoFirst === true
 
   /**
-   * 关闭抽屉。
+   * 关闭面板。
    *
    * 标题是草稿态（只在「保存」时落盘），所以关掉之前要问一句——否则用户改了
    * 标题、点右上角关闭，界面看起来「改过了」（输入框里确实是新标题），刷新后
@@ -569,11 +574,13 @@ export function VaultDetailDrawer({
   }
 
   return (
-    <div className={css.drawer} role="dialog" aria-modal="true" aria-label="档案详情">
+    <>
       {/* ── 头部：标题可直接改（新建时就是空输入框）── */}
-      <div className={css.drawerHead}>
+      {/* data-shell 是给冒烟与调试用的：内容一样、壳不同，出问题时第一个要确认
+          的就是「现在这个形态是弹窗还是原地展开」。 */}
+      <div className={css.panelHead} data-shell={shell}>
         <input
-          className={css.drawerTitleInput}
+          className={css.panelTitleInput}
           value={titleDraft ?? current.title}
           placeholder="给这条记录起个名字，例如「GitHub · Kr-ATG」"
           aria-label="记录标题"
@@ -585,12 +592,20 @@ export function VaultDetailDrawer({
             }
           }}
         />
-        <button type="button" className={css.drawerClose} aria-label="关闭详情" title="关闭（Esc）" onClick={requestClose}>
-          <CloseIcon size={15} />
+        <button
+          type="button"
+          className={css.panelClose}
+          aria-label={shell === 'modal' ? '关闭详情' : '收起详情'}
+          // 两种壳里这枚按钮的语义不同：弹窗是「关掉」，原地展开是「收回去」，
+          // 按钮上的提示得跟着说实话。
+          title={shell === 'modal' ? '关闭（Esc）' : '收起这条记录（Esc）'}
+          onClick={requestClose}
+        >
+          <CloseIcon size={shell === 'modal' ? 15 : 14} />
         </button>
       </div>
 
-      <div className={css.drawerBody}>
+      <div className={css.panelBody}>
         {/* 局部错误：只盖掉这一行，不把整页切成错误态（用户可能正在填别的字段） */}
         {actionError !== '' && (
           <div className={css.error}>
@@ -599,23 +614,6 @@ export function VaultDetailDrawer({
             <button type="button" className={css.errorRetry} onClick={() => { setActionError('') }}>
               知道了
             </button>
-          </div>
-        )}
-
-        {/* 待确认提示：自动记进来的记录在这里等一句「对 / 不对」 */}
-        {current.pending === true && (
-          <div className={css.section}>
-            <div className={css.error} style={{ borderColor: 'var(--v-border-2)', background: 'var(--v-soft)', color: 'var(--v-text-2)' }}>
-              <div className={css.errorText}>
-                这条是对话里自动记下来的，还没确认。确认之后它才会参与每次会话的自动读取。
-              </div>
-              <button type="button" className={css.btn} disabled={busy !== ''} onClick={() => { void onConfirm(true) }}>
-                确认
-              </button>
-              <button type="button" className={css.btn + ' ' + css.btnDanger} disabled={busy !== ''} onClick={() => { void onConfirm(false) }}>
-                驳回
-              </button>
-            </div>
           </div>
         )}
 
@@ -843,7 +841,7 @@ export function VaultDetailDrawer({
       </div>
 
       {/* ── 底部：保存 / 归档 / 删除（删除走二次确认）── */}
-      <div className={css.drawerFoot}>
+      <div className={css.panelFoot}>
         <button
           type="button"
           className={css.btn + ' ' + css.btnPri}
@@ -874,6 +872,6 @@ export function VaultDetailDrawer({
           {busy === 'delete' ? '删除中…' : confirmDelete ? '确认删除？' : '删除'}
         </button>
       </div>
-    </div>
+    </>
   )
 }

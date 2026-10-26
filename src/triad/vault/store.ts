@@ -472,8 +472,13 @@ export class VaultStore {
     tags?: string[]
     note?: string
     source: VaultChangeSource
+    /**
+     * 抽取可信度（人工录入恒 1）。
+     *
+     * v2 起它只是溯源信息，不影响可见性：原来「低可信度挂 pending 等确认」
+     * 的那层含义随待确认机制一起删了。
+     */
     confidence?: number
-    pending?: boolean
     provenance?: { sessionId?: string; turn?: number }
   }): Promise<VaultRecord> {
     const data = await this.ensureLoaded()
@@ -493,7 +498,6 @@ export class VaultStore {
         updatedAt: now,
         source: input.source,
         confidence: input.confidence ?? (input.source === 'manual' ? 1 : 0.7),
-        pending: input.pending,
         version: 1,
         changes: [{
           at: now,
@@ -527,7 +531,6 @@ export class VaultStore {
       updatedAt: now,
       source: input.source,
       confidence: input.confidence ?? existing.confidence,
-      pending: input.pending ?? existing.pending,
       version: existing.version + 1,
       changes: appendChanges(existing.changes, changes),
     }
@@ -551,7 +554,6 @@ export class VaultStore {
     label?: string
     type?: VaultField['type']
     sensitive?: boolean
-    soft?: boolean
     source?: VaultChangeSource
   }): Promise<VaultRecord | undefined> {
     const data = await this.ensureLoaded()
@@ -606,10 +608,11 @@ export class VaultStore {
     record.updatedAt = now
     record.version += 1
     record.changes = appendChanges(record.changes, [change])
-    if (input.soft !== true && source === 'extract') {
-      // 自动抽取的改动默认挂 pending（除非配置信任自动更新，由调用方决定）。
-      // 这里不直接改 pending —— 那是 extract 层的策略，store 只存事实。
-    }
+    // 这里原先有一个空 if（source === 'extract' 时什么都不做，只留一句注释说
+    // 「挂不挂 pending 由 extract 层决定」，配一个 soft 形参用来压掉它）。待确认
+    // 机制退役后这个空壳连壳都没意义了：store 只负责把事实写下来，
+    // 「改了要不要人确认」已经不是一个问题。soft 形参一并删掉（没有任何调用方
+    // 传过它）。
     this.touch()
     await this.persistNow()
     return this.toPlainRecord(record)
@@ -681,18 +684,10 @@ export class VaultStore {
     return this.toPlainRecord(record)
   }
 
-  /** 确认 / 驳回 pending（驳回=删除）。 */
-  async setPending(id: string, pending: boolean): Promise<VaultRecord | undefined> {
-    const data = await this.ensureLoaded()
-    const record = data.records.find((item) => item.id === id)
-    if (record === undefined) return undefined
-    if (pending) record.pending = true
-    else delete record.pending
-    record.updatedAt = nowIso()
-    this.touch()
-    await this.persistNow()
-    return this.toPlainRecord(record)
-  }
+  // 这里原有 setPending(id, pending)（确认 = 清标记，驳回 = 删记录，路由
+  // POST /confirm 调它）。用户 2026-10-27 明确要求档案不需要确认，抽取结果直接
+  // 生效，于是「确认」这个动作整体不存在了，方法连同路由一起删。老库里残留的
+  // pending 标记由 migrate 的 v1→v2 清掉（见文件末尾 migrate）。
 
   /** 记录一次「打开过」（配额淘汰的 LRU 依据）。 */
   async markOpened(id: string): Promise<void> {
@@ -1067,7 +1062,10 @@ export class VaultStore {
   async replaceAll(input: { records: VaultRecord[]; scenes?: VaultScene[] }): Promise<{ records: number; scenes: number }> {
     if (this.readOnly) throw new Error('当前为只读模式（数据结构版本过新），无法导入')
     const data = await this.ensureLoaded()
+    // 备份可能来自 v1 时代（记录上带着 pending）。先清标记再落盘：这里之后
+    // schemaVersion 会被直接写成当前版本，migrate 不会再有机会清理它。
     const records = input.records.map((record) => this.toStoredRecord(record))
+    stripPendingFlag(records)
     const scenes = Array.isArray(input.scenes) && input.scenes.length > 0
       ? input.scenes.map((scene) => ({ ...scene }))
       : DEFAULT_SCENES.map((scene) => ({ ...scene }))
@@ -1134,6 +1132,25 @@ function appendChanges(current: VaultChange[], next: VaultChange[]): VaultChange
     : merged.slice(merged.length - MAX_CHANGES_PER_RECORD)
 }
 
+/**
+ * 清掉 v1 时代遗留的 pending 标记（v2 起记录上根本没有这个字段）。
+ *
+ * 两个入口都要它，少一个就会漏：
+ *  1. migrate 的 v1→v2 一级 —— 老库升级时清理；
+ *  2. replaceAll（导入备份）—— 备份文件可能来自 v1 时代的机器，里面每条挂过
+ *     待确认的记录都带着 pending。而 replaceAll 会把 schemaVersion 直接写成当前
+ *     版本，于是下次启动 migrate 认为「已经是 v2、无需迁移」，标记就永久留在库里
+ *     了（任何代码都不再读它，但导出的 JSON 与备份里会一直带着这个僵尸字段）。
+ *
+ * 用 'pending' in record 判一次再删：老库里绝大多数记录本来就没有这个键，
+ * 无脑 delete 也能工作，但这个判断让「真的删掉了什么」在调试与测试里可观测。
+ */
+function stripPendingFlag(records: VaultRecord[]): void {
+  for (const record of records) {
+    if ('pending' in record) delete (record as unknown as { pending?: boolean }).pending
+  }
+}
+
 /** 逐级迁移（老数据 → 当前版本）。 */
 export function migrate(data: VaultData): VaultData {
   const next: VaultData = {
@@ -1141,7 +1158,19 @@ export function migrate(data: VaultData): VaultData {
     records: Array.isArray(data.records) ? data.records : [],
     scenes: Array.isArray(data.scenes) && data.scenes.length > 0 ? data.scenes : DEFAULT_SCENES.map((scene) => ({ ...scene })),
   }
-  // v1 是初版，暂无迁移。以后加版本时在这里逐级 if (next.schemaVersion === 1) { ... next.schemaVersion = 2 }。
+  // 逐级迁移：以后加版本时在这里补 if (from < N) { ... } 并把 schemaVersion 抬到 N。
+  // 顺序是「先按版本改形状，再统一补默认值」（下面那个循环对新老数据都适用）。
+  const from = next.schemaVersion
+  //
+  // v1 → v2（2026-10-27）：退役「待确认（pending）」机制。
+  // 必须**主动删掉记录上的 pending 字段**，不能只是从此不再写它：老库里已经挂
+  // 着的记录会永远带着这个标记，而页面上的确认入口已经整块拆掉——用户看到一条
+  // 「待确认」却没有任何地方能确认，那就是个永久挂着的假状态。删标记＝把它当作
+  // 已生效，这正是用户要的语义（自动抽取的结果直接生效，历史上抽的同样算数）。
+  if (from < 2) {
+    stripPendingFlag(next.records)
+    next.schemaVersion = 2
+  }
   for (const record of next.records) {
     // 防御性补齐老数据可能缺的字段（不会丢内容，只是补默认）。
     if (!Array.isArray(record.fields)) record.fields = []
@@ -1169,7 +1198,15 @@ export async function atomicWriteText(file: string, content: string): Promise<vo
   await rename(tmp, file)
 }
 
-/** 默认配置合并（读 config.json 覆盖 + cordis 配置，后者优先）。 */
+/**
+ * 默认配置合并（读 config.json 覆盖 + cordis 配置，后者优先）。
+ *
+ * 注意这里按**键名**照搬 persisted 里的每一项，所以老机器上的 config.json 里若还
+ * 残留着 v1 时代的 trustAutoUpdates，它仍会被搬进内存配置对象。这不算问题：v2 起
+ * 没有任何读取方会去读那个键（抽取不再看配置），面板侧的 publicVaultConfig 也按
+ * 白名单逐项取值、不会把它回吐给页面，下一次保存配置时它自然被覆盖掉。
+ * 刻意不在这里做「删未知键」的清洗——清洗会掩盖将来真正的配置键拼写错误。
+ */
 export function resolveVaultConfig(
   input: Partial<VaultConfig> | undefined,
   persisted: Partial<VaultConfig> | undefined,

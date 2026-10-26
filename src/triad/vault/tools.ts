@@ -62,7 +62,8 @@ function renderRecord(record: VaultRecord, sceneLabel: string): string {
     parts.push('  照片：' + String(record.photos.length) + ' 张（本机保存，未随上下文发送）')
   }
   if (record.note !== undefined && record.note.trim() !== '') parts.push('  备注：' + record.note.trim())
-  if (record.pending === true) parts.push('  〔自动记录·待用户确认〕')
+  // 这里原有 〔自动记录·待用户确认〕 一行，v2 退役待确认机制后记录上没有这个状态；
+  // 只保留 archived 徽标（归档是另一个正交的、仍然存在的状态）。
   if (record.archived === true) parts.push('  〔已归档〕')
   return parts.join(LF)
 }

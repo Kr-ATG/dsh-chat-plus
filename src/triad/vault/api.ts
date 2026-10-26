@@ -219,23 +219,12 @@ async function handle(
         : { ok: true, record })
       return
     }
-    if (method === 'POST' && rest === '/confirm') {
-      const body = await readBody(req)
-      if (body === null) { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return }
-      const id = requireString(body, 'id')
-      // accept=false 是「驳回」：自动抽取抽错了，整条删掉（用户明确否定的东西
-      // 没有任何留着的理由，归档只会让待确认栏越积越多）。
-      if (body.accept === false) {
-        const gone = await store.removeRecord(id)
-        json(res, gone ? 200 : 404, gone ? { ok: true, record: null } : { ok: false, error: '记录不存在' })
-        return
-      }
-      const record = await store.setPending(id, false)
-      json(res, record === undefined ? 404 : 200, record === undefined
-        ? { ok: false, error: '记录不存在' }
-        : { ok: true, record })
-      return
-    }
+    // 这里原有 POST /confirm（accept=true → 清 pending 标记；accept=false → 驳回
+    // ＝直接删记录）。用户 2026-10-27 明确要求档案不需要确认，抽取结果直接生效，
+    // 于是「确认/驳回」这个动作整体不存在了，路由连同 store.setPending 一起删。
+    // 老库里残留的 pending 标记由 store.migrate 的 v1→v2 清掉——注意别以「反正
+    // 页面不用了」为由留着这条路由：留着它就等于留着一个能远程删记录的口子，
+    // 而它保护的那个状态已经不存在了。
     if (method === 'POST' && rest === '/reveal') {
       await handleReveal(store, req, res)
       return
@@ -341,7 +330,8 @@ async function handleRecord(store: VaultStore, req: IncomingMessage, res: Server
     fields,
     ...(Array.isArray(body.tags) ? { tags: body.tags.filter((tag): tag is string => typeof tag === 'string') } : {}),
     ...(typeof body.note === 'string' ? { note: body.note } : {}),
-    // 页面上的保存一律 manual：可信度 1、不挂 pending。
+    // 页面上的保存一律 manual：可信度由 upsertRecord 按 source 给成 1。
+    // （原来这里还写着「不挂 pending」——pending 这个概念在 v2 已经整体没了。）
     source: 'manual',
   })
   json(res, 200, { ok: true, record })

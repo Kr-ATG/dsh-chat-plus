@@ -75,7 +75,7 @@ export interface VaultListResponse {
   config: Partial<VaultConfig>
 }
 
-/** 单条记录的响应（新建 / 改字段 / 归档 / 确认都回这个形状）。 */
+/** 单条记录的响应（新建 / 改字段 / 改标题 / 归档都回这个形状）。 */
 export interface VaultRecordResponse {
   ok: boolean
   record: VaultRecord
@@ -311,13 +311,6 @@ export async function deleteVaultRecord(id: string): Promise<void> {
 export async function archiveVaultRecord(id: string, archived: boolean): Promise<VaultRecord> {
   const response = await request<VaultRecordResponse>('/archive', { id, archived })
   if (response.record === undefined) throw new Error('服务端没有返回归档后的记录')
-  return normalizeRecord(response.record)
-}
-
-/** 确认 / 驳回一条自动抽取的待确认记录。 */
-export async function confirmVaultRecord(id: string, accept: boolean): Promise<VaultRecord> {
-  const response = await request<VaultRecordResponse>('/confirm', { id, accept })
-  if (response.record === undefined) throw new Error('服务端没有返回确认后的记录')
   return normalizeRecord(response.record)
 }
 

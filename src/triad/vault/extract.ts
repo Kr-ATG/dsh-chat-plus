@@ -401,40 +401,51 @@ export async function extractVaultOps(
 
 /* ────────────────── 应用抽取结果 ────────────────── */
 
-/** 应用结果统计。 */
+/**
+ * 应用结果统计。
+ *
+ * v2 起只剩三个计数。原先还有 pendingCreated / pendingUpdated 与 needsConfirm
+ * （「本次有多少条挂成了待确认」与「哪些字段改动等人确认」），随待确认机制一起
+ * 退役——现在每一条改动都是**已经生效**的，没有第二类计数可报。
+ */
 export interface ApplyOpsResult {
   created: number
   updated: number
-  pendingCreated: number
-  pendingUpdated: number
   skipped: number
-  /** 需要用户确认的改动（页面提示用）。 */
-  needsConfirm: Array<{ recordId: string; title: string; fieldKey: string }>
 }
 
 /**
  * 把抽取动作应用到 store。
  *
- * 三条与「别把好数据改坏」直接相关的策略：
+ * 两条与「别把好数据改坏」直接相关的策略：
  *  1. **update 只改模型明确给出的字段**，绝不整体替换（没提到的字段原样保留）。
  *  2. **create 先查重**：同场景 + 归一化标题相同则退化为 update（模型有时
  *     会把「改密码」说成「新建一个账户」）。
- *  3. **已有记录的修改默认挂 pending**（除非 config.trustAutoUpdates），
- *     因为覆盖别人的密码比漏记严重得多。
+ *
+ * ── 第三道防线（待确认）为什么拆了（2026-10-27 用户要求「档案不需要确认」）──
+ * 原来还有第 3 条：已有记录的字段修改默认挂 pending，等用户在页面上点确认才
+ * 算数，理由是「覆盖别人的密码比漏记严重得多」。这条防线确实拦得住误覆盖，
+ * 但代价是**每一条自动更新都要人去点一下**：模型在会话里明明已经听到用户说
+ * 「密码改了」，档案里却还挂着旧值、页面还堆着一栏待确认——用户要的「当场
+ * 写、当场用」反而被这道闸门拖住。用户明确要求退役，于是改成写入即生效。
+ * 现在剩下的护栏只有上面两条（不整体替换、先查重）+ patchField 的「值没变
+ * 就不写」：改错了也只会改在**模型明确点名的那一个字段**上，下一轮抽取还能
+ * 再改回来，不会像整体替换那样把没提到的字段一起冲掉。
  */
 export async function applyVaultOps(
   store: VaultStore,
   ops: ExtractOp[],
   options: {
-    config: VaultConfig
+    // 这里原先还有一个 config: VaultConfig —— 它唯一的用途是读
+    // config.trustAutoUpdates 决定「要不要挂 pending」。那条策略删掉后，本函数
+    // 不再需要任何配置（写入即生效，没有开关可读），形参一并去掉，免得留一个
+    // 永不读的字段让后来人以为它还有作用。
     scenes: VaultScene[]
     sessionId?: string
     turn?: number
   },
 ): Promise<ApplyOpsResult> {
-  const result: ApplyOpsResult = {
-    created: 0, updated: 0, pendingCreated: 0, pendingUpdated: 0, skipped: 0, needsConfirm: [],
-  }
+  const result: ApplyOpsResult = { created: 0, updated: 0, skipped: 0 }
   const records = await store.listRecords()
   const sceneIds = new Set(options.scenes.map((scene) => scene.id))
   const byId = new Map(records.map((record) => [record.id, record]))
@@ -449,11 +460,12 @@ export async function applyVaultOps(
         result.skipped += 1
         continue
       }
-      const needsConfirm = options.config.trustAutoUpdates !== true
       for (const field of op.fields) {
         const existing = target.fields.find((item) => item.key === field.key)
         // 值没变就不写（避免每次抽取都刷一遍 updatedAt 与历史）。
         if (existing !== undefined && existing.value === field.value) continue
+        // 直接生效：v2 退役待确认机制后，这里不再留「先挂着等人点确认」的分支
+        // （原来会按配置把整条记录标成 pending 并记一笔 needsConfirm）。
         await store.patchField({
           id: target.id,
           key: field.key,
@@ -463,13 +475,6 @@ export async function applyVaultOps(
           ...(field.sensitive !== undefined ? { sensitive: field.sensitive } : {}),
           source: 'extract',
         })
-        if (needsConfirm) {
-          result.needsConfirm.push({ recordId: target.id, title: target.title, fieldKey: field.key })
-        }
-      }
-      if (needsConfirm) {
-        await store.setPending(target.id, true)
-        result.pendingUpdated += 1
       }
       result.updated += 1
       continue
@@ -516,15 +521,14 @@ export async function applyVaultOps(
       note: op.note,
       source: 'extract',
       confidence,
-      // 低可信度直接挂 pending；高可信度也挂——自动抽取的「新记录」本来就要
-      // 用户过一眼，除非用户在页面里关掉了 pending（当前版本一律挂）。
-      pending: true,
+      // 不传 pending：v2 起自动抽取的新记录**直接生效**（原来这里固定写
+      // pending: true，等于每抽出一条就多一条等用户确认的挂件）。
+      // confidence 仍然照传——它只是溯源信息，标出「这条是模型报的、它有几分把握」。
       provenance: { sessionId: options.sessionId, turn: options.turn },
     })
     byId.set(created.id, created)
     byKey.set(recordKeyOf(created.scene, created.title), created)
     result.created += 1
-    result.pendingCreated += 1
   }
   return result
 }
