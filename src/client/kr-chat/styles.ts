@@ -2443,16 +2443,43 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   white-space: nowrap;
 }
 
-/* 当前动作：**只有一行**，新动作把它顶掉（不做历史堆叠）。 */
+/*
+ * 当前动作：新动作把它顶掉（不做历史堆叠），**最多两排**。
+ *
+ * 「只有一行」是 2026-10-24 定下来的形态；2026-10-26 用户改口径：「操作面板的
+ * 文字允许最大两排」—— 原话对着一张卡头截图，那句话是「定位 AGENTS.md 侧栏
+ * 导航段落…」。单排把这类中长句截在动宾之间，读起来像半句话，而卡头下面紧贴
+ * 着的那一行其实够放第二排。
+ *
+ * 两排落在 detail 上（见 .kr-plain-head__detail 的 line-clamp）；这一层只负责
+ * 「允许它长高」，自己不再限制高度。
+ */
 .kr-plain-head__act {
   display: flex;
-  align-items: center;
+  /*
+   * 对齐首排而不是整块居中（2026-10-26 随「两排」一起改）。
+   *
+   * 单排时 center 与 flex-start 只差 0.4px（行高 1.45em ≈ 23.2px 落在 24px 的
+   * 盒子里），看不出区别；两排时 center 会把图标与动词摆在**两排的正中间**，
+   * 读起来像悬空的一枚符号、既不属于上面那句也不属于下面那句。flex-start 让
+   * 图标与动词跟首排站在一条线上，第二排自然向下延伸。
+   */
+  align-items: flex-start;
   justify-content: center;
   gap: 5px;
   margin-top: 2px;
-  /* 高度锁死：动作换行时卡片不抖，右栏下面几张卡的位置也不会跳。
-     字号 +2 之后行高也要跟着抬（否则 16px 的行高会夹住 16px 的字）。 */
-  height: calc(24px + var(--dsh-content-font-delta, 0px));
+  /*
+   * 高度：height 改成 min-height（2026-10-26 两排改造）。
+   *
+   * 原先锁死 height 是为了「动作换行时卡片不抖」—— 那时它真的永远只有一排，
+   * 锁死没有副作用。允许两排之后，锁死会把第二排压在 24px 的盒子里：文字溢出、
+   * 又跟被撑开的行高对不上，卡头看起来是「断」的。
+   *
+   * min-height 保住单排时的 24px 节奏（与空闲行 .kr-plain-head__idle 逐像素
+   * 一致），只有 detail 真的折到第二排才长高一行。代价是长短动作之间切换时
+   * 卡片会变高一行 —— 这是两排的必然代价，换来的是那句话能读完。
+   */
+  min-height: calc(24px + var(--dsh-content-font-delta, 0px));
   max-width: 100%;
   min-width: 0;
   /* 字号 = DSH 正文 +2（与名字同一口径，见 .kr-plain-head__name）。 */
@@ -2475,6 +2502,13 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   display: flex;
   color: var(--dsw-alias-label-tertiary);
   transition: color var(--kr-dur-fade) linear;
+  /*
+   * 图标与**首排文字**对齐（2026-10-26）：动作行现在可能是两排，直接把图标摆到
+   * 两排的正中间会读成一枚悬空的符号。算式与 flex-start 配套 ——
+   * (行高 1.45em − 图标 15px) / 2，字号轴每涨 1px 图标也涨 1px（见上面那条
+   * svg 规则），所以这里的 15px 与 delta 同步变化，偏移量恒定约 3.7px。
+   */
+  margin-top: calc((1.45em - (15px + var(--dsh-content-font-delta, 0px))) / 2);
 }
 
 /* 图标尺寸跟随「DSH 正文 +2」（与名字同一口径）：15px 起，字号每涨 1px 图标涨 1px。 */
@@ -2494,13 +2528,43 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   font-weight: 500;
 }
 
-/* 对象：主文字色，是这一行里最该被读到的部分 */
+/*
+ * 对象：主文字色，是这一行里最该被读到的部分。**最多两排**（2026-10-26 用户：
+ * 「操作面板的文字允许最大两排」）。
+ *
+ * 原来是 white-space:nowrap + text-overflow:ellipsis —— 一排到底、长句子截在
+ * 动宾之间（「定位 AGENTS.md 侧栏导航段落…」）。卡头下面本来就紧贴着一行空间，
+ * 折到第二排能把这句读完；再长就由 line-clamp 抹省略号，不做第三排：
+ *  · 三排会把卡头顶掉一截，右栏下面几张卡被推走，而卡头里最该抢眼的是立绘与
+ *    名字，不是这条状态；
+ *  · 两排正好覆盖「动词 + 一个中等长度的对象」，三排之后省略号之外的信息回报
+ *    已经很低 —— 完整文案在展开后时间线的每一行里都能看到。
+ *
+ * 写法照抄 .kr-memory__text 那套（-webkit-box + -webkit-line-clamp）：它在本项目
+ * 里是已经跑通的「多行截断」口径，不引别的方案。
+ *
+ * ⚠ 别把 white-space 写成 nowrap：-webkit-line-clamp 靠折行计数，nowrap 下恒为
+ *   一排，看起来像这条规则没生效。
+ */
 .kr-plain-head__detail {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: var(--dsw-alias-label-primary);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  /* 长路径 / URL 没有空格可折，靠这条才不会把第一排顶宽、第二排空着。 */
+  word-break: break-word;
+  /*
+   * 两排都要居中（2026-10-26 实测截图后补的）。
+   *
+   * 卡头整块是竖排居中：立绘居中、名字居中、状态行在单排时也居中。折成两排
+   * 之后若按默认左对齐，第二排（通常比第一排短）会把整块读成「左边一坨、
+   * 右下空一块」的段落 —— 与卡头的对称关系不符。text-align 只影响排内对齐，
+   * 单排时盒子本身就是收缩的，视觉与原来完全一致。
+   */
+  text-align: center;
 }
 
 /* 耗时：等宽数字，贴在最右 */

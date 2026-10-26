@@ -72,6 +72,7 @@ import {
   subscribeNav,
   toggleExpandedMenu,
   writeActiveSection,
+  writeExpandedMenus,
   type NavChildDef,
   type NavEntryDef,
   type NavSectionDef,
@@ -748,6 +749,11 @@ function runChild(entry: NavEntryDef, child: NavChildDef): void {
   } catch (error) {
     console.error(`[dsh-chat-plus] 侧栏子项 ${entry.id}/${child.id} 执行失败：`, error)
   }
+  // 选中一个子项 = 这一组就是「正在用的那一组」：别的行的二级菜单必须收起来
+  // （2026-10-26 用户要求「选中某一个二级菜单后其他二级菜单都折叠起来」）。
+  // 手风琴语义下这一行本来就已经是唯一展开项，这里是**幂等收敛**——真正兜的是
+  // 升级前的存量数据（旧版本允许多行同时展开）与外部直接写持久化层的情况。
+  writeExpandedMenus(entry.id, true)
   runEntry(entry)
 }
 
@@ -814,6 +820,17 @@ function SubMenu({ entry }: { entry: NavEntryDef }): JSX.Element | null {
  * 想打开那一页，点展开后列出来的具体子项就行 —— 子项点击会先写意图再打开页面，
  * 比「点行跳到默认项」更精确。整行可点也顺带把热区从 26px 扩到一整行 36px，
  * 触屏和鼠标都更好按。
+ *
+ * ── 手风琴（2026-10-26 用户要求）────────────────────────────────────
+ * 用户原话：「当选中某一个二级菜单后其他二级菜单都折叠起来」。
+ *
+ * 展开是**互斥**的：点开「画廊」时，「记忆」的二级菜单在同一拍里收起。实现不在
+ * 这里——`toggleExpandedMenu` 把持久化层覆盖成单值，渲染层只是按「这一行在不在
+ * 那个集合里」画（见 ./nav-registry.ts 的 `writeExpandedMenus`）。所以本组件
+ * 仍然只看自己那一份 `expanded` 布尔值，不需要知道兄弟行的存在。
+ *
+ * 为什么不做成「一次点击里先收其它行再展开自己」的显式两步：那样每次都要遍历
+ * 全部条目、写多次持久化、再触发多次重渲染，而覆盖单值天然就是互斥的。
  */
 function EntryRow({ entry, expanded }: { entry: NavEntryDef; expanded: boolean }): JSX.Element {
   const Icon = entry.icon
@@ -866,7 +883,8 @@ function SidebarSections(): JSX.Element | null {
   const isPluginSection = activeDef?.source === 'plugin'
   const entries = isPluginSection ? entriesOfSection(active ?? '') : []
   // 展开态来自持久化层（用户选的是「记住上次展开状态」）：渲染时现读，
-  // 点箭头写回后由注册表 notify 触发重渲染，不另存组件 state。
+  // 点整行写回后由注册表 notify 触发重渲染，不另存组件 state。
+  // 手风琴语义（2026-10-26）：集合里至多一个 id，其余行必然收起。
   const expanded = readExpandedMenus()
 
   useLayoutEffect(() => {

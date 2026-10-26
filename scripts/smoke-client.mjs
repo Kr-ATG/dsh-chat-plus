@@ -1998,8 +1998,37 @@ if (krEnabled) {
        *   · 这里查渲染层（卡头有没有真的听这个标记）。
        */
       fail('卡头必须遵守 hideVerb（终端族的动词不上屏，行首图标已表达该意思）')
+    } else if (!/\.kr-plain-head__detail\s*\{[^}]*-webkit-line-clamp:\s*2\b/.test(code)) {
+      /*
+       * 状态行**最多两排**（2026-10-26 用户：「操作面板的文字允许最大两排」）。
+       *
+       * 原先是 white-space:nowrap + text-overflow:ellipsis 的一排到底，遇到
+       * 「定位 AGENTS.md 侧栏导航段落」这类中等长度对象就截在动宾之间，读起来
+       * 是半句话。line-clamp:2 让它折一排、再长才抹省略号。
+       *
+       * 只认 detail 上的 clamp 是有意的：两排必须落在**对象**那一格上，动词与
+       * 图标是 flex:none 的定长元素，让它们参与折行会把「在电脑上操作 推送并
+       * 确认最终状态」拆成「动词一格 / 对象两格」的错位排版。
+       */
+      fail('卡头状态行必须允许最多两排（.kr-plain-head__detail 要 -webkit-line-clamp: 2）')
+    } else if (/\.kr-plain-head__detail\s*\{[^}]*white-space:\s*nowrap/.test(code)) {
+      /*
+       * nowrap 与 line-clamp 互斥：前者让文字永不折行，clamp 数到的永远是 1 排，
+       * 表现是「改了两排、看起来一点没变」。这条单列出来是因为它极容易被"顺手
+       * 加回去"——nowrap 在老版本里就是紧挨着 overflow/ellipsis 三件套的一员。
+       */
+      fail('卡头状态行不能同时留 white-space: nowrap（会让 line-clamp:2 静默失效，永远只显示一排）')
+    } else if (/\.kr-plain-head__act\s*\{[^}]*[^-]height:\s*calc\(24px/.test(code)) {
+      /*
+       * 动作行的盒子不能再锁死 height（2026-10-26）。
+       *
+       * 一排时代锁死 height 是对的（换动作时卡片不抖）。允许两排之后，锁死会让
+       * 第二排溢出一个 24px 的盒子：文字压到下面的卡上，而盒子本身的高度又跟
+       * 撑开的行高对不上。改成 min-height 才既保住单排节奏、又允许长一行。
+       */
+      fail('卡头动作行必须用 min-height（锁死 height 会把第二排压在 24px 盒子里）')
     } else {
-      pass('操作面板卡头：鲸鱼娘 + 名字 + 一行当前动作（动词按 hideVerb 省略，点击展开详细）')
+      pass('操作面板卡头：鲸鱼娘 + 名字 + 当前动作（最多两排，动词按 hideVerb 省略，点击展开详细）')
     }
 
     // 子智能体目录的三态语义：**未加载 ≠ 确实为空**。把「还没读到」说成
@@ -3866,6 +3895,19 @@ if (krEnabled) {
    *   4. 箭头是 span（不是 button）+ aria-hidden + pointer-events:none。
    */
   const branchRowJsx = /<button[\s\S]{0,400}?className="dsn-row dsn-branch-row"[\s\S]{0,700}?<\/button>/.exec(sectionsSrc2)?.[0] ?? ''
+  // 手风琴：点二级子项也算「选中了这一组」，本行必须是唯一展开项 —— 那条收敛
+  // 必须在 runChild 里（写意图 → 收敛展开态 → 打开页面），不能只靠用户手动去点行。
+  // 注释先剥掉再匹配：这一段上方有大段说明文字，正文里会提到这些函数名。
+  const sectionsCodeForRunChild = sectionsSrc2.replace(/\/\*[\s\S]*?\*\//g, '')
+  const runChildBody = /function runChild\([\s\S]{0,700}?\n}/.exec(sectionsCodeForRunChild)?.[0] ?? ''
+  if (!/writeExpandedMenus\(entry\.id,\s*true\)/.test(runChildBody)) {
+    reasons.push('点二级子项后必须把本行收敛成唯一展开项（runChild 里调 writeExpandedMenus(entry.id, true)）')
+  } else if (!/readExpandedMenus/.test(sectionsCodeForRunChild)) {
+    reasons.push('侧栏必须用 readExpandedMenus 读展开态（手风琴集合至多一项）')
+  } else {
+    pass('侧栏二级菜单手风琴：点开一行自动收起其它行，选中子项后本行仍是唯一展开项')
+  }
+
   if (branchRowJsx === '') {
     reasons.push('可展开行必须是一个整行 button（className="dsn-row dsn-branch-row"）—— 用户要求点整行展开，不是点图标')
   } else if (!/aria-expanded=\{expanded\}/.test(branchRowJsx)) {
@@ -4084,8 +4126,60 @@ if (krEnabled) {
   if (registry2.readExpandedMenus().has('ghost-row')) {
     reasons.push('持久化里的陈旧行 id 必须被丢弃（不能展开一个不存在的行）')
   }
+
+  /* ── ③b 手风琴：同时只允许一行展开（2026-10-26 用户要求）───────────
+   *
+   * 用户原话：「当选中某一个二级菜单后其他二级菜单都折叠起来」。
+   *
+   * 这组断言钉三件事，任何一条破了都会退回「展开一屏叠一屏」：
+   *   1. 展开 B 时 A 必须自动收起（互斥），集合恒为 0 或 1 项；
+   *   2. 持久化层只能留一行 id（覆盖单值），否则刷新后又会全部撑开；
+   *   3. 旧版多值脏数据读出来必须收敛成第一个，首帧不得把所有行一起展开。
+   */
+  const galleryEntryDispose = registry2.navMenuItem({
+    id: 'workbench-gallery',
+    label: '画廊',
+    icon: Icon,
+    section: 'shop',
+    workbenchTab: 'gallery',
+    order: 30,
+    children: [{ id: 'image', label: '图片', order: 10, run: () => { childRun('image') } }],
+  })
+  registry2.toggleExpandedMenu('workbench-gallery')
+  if (!registry2.readExpandedMenus().has('workbench-gallery')) reasons.push('展开第二行时它自己必须处于展开态')
+  if (registry2.readExpandedMenus().has('workbench-memory')) {
+    reasons.push('手风琴：展开另一行时，先前展开的那一行必须自动收起（同一时刻只允许一行）')
+  }
+  if (registry2.readExpandedMenus().size !== 1) {
+    reasons.push(`手风琴：展开态集合恒为 0 或 1 项，实得 ${registry2.readExpandedMenus().size} 项`)
+  }
+  if (prefs.get(registry2.NAV_EXPANDED_STORE) !== 'workbench-gallery') {
+    reasons.push(`手风琴：持久化层只能留当前展开行的 id，实得 ${JSON.stringify(prefs.get(registry2.NAV_EXPANDED_STORE))}`)
+  }
+  // 存量脏数据：旧版本允许多行同时展开，读出来只能认第一个，否则刷新就全撑开
+  prefs.set(registry2.NAV_EXPANDED_STORE, 'workbench-memory,workbench-gallery')
+  const legacyExpanded = registry2.readExpandedMenus()
+  if (legacyExpanded.size !== 1 || !legacyExpanded.has('workbench-memory')) {
+    reasons.push(`旧版多值展开态必须收敛成第一个（手风琴），实得 ${JSON.stringify([...legacyExpanded])}`)
+  }
+  // 脏数据只「读的时候收敛」还不够：展开那个恰好在首位的行时，如果拿解析结果去
+  // 比「已经是这一行了」就直接 return，多值原文会一直留在持久化层。所以这里必须
+  // 拿**原文**比，并且真的写回单值。
+  prefs.set(registry2.NAV_EXPANDED_STORE, 'workbench-memory,workbench-gallery')
+  registry2.writeExpandedMenus('workbench-memory', true)
+  if (prefs.get(registry2.NAV_EXPANDED_STORE) !== 'workbench-memory') {
+    reasons.push(`展开已在首位的行也必须把旧版多值写回单值，实得 ${JSON.stringify(prefs.get(registry2.NAV_EXPANDED_STORE))}`)
+  }
+  // 收起当前展开行 → 空集（不得残留自己，也不能顺手把别的行弄成展开）
   registry2.toggleExpandedMenu('workbench-memory')
-  if (registry2.readExpandedMenus().has('workbench-memory')) reasons.push('再 toggle 一次必须收起')
+  if (registry2.readExpandedMenus().size !== 0) {
+    reasons.push(`收起当前展开行后展开态必须清空，实得 ${JSON.stringify([...registry2.readExpandedMenus()])}`)
+  }
+  // 没有下级的行永远不能被「展开」：连持久化层都不该留下它的 id（否则会盖掉真正展开的那行）
+  registry2.toggleExpandedMenu('workbench-usage')
+  if (prefs.get(registry2.NAV_EXPANDED_STORE) !== undefined) {
+    reasons.push('没有二级菜单的行不得被写进展开态（会顶掉真正展开的那一行）')
+  }
 
   // 数据驱动的刷新入口：换 children 不能把行本身（图标/order/target）换掉
   const beforeChildren = memoryEntry?.children?.length
@@ -4112,7 +4206,7 @@ if (krEnabled) {
   refreshed?.children?.find((c) => c.id === 'global')?.run?.()
   if (picked !== 'global') reasons.push('子项 run 必须被调用（切筛选的唯一动作）')
 
-  entryDispose(); flatDispose()
+  entryDispose(); flatDispose(); galleryEntryDispose()
   registry2.resetNavRegistryForTests()
 
   /* ── ④ 意图通道：初值回填 / 广播 / 不丢精度 ────────────────────── */

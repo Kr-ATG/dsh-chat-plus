@@ -47,8 +47,10 @@
  *     记忆的工作区列表由页面侧异步拉取后推给注册表，注册表只管渲染；
  *   · `readActiveChild` / `writeActiveChild`：二级菜单的「当前在哪一项」，
  *     与区域一样持久化（重开界面仍高亮上次那一项）；
- *   · `readExpanded` / `writeExpanded`：哪几行的二级菜单是展开的，同样持久化
- *     （用户选的是「记住上次展开状态」）。
+ *   · `readExpandedMenus` / `writeExpandedMenus`：**此刻展开的是哪一行**，
+ *     同样持久化。语义是**手风琴**（2026-10-26 用户要求「选中某一个二级菜单后
+ *     其他二级菜单都折叠起来」）：同一时刻最多只有一行展开，展开 B 就自动收起 A
+ *     —— 侧栏高度永远只被一组子项撑开，不会因为展开好几行而越滚越长。
  *
  * 不需要碰任何 DOM、样式或显隐逻辑——挂载器（./nav-sections.tsx）会自己
  * 按注册表重渲染，宽度/滚动/rail 折叠/官方行隐藏全部由它统一处理。
@@ -63,7 +65,13 @@ import type { WorkbenchTab } from './WorkbenchPanel.js'
 /** 侧栏状态里「当前区域」的持久化键（侧栏宿主与页面共用同一把）。 */
 export const NAV_SECTION_STORE = 'dsh-sidebar-active-section'
 
-/** 二级菜单「哪几行展开」的持久化键（用户选的是「记住上次展开状态」）。 */
+/**
+ * 二级菜单「此刻展开的是哪一行」的持久化键（用户选的是「记住上次展开状态」）。
+ *
+ * 值是一串逗号分隔的条目 id，但**手风琴语义下正常只会有 0 或 1 个**：旧版本
+ * 允许多行同时展开，所以存量数据里可能出现 `memory,gallery` 这种多值——读取
+ * 时只认第一个，下次任何一次展开/收起都会顺手把它写回单值。
+ */
 export const NAV_EXPANDED_STORE = 'dsh-sidebar-expanded-menu'
 
 /** 区域切换广播事件名（跨模块/跨 React 根的唯一通道）。 */
@@ -526,42 +534,67 @@ export function resolveActiveChild(entry: NavEntryDef): string | null {
 }
 
 /**
- * 读「哪几行的二级菜单是展开的」。
+ * 读「此刻展开的是哪一行」的二级菜单（**手风琴：至多一行**）。
  *
- * 持久化格式是一串逗号分隔的条目 id（`memory,gallery`）——不用 JSON 是因为
- * 它要能容忍人工改写/半截写入：解析失败就当没展开过，不会让侧栏整个挂掉。
- * @returns 展开中的条目 id 集合（只含当前仍存在、且真的带了 children 的行）。
+ * 持久化格式仍是一串逗号分隔的条目 id——不用 JSON 是因为它要能容忍人工改写 /
+ * 半截写入：解析失败就当没展开过，不会让侧栏整个挂掉。
+ *
+ * 但**只有第一个有效 id 会被认**：旧版本允许多行同时展开，存量数据里可能有
+ * `memory,gallery`；若照旧全部认下来，升级后第一帧就会把所有行一起撑开，
+ * 与手风琴语义直接打架。取第一个即可——用户随后任何一次展开/收起都会把
+ * 持久化层写回单值，脏数据自己就没了。
+ * @returns 展开中的条目 id 集合（元素数恒为 0 或 1，且只含仍有下级的行）。
  */
 export function readExpandedMenus(): ReadonlySet<string> {
   const saved = readPref(NAV_EXPANDED_STORE)
   if (saved === null) return new Set()
-  const live = new Set<string>()
   for (const raw of saved.split(',')) {
     const id = raw.trim()
     if (id === '') continue
     const entry = entries.get(id)
-    // 行被删 / 升级后不再有下级：这类陈旧 id 直接丢弃，下次写入时顺手清掉。
-    if (entry !== undefined && entry.children !== undefined) live.add(id)
+    // 行被删 / 升级后不再有下级：这类陈旧 id 直接丢弃，继续看下一个。
+    if (entry === undefined || entry.children === undefined) continue
+    return new Set([id])
   }
-  return live
+  return new Set()
 }
 
 /**
  * 展开/收起某一行的二级菜单（持久化 + 通知）。
+ *
+ * **展开是互斥的**（手风琴）：展开某一行时不需要逐个删掉其它行，直接把这行的
+ * id **覆盖**成唯一值——其余行在同一拍里一起收起，侧栏高度只被一组子项撑开。
+ * 收起只对自己生效：收一行不会连带收别的行（别的行此刻本来就没展开）。
  * @param entryId - 父条目行 id。
- * @param expanded - true 展开，false 收起。
+ * @param expanded - true 展开（并收起其它行），false 收起。
  */
 export function writeExpandedMenus(entryId: string, expanded: boolean): void {
-  const current = new Set(readExpandedMenus())
-  if (expanded === current.has(entryId)) return
-  if (expanded) current.add(entryId)
-  else current.delete(entryId)
-  writePref(NAV_EXPANDED_STORE, [...current].join(','))
+  const stored = readPref(NAV_EXPANDED_STORE) ?? ''
+  if (expanded) {
+    const entry = entries.get(entryId)
+    // 没有下级就没有「展开」这回事（不存在的行同理）：写进去也永远读不回来，
+    // 干脆不写，免得持久化层里留下一条读不出来、却会盖掉旧值的幽灵 id。
+    if (entry?.children === undefined) return
+    // 比较的是**持久化层原文**而不是解析结果：存着 `memory,gallery` 这种旧版多值时，
+    // 展开 memory 也必须真写一次（把多值收敛成单值），否则脏数据会一直留着。
+    if (stored === entryId) return
+    writePref(NAV_EXPANDED_STORE, entryId)
+    notify()
+    return
+  }
+  // 收起：清掉自己这一项。不是当前展开项时，把持久化层收敛成「仍然有效的那一个」
+  // （旧版多值 + 收起非首项的情况），值没变就完全不碰 DOM、不触发重渲染。
+  const current = readExpandedMenus()
+  const next = current.has(entryId) ? '' : ([...current][0] ?? '')
+  if (stored === next) return
+  writePref(NAV_EXPANDED_STORE, next)
   notify()
 }
 
 /**
- * 直接翻转某一行的展开态（点箭头时的唯一动作）。
+ * 直接翻转某一行的展开态（点整行时的唯一动作）。
+ *
+ * 手风琴语义下这个动作只有两种结果：展开它（并收起别的所有行）/ 收起它。
  * @param entryId - 父条目行 id。
  */
 export function toggleExpandedMenu(entryId: string): void {

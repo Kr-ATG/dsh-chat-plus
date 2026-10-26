@@ -87,6 +87,8 @@ const {
   DEFAULT_VAULT_CONFIG, auditVault, isWeakPassword,
   parseTotpSecret, generateTotp, looksLikeTotpField,
   createBackupPackage, readBackupPackage, keyFingerprint,
+  // 注入引导语：模型「看得见」的那段文案，下面有断言钉住它的关键纪律。
+  VAULT_INJECTION_RULE,
 } = vault
 
 // ── 2. 建库（隔离目录 + 真密钥）─────────────────────────────────────────
@@ -129,6 +131,36 @@ assert(!injectionText.includes(SECRET), 'injection text does NOT contain the sec
 assert(findLeakedSecrets(injectionText, revealed).length === 0, 'findLeakedSecrets() reports zero leaks')
 // 敏感字段连长度都不该泄露：值只有掩码与「已加密」两种呈现
 assert(!injectionText.includes(String(SECRET.length)), 'injection text does not leak the secret length')
+
+/*
+ * 4b. 注入引导语必须教会模型「自己写」（2026-10-26 用户要求「我就是想主 agent
+ *     会话中自己写」）。
+ *
+ * 这几条断言防的是**规则文本被悄悄改回旧行为**：原来的第 5 条明说「正常对话即可，
+ * 回合结束会自动抽取入库」——那句话与「主 agent 主动写」直接冲突，模型读到它就会
+ * 放弃调 vault_remember。文案类的东西没有类型检查兜底，只能靠冒烟钉住。
+ */
+assert(VAULT_INJECTION_RULE.includes('vault_remember'),
+  'the injection rule names vault_remember so the model knows the write tool')
+assert(/该记就当场写|当场调/.test(VAULT_INJECTION_RULE),
+  'the injection rule tells the model to write immediately instead of waiting for extraction')
+// 旧口径必须消失：留着「回合结束会自动抽出」模型就不写。
+assert(!/正常对话即可/.test(VAULT_INJECTION_RULE),
+  'the injection rule no longer tells the model to just chat and let extraction handle it')
+// 防复述：参数里传一次是必须的，正文里再写一遍等于同一份明文存两份。
+assert(/不要在回复正文里复述|不要在回复里复述/.test(VAULT_INJECTION_RULE),
+  'the injection rule forbids repeating the secret in the reply body')
+// 防编造：用户没给的值不许拿旧值/示例值填。
+assert(/必须是用户刚给出的/.test(VAULT_INJECTION_RULE),
+  'the injection rule forbids inventing values the user never gave')
+// 四条纪律的原文必须在场（防止后续精简时被顺手删掉）。
+// 注意判据要取规则里**真正连续出现**的词：比如「没有明文」在原文里是
+// 「只有字段名，没有密码 / 卡号 / 证件号的明文」，中间被括注打断，不能直接 includes。
+for (const mustKeep of ['待确认', '只有字段名', '非敏感字段', '索引里没有的账户']) {
+  assert(VAULT_INJECTION_RULE.includes(mustKeep), 'the injection rule keeps the "' + mustKeep + '" clause')
+}
+// 规则本身绝不含任何敏感明文（它每步都进上下文）。
+assert(!VAULT_INJECTION_RULE.includes(SECRET), 'the rule text itself carries no secret')
 
 // ── 5. 不变量④：掩码回写不覆盖真实密码 ──────────────────────────────────
 await store.upsertRecord({
