@@ -235,6 +235,19 @@ assert(state.lastPutBody !== null && state.lastPutBody.branch === 'main', 'the P
 assert(typeof state.lastPutBody.content === 'string' && state.lastPutBody.content.length > 0, 'the PUT carries base64 content')
 assert(typeof state.lastPutBody.sha === 'undefined', 'the first PUT has no sha (the file does not exist yet)')
 
+/* ── 8b. 上传完整性状态（用户要求「要显示状态是否全部上传了」）───────────
+ * 页面靠 publicView.upToDate 显示「已全部上传 / 有改动尚未上传 / 尚未上传」。
+ * 这一组断言钉住三件事：判据来自内容指纹（不是"这次跑没跑"）、改动后立刻变脏、
+ * 记录条数可用于对比。判错任何一个，界面上那句结论就是错的。 */
+const afterFirst = await sync.publicView()
+assert(afterFirst.upToDate === true, 'right after a successful upload the vault reads as fully uploaded')
+assert(afterFirst.uploadedRecords > 0, 'the uploaded record count is reported')
+assert(afterFirst.uploadedRecords === afterFirst.currentRecords, 'uploaded count equals current count when in sync')
+
+// 再读一次仍应是"已上传"：指纹不能因为 exportRaw 里的 exportedAt 而漂移。
+const reread = await sync.publicView()
+assert(reread.upToDate === true, 're-reading the state does not drift (fingerprint ignores exportedAt)')
+
 /* ── 9. 传上去的包**必须能被同一口令恢复** ───────────────────────────────
  * 这一条是整个功能的兑现点：否则"自动备份"就成了一个看起来成功、实际救不回来
  * 的东西。用 PUT 上去的那份 base64 解回来、用同一条口令解开，再确认敏感字段
@@ -261,6 +274,17 @@ await store.patchField({ id: records[0].id, key: 'username', value: 'kr-sync-tes
 const third = await sync.runNow('manual')
 assert(state.putCount > before, 'a changed vault does create a new commit')
 assert(third.unchanged !== true, 'the changed run is not marked unchanged')
+
+// 刚改完还没同步时，界面必须显示"有改动尚未上传"，而不是沿用上一次的"已上传"。
+const dirty = await sync.publicView()
+assert(dirty.upToDate === true, 'after the changed run the state is fully uploaded again')
+
+// 再改一次但**不**同步 → 必须是 dirty（这正是「有改动尚未上传」的真实场景）。
+const again = await store.listRecords()
+await store.patchField({ id: again[0].id, key: 'username', value: 'kr-sync-test-dirty', source: 'manual' })
+const awaiting = await sync.publicView()
+assert(awaiting.upToDate === false, 'editing the vault without syncing marks it as not uploaded yet')
+assert(awaiting.currentRecords === awaiting.uploadedRecords, 'record counts stay equal (a field edit is not a count change)')
 
 // ── 11. 上传失败要给出可执行的提示 ───────────────────────────────────────
 /* 先改一条数据：内容没变时引擎会走「本地指纹一致 → 直接跳过」的短路（那正是

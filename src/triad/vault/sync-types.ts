@@ -145,6 +145,18 @@ export interface VaultSyncPublic {
   repoPrivate: boolean | 'unknown'
   /** 仓库是否可达（'unknown' = 还没校验过）。 */
   repoReachable: boolean | 'unknown'
+  /**
+   * 当前数据是否**已经全部上传**（页面据此显示「已全部上传 / 有 N 项待上传」）。
+   *
+   * 判据是内容指纹与上次成功上传时一致——与「这次跑没跑过」无关：用户可能刚
+   * 改了档案还没到下次定时，那他就是"有未上传的改动"，即使上一轮是 ok。
+   * 'unknown' = 尚未成功上传过（含未配置 / 首传失败），此时页面不宣称"已上传"。
+   */
+  upToDate: boolean | 'unknown'
+  /** 上次成功上传时包里的记录条数（0 = 还没成功传过）。 */
+  uploadedRecords: number
+  /** 当前档案的记录条数（页面用来对比"传了几条 / 现在几条"）。 */
+  currentRecords: number
   /** 需要用户去填东西（页面据此显示顶部提示条）。 */
   needsSetup: boolean
   /** 项目方给的默认仓库地址（预填与新用户引导用；空串 = 没有推荐地址）。 */

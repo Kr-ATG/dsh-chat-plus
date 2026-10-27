@@ -136,6 +136,12 @@ export const css = {
   backupFingerprint: 'dsh-vault-backup-fingerprint',
   backupWarn: 'dsh-vault-backup-warn',
   backupRow: 'dsh-vault-backup-row',
+  // ── 上传完整性状态条 ──
+  syncDot: 'dsh-vault-sync-dot',
+  uploadState: 'dsh-vault-upload-state',
+  uploadStateIcon: 'dsh-vault-upload-state-icon',
+  uploadStateText: 'dsh-vault-upload-state-text',
+  uploadStateMeta: 'dsh-vault-upload-state-meta',
   // ── 强口令生成 / 批量轮换 ──
   genBtn: 'dsh-vault-gen-btn',
   genHint: 'dsh-vault-gen-hint',
@@ -185,6 +191,10 @@ const SHEET = `
   --v-card:var(--dsw-alias-bg-layer-1,transparent);
   /* 浮层实底：--v-card 可能是 transparent（贴底色），弹窗与原地展开卡必须是不
      透明的一层，否则会透出后面的列表看起来像蒙了灰。 */
+  /* ⚠ 深色主题下 --dsw-alias-bg-layer-1/2 都是**半透明白**（.045 / .03），
+     所以 --v-raise 本身是透的，不能拿它当"实底色"。要实底一律用
+     --dsw-alias-bg-base（深色 #151517、浅色 #fff）。这里只用于叠在实底之上的
+     层级差（悬停、输入框、浮层叠色）。 */
   --v-raise:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1,#16181d));
   --v-hover:color-mix(in srgb,var(--v-text-3) 10%,transparent);
   --v-soft:color-mix(in srgb,var(--v-text-3) 6%,transparent);
@@ -195,7 +205,9 @@ const SHEET = `
   --v-r-ctrl:9px;
   --v-r-card:14px;
   --v-r-pill:999px;
-  --v-shadow:0 10px 30px color-mix(in srgb,var(--v-text) 14%,transparent);
+  /* 投影必须用**中性黑**而不是 --v-text 派生：深色主题下 --v-text 是近白色
+     (#f9fafb)，混出来就是一层白光，看着像糊了雾。 */
+  --v-shadow:0 10px 30px rgba(0,0,0,.14);
   position:relative;
   flex:1;min-width:0;min-height:0;
   display:flex;flex-direction:column;overflow:hidden;
@@ -460,9 +472,11 @@ const SHEET = `
   position:absolute;inset:0;z-index:20;
   display:flex;align-items:center;justify-content:center;
   padding:32px 24px;box-sizing:border-box;
-  /* 遮罩几乎透明：只负责吃掉点击与一点点聚焦感，绝不再把整页压暗。
-     用户说的「灰蒙蒙」就是旧版那层 22% 文字色盖在列表上造成的。 */
-  background:color-mix(in srgb,var(--v-text) 6%,transparent);
+  /* 遮罩只负责吃掉点击与一点点聚焦感，不再把整页压暗。
+     ⚠ 底色必须用中性黑，**不能**由 --v-text 派生：深色主题下 --v-text 是近白色，
+     color-mix 出来是一层白光，整个弹窗区就像蒙了灰雾（用户报的「灰蒙蒙」根因）。
+     深色下加重到 46%，浅色下保持很轻——浅色本来就是亮底，压太狠会脏。 */
+  background:rgba(0,0,0,.08);
   animation:dsh-vault-fade .16s ease;
 }
 .dsh-vault-modal{
@@ -470,10 +484,18 @@ const SHEET = `
   display:flex;flex-direction:column;
   width:min(560px,100%);
   max-height:100%;min-height:0;
-  background:var(--v-card);
-  /* 弹窗底必须是实色：--v-card 在官方主题里可能是 transparent（贴底色），
-     那样会透出后面的列表、又变成「灰蒙蒙」。这里用底色 token 兜底纯色。 */
-  background-color:var(--dsw-alias-bg-layer-1,var(--v-raise));
+  /* ⚠ 弹窗底必须是**实色**，这里是最容易踩的坑，写清楚免得被"优化"掉：
+     官方 --dsw-alias-bg-layer-1 在深色主题下是 rgba(255,255,255,.045) ——
+     一层 4.5% 的**半透明白**，设计上是让人叠在 bg-base 之上用的。直接把它当
+     底色，弹窗就成了「几乎全透明 + 一层薄雾」，后面的列表整片透出来，这就是
+     用户说的「深色主题下弹窗灰蒙蒙」。
+     正确画法是「实底 bg-base + 那层半透明当背景图叠上去」：
+       background-color 给不透明的 bg-base；
+       background-image 用 linear-gradient(层,层) 把半透明层压在上面。
+     这样既跟官方观感一致（比用纯色 layer 更接近其它面板），又绝不会透底。
+     浅色主题下 layer-1 是纯白实色，这一套同样成立。 */
+  background-color:var(--dsw-alias-bg-base,var(--v-raise));
+  background-image:linear-gradient(var(--dsw-alias-bg-layer-1,transparent),var(--dsw-alias-bg-layer-1,transparent));
   border:1px solid var(--v-border-2);
   border-radius:var(--v-r-card);
   box-shadow:var(--v-shadow);
@@ -484,8 +506,9 @@ const SHEET = `
   position:relative;
   display:flex;flex-direction:column;
   margin:2px 8px 10px;
-  background:var(--v-card);
-  background-color:var(--dsw-alias-bg-layer-1,var(--v-raise));
+  /* 与 .dsh-vault-modal 同一套实底画法（原因见那里的注释）。 */
+  background-color:var(--dsw-alias-bg-base,var(--v-raise));
+  background-image:linear-gradient(var(--dsw-alias-bg-layer-1,transparent),var(--dsw-alias-bg-layer-1,transparent));
   border:1px solid var(--v-border-2);
   border-radius:var(--v-r-card);
   box-sizing:border-box;
@@ -886,6 +909,45 @@ const SHEET = `
   word-break:break-all;
 }
 .dsh-vault-backup-fingerprint b{color:var(--v-text);font-weight:600}
+/* 云端按钮上的状态点：绿=已全部上传，黄=有改动未传。
+   比文字短，但用户扫一眼按钮就知道"我的档案在云上是不是最新的"。 */
+.dsh-vault-sync-dot{
+  flex:none;display:inline-block;
+  width:6px;height:6px;border-radius:50%;
+  margin-left:-1px;
+}
+.dsh-vault-sync-dot[data-state="done"]{background:var(--v-ok)}
+.dsh-vault-sync-dot[data-state="dirty"]{background:var(--v-warn)}
+
+/* ── 上传完整性状态条 ──────────────────────────────────────────────
+   回答「档案到底传全了没」。三态三色，一眼可辨：
+     data-state="done"    已全部上传（绿）
+     data-state="dirty"   有改动尚未上传（黄）
+     data-state="pending" 尚未上传 / 上次失败（灰）
+   刻意用左侧 2px 竖线而不是整块底色：这是结论条，不是告警横幅。 */
+.dsh-vault-upload-state{
+  display:flex;align-items:flex-start;gap:8px;
+  padding:9px 11px;box-sizing:border-box;
+  border-radius:var(--v-r-ctrl);
+  border-left:2px solid var(--v-text-3);
+  background:var(--v-sunk);
+  font-size:12px;line-height:17px;
+}
+.dsh-vault-upload-state-icon{flex:none;display:inline-flex;margin-top:1px;color:var(--v-text-3)}
+.dsh-vault-upload-state-text{display:flex;flex-direction:column;gap:1px;min-width:0}
+.dsh-vault-upload-state-text b{font-weight:600;color:var(--v-text)}
+.dsh-vault-upload-state-meta{color:var(--v-text-3);font-size:11.5px;line-height:16px}
+.dsh-vault-upload-state[data-state="done"]{
+  border-left-color:var(--v-ok);
+  background:color-mix(in srgb,var(--v-ok) 8%,transparent);
+}
+.dsh-vault-upload-state[data-state="done"] .dsh-vault-upload-state-icon{color:var(--v-ok)}
+.dsh-vault-upload-state[data-state="dirty"]{
+  border-left-color:var(--v-warn);
+  background:color-mix(in srgb,var(--v-warn) 9%,transparent);
+}
+.dsh-vault-upload-state[data-state="dirty"] .dsh-vault-upload-state-icon{color:var(--v-warn)}
+
 .dsh-vault-backup-warn{
   display:flex;align-items:flex-start;gap:8px;
   padding:9px 11px;box-sizing:border-box;
@@ -1080,10 +1142,15 @@ const SHEET = `
   .dsh-vault-group-desc{display:none}
 }
 
-/* 深色主题：只覆盖必须手写颜色的两处（图片占位与浮层投影）。
+/* 深色主题：只覆盖必须手写颜色的几处（图片占位、浮层投影、遮罩）。
    其余全部走 --dsw-alias-* token，随主题自动切换。 */
 body[data-ds-dark-theme] .dsh-vault{
   --v-shadow:0 10px 32px rgba(0,0,0,.56);
+}
+/* 深色下弹窗压暗要更实：底色本来就是 #232324，浅遮罩等于没效果，
+   而一旦用近白色派生又会变成白雾。两处都走中性黑，深浅各一档。 */
+body[data-ds-dark-theme] .dsh-vault .dsh-vault-backdrop{
+  background:rgba(0,0,0,.46);
 }
 body[data-ds-dark-theme] .dsh-vault-row-icon,
 body[data-ds-dark-theme] .dsh-vault-group-icon{

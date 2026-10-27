@@ -264,6 +264,16 @@ export function RefreshIcon({ size = 14, className }: VaultIconProps): JSX.Eleme
   )
 }
 
+/** 对勾（「已全部上传」的成功态）。 */
+export function CheckIcon({ size = 14, className }: VaultIconProps): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} className={className} fill="none"
+      stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4.5 12.5 9.5 17.5 19.5 6.5" />
+    </svg>
+  )
+}
+
 /** 健康检查（盾牌 + 勾）。 */
 export function ShieldIcon({ size = 14, className }: VaultIconProps): JSX.Element {
   return (

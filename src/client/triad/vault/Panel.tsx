@@ -502,9 +502,28 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
     ? '云端备份（把加密档案包定时上传到 GitHub 私有仓库）'
     : syncNeedsSetup
       ? '云端备份还没配置好：点开填一个 GitHub 私有仓库地址'
-      : syncState.lastStatus === 'ok'
-        ? '云端备份正常：上次 ' + formatVaultStamp(syncState.lastAt)
-        : '云端备份（把加密档案包定时上传到 GitHub 私有仓库）'
+      : syncState.upToDate === true
+        ? '云端备份：已全部上传（' + (syncState.uploadedRecords > 0 ? String(syncState.uploadedRecords) + ' 条记录 · ' : '') + '上次 ' + formatVaultStamp(syncState.lastAt) + '）'
+        : syncState.upToDate === false
+          ? '云端备份：有改动尚未上传（当前 ' + String(syncState.currentRecords) + ' 条 / 云端 ' + String(syncState.uploadedRecords) + ' 条）'
+          : syncState.lastStatus === 'error'
+            ? '云端备份：上次同步失败'
+            : syncState.lastStatus === 'ok'
+              ? '云端备份：已传过备份，待确认是否最新'
+              : '云端备份：尚未上传'
+
+  /* 按钮上那枚小角标：绿点=已全部上传，黄点=有改动未传，! = 还没配置。
+     用户要求「要显示状态是否全部上传了」，所以这个状态必须出现在不打开弹窗
+     也能看到的地方——就是这枚按钮。 */
+  const syncBadge = syncState === null
+    ? null
+    : syncNeedsSetup
+      ? <span className={css.healthBadge}>!</span>
+      : syncState.upToDate === true
+        ? <span className={css.syncDot} data-state="done" />
+        : syncState.upToDate === false
+          ? <span className={css.syncDot} data-state="dirty" />
+          : null
 
   const shell = (children: JSX.Element): JSX.Element => (
     embedded
@@ -549,7 +568,7 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
             onClick={() => { setHealthOpen(false); setBackupOpen(false); setSyncOpen(true); void loadSync() }}
           >
             <CloudIcon size={13} /> 云端
-            {syncNeedsSetup && <span className={css.healthBadge}>!</span>}
+            {syncBadge}
           </button>
           <button
             type="button"

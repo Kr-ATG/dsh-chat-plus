@@ -112,6 +112,8 @@ interface VaultSyncFile {
    * 所以指纹算在**加密前的明文数据**上。
    */
   lastDataHash?: string
+  /** 上次成功上传时包里的记录条数（页面显示「已上传 N 条」用）。 */
+  lastRecords?: number
   /** 仓库探查结果缓存（避免每次上传都多打一次 API）。 */
   probe?: {
     at: string
@@ -129,6 +131,8 @@ interface BuiltPackage {
   passphrase: string
   /** 明文数据的指纹（同一份档案恒定；用来判「内容没变」）。 */
   dataHash: string
+  /** 包里的记录条数（用来显示「已上传 N 条」）。 */
+  records: number
 }
 
 /**
@@ -186,6 +190,7 @@ export class VaultSync {
       const file: VaultSyncFile = { version: 1, settings }
       if (typeof parsed.repoInput === 'string') file.repoInput = parsed.repoInput
       if (typeof parsed.lastDataHash === 'string') file.lastDataHash = parsed.lastDataHash
+      if (typeof parsed.lastRecords === 'number') file.lastRecords = parsed.lastRecords
       if (parsed.secrets !== undefined && typeof parsed.secrets === 'object') {
         file.secrets = {
           ...(typeof parsed.secrets.token === 'string' ? { token: parsed.secrets.token } : {}),
@@ -269,6 +274,33 @@ export class VaultSync {
 
   /* ────────────────── 公开状态 ────────────────── */
 
+  /**
+   * 算当前档案的内容指纹（**只算指纹，不打包**）。
+   *
+   * 与 buildPackage 里的算法必须**逐字节一致**——同一份数据两处算出不同的哈希，
+   * 「已全部上传」就会永远显示成"有改动"，比不显示更糟。图片部分刻意都用同一种
+   * 口径（都取 sha、都排序），这样"带图上传"与"不带图上传"的指纹差别只在图片集合。
+   *
+   * 代价是每次刷新状态要读一遍 vault.json（几 KB~几十 KB），比每次去打一个包
+   * 便宜得多，而且不会触发加密/压缩。
+   */
+  private async currentDataHash(): Promise<{ hash: string; records: number }> {
+    const vaultJson = await this.store.exportRaw()
+    const records = await this.store.listRecords({ includeArchived: true })
+    const file = await this.ensureLoaded()
+    let photoShas = ''
+    if (file.settings.includePhotos) {
+      const snapshot = await this.store.blobs.snapshot()
+      photoShas = snapshot.map((item) => item.sha256).sort().join(',')
+    }
+    const hash = createHash('sha256')
+      .update(stableDataOf(vaultJson))
+      .update('\u0000')
+      .update(photoShas)
+      .digest('hex')
+    return { hash, records: records.length }
+  }
+
   /** 页面可见的状态（**绝不含令牌与口令明文**）。 */
   async publicView(): Promise<VaultSyncPublic> {
     const file = await this.ensureLoaded()
@@ -276,6 +308,19 @@ export class VaultSync {
     const passphraseSet = await this.hasPassphrase()
     const token = await this.resolveToken()
     const probe = file.probe
+    // 只有「成功传过」才谈得上"是否已全部上传"：没传过就如实显示 unknown，
+    // 页面据此显示「尚未上传」，而不是给一个假的"已全部上传"。
+    let upToDate: boolean | 'unknown' = 'unknown'
+    let currentRecords = 0
+    if (file.lastDataHash !== undefined) {
+      try {
+        const current = await this.currentDataHash()
+        currentRecords = current.records
+        upToDate = current.hash === file.lastDataHash
+      } catch {
+        upToDate = 'unknown'
+      }
+    }
     return {
       repo: settings.repo,
       repoInput: file.repoInput ?? (settings.repo === '' ? '' : githubRepoUrl(settings.repo)),
@@ -298,6 +343,9 @@ export class VaultSync {
       nextAt: settings.repo !== '' && passphraseSet ? nextSyncAt(settings) : '',
       repoPrivate: probe === undefined ? 'unknown' : probe.private,
       repoReachable: probe === undefined ? 'unknown' : true,
+      upToDate,
+      uploadedRecords: file.lastRecords ?? 0,
+      currentRecords,
       needsSetup: needsSyncSetup(settings, passphraseSet),
       suggestedRepo: SUGGESTED_REPO,
       history: settings.history.slice(0, 10),
@@ -512,9 +560,12 @@ export class VaultSync {
     const photoCount = records.reduce((sum, record) => sum + record.photos.length, 0)
 
     let blobs: Array<{ sha256: string; bytes: Buffer }> | undefined
+    /** 索引里的全部图片 sha（指纹口径，见下方 dataHash 注释）。 */
+    let indexedShas: string[] = []
     if (file.settings.includePhotos) {
       // 图片先按体积估一遍：超上限就不带图（带图是个可选项，不该让整次同步失败）。
       const snapshot = await this.store.blobs.snapshot()
+      indexedShas = snapshot.map((item) => item.sha256)
       const collected: Array<{ sha256: string; bytes: Buffer }> = []
       for (const item of snapshot) {
         const bytes = await this.store.blobs.get(item.sha256)
@@ -558,14 +609,18 @@ export class VaultSync {
      *
      * 图片只取 sha 而不是字节：sha 是内容寻址的，等价于「这些图有没有变」，
      * 但不必为此把几十 MB 图片读进来算一遍哈希。
+     *
+     * ⚠ 口径取**索引全集**而不是"成功读到字节的那几张"：某张图恰好读不出来时，
+     * 后者会算出不同的指纹，于是刚传完就又显示"有改动"。publicView 里的
+     * currentDataHash 用的也是索引全集，两处必须一致。
      */
-    const photoShas = (blobs ?? []).map((item) => item.sha256).sort().join(',')
+    const photoShas = indexedShas.slice().sort().join(',')
     const dataHash = createHash('sha256')
       .update(stableDataOf(vaultJson))
       .update('\u0000')
       .update(photoShas)
       .digest('hex')
-    return { text, bytes, passphrase, dataHash }
+    return { text, bytes, passphrase, dataHash, records: records.length }
   }
 
   /* ────────────────── 执行一次同步 ────────────────── */
@@ -641,7 +696,7 @@ export class VaultSync {
         }
         // 只有真的落地了才更新指纹：上传失败时不能记成"已同步"，否则下次
         // 会以为内容已是最新而永远不再试。
-        if (!result.unchanged) await this.rememberDataHash(file.settings.repo, built.dataHash)
+        if (!result.unchanged) await this.rememberDataHash(file.settings.repo, built.dataHash, built.records)
         this.logger.info?.('[dsh-vault] 云端备份' + (result.unchanged ? '已是最新' : '已上传')
           + '（' + String(built.bytes) + ' 字节，来源 ' + token.source + '）')
       }
@@ -660,10 +715,10 @@ export class VaultSync {
    * 与仓库地址一起存：换了仓库之后，上一个仓库的内容指纹不能当作「新仓库
    * 已有同样内容」——那会让换仓库后的第一次同步被误判成「不用传」。
    */
-  private async rememberDataHash(repo: string, dataHash: string): Promise<void> {
+  private async rememberDataHash(repo: string, dataHash: string, records: number): Promise<void> {
     const file = await this.ensureLoaded()
     if (file.settings.repo !== repo) return
-    await this.persist({ ...file, lastDataHash: dataHash })
+    await this.persist({ ...file, lastDataHash: dataHash, lastRecords: records })
   }
 
   /** 把一次结果写进 settings（含 history）。 */

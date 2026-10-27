@@ -33,6 +33,7 @@ import {
 import { css } from './styles.js'
 import {
   AlertIcon,
+  CheckIcon,
   ClockIcon,
   ExternalIcon,
   RefreshIcon,
@@ -405,6 +406,63 @@ export function VaultSyncPanel({ onError, onFlash, onSynced }: VaultSyncPanelPro
         </button>
       </div>
       {local !== '' && <div className={css.backupFingerprint}>{local}</div>}
+
+      {/* ── 上传完整性：这是「档案到底传全了没」的唯一答案 ──
+          三种状态分开说，不含糊：
+            · 已全部上传  = 当前内容指纹与上次成功上传的一致
+            · 有改动未上传 = 用户刚改过档案，还没到下次定时（或上次失败了）
+            · 尚未上传    = 从来没成功传过（此时不能说"已上传"）
+          判定在 host 侧算（publicView.upToDate）：客户端拿不到密钥、也不该
+          为了一次判断去下载整个包。 */}
+      {sync !== null && sync.needsSetup === false && (
+        <div className={css.uploadState} data-state={
+          sync.upToDate === 'unknown' ? 'pending' : (sync.upToDate ? 'done' : 'dirty')
+        }>
+          <span className={css.uploadStateIcon}>
+            {sync.upToDate === true
+              ? <CheckIcon size={14} />
+              : (sync.upToDate === 'unknown' ? <ClockIcon size={14} /> : <AlertIcon size={14} />)}
+          </span>
+          <span className={css.uploadStateText}>
+            {sync.upToDate === true && (
+              <>
+                <b>已全部上传</b>
+                <span className={css.uploadStateMeta}>
+                  {sync.uploadedRecords > 0 ? String(sync.uploadedRecords) + ' 条记录 · ' : ''}
+                  内容与云端一致
+                </span>
+              </>
+            )}
+            {sync.upToDate === false && (
+              <>
+                <b>有改动尚未上传</b>
+                <span className={css.uploadStateMeta}>
+                  {sync.currentRecords !== sync.uploadedRecords && sync.uploadedRecords > 0
+                    ? '当前 ' + String(sync.currentRecords) + ' 条，云端 ' + String(sync.uploadedRecords) + ' 条 · '
+                    : ''}
+                  点「立即同步」或等下次定时
+                </span>
+              </>
+            )}
+            {sync.upToDate === 'unknown' && (
+              <>
+                <b>{sync.lastStatus === 'ok' ? '已传过备份，待确认是否最新' : '尚未上传'}</b>
+                <span className={css.uploadStateMeta}>
+                  {sync.lastStatus === 'error'
+                    ? '上次失败了，修好后点「立即同步」'
+                    : sync.lastStatus === 'ok'
+                      /* 走到这里只有两种可能：换了仓库（旧指纹被清掉），
+                         或者 host 半身还是旧版本、不下发指纹字段。两种都
+                         不该撒谎说「已全部上传」，也不该说「没传过」。 */
+                      ? '点「立即同步」补齐一次，之后就能看到是否最新'
+                      : '点「立即同步」把第一份备份传上去'}
+                </span>
+              </>
+            )}
+          </span>
+        </div>
+      )}
+
       {sync?.lastStatus === 'error' && sync.lastError !== '' && (
         <div className={css.backupWarn}>
           <span style={{ display: 'inline-flex', flex: 'none', marginTop: 1 }}><AlertIcon size={13} /></span>

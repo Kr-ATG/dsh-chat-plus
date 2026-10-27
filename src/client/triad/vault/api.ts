@@ -715,6 +715,15 @@ function normalizeSync(raw: VaultSyncPublic | undefined): VaultSyncPublic {
     nextAt: typeof raw.nextAt === 'string' ? raw.nextAt : '',
     repoPrivate: raw.repoPrivate === true ? true : raw.repoPrivate === false ? false : 'unknown',
     repoReachable: raw.repoReachable === true ? true : raw.repoReachable === false ? false : 'unknown',
+    /*
+      这三个字段（上传完整性）是 1.8.1 新增的。缺了它们的旧 host 必须降级成
+      'unknown' 而不是 undefined —— 页面用 === true / === false / === 'unknown'
+      三分支渲染文案，undefined 一条都不命中，状态条会渲染成一条**空白的**
+      灰条（实测就是这个 bug：看着像样式坏了，其实是数据缺字段）。
+    */
+    upToDate: raw.upToDate === true ? true : raw.upToDate === false ? false : 'unknown',
+    uploadedRecords: typeof raw.uploadedRecords === 'number' && Number.isFinite(raw.uploadedRecords) ? raw.uploadedRecords : 0,
+    currentRecords: typeof raw.currentRecords === 'number' && Number.isFinite(raw.currentRecords) ? raw.currentRecords : 0,
     needsSetup: raw.needsSetup === true,
     suggestedRepo: typeof raw.suggestedRepo === 'string' ? raw.suggestedRepo : '',
     history: (Array.isArray(raw.history) ? raw.history : [])
