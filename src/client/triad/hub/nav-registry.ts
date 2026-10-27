@@ -604,6 +604,61 @@ export function toggleExpandedMenu(entryId: string): void {
 }
 
 /**
+ * 收起**全部**二级菜单（把展开态清空）。
+ *
+ * 与 {@link writeExpandedMenus}(id, false) 的区别：那个只收自己这一行，别的行本来
+ * 就没展开；这个不看是哪一行，直接把「此刻展开着的那一组」收掉。
+ *
+ * 什么时候需要它：用户点了一个**不产生二级菜单选中态**的目标 —— 区域切换行
+ * （工作区 ⇄ 操作间）、以及没有下级的普通条目行。这两种点击都意味着「我要去别处」，
+ * 语义与「选中某个子项」同级，所以其它二级菜单必须让位（2026-10-27 用户要求
+ * 「操作间点击一级菜单或二级菜单，其他二级收起」）。
+ *
+ * 已经是收起态时**一个字节都不写**：不碰 localStorage、不 notify、不触发重渲染。
+ * 侧栏每次点击都先调它，抖动代价必须为零。
+ */
+export function collapseExpandedMenus(): void {
+  if ((readPref(NAV_EXPANDED_STORE) ?? '') === '') return
+  writePref(NAV_EXPANDED_STORE, '')
+  notify()
+}
+
+/**
+ * 把展开态**一次性**收敛成指定的那一行（空串 = 全部收起）。
+ *
+ * 与「先 collapse 再 write」的区别只有一个，但很要紧：**只 notify 一次**。
+ * 两者都是同步写 localStorage，所以最终值一样；差别在于中间那一帧 —— 先收起会
+ * 广播一次「此刻没有任何行展开」，渲染层当场重渲染成全收起，紧接着展开又广播一次。
+ * 用户在点二级子项的那一刻能看到这一下闪烁（子项列表闪一下再回来）。
+ *
+ * 所以凡是「已经知道最终要展开哪一行」的路径都走这里；只有真正不知道该展开谁
+ * （点一级条目 / 切区域 / 只是要清空）时才用 {@link collapseExpandedMenus}。
+ * @param entryId - 要保留为唯一展开项的行 id；空串 = 全部收起。
+ */
+function setExpandedMenu(entryId: string): void {
+  const stored = readPref(NAV_EXPANDED_STORE) ?? ''
+  if (stored === entryId) return
+  if (entryId !== '') {
+    const entry = entries.get(entryId)
+    // 没有下级的行不能被「展开」——与 writeExpandedMenus 同一条约束。
+    if (entry?.children === undefined) return
+  }
+  writePref(NAV_EXPANDED_STORE, entryId)
+  notify()
+}
+
+/**
+ * 展开某一行并**同时**收起其它行，一次广播完成。
+ *
+ * 供「点二级子项」这类已经确定最终态的路径使用：内部等价于
+ * `collapseExpandedMenus() + writeExpandedMenus(id, true)`，但不会闪一帧。
+ * @param entryId - 目标行 id。
+ */
+export function focusExpandedMenu(entryId: string): void {
+  setExpandedMenu(entryId)
+}
+
+/**
  * 清空注册表与状态（**仅供冒烟测试**：node 里重复 require 时复位）。
  *
  * 运行时代码不要调它——那会让侧栏失去全部菜单。

@@ -4184,6 +4184,134 @@ if (krEnabled) {
     reasons.push('没有二级菜单的行不得被写进展开态（会顶掉真正展开的那一行）')
   }
 
+  /* ── ③c 点一级菜单 / 切区域也必须收起其它二级菜单（2026-10-27 用户要求）──
+   *
+   * 用户原话：「操作间点击一级菜单或二级菜单，其他二级收起」。
+   *
+   * 手风琴此前只管住「点开另一行」与「点二级子项」两条路；**点一级条目行**
+   * （没有下级的行直接开页面）和**切区域**这两条完全不碰展开态，于是先前展开的
+   * 那组子项会一直挂着。这组断言钉住三件事：
+   *   1. collapseExpandedMenus 存在且真能把展开态清空（清不掉的实现在此直接暴露）；
+   *   2. 侧栏源码里三条点击路径（runEntry / runChild / 区域切换行）都接了收敛调用，
+   *      少接一处就是「某一种点法漏收」，界面上不会报错，只能靠源码断言钉住；
+   *   3. focusExpandedMenu 必须一次广播就收敛到单值（不能先收起再展开，那会闪一帧）。
+   */
+  prefs.set(registry2.NAV_EXPANDED_STORE, 'workbench-memory')
+  if (typeof registry2.collapseExpandedMenus !== 'function') {
+    reasons.push('nav-registry 必须导出 collapseExpandedMenus（点一级菜单 / 切区域要能整体收起）')
+  } else {
+    registry2.collapseExpandedMenus()
+    if (registry2.readExpandedMenus().size !== 0) {
+      reasons.push(`collapseExpandedMenus 必须把展开态清空，实得 ${JSON.stringify([...registry2.readExpandedMenus()])}`)
+    }
+    if (prefs.get(registry2.NAV_EXPANDED_STORE) !== undefined) {
+      reasons.push('collapseExpandedMenus 必须把持久化层也清掉（否则刷新后又撑开）')
+    }
+    // 已经是收起态时不得反复写 / 广播（侧栏每次点击都会先调它，抖动代价必须为零）
+    let collapseNotices = 0
+    const disposeCollapseProbe = registry2.subscribeNav(() => { collapseNotices += 1 })
+    registry2.collapseExpandedMenus()
+    registry2.collapseExpandedMenus()
+    disposeCollapseProbe()
+    if (collapseNotices !== 0) {
+      reasons.push(`已经收起时 collapseExpandedMenus 不得广播（实得 ${collapseNotices} 次，每次点击都会多一次重渲染）`)
+    }
+  }
+
+  // focusExpandedMenu：一次写入 + 一次广播就落到「只有这一行展开」
+  if (typeof registry2.focusExpandedMenu !== 'function') {
+    reasons.push('nav-registry 必须导出 focusExpandedMenu（点二级子项时一次收敛，不闪帧）')
+  } else {
+    prefs.set(registry2.NAV_EXPANDED_STORE, 'workbench-memory')
+    let focusNotices = 0
+    const disposeFocusProbe = registry2.subscribeNav(() => { focusNotices += 1 })
+    registry2.focusExpandedMenu('workbench-gallery')
+    disposeFocusProbe()
+    const focused = registry2.readExpandedMenus()
+    if (focused.size !== 1 || !focused.has('workbench-gallery')) {
+      reasons.push(`focusExpandedMenu 必须收敛成「只有目标行展开」，实得 ${JSON.stringify([...focused])}`)
+    }
+    if (focusNotices !== 1) {
+      reasons.push(`focusExpandedMenu 必须只广播一次（先收起再展开会闪一帧，实得 ${focusNotices} 次）`)
+    }
+    if (prefs.get(registry2.NAV_EXPANDED_STORE) !== 'workbench-gallery') {
+      reasons.push(`focusExpandedMenu 必须把持久化层写成单值，实得 ${JSON.stringify(prefs.get(registry2.NAV_EXPANDED_STORE))}`)
+    }
+    // 没有下级的行同样不能被 focus 成展开项
+    registry2.focusExpandedMenu('workbench-usage')
+    if (registry2.readExpandedMenus().has('workbench-usage')) {
+      reasons.push('focusExpandedMenu 不得把没有下级的行变成展开项')
+    }
+    registry2.collapseExpandedMenus()
+  }
+
+  /* ── ③d 三条手势各自的展开态语义（2026-10-27 回归修复后重钉）────────
+   *
+   * 用户原话：「操作间点击一级菜单或二级菜单，其他二级收起」，紧接着又报
+   * 「我点击自己的二级菜单为啥也被收起了」。
+   *
+   * 上一版把 collapseExpandedMenus() 写进了 runEntry，而 runChild 也调 runEntry，
+   * 于是「点自己的子项」变成 focus(本行) → runEntry → 全收起，**把自己这组收掉**。
+   * 当时的断言只查「runEntry 里有 collapse」，恰好把这条错误实现判成通过 ——
+   * 所以现在按**手势**钉，而不是按「哪个函数里出现了这个调用」钉：
+   *   · 无下级的条目行 onClick：先收起，再 runEntry（点一级菜单 = 离开这一组）；
+   *   · runEntry：**不得**出现 collapse（它被两条手势共用，展开态语义相反）；
+   *   · runChild：focusExpandedMenu(本行)，且不得整体收起（点自己的子项要保持本组展开）；
+   *   · 切换区域行 onClick：先收起再切。
+   */
+  const sectionsCodeForClickPath = sectionsSrc2.replace(/\/\*[\s\S]*?\*\//g, '')
+  const entryDispatchBody = /function runEntry\([\s\S]{0,1400}?\n}/.exec(sectionsCodeForClickPath)?.[0] ?? ''
+  const childGestureBody = /function runChild\([\s\S]{0,1400}?\n}/.exec(sectionsCodeForClickPath)?.[0] ?? ''
+  const leafRowBody = /className="dsn-row"[\s\S]{0,300}?onClick=\{\(\) => \{([\s\S]{0,500}?)\}\}/.exec(sectionsCodeForClickPath)?.[1] ?? ''
+  const switchRowBody = /className="dsn-row dsn-switch"[\s\S]{0,900}?onClick=\{\(\) => \{([\s\S]{0,500}?)\}\}/.exec(sectionsCodeForClickPath)?.[1] ?? ''
+  if (entryDispatchBody === '' || childGestureBody === '' || leafRowBody === '' || switchRowBody === '') {
+    reasons.push('侧栏三条点击手势都要能从源码里取到（取不到说明结构变了，断言得跟着改）')
+  } else if (/collapseExpandedMenus\(\)/.test(entryDispatchBody)) {
+    reasons.push('runEntry 不得收起二级菜单：runChild 也走它，会把自己那一组收掉（点自己的子项却被收起）')
+  } else if (!/collapseExpandedMenus\(\)[\s\S]{0,160}runEntry\(entry\)/.test(leafRowBody)) {
+    reasons.push('点一级条目行必须收起其它二级菜单（无下级行的 onClick 里先 collapseExpandedMenus 再 runEntry）')
+  } else if (!/focusExpandedMenu\(entry\.id\)/.test(childGestureBody)) {
+    reasons.push('点二级子项必须收敛成「只有本行展开」（runChild 里调 focusExpandedMenu）')
+  } else if (/collapseExpandedMenus\(\)/.test(childGestureBody)) {
+    reasons.push('runChild 不得整体收起：点自己的二级子项必须让自己保持展开')
+  } else if (!/collapseExpandedMenus\(\)[\s\S]{0,160}rotateActiveSection\(\)/.test(switchRowBody)) {
+    reasons.push('切换区域（工作区 ⇄ 操作间）必须收起二级菜单（切换行 onClick 里调 collapseExpandedMenus）')
+  } else {
+    pass('侧栏手风琴：点一级菜单 / 切区域会收起其它组，点自己的二级子项则保持本组展开')
+  }
+
+  /* ── ③e 行为级：点自己的二级子项后，自己这组必须仍然展开（回归钉）───
+   *
+   * ③d 是静态源码检查（"runEntry 里不该有 collapse"），挡不住「把 collapse 换个
+   * 地方写回去」这类改动。这里按**行为**再钉一遍：模拟 runChild 的动作序列
+   * （focusExpandedMenu(本行) → runEntry(本行)），跑完本行必须仍然展开。
+   *
+   * 用户就是在这里报的：「我点击自己的二级菜单为啥也被收起了」——当时
+   * runEntry 里那一句 collapseExpandedMenus() 把 focus 的结果当场抹掉了。
+   */
+  if (typeof registry2.focusExpandedMenu !== 'function') {
+    reasons.push('无法做行为级回归检查：缺 focusExpandedMenu')
+  } else {
+    // toggle 一下让本行没有展开，确保从「干净起点」开始
+    registry2.collapseExpandedMenus()
+    const selfEntry = registry2.entriesOfSection('shop').find((e) => e.id === 'workbench-memory')
+    if (selfEntry === undefined) {
+      reasons.push('行为级回归检查找不到 workbench-memory 条目')
+    } else {
+      // 模拟点自己的二级子项：runChild 的真实动作序列
+      registry2.focusExpandedMenu(selfEntry.id)
+      // runEntry 只按 target 分发（custom → run）。这里用同一份 target 语义驱动，
+      // 目的是验证「分发这一步不会改写展开态」。
+      if (selfEntry.target?.kind === 'custom') selfEntry.target.run()
+      if (!registry2.readExpandedMenus().has(selfEntry.id)) {
+        reasons.push('点自己的二级子项后，本行必须仍然展开（否则就是「点自己的菜单反而被收起」）')
+      } else {
+        pass('侧栏手风琴行为级：点自己的二级子项后本组保持展开，收起只作用于其它组')
+      }
+    }
+    registry2.collapseExpandedMenus()
+  }
+
   // 数据驱动的刷新入口：换 children 不能把行本身（图标/order/target）换掉
   const beforeChildren = memoryEntry?.children?.length
   if (registry2.setNavEntryChildren('workbench-memory', [

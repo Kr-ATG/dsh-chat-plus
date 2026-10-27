@@ -60,7 +60,9 @@ import {
 import {
   DEFAULT_OFFICIAL_ANCHOR,
   OFFICIAL_SECTION_ID,
+  collapseExpandedMenus,
   entriesOfSection,
+  focusExpandedMenu,
   navMenuItem,
   navSection,
   nextSectionId,
@@ -708,7 +710,23 @@ function useNavVersion(): number {
   return version
 }
 
-/** 点一个条目：按 target 分发（唯一的分发点，加新 kind 只改这里）。 */
+/**
+ * 点一个条目：按 target 分发（唯一的分发点，加新 kind 只改这里）。
+ *
+ * ── ⚠ 这里**故意不碰**二级菜单的展开态 ─────────────────────────────
+ * 「点一级菜单时收起其它二级菜单」这条规则**不在本函数里**，而在
+ * {@link EntryRow} 那个「没有下级的行」的 onClick 里。
+ *
+ * 原因（2026-10-27 踩过的回归）：本函数有**两个**调用方——
+ *   1. 无下级的条目行（用户点一级菜单 → 开页面）；
+ *   2. **runChild**（用户点二级子项 → 先收敛展开态再开页面）。
+ * 把 `collapseExpandedMenus()` 放这里，第 2 条路会变成
+ * 「focusExpandedMenu(本行) → 本函数 → 全收起」，**用户点自己的二级子项时
+ * 自己那一组反而被收起来**（实测被用户当场发现：「我点击自己的二级菜单为啥也被收起了」）。
+ *
+ * 收起动作属于「点一级菜单」这个**手势**，不属于「按 target 分发」这个**动作**——
+ * 同一个分发动作在两条手势下的展开态语义相反，就不能写在分发层。
+ */
 function runEntry(entry: NavEntryDef): void {
   const target = entry.target
   try {
@@ -776,10 +794,14 @@ function runChild(entry: NavEntryDef, child: NavChildDef): void {
     console.error(`[dsh-chat-plus] 侧栏子项 ${entry.id}/${child.id} 执行失败：`, error)
   }
   // 选中一个子项 = 这一组就是「正在用的那一组」：别的行的二级菜单必须收起来
-  // （2026-10-26 用户要求「选中某一个二级菜单后其他二级菜单都折叠起来」）。
-  // 手风琴语义下这一行本来就已经是唯一展开项，这里是**幂等收敛**——真正兜的是
-  // 升级前的存量数据（旧版本允许多行同时展开）与外部直接写持久化层的情况。
-  writeExpandedMenus(entry.id, true)
+  // （2026-10-26 用户要求「选中某一个二级菜单后其他二级菜单都折叠起来」，
+  // 2026-10-27 又明确「点击一级菜单或二级菜单，其他二级收起」）。
+  //
+  // 不靠 writeExpandedMenus(entry.id, true) 单独兜：那个调用在同一行已是唯一展开项时
+  // 直接 return（为的是不白写 localStorage），于是「持久化层残留着别的行 + 本行恰好
+  // 也已是展开项」这种半脏状态会留着不动。focusExpandedMenu 是「覆盖成单值并广播
+  // 一次」，任何起点都收敛到「只有本行展开」，且中间不会闪一帧全收起。
+  focusExpandedMenu(entry.id)
   runEntry(entry)
 }
 
@@ -867,7 +889,14 @@ function EntryRow({ entry, expanded }: { entry: NavEntryDef; expanded: boolean }
         type="button"
         className="dsn-row"
         aria-label={entry.label}
-        onClick={() => { runEntry(entry) }}
+        onClick={() => {
+          // 点一级菜单 = 离开当前展开的那一组，其它二级菜单让位
+          // （2026-10-27 用户要求「操作间点击一级菜单或二级菜单，其他二级收起」）。
+          // 只在**这条**手势里收起：runChild 也走 runEntry，但它要保留自己那一组，
+          // 所以收起绝不能下沉进 runEntry（见该函数的注释）。
+          collapseExpandedMenus()
+          runEntry(entry)
+        }}
       >
         <Icon size={16} />
         <span className="dsn-label">{entry.label}</span>
@@ -940,7 +969,12 @@ function SidebarSections(): JSX.Element | null {
         className="dsn-row dsn-switch"
         aria-label={`切换到${nextDef?.label ?? next}`}
         aria-expanded={isPluginSection}
-        onClick={() => { rotateActiveSection() }}
+        onClick={() => {
+          // 换一屏 = 彻底离开当前这一组，二级菜单没有理由继续展开着
+          // （2026-10-27 用户要求「操作间点击一级菜单或二级菜单，其他二级收起」）。
+          collapseExpandedMenus()
+          rotateActiveSection()
+        }}
       >
         {NextIcon !== null ? <NextIcon size={16} /> : null}
         <span className="dsn-label">
