@@ -27,6 +27,7 @@
 import { createUserMessage } from '../../vendor/dsh-llm/index.js'
 import type { VaultConfig, VaultRecord, VaultScene } from './types.js'
 import { fieldSummaryOf, hasSensitiveField, isFieldSensitive } from './types.js'
+import { expiryNoteOf } from './reminders.js'
 import type { VaultStore } from './store.js'
 
 /** pre-step 载荷的最小 agent 面（与记忆库同款，不依赖 agent 的完整类型）。 */
@@ -132,7 +133,12 @@ function priorityOf(record: VaultRecord): number {
  * 只报「还剩 N 天 / 已过期」，不报具体日期——剩余天数是行动依据，日期是噪音。
  */
 function formatRecordLine(record: VaultRecord, sceneLabel: string): string {
-  let line = '- [' + sceneLabel + '] ' + record.title
+  // 分类紧跟场景标签：[账号密码 · 服务器运维] 阿里云 ECS · 101.133…
+  // 放在方括号里而不是句尾：模型读这一行时「这是什么 / 干什么用」应该在同一处
+  // 一次说完，句尾的分类容易被当成标题的一部分。
+  const category = typeof record.category === 'string' ? record.category.trim() : ''
+  const label = category === '' ? sceneLabel : sceneLabel + ' · ' + category
+  let line = '- [' + label + '] ' + record.title
   if (record.subtitle !== undefined && record.subtitle.trim() !== '') line += '（' + record.subtitle.trim() + '）'
   const summary = fieldSummaryOf(record, 200)
   if (summary !== '') line += '：' + summary
@@ -144,34 +150,11 @@ function formatRecordLine(record: VaultRecord, sceneLabel: string): string {
   return line
 }
 
-/** 临期提醒的阈值：90 天内到期才提（再远了提示没有意义，只会占预算）。 */
-const EXPIRY_NOTE_DAYS = 90
-
-/**
- * 记录的到期提示（无 date 字段或还早则返回空串）。
- *
- * 为什么只在 90 天内提：注入是每步都要付的 token，把「三年后才过期」
- * 写进去只会稀释真正要紧的那几条。已过期的**永远**提——那是最该说的。
+/*
+ * 到期提示与阈值都搬去了 reminders.ts（expiryNoteOf / EXPIRY_NOTE_DAYS）。
+ * 提醒窗口和这里的注入行必须永远说同一句话，判据只能有一份：两处各算一遍，
+ * 迟早会出现「窗口里没有、但模型被提示了」或者反过来。所以这里不再保留副本。
  */
-function expiryNoteOf(record: VaultRecord, now = Date.now()): string {
-  let best = Number.POSITIVE_INFINITY
-  let label = ''
-  const DAY = 24 * 60 * 60 * 1000
-  for (const field of record.fields) {
-    if (field.type !== 'date') continue
-    const ms = Date.parse(field.value)
-    if (!Number.isFinite(ms)) continue
-    const days = Math.round((ms - now) / DAY)
-    if (days < best) {
-      best = days
-      label = field.label
-    }
-  }
-  if (!Number.isFinite(best)) return ''
-  if (best < 0) return label + '已过期 ' + String(-best) + ' 天'
-  if (best <= EXPIRY_NOTE_DAYS) return label + '还剩 ' + String(best) + ' 天'
-  return ''
-}
 
 /** 全库水位（最大 updatedAt；空库返回空串）。 */
 function maxUpdatedAt(records: VaultRecord[]): string {

@@ -30,6 +30,9 @@ import { activateBrowserWindow } from '../browser-flag/activate.ts'
 import { browserFlagTitle, type BrowserActivitySession } from '../browser-flag/store.ts'
 import { getPanelSettingsStore } from './panel-settings-store.ts'
 import { getMailDrawerStore } from './mail-drawer-store.ts'
+import { getGitRosterStore } from './git-roster-store.ts'
+import { SeekerGitStatus } from './SeekerGitStatus.tsx'
+import { GitRosterModal } from './GitRosterModal.tsx'
 
 /** 一行状态：要么是一个动作，要么是空闲文案。 */
 export interface SeekerHeadLine {
@@ -78,6 +81,10 @@ export interface SeekerHeadProps {
   readonly renderIcon?: (name: string) => ReactElement
   /** 额外类名（新对话页要一版更大的尺寸）。 */
   readonly className?: string
+  /** 当前会话 ID（用于解析当前工作区根目录）。 */
+  readonly sessionId?: string | null
+  /** 工作区根目录（优先）。 */
+  readonly cwd?: string
   /**
    * 是否渲染右上角那两枚动作按钮（齿轮 + 邮箱）。默认 true。
    *
@@ -115,6 +122,8 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
     expanded,
     renderIcon,
     className,
+    sessionId,
+    cwd,
     chrome = true,
   } = props
 
@@ -136,6 +145,12 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
     (cb) => mailStore.subscribe(cb),
     () => mailStore.open,
     () => mailStore.open,
+  )
+  const gitRosterStore = getGitRosterStore()
+  const gitRosterOpen = useSyncExternalStore(
+    (cb) => gitRosterStore.subscribe(cb),
+    () => gitRosterStore.open,
+    () => gitRosterStore.open,
   )
 
   /*
@@ -274,7 +289,26 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
        * 点了没反应」。详见 SeekerHeadProps.chrome 的注释。
        */}
       {chrome && (
+      <>
       <div className="kr-plain-head__tools">
+        <button
+          type="button"
+          id="kr-git-roster-btn"
+          className="kr-plain-head__tool"
+          title="工作区与自制插件 Git 大盘"
+          aria-label="工作区与自制插件 Git 大盘"
+          aria-expanded={gitRosterOpen}
+          data-open={gitRosterOpen || undefined}
+          onClick={(event) => {
+            event.stopPropagation()
+            gitRosterStore.toggle()
+          }}
+        >
+          {/* Git 官方经典菱形 Logo（正统 Git SCM 矢量） */}
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M23.546 10.93L13.067.452a1.5 1.5 0 0 0-2.126 0L8.808 2.585l3.247 3.248a1.782 1.782 0 0 1 2.25 2.252l3.125 3.125a1.784 1.784 0 1 1-.95.952l-2.91-2.91v4.542a1.783 1.783 0 1 1-1.34 0V8.895a1.78 1.78 0 0 1-.986-.986L7.99 4.656.454 12.193a1.5 1.5 0 0 0 0 2.126l10.479 10.478a1.5 1.5 0 0 0 2.126 0l10.487-10.487a1.5 1.5 0 0 0 0-2.126l.002-.002z" />
+          </svg>
+        </button>
         <button
           type="button"
           id="kr-panel-settings-btn"
@@ -321,6 +355,9 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
           </svg>
         </button>
       </div>
+      <SeekerGitStatus sessionId={sessionId} cwd={cwd} />
+      <GitRosterModal />
+      </>
       )}
     </div>
   )

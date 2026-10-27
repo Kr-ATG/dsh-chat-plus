@@ -54,7 +54,7 @@ import {
   SECRET_DOTS,
 } from './api.js'
 import type { VaultConfig, VaultField, VaultRecord, VaultScene } from '../../../triad/vault/types.js'
-import { isFieldSensitive, isMaskedValue } from '../../../triad/vault/types.js'
+import { collectCategories, isFieldSensitive, isMaskedValue } from '../../../triad/vault/types.js'
 import { css } from './styles.js'
 import { VaultPhotoGrid } from './PhotoGrid.js'
 import { VaultTotpBox } from './TotpBox.js'
@@ -100,6 +100,7 @@ function draftFromScene(scene: VaultScene): VaultRecord {
     scene: scene.id,
     title: '',
     subtitle: '',
+    category: '',
     fields: scene.fieldTemplate.map((template) => ({
       key: template.key,
       label: template.label,
@@ -151,16 +152,36 @@ export interface VaultDetailDrawerProps {
    * 页面里还是浮在页面之上」，那是调用方的知识。
    */
   shell?: VaultDetailShell
+  /**
+   * 同一分组里的其它记录（可选）。
+   *
+   * 只用来收集「这个分组里已经在用的分类」——用户手输过一次「家庭NAS」，下次
+   * 新建同组记录时它就该出现在候选里，而不是要再手输一遍。缺省空数组时退化成
+   * 只有场景的建议清单，功能不受影响。
+   */
+  siblings?: VaultRecord[]
 }
 
 export function VaultDetailDrawer({
-  record, scene, config, onError, onRecord, onSaved, onDeleted, onClose, shell = 'modal',
+  record, scene, config, onError, onRecord, onSaved, onDeleted, onClose, shell = 'modal', siblings,
 }: VaultDetailDrawerProps): JSX.Element {
   // 新建态用一个本地草稿；编辑态直接用父级那份 record（它是唯一真相，
   // 任何一次 /field 回来后父级会替换它，于是这里自动跟上）。
   const [draft, setDraft] = useState<VaultRecord | null>(() =>
     record === null && scene !== null ? draftFromScene(scene) : null)
   const current = record ?? draft
+
+  /**
+   * 分类候选（场景建议清单 + 这个分组里已有记录用过的分类）。
+   *
+   * 只给「点一下就填」的便利，不限制输入：分类是用户自己的语汇，任何下拉都会
+   * 遇到「我要的那个不在里面」的情况，所以输入框永远可自由填。
+   */
+  const categoryOptions = useMemo(() => {
+    if (scene === null) return []
+    return collectCategories(siblings ?? [], scene)
+  }, [scene, siblings])
+
 
   /** 已显示明文的字段 key（30 秒后自动移出）。 */
   const [revealed, setRevealed] = useState<Record<string, string>>({})
@@ -201,6 +222,16 @@ export function VaultDetailDrawer({
    * 列表里会显示一个**没落盘**的新标题——下次刷新又变回去，最难查的那种不一致。
    */
   const [titleDraft, setTitleDraft] = useState<string | null>(null)
+  /**
+   * 分类草稿（null = 没改过）。
+   *
+   * 与标题同款理由：分类不在 fields 里，没有「只改分类」的路由，只能跟「保存」
+   * 一起整体提交。用 null 而不是空串表示「没改过」，是因为空串本身是一个合法
+   * 状态（＝取消分类），两者不能共用同一个哨兵值。
+   */
+  const [categoryDraft, setCategoryDraft] = useState<string | null>(null)
+  /** 分类有没有未保存的改动（提示文案与关闭确认共用同一个判据）。 */
+  const categoryDirty = categoryDraft !== null && categoryDraft !== (current?.category ?? '')
   /** 抽屉内部的局部错误（保存 / 上传 / 删除失败）；不用整页错误态。 */
   const [actionError, setActionError] = useState<string>('')
 
@@ -422,6 +453,24 @@ export function VaultDetailDrawer({
     }
   }
 
+  /**
+   * 改用途分类（本地草稿，等「保存」一起提交）。
+   *
+   * 为什么不走 /field 就地提交：分类不是字段（不在 fields 数组里），契约里没有
+   * 「只改分类」的路由，只能跟标题一样整体提交。好处是行为可预期——用户在输入框
+   * 里敲字的时候不会每敲一下就写一次盘。
+   */
+  const onChangeCategory = (category: string): void => {
+    if (current === null) return
+    if (isNew) {
+      // 新建态：记录本身就是本地草稿，直接改它。
+      setDraft((previous) => (previous === null ? previous : { ...previous, category }))
+      return
+    }
+    // 已落盘记录：与标题同款草稿，等「保存」一起整体提交。
+    setCategoryDraft(category)
+  }
+
   /** 改标题（本地草稿，等「保存」一起提交）。 */
   const setTitle = (title: string): void => {
     setTitleDraft(title)
@@ -442,6 +491,8 @@ export function VaultDetailDrawer({
         scene: current.scene,
         title,
         subtitle: current.subtitle,
+        // 显式传（含空串）：空串＝取消分类，省略＝保留原值，这里要的是前者。
+        category: categoryDraft ?? current.category ?? '',
         // 只提交有值的字段：空字段落盘没有意义，还会让列表摘要出现一堆
         // 「绑定邮箱：」这种空标签。
         fields: current.fields.filter((field) => field.value !== ''),
@@ -449,6 +500,7 @@ export function VaultDetailDrawer({
         note: current.note,
       })
       setTitleDraft(null)
+      setCategoryDraft(null)
       setActionError('')
       if (isNew) setDraft(null)
       if (onSaved !== undefined) onSaved(saved)
@@ -569,7 +621,8 @@ export function VaultDetailDrawer({
    */
   const requestClose = (): void => {
     const pendingTitle = titleDraft !== null && titleDraft !== current?.title
-    if (pendingTitle && !window.confirm('标题还没保存，要放弃修改吗？')) return
+    const pendingCategory = categoryDirty
+    if ((pendingTitle || pendingCategory) && !window.confirm('还有改动没保存，要放弃吗？')) return
     onClose()
   }
 
@@ -616,6 +669,57 @@ export function VaultDetailDrawer({
             </button>
           </div>
         )}
+
+        {/* ── 用途分类（2026-10-27 用户要求：区分什么用途一目了然）──
+            为什么放在字段之前：它是这条记录的「一句话身份」，用户打开详情第一件事
+            就是确认「我找的是不是这一条」。分类和标题一起构成这个判断，而字段是
+            内容。 */}
+        <div className={css.section}>
+          <div className={css.sectionHead}>
+            <span className={css.sectionTitle}>用途分类</span>
+            <span className={css.fieldKeyHint}>
+              {current.category === undefined || current.category === ''
+                ? '未分类（点下面的候选或自己填一个）'
+                : categoryDirty
+                  ? '改过了，点下面「保存」生效'
+                  : '已保存'}
+            </span>
+          </div>
+          <div className={css.categoryRow}>
+            <span className={css.categoryLabel}>分类</span>
+            <input
+              className={css.categoryInput}
+              value={categoryDraft ?? current.category ?? ''}
+              placeholder="例如：服务器运维 / AI 服务 / 开发工具"
+              aria-label="用途分类"
+              onChange={(event) => { void onChangeCategory(event.target.value) }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void onSave()
+                }
+              }}
+            />
+          </div>
+          {categoryOptions.length > 0 && (
+            <div className={css.categoryChips}>
+              {categoryOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={css.categoryChip}
+                  data-on={(categoryDraft ?? current.category ?? '') === option ? '1' : '0'}
+                  title={(categoryDraft ?? current.category ?? '') === option ? '再点一次取消分类' : '设为「' + option + '」'}
+                  onClick={() => {
+                    onChangeCategory((categoryDraft ?? current.category ?? '') === option ? '' : option)
+                  }}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* ── 字段列表 ── */}
         <div className={css.section}>

@@ -33,16 +33,16 @@ export {
   getVaultStats,
   searchVaultRecords,
   listVaultAudit,
-  // 健康审计 / 密钥备份 / 验证码
-  fetchVaultHealth,
+  // 到期提醒 / 密钥备份 / 验证码
+  fetchVaultReminders,
+  formatReminderDays,
   fetchVaultKeyInfo,
   downloadVaultBackup,
   restoreVaultBackup,
   fetchVaultTotp,
   isTotpField,
-  // 强口令生成 / 批量轮换
+  // 强口令生成
   generateVaultPassword,
-  rotateVaultPasswords,
   isPasswordSecretField,
   describeEntropy,
   // URL / 压缩 / 展示
@@ -51,7 +51,6 @@ export {
   compressOptionsOf,
   compressPhotoVariants,
   vaultRowSummary,
-  formatIssueDetail,
   formatVaultBytes,
   formatVaultTime,
   formatVaultStamp,
@@ -76,30 +75,25 @@ export type {
   VaultPhotoVariantPayload,
   VaultAuditEntry,
   VaultCompressOptions,
-  VaultIssue,
-  VaultIssueKind,
-  VaultIssueSeverity,
-  VaultHealthReport,
+  VaultReminder,
+  VaultReminderReport,
   VaultKeyInfo,
   VaultRestoreResult,
   VaultTotpCode,
   VaultPasswordOptions,
   VaultGeneratedPassword,
-  VaultRotatedEntry,
-  VaultRotateSkipped,
-  VaultRotateResult,
 } from './api.js'
 
 export { ensureVaultStyles, css as vaultCss } from './styles.js'
 export { sceneIconOf, SceneAccountsIcon, SceneDocumentIcon } from './icons.js'
 
-// 子视图。VaultHealthDrawer / VaultBackupPanel 由 Panel 内部挂进 VaultModal，
-// 这里一并导出是为了让将来别处（例如侧栏入口直接开备份）能复用同一份实现，
-// 而不是各自再写一个「点开就是备份」的弹窗。
+// 子视图。VaultReminderWindow / VaultBackupPanel 由 Panel 内部挂进 VaultModal，
+// 这里一并导出是为了让将来别处（例如侧栏入口直接开提醒）能复用同一份实现，
+// 而不是各自再写一个「点开就是提醒」的弹窗。
 export { VaultModal } from './Shell.js'
 export type { VaultModalProps } from './Shell.js'
-export { VaultHealthDrawer, pendingIssueCount, worstSeverityOf } from './HealthDrawer.js'
-export type { VaultHealthDrawerProps } from './HealthDrawer.js'
+export { VaultReminderWindow } from './ReminderWindow.js'
+export type { VaultReminderWindowProps } from './ReminderWindow.js'
 export { VaultBackupPanel } from './BackupPanel.js'
 export type { VaultBackupPanelProps } from './BackupPanel.js'
 // 云端备份（GitHub 私库自动上传）：面板 + 数据面。整块导出是为了让将来别处

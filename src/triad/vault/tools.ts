@@ -49,7 +49,9 @@ const OUTPUT_MAX = 4000
 /** 单条记录的文本化（**敏感字段只报「已加密」**）。 */
 function renderRecord(record: VaultRecord, sceneLabel: string): string {
   const subtitle = record.subtitle !== undefined && record.subtitle !== '' ? '（' + record.subtitle + '）' : ''
-  const parts: string[] = ['【' + sceneLabel + '】' + record.title + subtitle]
+  const category = typeof record.category === 'string' ? record.category.trim() : ''
+  const sceneText = category === '' ? sceneLabel : sceneLabel + ' · ' + category
+  const parts: string[] = ['【' + sceneText + '】' + record.title + subtitle]
   for (const field of record.fields) {
     if (isFieldSensitive(field)) {
       parts.push('  ' + field.label + '：已加密（明文保存在本机，需要时请用户在「操作间 → 档案」页面查看）')
@@ -157,6 +159,7 @@ export function registerVaultTools(ctx: Context, store: VaultStore, config: Vaul
       scene: { type: 'string', required: true, description: '场景 id：accounts（账号密码）/ email（邮箱登录）/ payment（支付方式）/ contact（联系方式）/ document（证件）/ other（其它）。' },
       title: { type: 'string', required: true, description: '主标题，账户类用「平台 · 账号」，证件类用「证件类型 · 姓名」。' },
       subtitle: { type: 'string', description: '副标题（可选，如手机号后四位、卡组织）。' },
+      category: { type: 'string', description: '用途分类（可选，如「服务器运维」「AI 服务」「开发工具」）。同一分组里按用途区分，让列表一眼看出这条是干什么用的；优先复用该分组已有的分类。' },
       fields: {
         type: 'array',
         description: '字段列表。密码 / 卡号 / 证件号 / 安全码把 sensitive 设为 true。',
@@ -219,6 +222,8 @@ export function registerVaultTools(ctx: Context, store: VaultStore, config: Vaul
           scene,
           title: existing.title,
           ...(existing.subtitle !== undefined ? { subtitle: existing.subtitle } : {}),
+          // 没传分类＝保留原值（用户可能只是改密码，不该把分类清掉）。
+          ...(typeof args.category === 'string' && args.category.trim() !== '' ? { category: args.category } : {}),
           fields: merged,
           tags: existing.tags,
           ...(existing.note !== undefined ? { note: existing.note } : {}),
@@ -238,6 +243,7 @@ export function registerVaultTools(ctx: Context, store: VaultStore, config: Vaul
         scene,
         title,
         ...(typeof args.subtitle === 'string' && args.subtitle.trim() !== '' ? { subtitle: args.subtitle.trim() } : {}),
+        ...(typeof args.category === 'string' && args.category.trim() !== '' ? { category: args.category } : {}),
         fields,
         ...(Array.isArray(args.tags) ? { tags: args.tags.filter((tag): tag is string => typeof tag === 'string') } : {}),
         ...(typeof args.note === 'string' && args.note.trim() !== '' ? { note: args.note } : {}),

@@ -39,11 +39,11 @@ import type {
   VaultScene,
   VaultStats,
 } from '../../../triad/vault/types.js'
-import type { VaultHealthReport, VaultRestoreResult } from './api.js'
+import type { VaultReminderReport, VaultRestoreResult } from './api.js'
 import type { VaultSyncPublic } from '../../../triad/vault/sync-types.js'
 import {
   deleteVaultScene,
-  fetchVaultHealth,
+  fetchVaultReminders,
   formatVaultBytes,
   formatVaultStamp,
   getVaultSync,
@@ -56,24 +56,25 @@ import {
   vaultExportUrl,
   vaultRowSummary,
 } from './api.js'
+import { collectCategories } from '../../../triad/vault/types.js'
 import { css, ensureVaultStyles } from './styles.js'
 import {
   AlertIcon,
   ChevronRightIcon,
+  ClockIcon,
   CloudIcon,
   CloseIcon,
   EmptyIcon,
   ExternalIcon,
-  PlusIcon,
   KeyIcon,
+  PlusIcon,
   RefreshIcon,
   SearchIcon,
-  ShieldIcon,
   TrashIcon,
   sceneIconOf,
 } from './icons.js'
 import { VaultDetailDrawer } from './DetailDrawer.js'
-import { VaultHealthDrawer, pendingIssueCount, worstSeverityOf } from './HealthDrawer.js'
+import { VaultReminderWindow, reminderCount, reminderTone } from './ReminderWindow.js'
 import { VaultBackupPanel } from './BackupPanel.js'
 import { VaultSyncPanel } from './SyncPanel.js'
 import { VaultModal } from './Shell.js'
@@ -121,6 +122,11 @@ const EMPTY_GUIDE: Record<string, { text: string; hint?: string }> = {
   },
 }
 
+/** 记录的用途分类（去空白；老 host 不返回时给空串）。 */
+function recordCategoryOf(record: VaultRecord): string {
+  return typeof record.category === 'string' ? record.category.trim() : ''
+}
+
 /** 搜索匹配（只匹配看得见的文本，敏感值不参与）。 */
 function matchesQuery(record: VaultRecord, keyword: string): boolean {
   if (keyword === '') return true
@@ -129,6 +135,8 @@ function matchesQuery(record: VaultRecord, keyword: string): boolean {
   if ((record.subtitle ?? '').toLowerCase().includes(needle)) return true
   if ((record.note ?? '').toLowerCase().includes(needle)) return true
   if (record.tags.some((tag) => tag.toLowerCase().includes(needle))) return true
+  // 分类参与搜索：「运维」两个字要能捞出整组服务器相关的记录。
+  if (typeof record.category === 'string' && record.category.toLowerCase().includes(needle)) return true
   for (const field of record.fields) {
     if (field.label.toLowerCase().includes(needle)) return true
     // 敏感字段的值不参与匹配：那是密码，搜它既没有意义，还等于把「能搜到」
@@ -159,6 +167,14 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
   const [showArchived, setShowArchived] = useState<boolean>(false)
   /** 折叠着的分组（缺省全展开——参考图里所有分组都是摊开的）。 */
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  /**
+   * 每个分组选中的用途分类（scene id → 分类；缺省/空串 = 不过滤）。
+   *
+   * 为什么筛选条挂在**分组卡内部**而不是页面顶部：分类的语汇是按分组不同的
+   * （账号密码里是「服务器运维」，证件里是「本人」），做成全局一条筛选器就得
+   * 先选分组再选分类，两步。挂在组里就是「这一组按用途再看细一点」，一步。
+   */
+  const [categoryFilter, setCategoryFilter] = useState<Record<string, string>>({})
   /** 打开着的记录 id（null = 抽屉没开）。 */
   const [openId, setOpenId] = useState<string | null>(null)
   /** 新建态用哪个场景（非 null = 抽屉开着且是新建）。 */
@@ -168,19 +184,23 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
   const [busy, setBusy] = useState<string>('')
 
   /**
-   * 健康报告（null = 还没查过）。
+   * 到期提醒清单（null = 还没查过）。
    *
-   * 存在父级而不是健康抽屉内部：头部那枚入口要显示「待处理条数」，它得先拿到
-   * 报告才能画。抽屉只是这份报告的展开视图，所以数据归父级、抽屉是纯展示 +
+   * 存在父级而不是提醒窗口内部：头部那枚入口要显示「有几项要到期」，它得先拿到
+   * 清单才能画。窗口只是这份清单的展开视图，所以数据归父级、窗口是纯展示 +
    * 自己负责重新拉。
+   *
+   * ⚠ 这里原来放的是「密码健康报告」（分数 + 弱口令 / 复用 / 明文 / 重名四类
+   * 问题）。用户 2026-10-27 明确要求删掉那套审计，只保留「会自己变坏」的日期
+   * 提醒——判据在宿主侧 reminders.ts，与注入行尾那句「还剩 N 天」同源。
    */
-  const [health, setHealth] = useState<VaultHealthReport | null>(null)
-  const [healthOpen, setHealthOpen] = useState<boolean>(false)
+  const [reminders, setReminders] = useState<VaultReminderReport | null>(null)
+  const [reminderOpen, setReminderOpen] = useState<boolean>(false)
   const [backupOpen, setBackupOpen] = useState<boolean>(false)
   /**
    * 云端备份（GitHub 私库）那一屏。
    *
-   * 与备份/健康**互斥**（同一个 VaultModal 槽位），但数据流不同：这里的状态
+   * 与备份/提醒**互斥**（同一个 VaultModal 槽位），但数据流不同：这里的状态
    * 还要驱动页面顶部那条「还没配置好」的提示，所以同步状态挂在父级而不是面板
    * 内部——否则关掉弹窗就看不到「还没配置」这条提醒了。
    */
@@ -218,24 +238,24 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
   }, [refresh])
 
   /**
-   * 拉健康报告（首屏与主数据**分开**）。
+   * 拉到期提醒（首屏与主数据**分开**）。
    *
    * 不并进 refresh 的三条理由：
-   *   1. 健康审计要扫全部密码，比 /list 慢，并进去会拖慢首屏；
-   *   2. 它失败不该影响主页面——档案能看，只是暂时不知道健康状况；
+   *   1. 它要遍历全部记录算天数，与 /list 是两次不同的读，并进去只会让首屏多等；
+   *   2. 它失败不该影响主页面——档案能看，只是暂时不知道有没有东西要到期；
    *   3. 头部那枚按钮的条数是「可以晚一点出现」的信息，而不是页面骨架。
-   * 所以这里失败**完全静默**（不弹错误），只在头部入口上退化成「检查」两个字。
+   * 所以这里失败**完全静默**（不弹错误），头部入口退化成「提醒」两个字。
    */
-  const loadHealth = useCallback(async (): Promise<void> => {
+  const loadReminders = useCallback(async (): Promise<void> => {
     try {
-      setHealth(await fetchVaultHealth())
+      setReminders(await fetchVaultReminders())
     } catch {
-      // 静默：健康检查是附加功能，失败时头部按钮仍然可以点（点开会给出重试路径）。
-      setHealth(null)
+      // 静默：提醒是附加信息，失败时头部按钮仍然可以点（点开会给出重试路径）。
+      setReminders(null)
     }
   }, [])
 
-  useEffect(() => { void loadHealth() }, [loadHealth])
+  useEffect(() => { void loadReminders() }, [loadReminders])
 
   /**
    * 读云端备份状态（首屏与「配置变化后」共用）。
@@ -276,8 +296,8 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
         setBackupOpen(false)
         return
       }
-      if (healthOpen) {
-        setHealthOpen(false)
+      if (reminderOpen) {
+        setReminderOpen(false)
         return
       }
       if (creatingScene !== null) {
@@ -288,7 +308,7 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
     }
     window.addEventListener('keydown', onKey)
     return () => { window.removeEventListener('keydown', onKey) }
-  }, [openId, creatingScene, healthOpen, backupOpen, syncOpen])
+  }, [openId, creatingScene, reminderOpen, backupOpen, syncOpen])
 
   // flash 自动消失（定时器随文本变化重置）。
   useEffect(() => {
@@ -335,26 +355,14 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
     setOpenId(null)
     setCreatingScene(null)
     void refresh()
-    void loadHealth()
+    void loadReminders()
     setActionError('')
     setFlash('已恢复 ' + String(result.records) + ' 条记录')
-  }, [refresh, loadHealth])
+  }, [refresh, loadReminders])
 
-  /**
-   * 健康抽屉里批量轮换成功。
-   *
-   * 库里那几条记录的密码被**当场改写**了，父级这份 records 已经不新鲜：不重拉
-   * 的话列表摘要与版本号都还是旧的。健康报告同样要重算（复用问题应当当场消失）。
-   * 健康抽屉由它自己保持打开——它得留在屏幕上把新明文密码交给用户抄。
-   */
-  const onRotated = useCallback((): void => {
-    void refresh()
-    void loadHealth()
-  }, [refresh, loadHealth])
-
-  /** 健康抽屉里点某条问题 → 跳到那条记录（关掉健康抽屉，打开详情）。 */
-  const onOpenHealthIssue = useCallback((recordId: string): void => {
-    setHealthOpen(false)
+  /** 提醒窗口里点某一条 → 跳到那条记录（关掉窗口，原地展开详情）。 */
+  const onOpenReminder = useCallback((recordId: string): void => {
+    setReminderOpen(false)
     setCreatingScene(null)
     setOpenId(recordId)
   }, [])
@@ -466,25 +474,18 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
     [grouped],
   )
 
-  /* ── 健康入口的展示值 ──
-   * 条数直接给人看（「3 项待处理」是这条入口的全部价值），颜色只表达「有没有
-   * 高危」。报告还没拿到时按钮照常可点、照常显示——点开抽屉里有它自己的加载与
-   * 重试路径，不必在头部分出一个禁用的中间态。 */
-  const healthCount = pendingIssueCount(health)
-  const healthWorst = worstSeverityOf(health)
-  const healthTone = healthWorst === 'high'
-    ? 'bad'
-    : healthWorst === 'medium'
-      ? 'warn'
-      : healthWorst === 'low'
-        ? 'low'
-        : 'good'
-  const healthLabel = '健康'
-  const healthTitle = health === null
-    ? '检查密码健康（重复使用 / 太弱 / 太久没改 / 快过期）'
-    : healthCount === 0
-      ? '密码健康：没发现问题'
-      : '密码健康：有 ' + String(healthCount) + ' 项待处理'
+  /* ── 提醒入口的展示值 ──
+   * 条数直接给人看（「3 项要到期了」是这条入口的全部价值），颜色只表达「有没有
+   * 已经过期的」。清单还没拿到时按钮照常可点、照常显示——点开窗口里有它自己的
+   * 加载与重试路径，不必在头部分出一个禁用的中间态。 */
+  const reminderTotal = reminderCount(reminders)
+  const reminderToneValue = reminderTone(reminders)
+  const reminderLabel = '提醒'
+  const reminderTitle = reminders === null
+    ? '到期提醒（证件、银行卡、证书这类有有效期的记录）'
+    : reminderTotal === 0
+      ? '到期提醒：90 天内没有要到期的东西'
+      : '到期提醒：有 ' + String(reminderTotal) + ' 项要到期了'
 
   /* ── 云端备份入口的展示值 ──
    * 三态：读不到（null，旧 host / 403）/ 已就绪 / 还缺东西。缺东西时按钮上挂
@@ -518,7 +519,7 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
   const syncBadge = syncState === null
     ? null
     : syncNeedsSetup
-      ? <span className={css.healthBadge}>!</span>
+      ? <span className={css.remindBadge}>!</span>
       : syncState.upToDate === true
         ? <span className={css.syncDot} data-state="done" />
         : syncState.upToDate === false
@@ -548,16 +549,16 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
         <div className={css.headActions}>
           <button
             type="button"
-            className={css.healthBtn}
-            data-tone={healthTone}
-            title={healthTitle}
-            aria-label={healthTitle}
-            onClick={() => { setBackupOpen(false); setSyncOpen(false); setHealthOpen(true) }}
+            className={css.remindBtn}
+            data-tone={reminderToneValue}
+            title={reminderTitle}
+            aria-label={reminderTitle}
+            onClick={() => { setBackupOpen(false); setSyncOpen(false); setReminderOpen(true) }}
           >
-            <ShieldIcon size={13} />
-            {healthLabel}
-            {healthCount > 0 && (
-              <span className={css.healthBadge}>{String(healthCount)}</span>
+            <ClockIcon size={13} />
+            {reminderLabel}
+            {reminderTotal > 0 && (
+              <span className={css.remindBadge}>{String(reminderTotal)}</span>
             )}
           </button>
           <button
@@ -565,7 +566,7 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
             className={css.ghostBtn}
             title={syncTitle}
             data-tone={syncTone}
-            onClick={() => { setHealthOpen(false); setBackupOpen(false); setSyncOpen(true); void loadSync() }}
+            onClick={() => { setReminderOpen(false); setBackupOpen(false); setSyncOpen(true); void loadSync() }}
           >
             <CloudIcon size={13} /> 云端
             {syncBadge}
@@ -574,7 +575,7 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
             type="button"
             className={css.ghostBtn}
             title="备份密钥与恢复（换机器时用）"
-            onClick={() => { setHealthOpen(false); setSyncOpen(false); setBackupOpen(true) }}
+            onClick={() => { setReminderOpen(false); setSyncOpen(false); setBackupOpen(true) }}
           >
             <KeyIcon size={13} /> 备份
           </button>
@@ -583,7 +584,7 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
             className={css.ghostBtn}
             title="重新读取档案"
             disabled={busy !== ''}
-            onClick={() => { void refresh(); void loadHealth() }}
+            onClick={() => { void refresh(); void loadReminders() }}
           >
             <RefreshIcon size={13} /> 刷新
           </button>
@@ -709,7 +710,16 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
 
       <div className={css.scroll}>
         {visibleScenes.map((scene, index) => {
-          const list = grouped.get(scene.id) ?? []
+          const all = grouped.get(scene.id) ?? []
+          // 这个分组里实际用到的分类（按建议清单顺序 + 使用次数），只有真的出现
+          // 两种以上才画筛选条：只有一种分类时那一条筛选器是纯噪音。
+          // 筛选条只列**实际在用的分类**，不把场景的建议清单全铺上来：
+          // 建议清单是给「新建 / 编辑」时点选用的，铺进筛选条会让每个分组都长出一排
+          // 点了必然为空的胶囊（联系方式组里根本没有「服务器运维」这种选项）。
+          const usedCategories = [...new Set(all.map((record) => recordCategoryOf(record)).filter((value) => value !== ''))]
+          const categoryChoices = usedCategories.length > 1 ? usedCategories : []
+          const activeCategory = categoryFilter[scene.id] ?? ''
+          const list = activeCategory === '' ? all : all.filter((record) => recordCategoryOf(record) === activeCategory)
           const Icon = sceneIconOf(scene.id)
           const guide = EMPTY_GUIDE[scene.id] ?? { text: '还没有记录。' }
           const isCollapsed = collapsed[scene.id] === true
@@ -732,7 +742,12 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
                   {scene.label}
                 </button>
                 <span className={css.groupDesc}>{scene.desc}</span>
-                <span className={css.groupCount} title={String(list.length) + ' 条'}>{String(list.length)}</span>
+                <span
+                  className={css.groupCount}
+                  title={activeCategory === '' ? String(all.length) + ' 条' : String(list.length) + ' / ' + String(all.length) + ' 条（已按用途筛选）'}
+                >
+                  {activeCategory === '' ? String(all.length) : String(list.length) + '/' + String(all.length)}
+                </span>
                 {!scene.builtin && (
                   <button
                     type="button"
@@ -774,15 +789,57 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
                 </button>
               </div>
 
+              {/* 用途筛选条：只有组内出现两种以上分类时才画（一种分类时它是噪音）。 */}
+              {!isCollapsed && categoryChoices.length > 1 && (
+                <div className={css.categoryFilter}>
+                  <button
+                    type="button"
+                    className={css.categoryChip}
+                    data-on={activeCategory === '' ? '1' : '0'}
+                    title="显示这一组的全部记录"
+                    onClick={() => {
+                      setCategoryFilter((previous) => {
+                        const next = { ...previous }
+                        delete next[scene.id]
+                        return next
+                      })
+                    }}
+                  >
+                    全部
+                  </button>
+                  {categoryChoices.map((choice) => (
+                    <button
+                      key={choice}
+                      type="button"
+                      className={css.categoryChip}
+                      data-on={activeCategory === choice ? '1' : '0'}
+                      title={'只看「' + choice + '」'}
+                      onClick={() => {
+                        setCategoryFilter((previous) => {
+                          const next = { ...previous }
+                          if (next[scene.id] === choice) delete next[scene.id]
+                          else next[scene.id] = choice
+                          return next
+                        })
+                      }}
+                    >
+                      {choice}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {!isCollapsed && (
                 <div className={css.groupBody}>
                   {list.length === 0 ? (
                     <div className={css.empty}>
                       <span className={css.emptyIcon}><EmptyIcon size={15} /></span>
                       <span className={css.emptyText}>
-                        {query.trim() === ''
-                          ? guide.text
-                          : '这个分组里没有匹配「' + query.trim() + '」的记录。'}
+                        {query.trim() !== ''
+                          ? '这个分组里没有匹配「' + query.trim() + '」的记录。'
+                          : activeCategory !== ''
+                            ? '「' + activeCategory + '」下面还没有记录。'
+                            : guide.text}
                         {query.trim() === '' && guide.hint !== undefined && (
                           <span className={css.emptyHint}>{guide.hint}</span>
                         )}
@@ -804,6 +861,13 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
                             <span className={css.rowIcon}><Icon size={15} /></span>
                             <span className={css.rowMain}>
                               <span className={css.rowTitle}>
+                                {/* 分类胶囊排在标题前：用户要「一眼看出用途」，
+                                    它必须落在扫视第一落点上。未分类不画（见 styles 注释）。 */}
+                                {recordCategoryOf(record) !== '' && (
+                                  <span className={css.rowCategory} title={'用途：' + recordCategoryOf(record)}>
+                                    {recordCategoryOf(record)}
+                                  </span>
+                                )}
                                 {record.title === '' ? '（未命名）' : record.title}
                               </span>
                               <span className={css.rowSub}>{vaultRowSummary(record)}</span>
@@ -823,6 +887,7 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
                             <div className={css.expand} key={'expand:' + record.id}>
                               <VaultDetailDrawer
                                 record={record}
+                                siblings={records.filter((item) => item.scene === record.scene && item.id !== record.id)}
                                 scene={scenes.find((item) => item.id === record.scene) ?? null}
                                 config={config}
                                 shell="expand"
@@ -930,12 +995,11 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
         </VaultModal>
       )}
 
-      {healthOpen && (
-        <VaultModal label="密码健康检查" onClose={() => { setHealthOpen(false) }}>
-          <VaultHealthDrawer
-            onOpenRecord={onOpenHealthIssue}
-            onRotated={onRotated}
-            onClose={() => { setHealthOpen(false) }}
+      {reminderOpen && (
+        <VaultModal label="到期提醒" onClose={() => { setReminderOpen(false) }}>
+          <VaultReminderWindow
+            onOpenRecord={onOpenReminder}
+            onClose={() => { setReminderOpen(false) }}
           />
         </VaultModal>
       )}
@@ -980,6 +1044,7 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
             key={'new:' + creatingScene.id}
             record={null}
             scene={creatingScene}
+            siblings={records.filter((item) => item.scene === creatingScene.id)}
             config={config}
             shell="modal"
             onError={(message) => { setActionError(message) }}

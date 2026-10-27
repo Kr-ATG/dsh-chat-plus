@@ -38,6 +38,7 @@ import {
   DEFAULT_VAULT_CONFIG,
   MAX_CHANGES_PER_RECORD,
   VAULT_HOME_DIR,
+  normalizeCategory,
   VAULT_MASK,
   VAULT_SCHEMA_VERSION,
   isFieldSensitive,
@@ -468,6 +469,8 @@ export class VaultStore {
     scene: string
     title: string
     subtitle?: string
+    /** 用途分类（缺省＝不动已有值；新建时为未分类）。 */
+    category?: string
     fields: VaultField[]
     tags?: string[]
     note?: string
@@ -490,6 +493,7 @@ export class VaultStore {
         scene: input.scene,
         title: input.title.trim(),
         subtitle: input.subtitle,
+        ...(normalizeCategory(input.category) !== '' ? { category: normalizeCategory(input.category) } : {}),
         fields: input.fields.map((field) => this.prepareField(field, now, true)),
         photos: [],
         tags: input.tags ?? [],
@@ -520,11 +524,33 @@ export class VaultStore {
     // 不还原会把一串星号写成新密码（而且不可逆——真实值被覆盖掉了）。
     const resolved = this.restoreMaskedFields(revealed, input.fields)
     const changes = diffFields(revealed, { fields: resolved }, now, input.source)
+  // 分类变化单独记一条：它不在 fields 里，走不到 diffFields。用 'scene-move' 之外
+  // 的动作名会污染历史枚举，所以复用 'title-update' 的形状不成立——这里新增的是
+  // 一个纯元数据变更，用 'field-update' 会让人以为多了个字段。直接复用
+  // 'scene-move' 的语义（都属于「这条记录归到哪儿」）并带上 before/after。
+  const nextCategory = input.category === undefined
+    ? normalizeCategory(existing.category)
+    : normalizeCategory(input.category)
+  const beforeCategory = normalizeCategory(existing.category)
+  if (nextCategory !== beforeCategory) {
+    changes.push({
+      at: now,
+      action: 'scene-move',
+      before: beforeCategory,
+      after: nextCategory,
+      source: input.source,
+    })
+  }
     const updated: VaultRecord = {
       ...existing,
       scene: input.scene,
       title: input.title.trim(),
       subtitle: input.subtitle,
+      // 缺省（undefined）= 这次调用没提分类 → 保留原值，不要清空。
+      // 显式传空串才等于「取消分类」。
+      ...(input.category === undefined
+        ? {}
+        : { category: normalizeCategory(input.category) }),
       fields: resolved.map((field) => this.prepareField(field, now, false)),
       tags: input.tags ?? existing.tags,
       note: input.note ?? existing.note,
@@ -1171,6 +1197,17 @@ export function migrate(data: VaultData): VaultData {
     stripPendingFlag(next.records)
     next.schemaVersion = 2
   }
+  //
+  // v2 → v3（2026-10-27）：记录新增 category（用途分类）。
+  // **只补默认值、不猜内容**：分类是用户语义，从标题里猜「阿里云」属于哪个用途
+  // 会猜错，而猜错的分类比没有分类更误导（用户会照着错的标签去找东西）。所以
+  // 老记录一律落成「未分类」，由用户或模型下一次写入时补上。
+  if (from < 3) {
+    for (const record of next.records) {
+      if (typeof record.category !== 'string') record.category = ''
+    }
+    next.schemaVersion = 3
+  }
   for (const record of next.records) {
     // 防御性补齐老数据可能缺的字段（不会丢内容，只是补默认）。
     if (!Array.isArray(record.fields)) record.fields = []
@@ -1180,11 +1217,28 @@ export function migrate(data: VaultData): VaultData {
     if (typeof record.version !== 'number') record.version = 1
     if (typeof record.confidence !== 'number') record.confidence = 1
     if (typeof record.source !== 'string') record.source = 'manual'
+    // 分类的归一化兜底：手改过的 vault.json 里可能带换行或超长值。
+    if (typeof record.category !== 'string') record.category = ''
+    else record.category = normalizeCategory(record.category)
   }
   // 内置场景补齐：升级后新增的内置场景要出现在老库里。
   const ids = new Set(next.scenes.map((scene) => scene.id))
   for (const scene of DEFAULT_SCENES) {
     if (!ids.has(scene.id)) next.scenes.push({ ...scene })
+  }
+  // 已有内置场景补齐**新增字段**（categories 等）：上面那个循环只处理「场景不存在」，
+  // 而老库里的 accounts / email 早就存在了，于是它们身上永远缺 categories——页面下拉
+  // 是空的、抽取也不知道该复用哪些词。字段级补齐必须按「这条内置场景已存在但缺这个键」
+  // 再走一遍，而不是只按 id 判存在。
+  //
+  // 只补**缺的键**，不覆盖用户改过的值：用户可以把「账号密码」改名为「登录凭据」，
+  // 那不该被每一次启动都冲回去。label / desc / order 同理。
+  const builtinById = new Map(DEFAULT_SCENES.map((scene) => [scene.id, scene]))
+  for (const scene of next.scenes) {
+    const builtin = builtinById.get(scene.id)
+    if (builtin === undefined) continue
+    if (!Array.isArray(scene.categories)) scene.categories = [...(builtin.categories ?? [])]
+    if (!Array.isArray(scene.fieldTemplate)) scene.fieldTemplate = builtin.fieldTemplate.map((item) => ({ ...item }))
   }
   next.schemaVersion = VAULT_SCHEMA_VERSION
   return next

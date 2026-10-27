@@ -56,6 +56,10 @@ import { applyToolsGate } from './tools-gate/index.ts'
 import { applyBrowserOnDemand } from './browser-on-demand/index.ts'
 import { applyBrowserActivity } from './browser-activity/index.ts'
 import { applyRunningApps } from './running-apps/index.ts'
+// 「系统提示词」观测（2026-10-27）：assemble 出口抓最终快照 + 只读路由，
+// 供操作间「系统提示词」页查看「这次发送会话会带上的提示词」。
+import { applySystemPromptInspector } from './system-prompt/index.ts'
+import { applyGitStatusRoutes, GIT_STATUS_ROUTE, collectGitStatus, handleGitStatusRoute } from './git-status/index.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
 export { applyFontRoutes, FONT_ROUTE } from './fonts/index.ts'
 // 「任务动画」资产（/api/chat-flow/motion/*）：9 段透明底 WebM + 首帧海报。
@@ -168,6 +172,27 @@ export {
 // 跨站闸门的可测面：判据写歪不会抛错，只会静默放行（或静默误伤正常请求），
 // 所以必须能被冒烟直接对拍。见 shared/csrf.ts 头注释与 smoke-host 的判据断言组。
 export { __test as csrfTest, isCrossSiteRequest, rejectCrossSite, hostNameOf } from './shared/csrf.ts'
+// 「系统提示词」观测的可测面：插值 / 渲染 / 快照折叠 / 内存表 / 路由 handler
+// 全是纯函数或假实现可驱动的形态，冒烟直接对拍「页面显示的就是模型收到的」。
+export {
+  applySystemPromptInspector,
+  SYSTEM_PROMPT_ROUTE,
+  __test as systemPromptTest,
+} from './system-prompt/index.ts'
+// 工作区 Git 状态路由与工具函数
+export {
+  applyGitStatusRoutes,
+  GIT_STATUS_ROUTE,
+  GIT_ROSTER_ROUTE,
+  GIT_COMMIT_MESSAGE_ROUTE,
+  GIT_COMMIT_ROUTE,
+  collectGitStatus,
+  collectGitRoster,
+  generateCommitMessage,
+  executeGitCommit,
+  handleGitStatusRoute,
+  formatRelativeTime,
+} from './git-status/index.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'dsh-chat-plus'
@@ -292,6 +317,8 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
     // 观月 / 小憩）与各自的首帧海报。与字体同一条理由：2.57MB 的动画若内联进
     // client.js，关掉动画的人也要白下载一次；走路由后只拉当前在播的那一段。
     applyMotionRoutes(webCtx)
+    // 当前工作区 Git 状态与一键提交流路由
+    applyGitStatusRoutes(webCtx, ctx)
     // Office / PDF 页图与 PDF 渲染（/api/chat-flow/office/*）：画廊 ppt/word 缩略图、
     // 产出物弹窗内联预览、官方侧边栏 ppt/word 接管三处共用。挂载时顺带校正
     // process.env.TEMP —— 官方 office-to-pdf 的 LibreOffice 转换要求 scratch 落在
@@ -438,6 +465,25 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
   } catch (error) {
     ctx.logger?.warn?.(
       `[dsh-chat-plus] running-apps failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+    )
+  }
+
+  // ── 「系统提示词」观测（2026-10-27）────────────────────────────────────
+  // 在 system-prompt/assemble 的**出口**（prepend 注册、await next() 之后再读）
+  // 抓一份最终组装结果留在内存，页面经 GET /api/chat-flow/system-prompt 取。
+  //
+  // 为什么必须在 host：提示词是每个 step 由 dsh-system-prompt 现组装出来的，
+  // 浏览器侧根本不存在这份中间态；而且本插件的工具闸门就在这条 waterfall 上
+  // 删工具 / 删段 / 追加「哪些能力关着」的说明 —— 只有出口才是**模型真正收到
+  // 的那一份**。客户端读会话事件里的 system/message 拿到的是历史回放，既没有
+  // 分段，也看不到「关掉工具组之后剩什么」。
+  //
+  // 同样单独兜底：延迟注入回调里抛错会从 apply 冒出去、中断后面所有 inject。
+  try {
+    applySystemPromptInspector(ctx as never)
+  } catch (error) {
+    ctx.logger?.warn?.(
+      `[dsh-chat-plus] system-prompt inspector failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
     )
   }
 }

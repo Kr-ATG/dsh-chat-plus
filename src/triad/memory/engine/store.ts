@@ -361,6 +361,17 @@ export class MemoryStore {
     this.entries = migrateEntries(data.entries)
   }
 
+  /** 重新载入磁盘上的 entries.json，同步更新内存态（用于从云端同步还原后热生效）。 */
+  reload(): void {
+    if (this.flushTimer !== null) {
+      clearTimeout(this.flushTimer)
+      this.flushTimer = null
+    }
+    this.dirty = false
+    const { data } = loadEntriesWithRecovery(this.entriesFile())
+    this.entries = migrateEntries(data.entries)
+  }
+
   // ── 路径 ────────────────────────────────────────────────────────────
 
   entriesFile(): string {

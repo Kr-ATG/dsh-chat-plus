@@ -27,8 +27,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { rejectCrossSite } from '../../shared/csrf.ts'
 import { MIN_BACKUP_PASSWORD, createBackupPackage, keyFingerprint, readBackupPackage } from './backup.js'
 import { VaultCipher } from './crypto.js'
-import { auditVault } from './health.js'
 import { generatePassword } from './passgen.js'
+import { listVaultReminders } from './reminders.js'
 import type { VaultStore } from './store.js'
 import type { VaultSync } from './sync.js'
 import type { VaultSyncPatch } from './sync-types.js'
@@ -168,11 +168,15 @@ async function handle(
       await serveExport(store, res)
       return
     }
-    // ── 健康审计（只看不写，纯函数算出来的报告）──────────────────────
-    if (method === 'GET' && rest === '/health') {
-      const records = await store.listRecordsRevealed({ includeArchived: false })
-      const scenes = await store.listScenes()
-      json(res, 200, { ok: true, report: auditVault(records, scenes) })
+    // ── 到期提醒（只看日期字段）──────────────────────────────────────
+    //
+    // 这里刻意用**掩码版** listRecords 而不是 listRecordsRevealed：日期字段
+    // （证件有效期、银行卡到期）不是敏感字段，提醒清单根本不需要解密任何东西。
+    // 原来那条 /health 审计必须拿全库明文（弱口令要按字符串比），是这个模块
+    // 里唯一一处「整库明文进入路由」的地方；审计删掉之后，它也随之消失。
+    if (method === 'GET' && rest === '/reminders') {
+      const records = await store.listRecords({ includeArchived: false })
+      json(res, 200, { ok: true, report: listVaultReminders(records) })
       return
     }
     // ── 密钥指纹（备份页要显示「这是哪一把密钥」）────────────────────
@@ -292,11 +296,6 @@ async function handle(
       await handleTotp(store, req, res)
       return
     }
-    // ── 批量换掉一组复用密码（审计 → 一键修）──────────────────────
-    if (method === 'POST' && rest === '/rotate') {
-      await handleRotate(store, req, res)
-      return
-    }
     // ── 云端同步（GitHub 私库自动上传）──────────────────────────────
     //
     // 这组路由是**唯一会主动向外部发请求**的地方，因此三条纪律比别处更硬：
@@ -385,6 +384,10 @@ async function handleRecord(store: VaultStore, req: IncomingMessage, res: Server
     scene,
     title,
     ...(typeof body.subtitle === 'string' && body.subtitle.trim() !== '' ? { subtitle: body.subtitle.trim() } : {}),
+    // 分类：**显式传空串＝取消分类**，所以这里不能学 subtitle 那样「空就省略」——
+    // 省略在 upsert 里的语义是「没提这件事，保留原值」，那样用户就永远删不掉一个
+    // 填错的分类。只有 body 里根本没有这个键（老客户端）才省略。
+    ...(typeof body.category === 'string' ? { category: body.category } : {}),
     fields,
     ...(Array.isArray(body.tags) ? { tags: body.tags.filter((tag): tag is string => typeof tag === 'string') } : {}),
     ...(typeof body.note === 'string' ? { note: body.note } : {}),
@@ -494,6 +497,9 @@ async function handleScene(store: VaultStore, req: IncomingMessage, res: ServerR
     fieldTemplate: Array.isArray(candidate.fieldTemplate)
       ? candidate.fieldTemplate as VaultScene['fieldTemplate']
       : [],
+    // 分类建议清单必须一起保留：页面只改了个场景名，不能顺手把下拉候选清空。
+    // 老客户端不传这个键 → 回落成空数组（而不是报错），页面照样能自由输入。
+    categories: Array.isArray(candidate.categories) ? candidate.categories.filter((item): item is string => typeof item === 'string') : [],
     ...(candidate.photoFirst === true ? { photoFirst: true } : {}),
   }
   const scenes = await store.upsertScene(scene)
@@ -582,6 +588,7 @@ async function handleImport(store: VaultStore, req: IncomingMessage, res: Server
       scene,
       title: record.title,
       ...(typeof record.subtitle === 'string' ? { subtitle: record.subtitle } : {}),
+      ...(typeof record.category === 'string' ? { category: record.category } : {}),
       fields,
       ...(Array.isArray(record.tags) ? { tags: record.tags.filter((tag): tag is string => typeof tag === 'string') } : {}),
       ...(typeof record.note === 'string' ? { note: record.note } : {}),
@@ -721,80 +728,6 @@ async function handleRestore(store: VaultStore, req: IncomingMessage, res: Serve
 }
 
 /**
- * 批量换掉一组复用密码（**「找问题 → 动手」的闭环**）。
- *
- * 为什么必须有这条路由：审计报告告诉用户「这 5 个站用同一个密码」，
- * 如果接下来只能一条一条手改，用户就会关掉审计永远不看。真正的实战体验
- * 是点一下、五个站各自拿到一个不同的强口令，用户只需要去各站粘一遍。
- *
- * 三条纪律：
- *  1. **每条记录拿到各自不同的密码**。给同一个新密码等于把「复用」换成
- *     「换了个值的复用」——审计下一轮照样报，用户白忙。
- *  2. 返回的明文只这一次、`no-store`、并逐条写审计：这和 /reveal 是同一类
- *     「明文出站」行为，用户必须有据可查。
- *  3. 单条失败不中断整批：五个站里有一个字段结构特殊，不该让另外四个也没改。
- */
-async function handleRotate(store: VaultStore, req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const body = await readBody(req)
-  if (body === null) { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return }
-  const rawIds = Array.isArray(body.ids) ? body.ids : []
-  const ids = rawIds.filter((id): id is string => typeof id === 'string' && id.trim() !== '').slice(0, 50)
-  if (ids.length === 0) {
-    json(res, 400, { ok: false, error: '没有指定要换密码的记录' })
-    return
-  }
-  const explicitKey = typeof body.key === 'string' && body.key !== '' ? body.key : null
-  const length = typeof body.length === 'number' ? body.length : undefined
-  const rotated: Array<{ id: string; title: string; key: string; password: string }> = []
-  const skipped: Array<{ id: string; reason: string }> = []
-  for (const id of ids) {
-    const record = await store.getRecordRevealed(id)
-    if (record === undefined) {
-      skipped.push({ id, reason: '记录不存在' })
-      continue
-    }
-    // 找要改的那个字段：显式指定优先，否则自己找登录口令类字段。
-    const target = explicitKey !== null
-      ? record.fields.find((field) => field.key === explicitKey)
-      : record.fields.find((field) => isPasswordSecretField(field))
-    if (target === undefined) {
-      skipped.push({ id, reason: '这条记录没有密码字段' })
-      continue
-    }
-    const generated = generatePassword({ ...(length !== undefined ? { length } : {}) })
-    const updated = await store.patchField({
-      id,
-      key: target.key,
-      value: generated.password,
-      source: 'manual',
-    })
-    if (updated === undefined) {
-      skipped.push({ id, reason: '写入失败' })
-      continue
-    }
-    await store.appendAudit({ recordId: id, fieldKey: target.key, via: 'rotate' })
-    rotated.push({ id, title: record.title, key: target.key, password: generated.password })
-  }
-  res.writeHead(200, {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
-  })
-  res.end(JSON.stringify({ ok: true, rotated, skipped }))
-}
-
-/**
- * 这个字段是不是「登录口令」（批量换密要挑的对象）。
- *
- * 与 health.ts 里的判据保持同一口径：totp / 令牌类不是密码，绝不能换掉——
- * 换个值等于把用户的二次验证废了，而且他自己不知道为什么登不上。
- */
-function isPasswordSecretField(field: VaultField): boolean {
-  if (!isFieldSensitive(field) || field.type !== 'secret') return false
-  const key = field.key.toLowerCase()
-  if (/(totp|otp|2fa|mfa|authenticator)/.test(key)) return false
-  return /(password|passwd|pwd|pass|mima)/.test(key) || /(密码|口令)/.test(field.label)
-}
-/**
  * 算一次 TOTP 验证码。
  *
  * 明文种子只在这个函数里活一次：从 store 取明文 → 解析 → 算码 → 立刻丢弃。
@@ -896,6 +829,7 @@ function filterRecords(records: VaultRecord[], keyword: string): VaultRecord[] {
     if (record.title.toLowerCase().includes(needle)) return true
     if ((record.subtitle ?? '').toLowerCase().includes(needle)) return true
     if (record.tags.some((tag) => tag.toLowerCase().includes(needle))) return true
+    if (typeof record.category === 'string' && record.category.toLowerCase().includes(needle)) return true
     return record.fields.some((field) => {
       if (field.label.toLowerCase().includes(needle)) return true
       // 敏感字段的值是掩码，本来就搜不到；非敏感字段可以被搜。

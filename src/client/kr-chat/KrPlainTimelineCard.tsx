@@ -571,6 +571,7 @@ export const KrPlainTimelineCard = memo(function KrPlainTimelineCard({
         browserEntry={browserEntry}
         browserOn={browserOn}
         expanded={open}
+        sessionId={sessionId}
         onClick={() => { setOpen((value) => !value) }}
         renderIcon={(name) => <Icon name={name as PlainIconKey} />}
       />

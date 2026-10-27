@@ -40,6 +40,7 @@ import { applyMcpStatus } from './mcp-status.js'
 import { applyGallery } from './gallery/index.ts'
 import { applyVault } from './vault/index.js'
 import { installBundledSkills } from './bundled-skills.js'
+import { applyWorkbenchSync } from './workbench-sync/index.js'
 import type { MemoryConfig } from './memory/types.js'
 
 /**
@@ -191,6 +192,16 @@ export async function applyTriadHost(ctx: Context, config: TriadConfig = {}): Pr
   } catch (error) {
     ctx.logger?.warn?.(
       `[dsh-chat-plus] triad media gallery failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+    )
+  }
+
+  // ── 工作台资产云端双向同步（GitHub 私库 /api/triad/workbench-sync/*）───
+  try {
+    await applyWorkbenchSync(ctx)
+    ctx.logger?.info?.('[dsh-chat-plus] triad workbench sync mounted')
+  } catch (error) {
+    ctx.logger?.warn?.(
+      `[dsh-chat-plus] triad workbench sync failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
     )
   }
 }

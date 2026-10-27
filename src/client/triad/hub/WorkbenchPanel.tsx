@@ -28,6 +28,8 @@ import { SkillsPanel } from '../usage/dashboard/SkillsPanel.js'
 import { UsagePanel } from '../usage/dashboard/UsagePanel.js'
 import { GalleryPanel } from '../gallery/GalleryPanel.js'
 import { VaultPanel } from '../vault/Panel.js'
+import { SystemPromptPanel } from '../system-prompt/Panel.js'
+import { SyncSettingsPanel } from '../workbench-sync/SyncSettingsPanel.js'
 import { createMemoryApi } from '../memory/api.js'
 import { PopoverShell } from '../popover-shell.js'
 import {
@@ -37,7 +39,7 @@ import {
   WORKBENCH_TABS,
 } from './row-flyout.js'
 
-export type WorkbenchTab = 'memory' | 'skills' | 'usage' | 'gallery' | 'vault'
+export type WorkbenchTab = 'memory' | 'skills' | 'usage' | 'gallery' | 'vault' | 'prompt' | 'sync'
 
 /**
  * 默认 Tab。
@@ -84,7 +86,7 @@ function PageHead({ tab }: { tab: WorkbenchTab }): JSX.Element | null {
   // 这里再画一次会变成「SKILL / 会什么」压着「Skills 索引」两个大标题。
   // usage / skills / vault 三个面板自带页头（巨型标题 + 说明），这里再画一次
   // 会变成两层大标题压在一起。
-  if (head === undefined || tab === 'usage' || tab === 'skills' || tab === 'vault') return null
+  if (head === undefined || tab === 'usage' || tab === 'skills' || tab === 'vault' || tab === 'sync') return null
   return (
     <header className="wb2-head wb2-rise">
       <div className="wb2-head-l">
@@ -180,6 +182,19 @@ export function WorkbenchPanel({ onClose, initialTab = DEFAULT_TAB }: WorkbenchP
           {/* 档案：自带页头（标题 + 一句说明 + 搜索条），所以不叠 PageHead。 */}
           {activeTab === 'vault' && (
             <VaultPanel key="vault" onClose={onClose} embedded />
+          )}
+
+          {/* 系统提示词（2026-10-27）：只读视图，看「这次发送会带上什么」。
+              自带页头（标题 + 会话选择 + 刷新/复制），所以不叠 PageHead。 */}
+          {activeTab === 'prompt' && (
+            <SystemPromptPanel key="prompt" onClose={onClose} embedded />
+          )}
+
+          {/* 同步设置（2026-10-27）：工作台资产（档案、记忆、技能）双向漫游。 */}
+          {activeTab === 'sync' && (
+            <div key="sync" className="wb2-page-wrap">
+              <SyncSettingsPanel onClose={onClose} embedded />
+            </div>
           )}
 
         </div>

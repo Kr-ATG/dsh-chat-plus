@@ -458,8 +458,8 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
    2026-10-23 用户要求「左侧的空间全部留给技能包」：此前技能列表被挪到 header
    外面横跨整行，包名下方那一整块被技能行占着，左栏只剩三行字贴着顶边。 */
 .skm-bundle-row-outer{position:relative;flex:none;display:grid;grid-template-columns:262px minmax(0,1fr);gap:0;
-  align-items:start;box-sizing:border-box;padding:26px 0 24px;
-  border-bottom:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.09));
+  align-items:start;box-sizing:border-box;padding:22px 0 20px;
+  border-bottom:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.14));
   transition:background 200ms ease}
 @media (max-width:1180px){.skm-bundle-row-outer{grid-template-columns:200px minmax(0,1fr)}}
 .skm-bundle-row-outer:hover{background:linear-gradient(90deg,color-mix(in srgb,var(--dsw-alias-state-business-primary,#3d6be5) 3%,transparent),transparent 38%)}
@@ -477,7 +477,7 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
    self-start 配合上的 align-items:start，避免把它拉成整列高。 */
 .skm-bundle-left{min-width:0;padding-right:34px;position:sticky;top:0;align-self:start}
 .skm-bundle-row{display:block;width:100%;text-align:left;appearance:none;border:0;background:none;padding:0;
-  font-family:inherit;cursor:pointer;color:var(--dsw-alias-label-primary,#14171b);transition:color .18s ease}
+  font-family:inherit;cursor:pointer;color:var(--dsw-alias-label-primary,#e8e8e8);transition:color .18s ease}
 .skm-bundle-row:hover{color:var(--dsw-alias-state-business-primary,#3d6be5)}
 .skm-bundle-name{display:block;min-width:0;overflow-wrap:anywhere;font-weight:700;font-size:25px;line-height:1.18;
   letter-spacing:-.026em;margin:0 0 9px;transition:color .18s ease}
@@ -518,7 +518,7 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 
 /* 右栏：技能目录。左侧发丝竖线把两栏分开——左栏因此是**一个完整的信息块**，
    而不是散落在技能行旁边的一行标题。 */
-.skm-bundle-right{min-width:0;border-left:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.09));padding-left:30px}
+.skm-bundle-right{min-width:0;border-left:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.14));padding-left:26px}
 .skm-bundle-more{position:absolute;top:20px;right:0;display:flex;align-items:center}
 .skm-bundle-more-btn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:0;border-radius:5px;
   padding:0;background:transparent;cursor:pointer;color:var(--dsw-alias-label-tertiary,#a3a7ad);transition:background .14s ease,color .14s ease,transform .14s ease}
@@ -615,7 +615,7 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 /* 设计稿 .sn：等宽、13.5px、600、单行省略 */
 .skm-skill-title{grid-column:1;grid-row:1;appearance:none;border:none;background:transparent;padding:0;
   text-align:left;font-family:ui-monospace,"Cascadia Mono","SF Mono",Consolas,monospace;
-  font-size:13px;font-weight:600;line-height:1.45;letter-spacing:-.01em;color:var(--dsw-alias-label-primary,#14171b);
+  font-size:13px;font-weight:600;line-height:1.45;letter-spacing:-.01em;color:var(--dsw-alias-label-primary,#e8e8e8);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;border-radius:0;
   transition:color .16s ease}
 .skm-skill-title:hover{color:var(--dsw-alias-state-business-primary,#3d6be5)}
@@ -715,15 +715,16 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 .skm-mast-stat span{display:block;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#7b818a);letter-spacing:.1em;margin-top:3px;white-space:nowrap}
 @media (max-width:900px){.skm-mast{padding:18px 22px 12px;flex-wrap:wrap}.skm-mast-word{font-size:34px}.skm-mast-stats{margin-left:auto}}
 
-/* ── 工具条：搜索 + 分类 + 全部展开，一条通栏，上下各一条实线 ── */
-.skm-bar{flex:none;display:flex;align-items:center;gap:12px;padding:0 60px;height:52px;box-sizing:border-box;overflow:hidden;
-  border-top:2px solid var(--dsw-alias-label-primary,#14171b);border-bottom:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.09))}
-@media (max-width:900px){.skm-bar{padding:0 22px}}
-.skm-search{flex:0 1 230px;display:flex;align-items:center;gap:7px;height:52px;min-width:140px}
-.skm-search svg{flex:none;color:var(--dsw-alias-label-tertiary,#7b818a);transition:color .2s ease}
-.skm-search:focus-within svg{color:var(--dsw-alias-state-business-primary,#3d6be5)}
-.skm-search-input{flex:1;min-width:0;height:100%;border:0;background:none;padding:0;outline:none;font-family:inherit;font-size:13.5px;color:var(--dsw-alias-label-primary,#14171b)}
-.skm-search-input::placeholder{color:var(--dsw-alias-label-tertiary,#7b818a)}
+/* ── 工具条：搜索 + 分类 + 全部展开（无突兀通栏实线，自然融入大盘布局） ── */
+.skm-bar{flex:none;display:flex;align-items:center;gap:12px;padding:0 32px;height:48px;box-sizing:border-box;overflow:hidden;
+  margin-top:16px;border:none}
+@media (max-width:900px){.skm-bar{padding:0 20px}}
+.skm-search{flex:0 1 240px;display:flex;align-items:center;gap:8px;height:32px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.24));border-radius:8px;padding:0 10px;background:transparent;min-width:140px;transition:border-color .15s ease,box-shadow .15s ease}
+.skm-search svg{flex:none;color:var(--dsw-alias-label-tertiary,#8b8b8b);transition:color .15s ease}
+.skm-search:focus-within{border-color:var(--dsw-focus-ring-color,#4d6bfe);box-shadow:0 0 0 1px var(--dsw-focus-ring-color,#4d6bfe)}
+.skm-search:focus-within svg{color:var(--dsw-focus-ring-color,#4d6bfe)}
+.skm-search-input{flex:1;min-width:0;height:100%;border:0;background:none;padding:0;outline:none;font-family:inherit;font-size:12.5px;color:var(--dsw-alias-label-primary,#e8e8e8)}
+.skm-search-input::placeholder{color:var(--dsw-alias-label-tertiary,#8b8b8b)}
 .skm-search-input::-webkit-search-cancel-button,.skm-search-input::-webkit-search-decoration{-webkit-appearance:none;appearance:none}
 .skm-search-clear{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:0;border-radius:50%;background:color-mix(in srgb,var(--dsw-alias-label-primary,#14171b) 8%,transparent);color:var(--dsw-alias-label-secondary,#4c5158);cursor:pointer;transition:background .14s ease,transform .14s ease}
 .skm-search-clear:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary,#14171b) 16%,transparent);transform:scale(1.06)}
@@ -770,8 +771,8 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 .skm-hub-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 /* 主区：单列整宽列表（与官方「自动化任务」页同构）。
    旧版是两列网格 —— 宽屏下每个技能包只占半屏，右侧留一大片空白，用户要求铺满。 */
-.skm-main-scroll{flex:1;min-height:0;overflow-y:auto;padding:0 60px 40px;display:flex;flex-direction:column}
-@media (max-width:900px){.skm-main-scroll{padding:0 22px 32px}}
+.skm-main-scroll{flex:1;min-height:0;overflow-y:auto;padding:8px 32px 48px;display:flex;flex-direction:column}
+@media (max-width:900px){.skm-main-scroll{padding:8px 20px 32px}}
 .skm-hub-section{min-width:0}
 .skm-main-scroll>.skm-status{flex:none}
 .skm-hub-section{display:flex;flex-direction:column;min-width:0}
@@ -2091,16 +2092,124 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
       <PshBody className={css.modalBody}>
       <span data-skm-panel-marker aria-hidden="true" style={{ display: 'none' }} />
       <div className={css.hub} aria-busy={state.status === 'loading'}>
-        {/* ── 刊头：大标题 + 三格统计（嵌入工作台时替代 wb2 页头的角色，
-            但保留工作台统一页头，这里只补信息密度，不重复标题语义） ── */}
-        <div className={css.mast}>
-          <span className={css.mastWord}>Skills</span>
-          <span className={css.mastZh}>索引</span>
-          <span className={css.mastGrow} />
-          <div className={css.mastStats}>
-            <div className={css.mastStat}><b>{bundles.length}</b><span>{t('statBundles')}</span></div>
-            <div className={css.mastStat}><b>{totalSkills}</b><span>{t('statSkills')}</span></div>
-            <div className={css.mastStat}><b>{enabledSkills}</b><span>{t('statEnabled')}</span></div>
+        {/* ── 统一高级页头：eyebrow + 标题 + 定位说明 + 右侧重点操作 ── */}
+        <header className="dsh-sp-head" style={{ padding: '20px 32px 16px', borderBottom: '1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.14))', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', minWidth: 0, flex: '1 1 340px' }}>
+            <span className="dsh-sp-eyebrow" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--dsw-alias-label-tertiary,#888)', userSelect: 'none' }}>
+              <i style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'currentColor', opacity: 0.6 }} />Capability Matrix
+            </span>
+            <h1 className="dsh-sp-title" style={{ margin: 0, fontSize: '22px', lineHeight: '30px', fontWeight: 650, letterSpacing: '-.01em', color: 'var(--dsw-alias-label-primary,#e8e8e8)' }}>
+              SKILL <em>/ 技能编目与能力管理</em>
+            </h1>
+            <p className="dsh-sp-hint" style={{ margin: 0, fontSize: '12.5px', lineHeight: '19px', color: 'var(--dsw-alias-label-tertiary,#8b8b8b)', maxWidth: '80ch' }}>
+              统一编目与管理模型可调用的所有能力技能包。支持热重载开关、目录导入与规范化校验。
+            </p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className={css.barBtn}
+              style={{
+                height: '32px',
+                padding: '0 12px',
+                borderRadius: '8px',
+                border: '1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.24))',
+                background: 'transparent',
+                color: 'var(--dsw-alias-label-secondary,#b9b9b9)',
+                cursor: 'pointer',
+                fontSize: '12.5px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+              onClick={() => { setAllOpen((value) => !value) }}
+              title={allOpen ? t('collapseAll') : t('expandAll')}
+            >
+              <span>{allOpen ? t('collapseAllShort') : t('expandAllShort')}</span>
+            </button>
+            <button
+              type="button"
+              className={css.barBtn}
+              data-spin={refreshing || undefined}
+              aria-label={t('refresh')}
+              title={t('refresh')}
+              style={{
+                height: '32px',
+                padding: '0 10px',
+                borderRadius: '8px',
+                border: '1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.24))',
+                background: 'transparent',
+                color: 'var(--dsw-alias-label-secondary,#b9b9b9)',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              onClick={() => {
+                setRefreshing(true)
+                window.setTimeout(() => { setRefreshing(false) }, 720)
+                refresh()
+              }}
+            >
+              <IconRefreshOutline14 size={13} aria-hidden="true" />
+              <span>{t('refresh')}</span>
+            </button>
+            <button
+              type="button"
+              className={css.barAdd}
+              style={{
+                height: '32px',
+                padding: '0 13px',
+                borderRadius: '8px',
+                border: 'none',
+                background: 'linear-gradient(180deg,#2563eb,#1d4ed8)',
+                color: '#fff',
+                fontSize: '12.5px',
+                fontWeight: 550,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 1px 3px rgba(37,99,235,.25)',
+              }}
+              onClick={() => { setInstall(null); setInstallError(null); setAddOpen(true) }}
+            >
+              <IconPlusOutline16 size={13} aria-hidden="true" />
+              <span>{t('addSkillsTitle')}</span>
+            </button>
+          </div>
+        </header>
+
+        {/* ── 四格数据规模大盘（1px 细线切割方块栅格，等宽数字 tabular-nums） ── */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))',
+          gap: '1px',
+          margin: '16px 32px 0',
+          border: '1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.14))',
+          borderRadius: '12px',
+          overflow: 'hidden',
+          background: 'var(--dsw-alias-border-l1,rgba(127,127,127,.14))',
+        }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '12px 16px', background: 'var(--dsw-alias-bg-base,#16181d)' }}>
+            <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary,#8b8b8b)', userSelect: 'none' }}>技能包数量</span>
+            <span style={{ fontFamily: 'var(--ds-font-family-code,ui-monospace,monospace)', fontSize: '18px', fontWeight: 640, color: 'var(--dsw-alias-label-primary,#e8e8e8)', fontVariantNumeric: 'tabular-nums' }}>{bundles.length}</span>
+            <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary,#8b8b8b)' }}>编目组</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '12px 16px', background: 'var(--dsw-alias-bg-base,#16181d)' }}>
+            <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary,#8b8b8b)', userSelect: 'none' }}>技能总数</span>
+            <span style={{ fontFamily: 'var(--ds-font-family-code,ui-monospace,monospace)', fontSize: '18px', fontWeight: 640, color: 'var(--dsw-alias-label-primary,#e8e8e8)', fontVariantNumeric: 'tabular-nums' }}>{totalSkills}</span>
+            <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary,#8b8b8b)' }}>已索引工具能力</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '12px 16px', background: 'var(--dsw-alias-bg-base,#16181d)' }}>
+            <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary,#8b8b8b)', userSelect: 'none' }}>已启用技能</span>
+            <span style={{ fontFamily: 'var(--ds-font-family-code,ui-monospace,monospace)', fontSize: '18px', fontWeight: 640, color: 'var(--dsw-alias-label-primary,#e8e8e8)', fontVariantNumeric: 'tabular-nums' }}>{enabledSkills}</span>
+            <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary,#8b8b8b)' }}>{totalSkills > 0 ? Math.round((enabledSkills / totalSkills) * 100) : 0}% 激活率</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '12px 16px', background: 'var(--dsw-alias-bg-base,#16181d)' }}>
+            <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary,#8b8b8b)', userSelect: 'none' }}>分类覆盖</span>
+            <span style={{ fontFamily: 'var(--ds-font-family-code,ui-monospace,monospace)', fontSize: '18px', fontWeight: 640, color: 'var(--dsw-alias-label-primary,#e8e8e8)', fontVariantNumeric: 'tabular-nums' }}>{categoryList.length}</span>
+            <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary,#8b8b8b)' }}>业务场景分类</span>
           </div>
         </div>
 

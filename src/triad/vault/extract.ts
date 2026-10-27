@@ -23,6 +23,7 @@ import { createUserMessage, BlockAssembler } from '../../vendor/dsh-llm/index.js
 import { normalizeTitle, recordKeyOf, type VaultStore } from './store.js'
 import {
   isFieldSensitive,
+  normalizeCategory,
   type VaultConfig,
   type VaultField,
   type VaultFieldType,
@@ -120,6 +121,8 @@ interface ExtractOp {
   scene?: string
   title?: string
   subtitle?: string
+  /** 用途分类（可选；同一分组里按用途区分）。 */
+  category?: string
   /** 要写入的字段（create 全量；update 只给变化的）。 */
   fields: ExtractFieldCandidate[]
   /** 记录级备注（可选）。 */
@@ -158,13 +161,14 @@ export function vaultExtractSystemPrompt(): string {
   return [
     'You maintain a structured personal vault (like a password manager) for an AI assistant user.',
     'Read the conversation and output ONLY a JSON object describing vault changes:',
-    '{"ops":[{"action":"create"|"update","recordId":"...","scene":"...","title":"...","fields":[{"key":"...","label":"...","type":"...","value":"...","sensitive":true}],"note":"...","tags":["..."],"confidence":0.9,"reason":"..."}]}',
+    '{"ops":[{"action":"create"|"update","recordId":"...","scene":"...","title":"...","category":"...","fields":[{"key":"...","label":"...","type":"...","value":"...","sensitive":true}],"note":"...","tags":["..."],"confidence":0.9,"reason":"..."}]}',
     '',
     'Rules:',
     '- Output ops ONLY when the conversation reveals a durable fact about a real account, card, or document: credentials, account numbers, emails, phone numbers, ID/licence/passport numbers, expiry dates.',
     '- NEVER output ops for generic discussion, examples, code samples, or hypotheticals. If the user is talking about "a password" in the abstract, output {"ops":[]}.',
     '- action:"update" REQUIRES recordId taken verbatim from the provided vault index. NEVER invent a recordId.',
     '- action:"create" REQUIRES scene from the provided scene list, and a title in the form "Platform · Account" or "DocumentType · PersonName".',
+    '- "category" is the PURPOSE of this record (what it is used for), orthogonal to scene (what kind of data it is). Fill it when the purpose is clear from context, e.g. "服务器运维" for a VPS/ECS account, "AI 服务" for a model gateway or API subscription, "开发工具" for GitHub/npm. Reuse a category already used in the same scene when one fits; keep it under 12 characters. Omit it when the purpose is genuinely unclear — an empty category is better than a wrong one.',
     '- field.key must be short lowercase ASCII (password, username, email, expiry, number). Reuse an existing field key from the index when updating — do not invent a synonym (password vs passwd vs login_password would split one field into three).',
     '- field.type: text | secret | email | phone | url | date | number | note. Use "secret" for passwords, API keys, CVV, TOTP seeds.',
     '- Put the ACTUAL VALUE in field.value when the user states it. This vault exists precisely to store such values; the harness encrypts them at rest and never sends them to you later.',
@@ -204,7 +208,11 @@ export function buildVaultIndex(records: VaultRecord[], scenes: VaultScene[], bu
     const keys = record.fields
       .map((field) => field.key + (isFieldSensitive(field) ? '[secret]' : ''))
       .join(',')
-    const line = '- ' + record.id + ' | ' + sceneLabel + ' | ' + record.title + ' | ' + keys
+    // 分类跟在场景后面：模型要能看见「这个组里已经有哪些分类」，否则它每次
+    // 都会造新词（「运维」/「服务器运维」/「VPS 运维」三条并存，下拉里越积越乱）。
+    const category = typeof record.category === 'string' ? record.category.trim() : ''
+    const sceneText = category === '' ? sceneLabel : sceneLabel + ' · ' + category
+    const line = '- ' + record.id + ' | ' + sceneText + ' | ' + record.title + ' | ' + keys
     if (used + line.length > budget) break
     lines.push(line)
     used += line.length + 1
@@ -260,6 +268,7 @@ export function parseVaultExtractOutput(raw: string): ExtractOp[] | undefined {
       ...(typeof record.scene === 'string' ? { scene: record.scene.trim() } : {}),
       ...(typeof record.title === 'string' ? { title: record.title.trim() } : {}),
       ...(typeof record.subtitle === 'string' ? { subtitle: record.subtitle.trim() } : {}),
+      ...(typeof record.category === 'string' ? { category: normalizeCategory(record.category) } : {}),
       fields,
       ...(typeof record.note === 'string' ? { note: record.note.trim() } : {}),
       ...(Array.isArray(record.tags) ? { tags: record.tags.filter((tag): tag is string => typeof tag === 'string').slice(0, 6) } : {}),
@@ -516,6 +525,7 @@ export async function applyVaultOps(
       scene,
       title,
       subtitle: op.subtitle,
+      ...(op.category !== undefined ? { category: op.category } : {}),
       fields,
       tags: op.tags,
       note: op.note,

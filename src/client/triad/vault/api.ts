@@ -115,6 +115,14 @@ export interface VaultRecordDraft {
   scene: string
   title: string
   subtitle?: string
+  /**
+   * 用途分类。
+   *
+   * 与 subtitle 的「空就省略」不同，**这里必须显式传**：省略在宿主 upsert 里的
+   * 语义是「没提这件事，保留原值」，那样用户永远删不掉一个填错的分类。传空串
+   * 才等于「取消分类」。
+   */
+  category?: string
   fields: VaultField[]
   tags?: string[]
   note?: string
@@ -209,6 +217,8 @@ async function request<T>(path: string, payload?: unknown): Promise<T> {
 function normalizeRecord(record: VaultRecord): VaultRecord {
   return {
     ...record,
+    // 老 host（未重启）不返回 category：兜成空串，页面各处就不用再判 undefined。
+    category: typeof record.category === 'string' ? record.category : '',
     fields: Array.isArray(record.fields) ? record.fields : [],
     photos: Array.isArray(record.photos) ? record.photos : [],
     tags: Array.isArray(record.tags) ? record.tags : [],
@@ -230,6 +240,8 @@ function normalizeScenes(scenes: VaultScene[] | undefined): VaultScene[] {
       order: Number.isFinite(scene.order) ? scene.order : 100,
       builtin: scene.builtin === true,
       fieldTemplate: Array.isArray(scene.fieldTemplate) ? scene.fieldTemplate : [],
+      // 用途分类建议清单：老 host 不返回时给空数组，页面只给自由输入。
+      categories: Array.isArray(scene.categories) ? scene.categories.filter((item): item is string => typeof item === 'string') : [],
     }))
     .sort((a, b) => a.order - b.order)
 }
@@ -405,84 +417,80 @@ export async function importVaultData(data: unknown): Promise<number> {
   return Number.isFinite(response.imported) ? response.imported : 0
 }
 
-/* ═════════════════ 密码健康审计 ═════════════════
+
+/* ═════════════════ 到期提醒 ═════════════════
  *
- * 这一层只负责「拿报告、把枚举翻成中文」。**判定逻辑一律在宿主侧**：哪条算弱
- * 口令、哪些算重复，需要看全部记录的明文——浏览器里没有（也不该有）那份数据，
- * 客户端拿到的只有掩码。所以这里不存在任何「本地再算一遍」的余地，也不要加。
+ * 这一层只做「拉清单 + 把天数翻成人话」。判据（90 天阈值、每条记录只看最近一个
+ * 日期、已过期永远报）全部在宿主侧 src/triad/vault/reminders.ts——它同时也是
+ * 注入行尾那句「还剩 N 天」的出处。页面自己再判一遍必然与宿主漂移，而且会造出
+ * 第二个「什么时候该提醒」的口径。
+ *
+ * 名字不用 health：那套审计（弱口令 / 复用 / 健康分 / 一键换密）用户 2026-10-27
+ * 明确要求删掉了。这里只剩日期，能给的结论只有「哪几张证 / 哪几张卡要到期了」。
  */
 
-/** 问题严重度（与宿主枚举一一对应）。 */
-export type VaultIssueSeverity = 'high' | 'medium' | 'low'
-
-/**
- * 问题种类（固定枚举，宿主只会下发这 8 种）。
- *
- * 这里刻意**没有** undecryptable：宿主侧解密失败会折成空串，与「用户主动清空」
- * 无法区分，报出来会是满屏假警报，所以那条检查在宿主侧就砍掉了。前端不留这个
- * 分支，免得将来有人照着旧契约把它加回来又得到一个永远不触发的死枚举值。
- */
-export type VaultIssueKind =
-  | 'reused-password'
-  | 'weak-password'
-  | 'stale-password'
-  | 'plaintext-secret'
-  | 'expired'
-  | 'expiring'
-  | 'no-password'
-  | 'duplicate-record'
-
-/** 一条健康问题。message 是宿主写好的中文，**不含任何明文值**。 */
-export interface VaultIssue {
-  kind: VaultIssueKind
-  severity: VaultIssueSeverity
+/** 一条到期提醒（宿主已按紧急度排好序）。 */
+export interface VaultReminder {
   recordId: string
   title: string
+  /** 场景 id（页面用自己那份 scenes 表翻中文名）。 */
   scene: string
-  fieldKey?: string
-  /** 同一组重复密码共用的标识（reused-password 用，页面按它分组显示）。 */
-  groupId?: string
-  message: string
+  /** 日期字段的 key，点进记录要定位到这一行。 */
+  fieldKey: string
+  /** 日期字段的显示名（「有效期」「到期日」……）。 */
+  fieldLabel: string
+  /** 距今天数：负数 = 已过期 |days| 天，0 = 今天到期。 */
+  days: number
+  /** 原始日期文本（用户要核对的就是它）。 */
+  due: string
   /**
-   * 可选补充。**语义随 kind 变**（宿主约定）：
-   *   · expired / expiring —— 剩余天数（expired 为负数，表示已经过期几天）；
-   *   · reused-password   —— 这一组里有多少条记录；
-   * 所以它不能当自由文本直接渲染，页面要过 formatIssueDetail 翻成人话。
+   * 是否已经过期。
+   *
+   * 由宿主算好下发，页面**不再自己比一次 days < 0**：那样「今天到期」落在哪边
+   * 就会出现两处不一致（列表说未过期、注入说已过期）。
    */
-  detail?: string
+  expired: boolean
 }
 
-/** 健康报告。 */
-export interface VaultHealthReport {
+/** 提醒清单。 */
+export interface VaultReminderReport {
   generatedAt: string
-  /** 0-100，越高越好（宿主算的，页面只展示）。 */
-  score: number
+  /** 参与统计的活跃记录数（归档的不算）。 */
   totalRecords: number
-  sensitiveFields: number
-  /** 按 kind 计数（只包含实际出现过的问题种类）。 */
-  counts: Partial<Record<VaultIssueKind, number>>
-  issues: VaultIssue[]
+  reminders: VaultReminder[]
 }
 
 /**
- * 拉一次健康报告。
+ * 拉一次提醒清单。
  *
- * 每次打开健康抽屉都重新算（不缓存）：这份报告的价值就在于「现在」——
- * 用户刚改完密码再打开，看到的必须是最新结论，而不是上次的快照。
+ * 每次都重新算、不缓存：这份数据全部依赖「今天几号」，而页面可能开了好几天
+ * 没关。缓存在前端等于把「跨过零点就变了的天数」冻在打开那一刻。
  */
-export async function fetchVaultHealth(): Promise<VaultHealthReport> {
-  const response = await request<{ ok: boolean; report: VaultHealthReport }>('/health')
+export async function fetchVaultReminders(): Promise<VaultReminderReport> {
+  const response = await request<{ ok: boolean; report: VaultReminderReport }>('/reminders')
   const report = response.report
-  if (report === undefined || report === null) throw new Error('服务端没有返回健康报告')
+  if (report === undefined || report === null) throw new Error('服务端没有返回提醒清单')
   return {
     generatedAt: typeof report.generatedAt === 'string' ? report.generatedAt : new Date().toISOString(),
-    score: Number.isFinite(report.score) ? report.score : 100,
     totalRecords: Number.isFinite(report.totalRecords) ? report.totalRecords : 0,
-    sensitiveFields: Number.isFinite(report.sensitiveFields) ? report.sensitiveFields : 0,
-    counts: report.counts !== null && typeof report.counts === 'object' ? report.counts : {},
-    // 旧宿主可能不返回 issues；少这一层防护会让整个抽屉在 .map 上炸掉。
-    issues: Array.isArray(report.issues) ? report.issues.filter((issue) => issue !== null && typeof issue === 'object') : [],
+    // 旧宿主可能没有这个键；少这层防护会让整个窗口在 .map 上炸掉。
+    reminders: Array.isArray(report.reminders)
+      ? report.reminders.filter((item) => item !== null && typeof item === 'object' && typeof item.recordId === 'string')
+      : [],
   }
+}
+
+/**
+ * 距今天数 → 一句人读的话。
+ *
+ * 三种说法刻意区分：已过期（红）、今天到期（红）、还剩 N 天（中性/警示）。
+ * 「还剩 0 天」这种半截话不能直接上屏。
+ */
+export function formatReminderDays(days: number): string {
+  if (!Number.isFinite(days)) return ''
+  if (days < 0) return '已过期 ' + String(Math.abs(days)) + ' 天'
+  if (days === 0) return '今天到期'
+  return '还剩 ' + String(days) + ' 天'
 }
 
 /* ═════════════════ 密钥备份与恢复 ═════════════════
@@ -745,35 +753,6 @@ export function describeGithubRepo(input: string): { valid: boolean; fullName: s
   return { valid: true, fullName: parsed.fullName, url: parsed.htmlUrl, hint: '' }
 }
 
-/**
- * 把 issue.detail 翻成人话。
- *
- * 宿主的 detail 是**按 kind 变语义的裸数据**（过期项是剩余天数、重复项是组内条数），
- * 直接渲染会得到一行「-12」这种东西。翻成中文放在这一层而不是各组件里：口径只有
- * 一份，将来宿主改了语义也只需要改这里。
- *
- * 返回空串表示这条没有可读的 detail（调用方跳过那一行）。
- */
-export function formatIssueDetail(issue: VaultIssue): string {
-  const raw = issue.detail ?? ''
-  if (raw === '') return ''
-  const days = Number(raw)
-  switch (issue.kind) {
-    case 'expired':
-      // 负数＝已经过期这么多天。用户关心的是「过期多久了」，不是「-12」。
-      return Number.isFinite(days) && days < 0
-        ? '已经过期 ' + String(Math.abs(days)) + ' 天'
-        : (Number.isFinite(days) && days > 0 ? '还有 ' + String(days) + ' 天到期' : '')
-    case 'expiring':
-      return Number.isFinite(days) ? '还有 ' + String(days) + ' 天到期' : ''
-    case 'reused-password':
-      return Number.isFinite(days) ? '这一组共 ' + String(days) + ' 条记录' : ''
-    default:
-      // 其它 kind 的 detail 是真·补充说明（不是数字），原样显示。
-      return raw
-  }
-}
-
 /* ═════════════════ TOTP 动态验证码 ═════════════════ */
 
 /**
@@ -887,56 +866,6 @@ export async function generateVaultPassword(options: VaultPasswordOptions = {}):
     length: Number.isFinite(generated.length) ? generated.length : generated.password.length,
     entropyBits: Number.isFinite(generated.entropyBits) ? generated.entropyBits : 0,
     categories: Array.isArray(generated.categories) ? generated.categories : [],
-  }
-}
-
-/** /rotate 成功的一条：新明文密码**只此一次返回**。 */
-export interface VaultRotatedEntry {
-  id: string
-  title: string
-  key: string
-  /** 明文。页面必须展示出来让用户去各站粘贴——用户拿不到就等于白改。 */
-  password: string
-}
-
-/** /rotate 跳过的一条（没有登录口令字段之类）。reason 是宿主写好的中文。 */
-export interface VaultRotateSkipped {
-  id: string
-  reason: string
-}
-
-/** /rotate 结果。 */
-export interface VaultRotateResult {
-  rotated: VaultRotatedEntry[]
-  skipped: VaultRotateSkipped[]
-}
-
-/**
- * 批量把若干记录的密码换成**互不相同**的强口令，并立即写库。
- *
- * 三个必须记住的性质：
- *   1. 立即生效 —— 这一步就落盘了，旧密码当场被覆盖、无法恢复。所以调用方
- *      必须在调用前拿到用户对「你确认能在这些站点上改密吗」的明确确认；
- *   2. 互不相同 —— 宿主保证这批新密码两两不同（否则换完还是复用，等于没修）；
- *   3. 明文只回这一次 —— 响应不缓存，页面也必须把它展示出来，不能静默丢弃。
- *
- * 上限 50 条由宿主强制；页面这边只按「同一组重复」的数量给按钮，天然在上限内。
- */
-export async function rotateVaultPasswords(
-  ids: string[],
-  options: { key?: string; length?: number } = {},
-): Promise<VaultRotateResult> {
-  const response = await request<{ ok: boolean; rotated: VaultRotatedEntry[]; skipped: VaultRotateSkipped[] }>(
-    '/rotate',
-    { ids, ...options },
-  )
-  return {
-    rotated: Array.isArray(response.rotated)
-      ? response.rotated.filter((entry) => entry !== null && typeof entry === 'object' && typeof entry.password === 'string')
-      : [],
-    skipped: Array.isArray(response.skipped)
-      ? response.skipped.filter((entry) => entry !== null && typeof entry === 'object')
-      : [],
   }
 }
 

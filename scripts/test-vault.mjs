@@ -57,7 +57,7 @@ mkdirSync(OUT_DIR, { recursive: true })
  * 叶子模块、没有外部依赖，实测能正常打进这个 ESM 包——所以不退回「只断言 store/inject」
  * 的降级方案。
  */
-const sources = ['types', 'crypto', 'blobs', 'store', 'inject', 'health', 'totp', 'backup', 'extract']
+const sources = ['types', 'crypto', 'blobs', 'store', 'inject', 'reminders', 'totp', 'backup', 'extract']
   .map((name) => "export * from '" + slash(resolve(ROOT, 'src/triad/vault', name + '.ts')) + "'")
   .join('\n')
 const entryFile = join(OUT_DIR, 'entry.ts')
@@ -91,7 +91,7 @@ try {
 
 const {
   VaultCipher, VaultStore, VaultInjector, findLeakedSecrets, isEncryptedValue, VAULT_MASK,
-  DEFAULT_VAULT_CONFIG, auditVault, isWeakPassword,
+  DEFAULT_VAULT_CONFIG, listVaultReminders, nearestExpiryOf, expiryNoteOf, EXPIRY_NOTE_DAYS,
   parseTotpSecret, generateTotp, looksLikeTotpField,
   createBackupPackage, readBackupPackage, keyFingerprint,
   // 注入引导语：模型「看得见」的那段文案，下面有断言钉住它的关键纪律。
@@ -334,25 +334,15 @@ assert(audit.length === 1 && audit[0].fieldKey === 'password', 'reveal writes an
 assert(!JSON.stringify(audit).includes(NEW_SECRET), 'audit lines never carry the value')
 
 
-// ── 13. 健康审计 ────────────────────────────────────────────────────────
-const weak = await store.upsertRecord({
-  scene: 'accounts',
-  title: 'Weak · 弱口令站',
-  fields: [
-    { key: 'username', label: '用户名', type: 'text', value: 'weakuser', updatedAt: new Date().toISOString() },
-    { key: 'password', label: '密码', type: 'secret', value: '123456', updatedAt: new Date().toISOString() },
-  ],
-  source: 'manual',
-})
-const reused = await store.upsertRecord({
-  scene: 'email',
-  title: 'Reused · 复用同一密码',
-  fields: [
-    { key: 'address', label: '邮箱地址', type: 'email', value: 'r@example.com', updatedAt: new Date().toISOString() },
-    { key: 'password', label: '密码', type: 'secret', value: '123456', updatedAt: new Date().toISOString() },
-  ],
-  source: 'manual',
-})
+// ── 13. 到期提醒（原「密码健康审计」已按用户要求删除）────────────────
+/*
+ * 这一节原来断言的是健康审计：弱口令 / 复用 / 健康分 / 报告里不出现明文。
+ * 用户 2026-10-27 要求把那一整套删掉，只保留「会自己变坏」的日期提醒，
+ * 所以这里改成钉住提醒引擎的三条纪律：
+ *   1. 只报日期，且每条记录只看**最近**的那个日期（同一记录两个日期不重复报）；
+ *   2. 已过期的永远报，未到期的只在 90 天内报；
+ *   3. 清单里绝不出现任何敏感值——提醒用的是掩码版 listRecords，本来就不该有明文。
+ */
 const expired = await store.upsertRecord({
   scene: 'document',
   title: '驾驶证 · 张三',
@@ -361,27 +351,69 @@ const expired = await store.upsertRecord({
   ],
   source: 'manual',
 })
-const revealedAll = await store.listRecordsRevealed()
-const healthReport = auditVault(revealedAll, await store.listScenes())
-assert(healthReport.issues.some((i) => i.kind === 'weak-password' && i.recordId === weak.id),
-  'audit flags the weak password')
-assert(healthReport.issues.some((i) => i.kind === 'reused-password' && i.recordId === reused.id),
-  'audit flags the reused password')
-const reuseIssues = healthReport.issues.filter((i) => i.kind === 'reused-password')
-assert(reuseIssues.length >= 2 && reuseIssues.every((i) => i.groupId !== undefined),
-  'reuse issues carry a shared group id')
-assert(healthReport.issues.some((i) => i.kind === 'expired' && i.recordId === expired.id),
-  'audit flags the expired document')
-assert(!JSON.stringify(healthReport).includes(NEW_SECRET),
-  'the health report never carries a secret value')
-assert(!JSON.stringify(healthReport).includes('123456'),
-  'the health report never echoes the weak password either')
-assert(typeof healthReport.score === 'number' && healthReport.score >= 0 && healthReport.score <= 100,
-  'the health score stays inside 0-100')
-assert(isWeakPassword('password') && isWeakPassword('111111') && isWeakPassword('abcd'),
-  'isWeakPassword flags table hits, pure digits and short strings')
-assert(!isWeakPassword('Xk9$mQ2pLw'),
-  'isWeakPassword does not flag a strong password')
+const soonMs = Date.now() + 10 * 24 * 60 * 60 * 1000
+const soon = await store.upsertRecord({
+  scene: 'document',
+  title: '护照 · 张三',
+  fields: [
+    { key: 'expiry', label: '到期日', type: 'date', value: new Date(soonMs).toISOString().slice(0, 10), updatedAt: new Date().toISOString() },
+  ],
+  source: 'manual',
+})
+const farMs = Date.now() + 400 * 24 * 60 * 60 * 1000
+const far = await store.upsertRecord({
+  scene: 'document',
+  title: '房产证 · 张三',
+  fields: [
+    { key: 'expiry', label: '有效期', type: 'date', value: new Date(farMs).toISOString().slice(0, 10), updatedAt: new Date().toISOString() },
+  ],
+  source: 'manual',
+})
+// 提醒只读掩码版（不需要任何明文）：这本身就是一条纪律，写进测试钉住。
+const maskedAll = await store.listRecords()
+const remindReport = listVaultReminders(maskedAll)
+assert(remindReport.reminders.some((item) => item.recordId === expired.id && item.days < 0),
+  'the reminder list flags the expired document')
+assert(remindReport.reminders.some((item) => item.recordId === soon.id && item.days > 0),
+  'the reminder list flags the document expiring in 10 days')
+assert(!remindReport.reminders.some((item) => item.recordId === far.id),
+  'a document expiring in 400 days is NOT listed (threshold is 90 days)')
+assert(!JSON.stringify(remindReport).includes(NEW_SECRET),
+  'the reminder list never carries a secret value')
+assert(!JSON.stringify(remindReport).includes('123456'),
+  'the reminder list never echoes the weak password either')
+// 排序：已过期最久的最前（days 最小）。
+assert(remindReport.reminders.every((item, index, list) => index === 0 || list[index - 1].days <= item.days),
+  'the reminder list is sorted by urgency (most overdue first)')
+// 一条记录只看最近的那个日期：同一条记录再加一个更远的日期字段，清单里仍然只有一条。
+await store.upsertRecord({
+  id: expired.id,
+  scene: 'document',
+  title: '驾驶证 · 张三',
+  fields: [
+    { key: 'expiry', label: '有效期', type: 'date', value: '2020-01-01', updatedAt: new Date().toISOString() },
+    { key: 'issued', label: '签发日期', type: 'date', value: '2014-01-01', updatedAt: new Date().toISOString() },
+  ],
+  source: 'manual',
+})
+const maskedAgain = await store.listRecords()
+const singleRecordReminders = listVaultReminders(maskedAgain).reminders.filter((item) => item.recordId === expired.id)
+assert(singleRecordReminders.length === 1, 'one record yields at most one reminder (nearest date only)')
+assert(singleRecordReminders[0].fieldKey === 'issued',
+  'the nearest of several date fields wins (2014 is further in the past than 2020)')
+// 归档的记录不进清单：归档的语义就是「平时不用看见」。
+await store.setArchived(soon.id, true)
+const archivedReport = listVaultReminders(await store.listRecords())
+assert(!archivedReport.reminders.some((item) => item.recordId === soon.id),
+  'archived records are excluded from the reminder list')
+await store.setArchived(soon.id, false)
+// 注入行尾那句提示与提醒清单必须同源（同一个 nearestExpiryOf）。
+const expiredRecord = (await store.listRecords()).find((item) => item.id === expired.id)
+assert(expiryNoteOf(expiredRecord).includes('已过期'),
+  'the injection note says 已过期 for an expired date')
+assert(nearestExpiryOf(expiredRecord) !== null && nearestExpiryOf(expiredRecord).days < 0,
+  'nearestExpiryOf agrees with the injection note')
+assert(EXPIRY_NOTE_DAYS === 90, 'the expiry window stays at 90 days')
 
 // ── 14. TOTP：RFC 6238 测试向量 ────────────────────────────────────────
 /*
@@ -420,7 +452,7 @@ const backupText = await createBackupPackage({
   key: backupKey,
   vaultJson: vaultJsonForBackup,
   password: backupPwd,
-  summary: { records: revealedAll.length, photos: 0, scenes: 3 },
+  summary: { records: maskedAll.length, photos: 0, scenes: 3 },
 })
 assert(!backupText.includes(backupKey.toString('base64')), 'the backup does not carry the raw key in clear')
 assert(!backupText.includes(NEW_SECRET), 'the backup does not carry any secret in clear')
@@ -471,7 +503,7 @@ assert(VaultCipher.fromKey(Buffer.alloc(16)) === null, 'a wrong-length key is re
  * pending: true，新抽出来的记录又会挂上而页面上已经没有确认入口。这些都
  * 不会崩，只会静默错，所以只能靠断言。
  */
-assert(VAULT_SCHEMA_VERSION === 2, 'the vault schema version is 2 (the pending mechanism was retired)')
+assert(VAULT_SCHEMA_VERSION === 3, 'the vault schema version is 3 (v2 retired pending, v3 added the purpose category)')
 
 // ① 确认动作的写入口整体没了：store 上不该再有 setPending。
 assert(typeof store.setPending !== 'function',
@@ -522,7 +554,7 @@ const v1Data = {
 }
 const migratedFromV1 = migrate(v1Data)
 const migratedPending = migratedFromV1.records.find((record) => record.id === 'rec_v1_pending')
-assert(migratedFromV1.schemaVersion === 2, 'migrate bumps a v1 store to schema version 2')
+assert(migratedFromV1.schemaVersion === 3, 'migrate bumps a v1 store all the way to schema version 3')
 assert(migratedPending !== undefined && !('pending' in migratedPending),
   'migrate deletes the legacy pending flag instead of just no longer writing it')
 assert(migratedFromV1.records.length === 2, 'migrate keeps every record (the flag goes, the data stays)')

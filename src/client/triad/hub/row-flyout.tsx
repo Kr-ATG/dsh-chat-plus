@@ -60,6 +60,8 @@ export const WORKBENCH_TABS: readonly WorkbenchTabMeta[] = [
   { id: 'usage', label: '用量', desc: 'Token 消耗与活动热力' },
   { id: 'gallery', label: '画廊', desc: '图片 · 网页 · 文档产出' },
   { id: 'vault', label: '档案', desc: '账号 · 支付 · 证件' },
+  { id: 'prompt', label: '系统提示词', desc: '发送时带上的那段提示' },
+  { id: 'sync', label: '同步设置', desc: '工作台资产云端双向同步' },
 ] as const
 
 /** 读当前分类（localStorage 回填，非法值回落记忆页）。 */
@@ -161,6 +163,9 @@ export function WorkbenchTabIcon({ tab, size = 14 }: { tab: WorkbenchTab; size?:
       // 档案 = 带锁的卡片：钱包与密码管理器的共同意象，同时区别于「记忆」的
       // 大脑（档案是实体 + 字段，不是陈述句）。
       return (<svg {...common}><rect x="3" y="6" width="18" height="14" rx="2.5" /><path d="M3 10h18" /><path d="M8 15.5h2.5" /><path d="M15.5 4v4" /><circle cx="15.5" cy="2.5" r="1" /></svg>)
+    case 'prompt':
+      // 系统提示词 = 一份带横线的文档：语义是「模型开工前被交代的那张纸」。
+      return (<svg {...common}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /><path d="M9 13h4M9 17h6" /></svg>)
   }
 }
 

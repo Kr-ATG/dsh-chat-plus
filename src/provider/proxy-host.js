@@ -29,6 +29,23 @@ export const inject = ['settings', 'webServer']
 
 const DISPATCHER_SYMBOL = Symbol.for('undici.globalDispatcher.1')
 const ORIGINAL_FETCH = Symbol.for('dsh-proxy.originalFetch')
+/**
+ * 代理状态与 settings 引用挂到 globalThis（而不是模块级 let）。
+ *
+ * 根因（2026-10-27 实测）：本插件在 patchReload: live 下会被热重载，产生新的
+ * 模块实例；但 installFetchHook() 有幂等守卫（ORIGINAL_FETCH 已存在就 return），
+ * 新实例不会重新包装 —— 于是 globalThis.fetch 的闭包永远绑在【旧实例】的模块级
+ * proxyState 上。而 HTTP 路由 /set 改的是【当前存活实例】的 proxyState。
+ * 两者分裂后，selected 模式的 extraHosts 怎么设都不生效（providers 命中的域名
+ * 看起来正常，其实只是那些域名直连本来就能通，属假阳性）。
+ *
+ * all 模式看不出来，是因为它把 ProxyAgent 写进了全局 dispatcher，包装层即使不
+ * 注入 dispatcher 也照样走代理；selected 模式必须由包装层逐请求注入，分裂才暴露。
+ *
+ * 修法：状态放进 globalThis 上的符号槽，热重载前后所有实例读写同一份。
+ */
+const PROXY_STATE_SYMBOL = Symbol.for('dsh-proxy.state')
+const SETTINGS_REF_SYMBOL = Symbol.for('dsh-proxy.settingsRef')
 const DEFAULT_PROXY = 'http://127.0.0.1:10808'
 /** 连通性自检目标与超时：走代理请求一个轻量海外端点。 */
 const PROBE_URL = 'https://www.gstatic.com/generate_204'
@@ -258,11 +275,29 @@ function readBody(req) {
 
 // ── 代理状态（模块级单例）──────────────────────────────────────────────────
 
-/** 当前代理状态；globalThis.fetch 包装函数在每次调用时读它来决定是否走代理。 */
-let proxyState = null
+/**
+ * 当前代理状态；globalThis.fetch 包装函数在每次调用时读它来决定是否走代理。
+ *
+ * 读写都经 globalThis 的符号槽（见 PROXY_STATE_SYMBOL 注释）：热重载会产生新模块
+ * 实例，若用模块级 let，包装闭包绑旧实例、/set 改新实例，配置就永远对不上。
+ */
+function getProxyState() {
+  return globalThis[PROXY_STATE_SYMBOL] ?? null
+}
+function setProxyState(next) {
+  globalThis[PROXY_STATE_SYMBOL] = next
+}
 
-/** 由 apply() 写入的 settings 引用；包装层实时解析命中域名时需要它。 */
-let settingsRef = null
+/**
+ * 由 apply() 写入的 settings 引用；包装层实时解析命中域名时需要它。
+ * 同样走 globalThis 符号槽，理由见 PROXY_STATE_SYMBOL 注释。
+ */
+function getSettingsRef() {
+  return globalThis[SETTINGS_REF_SYMBOL] ?? null
+}
+function setSettingsRef(ref) {
+  globalThis[SETTINGS_REF_SYMBOL] = ref
+}
 
 /**
  * 从「当前」settings 实时解析选中厂商的 host（selected 模式匹配用）。
@@ -279,9 +314,10 @@ function currentHosts(state) {
   const hosts = new Set()
   const providers = Array.isArray(state.providers) ? state.providers : []
   try {
-    const ns = settingsRef && typeof settingsRef.get === 'function'
-      ? settingsRef.get('llm-pi-ai')
-      : (typeof settingsRef?.describe === 'function' ? settingsRef.describe().find(d => d.ns === 'llm-pi-ai')?.value : undefined)
+    const ref = getSettingsRef()
+    const ns = ref && typeof ref.get === 'function'
+      ? ref.get('llm-pi-ai')
+      : (typeof ref?.describe === 'function' ? ref.describe().find(d => d.ns === 'llm-pi-ai')?.value : undefined)
     const provs = ns && typeof ns === 'object' && ns.providers && typeof ns.providers === 'object' ? ns.providers : {}
     const byKey = new Map()
     for (const [key, p] of Object.entries(provs)) {
@@ -335,7 +371,7 @@ function installFetchHook() {
   const original = globalThis.fetch.bind(globalThis)
   Object.defineProperty(globalThis, ORIGINAL_FETCH, { value: original, configurable: true })
   globalThis.fetch = function (input, init) {
-    const state = proxyState
+    const state = getProxyState()
     if (state === null || !state.agent) return original(input, init)
     let viaProxy = state.mode === 'all'
     if (!viaProxy) {
@@ -405,7 +441,7 @@ function rotateAgent(state) {
 
 export function apply(ctx) {
   // 供包装层实时解析命中域名（currentHosts）使用的 settings 引用。
-  settingsRef = ctx.settings
+  setSettingsRef(ctx.settings)
   // ---- settings 命名空间（settings.yaml 持久化 或 本地 JSON 兜底）----
   let scope
   try {
@@ -549,8 +585,9 @@ export function apply(ctx) {
   // ---- 状态：当前代理是否已生效 ----
   const isActive = () => {
     try {
-      return proxyState !== null && !!(proxyState.agent && proxyState.agent.constructor
-        && proxyState.agent.constructor.name === 'ProxyAgent')
+      const state = getProxyState()
+      return state !== null && !!(state.agent && state.agent.constructor
+        && state.agent.constructor.name === 'ProxyAgent')
     } catch { return false }
   }
 
@@ -564,7 +601,7 @@ export function apply(ctx) {
     } catch (error) {
       return { ok: false, message: `代理地址无法建立连接池：${error instanceof Error ? error.message : String(error)}` }
     }
-    proxyState = {
+    setProxyState({
       agent,
       mode: cfg.mode,
       hosts: selectedHosts(cfg),
@@ -572,7 +609,7 @@ export function apply(ctx) {
       extraHosts: cfg.extraHosts,
       url: cfg.url,
       failures: 0,
-    }
+    })
     captureBaseline()
     if (cfg.mode === 'all') {
       globalThis[DISPATCHER_SYMBOL] = agent
@@ -588,7 +625,7 @@ export function apply(ctx) {
   function clearProxy() {
     captureBaseline()
     restoreGlobalDispatcher()
-    proxyState = null
+    setProxyState(null)
   }
 
   // 安装 fetch 代理层（幂等），此后每次请求按 state 决定注入 dispatcher。
@@ -635,7 +672,7 @@ export function apply(ctx) {
             dispatcherType: globalThis[DISPATCHER_SYMBOL]?.constructor?.name ?? 'undefined',
             undiciVersion: loadedUndiciVersion || 'unknown',
             nodeUndici: process.versions?.undici ?? 'unknown',
-            failures: proxyState?.failures ?? null,
+            failures: getProxyState()?.failures ?? null,
             rotations,
           },
         })
@@ -826,7 +863,7 @@ export function apply(ctx) {
           }
         } else {
           // 未启用时代理层是空的，只落配置即可。
-          proxyState = null
+          setProxyState(null)
         }
         try { await scope.update(next) } catch (err) {
           console.log(`[dsh-network-proxy] persist failed: ${err instanceof Error ? err.message : String(err)}`)

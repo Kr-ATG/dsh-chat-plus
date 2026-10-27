@@ -47,6 +47,7 @@ import { readRail, useRail } from '../sidebar-nav.js'
 import { getService } from '../../client-ctx.js'
 import { ErrorBoundary } from '../../error-boundary.js'
 import { WorkbenchGridIcon } from './WorkbenchPanel.js'
+import { useSyncNotice } from './sync-notice.js'
 import { WORKBENCH_ROW_MARK, WORKBENCH_TABS, openWorkbench } from './row-flyout.js'
 import {
   GALLERY_KIND_LABEL,
@@ -190,6 +191,24 @@ function tabIcon(tab: (typeof WORKBENCH_TABS)[number]['id']): NavSectionIcon {
             <path d="M8 15.5h2.5" />
             <path d="M15.5 4v4" />
             <circle cx="15.5" cy="2.5" r="1" />
+          </svg>
+        )
+      case 'prompt':
+        // 系统提示词 = 一份带横线的文档：语义是「模型开工前被交代的那张纸」。
+        return (
+          <svg {...common}>
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+            <path d="M14 3v5h5" />
+            <path d="M9 13h4M9 17h6" />
+          </svg>
+        )
+      case 'sync':
+        // 同步设置 = 云端同步图标
+        return (
+          <svg {...common}>
+            <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
+            <path d="m11 13 2-2 2 2" />
+            <path d="M13 11v6" />
           </svg>
         )
     }
@@ -599,6 +618,13 @@ button[${ROW_HIDDEN_ATTR}='true']{display:none !important}
 .dsn-divider{height:1px;flex:none;margin:2px 10px 5px;
   background:var(--dsw-alias-border-l1,rgba(127,127,127,.16))}
 
+/* 同步/上传小字标签（停留 1 分钟后自动淡出） */
+.dsn-sync-tag{display:inline-flex;align-items:center;margin-left:7px;padding:1px 6px;border-radius:999px;
+  font-size:11px;line-height:16px;font-weight:550;letter-spacing:0;
+  color:#10b981;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.25);
+  animation:dsn-tag-in 160ms cubic-bezier(.32,.72,0,1);vertical-align:middle}
+@keyframes dsn-tag-in{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:scale(1)}}
+
 /* 条目入场：整组淡入上移，避免切换瞬间「啪」地换屏 */
 .dsn-entries{display:flex;flex-direction:column;animation:dsn-in 180ms cubic-bezier(.32,.72,0,1)}
 @keyframes dsn-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
@@ -877,6 +903,7 @@ function SidebarSections(): JSX.Element | null {
   const version = useNavVersion()
   const rail = useRail()
   const active = readActiveSection()
+  const syncNotice = useSyncNotice()
   const sections = orderedNavSections()
   const next = nextSectionId()
   const activeDef = sections.find((section) => section.id === active)
@@ -916,7 +943,12 @@ function SidebarSections(): JSX.Element | null {
         onClick={() => { rotateActiveSection() }}
       >
         {NextIcon !== null ? <NextIcon size={16} /> : null}
-        <span className="dsn-label">{nextDef?.label ?? next}</span>
+        <span className="dsn-label">
+          {nextDef?.label ?? next}
+          {syncNotice && (nextDef?.label === '操作间' || ActiveLabel === '操作间') && (
+            <span className="dsn-sync-tag">{syncNotice}</span>
+          )}
+        </span>
         <ChevronIcon size={14} />
       </button>
 

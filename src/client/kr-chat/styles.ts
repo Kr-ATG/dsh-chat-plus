@@ -2398,9 +2398,997 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 }
 
 /*
- * 名字行：Seeker + 浏览器标志并排（2026-10-25 用户要求）。
+ * ══ 卡头右上角 Git 状态微组件（邮件与设置按钮下方）════════════════════════
  *
- * 标志原先挂在**左侧会话列表那一行**的右端（browser-flag/row-mark.ts 的 DOM
+ * 位于右上角动作按钮的正下方，展示最近提交时间与待提交提示（全内联 SVG）。
+ * 居右对齐，紧贴工具按钮边缘。
+ */
+.kr-plain-head__git {
+  position: absolute;
+  top: 30px;
+  right: -2px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  z-index: 1;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.kr-plain-head__git-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 0;
+  border-radius: 0;
+  background: transparent !important;
+  border: 0 !important;
+  font-size: var(--kr-fs-11, 11px);
+  line-height: 16px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  transition:
+    color var(--kr-dur-tap) linear,
+    transform var(--kr-dur-tap) var(--kr-ease-out);
+}
+
+/* 第一行：提交时间（次级灰字，时钟 SVG 图标） */
+.kr-plain-head__git-time {
+  color: var(--dsw-alias-label-tertiary);
+  background: transparent !important;
+  border: 0 !important;
+  cursor: default;
+}
+
+.kr-plain-head__git-time:hover {
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* 第二行（干净态）：纯净透明无底色无边框无填充，对勾微绿 */
+.kr-plain-head__git-clean {
+  color: var(--dsw-alias-label-tertiary);
+  background: transparent !important;
+  border: 0 !important;
+  cursor: default;
+  padding: 0 !important;
+}
+
+.kr-plain-head__git-clean .kr-plain-head__git-icon {
+  color: var(--dsw-alias-state-success, #22c55e);
+}
+
+/* 第二行（待提交态）：按钮，纯净无底色无边框，靠主色与文字交互 */
+.kr-plain-head__git-pending {
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--kr-accent);
+  cursor: pointer;
+  padding: 0 !important;
+  font-family: inherit;
+  font-weight: 500;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.kr-plain-head__git-pending:hover {
+  background: transparent !important;
+  color: var(--dsw-alias-label-primary);
+  transform: translateY(-0.5px);
+}
+
+.kr-plain-head__git-pending:active {
+  transform: scale(0.96);
+  background: transparent !important;
+}
+
+.kr-plain-head__git-pending:focus-visible {
+  outline: 2px solid var(--kr-accent);
+  outline-offset: -1px;
+}
+
+.kr-plain-head__git-icon {
+  flex: none;
+  display: block;
+}
+
+.kr-plain-head__git-text {
+  flex: none;
+  font-size: var(--kr-fs-11, 11px);
+}
+
+.kr-plain-head__git-arrow {
+  flex: none;
+  margin-left: -1px;
+  opacity: 0.75;
+  transition: transform var(--kr-dur-tap) var(--kr-ease-out);
+}
+
+.kr-plain-head__git-pending:hover .kr-plain-head__git-arrow {
+  transform: translateY(-1px);
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-plain-head__git-row,
+  .kr-plain-head__git-pending,
+  .kr-plain-head__git-arrow {
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+/* 待合并态高亮（纯净无底色警告色，提醒需要拉取或解决冲突） */
+.kr-plain-head__git-pending--merge {
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-state-warning, #f59e0b);
+}
+
+.kr-plain-head__git-pending--merge:hover {
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+}
+
+/*
+ * ══ Git 提交确认弹窗卡片（GitCommitModal）═════════════════════════════════
+ */
+.kr-git-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: kr-git-modal-fade-in 0.15s ease-out;
+}
+
+.kr-git-modal {
+  position: relative;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+  width: 100%;
+  max-width: 480px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: kr-git-modal-scale-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes kr-git-modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes kr-git-modal-scale-in {
+  from { opacity: 0; transform: scale(0.96) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.kr-git-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.kr-git-modal__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kr-git-modal__branch-icon {
+  color: var(--kr-accent);
+  flex: none;
+}
+
+.kr-git-modal__title {
+  font-size: var(--kr-fs-title, 13px);
+  font-weight: 600;
+}
+
+.kr-git-modal__branch-badge {
+  font-size: var(--kr-fs-10-5, 10.5px);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--kr-accent) 12%, transparent);
+  color: var(--kr-accent);
+  font-family: inherit;
+  font-weight: 500;
+}
+
+.kr-git-modal__close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  padding: 0;
+  transition: background-color var(--kr-dur-tap) linear, color var(--kr-dur-tap) linear;
+}
+
+.kr-git-modal__close-btn:hover {
+  background: var(--kr-hover-bg);
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-git-modal__body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 概览卡片盒 */
+.kr-git-modal__summary-box {
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 80%, var(--dsw-alias-border-l2));
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.kr-git-modal__summary-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+}
+
+.kr-git-modal__summary-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--kr-fs-12, 12px);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-git-modal__summary-label strong {
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-git-modal__toggle-files {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 0;
+  color: var(--kr-accent);
+  font-size: var(--kr-fs-11, 11px);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.kr-git-modal__toggle-files:hover {
+  background: color-mix(in srgb, var(--kr-accent) 10%, transparent);
+}
+
+.kr-git-modal__chevron {
+  transition: transform var(--kr-dur-tap) var(--kr-ease-out);
+}
+
+.kr-git-modal__chevron--up {
+  transform: rotate(180deg);
+}
+
+.kr-git-modal__file-list {
+  max-height: 140px;
+  overflow-y: auto;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  padding: 6px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--dsw-alias-bg-base);
+}
+
+.kr-git-modal__file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--kr-fs-11, 11px);
+  padding: 2px 0;
+}
+
+.kr-git-modal__status-tag {
+  font-size: var(--kr-fs-10, 10px);
+  font-weight: 600;
+  padding: 0 4px;
+  border-radius: 3px;
+  min-width: 22px;
+  text-align: center;
+  line-height: 16px;
+}
+
+.kr-git-modal__status-tag--m {
+  background: color-mix(in srgb, var(--dsw-alias-state-warning, #f59e0b) 15%, transparent);
+  color: var(--dsw-alias-state-warning, #f59e0b);
+}
+
+.kr-git-modal__status-tag--a,
+.kr-git-modal__status-tag--\? {
+  background: color-mix(in srgb, var(--dsw-alias-state-success, #22c55e) 15%, transparent);
+  color: var(--dsw-alias-state-success, #22c55e);
+}
+
+.kr-git-modal__status-tag--d {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ef4444) 15%, transparent);
+  color: var(--dsw-alias-state-error-primary, #ef4444);
+}
+
+.kr-git-modal__file-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* 字段与 Textarea */
+.kr-git-modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kr-git-modal__field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.kr-git-modal__field-label {
+  font-size: var(--kr-fs-12, 12px);
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-git-modal__ai-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--kr-accent) 30%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--kr-accent) 8%, transparent);
+  color: var(--kr-accent);
+  padding: 2px 7px;
+  font-size: var(--kr-fs-11, 11px);
+  cursor: pointer;
+  transition: all var(--kr-dur-tap) var(--kr-ease-out);
+}
+
+.kr-git-modal__ai-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--kr-accent) 16%, transparent);
+  border-color: var(--kr-accent);
+}
+
+.kr-git-modal__ai-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.kr-git-modal__sparkle-icon {
+  flex: none;
+}
+
+.kr-git-modal__textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 80%, var(--dsw-alias-border-l2));
+  color: var(--dsw-alias-label-primary);
+  font-family: inherit;
+  font-size: var(--kr-fs-body, 12.5px);
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 85px;
+  outline: none;
+  transition: border-color var(--kr-dur-tap) linear, box-shadow var(--kr-dur-tap) linear;
+}
+
+.kr-git-modal__textarea:focus {
+  border-color: var(--kr-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--kr-accent) 20%, transparent);
+}
+
+/* 选项行 */
+.kr-git-modal__options-row {
+  display: flex;
+  align-items: center;
+}
+
+.kr-git-modal__checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--kr-fs-12, 12px);
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.kr-git-modal__checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+}
+
+/* 进度条与状态 */
+.kr-git-modal__progress-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--dsw-alias-border-l2) 40%, transparent);
+}
+
+.kr-git-modal__progress-bar-bg {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--dsw-alias-border-l2);
+  overflow: hidden;
+}
+
+.kr-git-modal__progress-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--kr-accent);
+  transition: width 0.35s ease-out;
+}
+
+.kr-git-modal__progress-bar-fill--error {
+  background: var(--dsw-alias-state-error-primary, #ef4444);
+}
+
+.kr-git-modal__progress-status-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--kr-fs-11, 11px);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-git-modal__done-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--dsw-alias-state-success, #22c55e);
+  font-weight: 500;
+}
+
+.kr-git-modal__error-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--dsw-alias-state-error-primary, #ef4444);
+}
+
+/* 底部操作 */
+.kr-git-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 90%, var(--dsw-alias-border-l2));
+}
+
+.kr-git-modal__cancel-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--kr-fs-12, 12px);
+  cursor: pointer;
+  transition: all var(--kr-dur-tap) linear;
+}
+
+.kr-git-modal__cancel-btn:hover:not(:disabled) {
+  background: var(--kr-hover-bg);
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-git-modal__submit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 0;
+  background: var(--kr-accent);
+  color: #fff;
+  font-size: var(--kr-fs-12, 12px);
+  font-weight: 500;
+  cursor: pointer;
+  transition: filter var(--kr-dur-tap) linear, transform var(--kr-dur-tap) var(--kr-ease-out);
+}
+
+.kr-git-modal__submit-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-0.5px);
+}
+
+.kr-git-modal__submit-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.kr-git-modal__submit-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.kr-git-modal__spin {
+  animation: kr-git-spin 1s linear infinite;
+}
+
+@keyframes kr-git-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-git-modal-overlay,
+  .kr-git-modal,
+  .kr-git-modal__progress-bar-fill,
+  .kr-git-modal__submit-btn {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+/*
+/*
+ * ══ 工作区与自制插件 Git 工作台大盘（宽幅优雅现代版，840px 低饱和列式布局）════
+ */
+.kr-git-roster-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: kr-git-modal-fade-in 0.15s ease-out;
+}
+
+.kr-git-roster-modal {
+  position: relative;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 14px;
+  box-shadow: 0 24px 54px -10px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  width: min(840px, 92vw);
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: kr-git-modal-scale-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 顶部 Header */
+.kr-git-roster-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.kr-git-roster-modal__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kr-git-roster-modal__git-icon {
+  color: var(--dsw-alias-label-primary);
+  flex: none;
+  opacity: 0.85;
+}
+
+.kr-git-roster-modal__title {
+  font-size: var(--kr-fs-title, 13px);
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+/* 顶栏全局状态：低饱和中性微标签 */
+.kr-git-roster-modal__stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+}
+
+.kr-git-roster-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--kr-fs-10-5, 10.5px);
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-weight: 500;
+  line-height: 14px;
+}
+
+.kr-git-roster-stat__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.kr-git-roster-stat--pending {
+  background: color-mix(in srgb, var(--kr-accent) 12%, transparent);
+  color: var(--kr-accent);
+}
+
+.kr-git-roster-stat--conflict {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ef4444) 14%, transparent);
+  color: var(--dsw-alias-state-error-primary, #ef4444);
+}
+
+.kr-git-roster-modal__header-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.kr-git-roster-modal__tool-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  padding: 0;
+  transition: background-color var(--kr-dur-tap) linear, color var(--kr-dur-tap) linear;
+}
+
+.kr-git-roster-modal__tool-btn:hover:not(:disabled) {
+  background: var(--kr-hover-bg);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 分段导航条 (Segmented Control) */
+.kr-git-roster-modal__nav-bar {
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 96%, var(--dsw-alias-border-l2));
+}
+
+.kr-git-roster-segmented {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dsw-alias-border-l2) 40%, transparent);
+  gap: 2px;
+}
+
+.kr-git-roster-segmented__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--kr-fs-11, 11px);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--kr-dur-tap) var(--kr-ease-out);
+  user-select: none;
+}
+
+.kr-git-roster-segmented__btn:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-git-roster-segmented__btn--active {
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.kr-git-roster-segmented__num {
+  font-size: var(--kr-fs-10, 10px);
+  padding: 0 4px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--dsw-alias-border-l1) 30%, transparent);
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.kr-git-roster-segmented__btn--active .kr-git-roster-segmented__num {
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 10%, transparent);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 舒展宽幅列表区 */
+.kr-git-roster-modal__list-area {
+  padding: 6px 14px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.kr-git-roster-modal__state-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 16px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--kr-fs-12, 12px);
+}
+
+/* 列式对齐表格 */
+.kr-git-roster-table {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.kr-git-roster-table__header {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  font-size: var(--kr-fs-10-5, 10.5px);
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+  user-select: none;
+}
+
+.kr-git-roster-table__body {
+  display: flex;
+  flex-direction: column;
+}
+
+.kr-git-roster-item-row {
+  display: flex;
+  align-items: center;
+  padding: 9px 10px;
+  border-radius: 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-border-l2) 40%, transparent);
+  transition: background-color var(--kr-dur-tap) linear;
+}
+
+.kr-git-roster-item-row:last-child {
+  border-bottom: 0;
+}
+
+.kr-git-roster-item-row:hover {
+  background: var(--kr-hover-bg);
+}
+
+/* 列宽分配与样式 */
+.kr-git-roster-col--repo {
+  width: 175px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kr-git-roster-item__name {
+  font-size: var(--kr-fs-body, 12.5px);
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 极简次级分类标签（告别高饱和蓝底） */
+.kr-git-roster-item__tag {
+  font-size: var(--kr-fs-10, 10px);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 500;
+  line-height: 14px;
+}
+
+.kr-git-roster-item__tag--plugin {
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.kr-git-roster-item__tag--workspace {
+  background: color-mix(in srgb, var(--dsw-alias-border-l1) 30%, transparent);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 分支列 */
+.kr-git-roster-col--branch {
+  width: 105px;
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
+.kr-git-roster-item__branch-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--kr-fs-10-5, 10.5px);
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.kr-git-roster-item__dim {
+  color: var(--dsw-alias-label-caption);
+  font-size: var(--kr-fs-11, 11px);
+}
+
+/* 提交详情列（宽幅展开，自适应剩余大空间） */
+.kr-git-roster-col--commit {
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+}
+
+.kr-git-roster-item__commit-cell,
+.kr-git-roster-item__path-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--kr-fs-11, 11px);
+  width: 100%;
+}
+
+.kr-git-roster-item__commit-time {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.kr-git-roster-item__commit-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.kr-git-roster-item__path-cell {
+  color: var(--dsw-alias-label-caption);
+}
+
+/* 状态列：低饱和，告别荧光大绿底与大蓝框 */
+.kr-git-roster-col--status {
+  width: 95px;
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
+.kr-git-status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--kr-fs-10-5, 10.5px);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  line-height: 14px;
+}
+
+.kr-git-status-tag__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.kr-git-status-tag--pending {
+  color: var(--kr-accent);
+  background: color-mix(in srgb, var(--kr-accent) 10%, transparent);
+}
+
+.kr-git-status-tag--clean {
+  color: var(--dsw-alias-label-tertiary);
+  background: transparent;
+}
+
+.kr-git-status-tag--clean .kr-git-status-tag__dot {
+  background: var(--dsw-alias-state-success, #22c55e);
+}
+
+.kr-git-status-tag--conflict {
+  color: var(--dsw-alias-state-error-primary, #ef4444);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ef4444) 12%, transparent);
+}
+
+.kr-git-status-tag--folder {
+  color: var(--dsw-alias-label-caption);
+  background: transparent;
+}
+
+/* 操作列：轻巧微动作胶囊 */
+.kr-git-roster-col--action {
+  width: 80px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.kr-git-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--kr-fs-10-5, 10.5px);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--kr-dur-tap) var(--kr-ease-out);
+}
+
+.kr-git-action-btn:hover {
+  background: var(--kr-hover-bg);
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-border-focus);
+}
+
+.kr-git-action-btn:active {
+  transform: scale(0.96);
+}
+
+.kr-git-roster-modal__spin {
+  animation: kr-git-spin 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-git-roster-overlay,
+  .kr-git-roster-modal,
+  .kr-git-roster-segmented__btn,
+  .kr-git-action-btn {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
  * 注入）。用户原话：「这个球标志放在操作面板的 Seeker 文字右侧」—— 那枚图标说
  * 的是「这个会话正在操作浏览器」，而操作面板正是这个会话的实时状态卡，它就该跟
  * 当前动作待在一起；会话列表那一行是导航，不是状态。

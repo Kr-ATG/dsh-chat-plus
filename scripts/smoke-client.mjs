@@ -3557,8 +3557,11 @@ if (krEnabled) {
   // 所以是一条独立的分类，不并进 memory。
   const tabsBlock = /export const WORKBENCH_TABS: readonly WorkbenchTabMeta\[\] = \[([\s\S]*?)\] as const/.exec(flyoutSrc)
   const tabIds = tabsBlock === null ? [] : [...tabsBlock[1].matchAll(/id: '([a-z]+)'/g)].map(m => m[1])
-  if (tabIds.join(',') !== 'memory,skills,usage,gallery,vault') {
-    reasons.push(`WORKBENCH_TABS 必须是 memory/skills/usage/gallery/vault 五项，实得 [${tabIds.join(', ')}]`)
+  // 「系统提示词」(prompt) 是 2026-10-27 新增的第六类：只读视图；
+  // 「同步设置」(sync) 是新增的第七类：工作台资产云端双向同步。
+  // 它与前六类同源（都从 WORKBENCH_TABS 出），侧栏、浮层、⌘N 直切三处同步生效。
+  if (tabIds.join(',') !== 'memory,skills,usage,gallery,vault,prompt,sync') {
+    reasons.push(`WORKBENCH_TABS 必须是 memory/skills/usage/gallery/vault/prompt/sync 七项，实得 [${tabIds.join(', ')}]`)
   }
   if (!/return 'memory'/.test(flyoutSrc)) {
     reasons.push("readWorkbenchTab 的非法值回落必须是 'memory'")

@@ -285,8 +285,11 @@ else pass('deferred webServer callback executed')
 // 拉到前台（用户：「点击浏览器图标自动进入到ego那个工作空间」）。它挂在
 // running-apps 的延迟注入里、共用同一个常驻 PowerShell 采集器 —— 漏注册的表现
 // 是「点了图标没反应」，界面上同样没有任何报错，只能靠计数断言钉住。
-if (registered.length !== 13) {
-  fail(`expected exactly 13 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
+// system-prompt 是 2026-10-27 新增：操作间「系统提示词」页的只读数据源
+// （assemble 出口抓到的最终快照）。它注册在自己的延迟注入里，漏注册的表现是
+// 「页面永远说取不到快照」，界面上不会报错 —— 计数 + 路径断言一起钉住。
+if (registered.length !== 18) {
+  fail(`expected exactly 18 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
 } else {
   const exacts = registered.filter(spec => spec?.kind === 'exact')
   const prefix = registered.filter(spec => spec?.kind === 'prefix')
@@ -304,6 +307,16 @@ if (registered.length !== 13) {
     fail('missing running-apps route (exact /api/chat-flow/running-apps)')
   } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/browser-activity')) {
     fail('missing browser-activity route (exact /api/chat-flow/browser-activity)')
+  } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/system-prompt')) {
+    fail('missing system-prompt route (exact /api/chat-flow/system-prompt)')
+  } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/git-status')) {
+    fail('missing git-status route (exact /api/chat-flow/git-status)')
+  } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/git-roster')) {
+    fail('missing git-roster route (exact /api/chat-flow/git-roster)')
+  } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/git-commit-message')) {
+    fail('missing git-commit-message route (exact /api/chat-flow/git-commit-message)')
+  } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/git-commit')) {
+    fail('missing git-commit route (exact /api/chat-flow/git-commit)')
   } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/activate-window')) {
     fail('missing activate-window route (exact /api/chat-flow/activate-window) —— '
       + '点浏览器标志切到 ego 窗口就靠它，漏注册等于点了没反应')
@@ -803,10 +816,15 @@ if (registeredCommands.length !== 2) {
     pass(`gate commands registered: /${names.join(', /')} (input hint ${JSON.stringify(registeredCommands[0]?.input?.hint)})`)
   }
 }
-if (assembleListeners.length !== 1) {
-  fail(`expected exactly 1 system-prompt/assemble listener, got ${assembleListeners.length}`)
+// 两条监听是**两个不同职责**，都要在：
+//   1. 工具闸门 —— 出口过滤掉关着的工具组与它们的提示词段；
+//   2. 系统提示词观测（2026-10-27）—— 出口抓最终快照给「操作间 → 系统提示词」页。
+// 计数写死而不是「至少一条」：漏挂一条都是静默失效（闸门失效 = 每轮多烧 3 万 token；
+// 观测失效 = 页面永远取不到快照），两种都不会抛错，只能靠计数钉住。
+if (assembleListeners.length !== 2) {
+  fail(`expected exactly 2 system-prompt/assemble listeners (tools-gate + system-prompt inspector), got ${assembleListeners.length}`)
 } else {
-  pass('gate hooks system-prompt/assemble (registration-layer agnostic)')
+  pass('gate + system-prompt inspector both hook system-prompt/assemble (registration-layer agnostic)')
 }
 
 const gateTest = mod.toolsGateTest

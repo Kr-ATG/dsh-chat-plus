@@ -48,6 +48,13 @@ export const css = {
   rowTail: 'dsh-vault-row-tail',
   rowArrow: 'dsh-vault-row-arrow',
   badgeArchived: 'dsh-vault-badge-archived',
+  rowCategory: 'dsh-vault-row-category',
+  categoryRow: 'dsh-vault-category-row',
+  categoryLabel: 'dsh-vault-category-label',
+  categoryInput: 'dsh-vault-category-input',
+  categoryChip: 'dsh-vault-category-chip',
+  categoryChips: 'dsh-vault-category-chips',
+  categoryFilter: 'dsh-vault-category-filter',
   empty: 'dsh-vault-empty',
   emptyIcon: 'dsh-vault-empty-icon',
   emptyText: 'dsh-vault-empty-text',
@@ -109,24 +116,22 @@ export const css = {
   // ── 底部统计条 ──
   foot: 'dsh-vault-foot',
   footActions: 'dsh-vault-foot-actions',
-  // ── 健康抽屉 ──
-  healthBtn: 'dsh-vault-health-btn',
-  healthBadge: 'dsh-vault-health-badge',
-  healthScore: 'dsh-vault-health-score',
-  healthScoreRing: 'dsh-vault-health-score-ring',
-  healthScoreNum: 'dsh-vault-health-score-num',
-  healthScoreLabel: 'dsh-vault-health-score-label',
-  healthFacts: 'dsh-vault-health-facts',
-  healthFact: 'dsh-vault-health-fact',
-  healthFactNum: 'dsh-vault-health-fact-num',
-  healthGroup: 'dsh-vault-health-group',
-  healthGroupHead: 'dsh-vault-health-group-head',
-  healthSeverity: 'dsh-vault-health-sev',
-  healthIssue: 'dsh-vault-health-issue',
-  healthIssueMain: 'dsh-vault-health-issue-main',
-  healthIssueTitle: 'dsh-vault-health-issue-title',
-  healthIssueMsg: 'dsh-vault-health-issue-msg',
-  healthIssueDetail: 'dsh-vault-health-issue-detail',
+  // ── 到期提醒 ──
+  remindBtn: 'dsh-vault-remind-btn',
+  remindBadge: 'dsh-vault-remind-badge',
+  remindHead: 'dsh-vault-remind-head',
+  remindFacts: 'dsh-vault-remind-facts',
+  remindFact: 'dsh-vault-remind-fact',
+  remindFactNum: 'dsh-vault-remind-fact-num',
+  remindGroup: 'dsh-vault-remind-group',
+  remindGroupHead: 'dsh-vault-remind-group-head',
+  remindLevel: 'dsh-vault-remind-level',
+  remindItem: 'dsh-vault-remind-item',
+  remindItemMain: 'dsh-vault-remind-item-main',
+  remindItemTitle: 'dsh-vault-remind-item-title',
+  remindItemMeta: 'dsh-vault-remind-item-meta',
+  remindItemDays: 'dsh-vault-remind-item-days',
+  remindDue: 'dsh-vault-remind-due',
   // ── 备份与恢复 ──
   backup: 'dsh-vault-backup',
   backupSection: 'dsh-vault-backup-section',
@@ -142,25 +147,9 @@ export const css = {
   uploadStateIcon: 'dsh-vault-upload-state-icon',
   uploadStateText: 'dsh-vault-upload-state-text',
   uploadStateMeta: 'dsh-vault-upload-state-meta',
-  // ── 强口令生成 / 批量轮换 ──
+  // ── 强口令生成（详情页密码字段右侧那枚按钮）──
   genBtn: 'dsh-vault-gen-btn',
   genHint: 'dsh-vault-gen-hint',
-  rotateBlock: 'dsh-vault-rotate-block',
-  rotateBlockHead: 'dsh-vault-rotate-block-head',
-  rotateBlockTitle: 'dsh-vault-rotate-block-title',
-  rotateBtn: 'dsh-vault-rotate-btn',
-  rotateConfirm: 'dsh-vault-rotate-confirm',
-  rotateConfirmTitle: 'dsh-vault-rotate-confirm-title',
-  rotateConfirmText: 'dsh-vault-rotate-confirm-text',
-  rotateConfirmRow: 'dsh-vault-rotate-confirm-row',
-  rotateResult: 'dsh-vault-rotate-result',
-  rotateResultTitle: 'dsh-vault-rotate-result-title',
-  rotateResultRow: 'dsh-vault-rotate-result-row',
-  rotateResultName: 'dsh-vault-rotate-result-name',
-  rotateResultCode: 'dsh-vault-rotate-result-code',
-  rotateResultHint: 'dsh-vault-rotate-result-hint',
-  rotateSkipped: 'dsh-vault-rotate-skipped',
-  rotateSkippedRow: 'dsh-vault-rotate-skipped-row',
   // ── 验证码 ──
   totpBtn: 'dsh-vault-totp-btn',
   totpBox: 'dsh-vault-totp-box',
@@ -390,6 +379,56 @@ const SHEET = `
   height:17px;padding:0 6px;border-radius:var(--v-r-pill);
   font-size:10.5px;font-weight:600;line-height:17px;white-space:nowrap;
   color:var(--v-text-3);background:color-mix(in srgb,var(--v-text-3) 14%,transparent);
+}
+
+/* ── 用途分类（2026-10-27 用户要求「区分什么用途一目了然」）───────────
+   一行里只能有一个视觉重点，所以分类用「浅色底 + 强调色文字」的小胶囊，而
+   不是再画一枚和「已归档」同款的灰色徽标：灰色徽标说的是状态（这条不太一样），
+   彩色胶囊说的是属性（这条干什么用），两者混用会让用户分不清哪个要紧。
+   位置在标题左边、紧跟图标，读的顺序就是「类型 → 用途 → 名字」。 */
+.dsh-vault-row-category{
+  display:inline-flex;align-items:center;flex:none;
+  height:16px;padding:0 6px;margin-right:2px;border-radius:var(--v-r-pill);
+  font-size:10.5px;font-weight:600;line-height:16px;white-space:nowrap;
+  max-width:96px;overflow:hidden;text-overflow:ellipsis;
+  color:var(--v-accent);background:color-mix(in srgb,var(--v-accent) 12%,transparent);
+  vertical-align:1px;
+}
+/* 未分类不画胶囊：一排「未分类」占地方又没有信息量，空着反而看得见「这里没填」。 */
+
+/* 详情里的分类行（标签 + 输入 + 候选胶囊） */
+.dsh-vault-category-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+.dsh-vault-category-label{
+  font-size:11.5px;color:var(--v-text-3);flex:none;
+}
+.dsh-vault-category-input{
+  flex:1;min-width:120px;height:28px;padding:0 9px;box-sizing:border-box;
+  border:1px solid var(--v-border);border-radius:var(--v-r-sm);
+  background:var(--v-card);color:var(--v-text);
+  font-size:12.5px;font-family:inherit;outline:none;
+}
+.dsh-vault-category-input:focus{
+  border-color:var(--v-accent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--v-accent) 12%,transparent);
+}
+.dsh-vault-category-chips{display:flex;flex-wrap:wrap;gap:5px;min-width:0}
+.dsh-vault-category-chip{
+  display:inline-flex;align-items:center;
+  height:22px;padding:0 9px;box-sizing:border-box;border-radius:var(--v-r-pill);
+  border:1px solid var(--v-border);background:transparent;
+  color:var(--v-text-2);font-size:11.5px;font-family:inherit;
+  cursor:pointer;transition:border-color .15s ease,color .15s ease,background .15s ease;
+}
+.dsh-vault-category-chip:hover{border-color:var(--v-accent);color:var(--v-accent)}
+.dsh-vault-category-chip[data-on="1"]{
+  border-color:transparent;color:var(--v-accent);
+  background:color-mix(in srgb,var(--v-accent) 14%,transparent);
+  font-weight:600;
+}
+/* 分类筛选条（分组头上的一行胶囊，只在组内确实有多种分类时出现） */
+.dsh-vault-category-filter{
+  display:flex;flex-wrap:wrap;gap:5px;
+  padding:2px 12px 8px;min-width:0;
 }
 
 /* ── 空态：一句话中文引导（用户明确要求每个场景都给）─────────────── */
@@ -767,11 +806,11 @@ const SHEET = `
 }
 .dsh-vault-foot-actions{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
 
-/* ══ 健康入口（头部那枚按钮）════════════════════════════════════════
-   它显示「待处理条数」，所以不能只是一个图标：数字是这条入口存在的理由。
-   有问题时用警示色（这是页面上唯一允许出现的第二种颜色状态：它表达的是
-   「出事了」，与错误行同一语义），没问题时回到中性。 */
-.dsh-vault-health-btn{
+/* ══ 到期提醒入口（头部那枚按钮）════════════════════════════════════
+   它显示「有几条要到期了」，所以不能只是一个图标：数字是这条入口存在的理由。
+   有东西要处理时用警示色，没有时回到中性——与原来那枚「健康」按钮同一套形态，
+   只是判据从「一堆密码问题」收窄成了「哪几张证 / 哪几张卡快到期了」。 */
+.dsh-vault-remind-btn{
   display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;
   border:1px solid var(--v-border);border-radius:var(--v-r-ctrl);
   background:transparent;color:var(--v-text-2);
@@ -779,18 +818,18 @@ const SHEET = `
   cursor:pointer;white-space:nowrap;
   transition:border-color .15s ease,color .15s ease,background .15s ease;
 }
-.dsh-vault-health-btn:hover{border-color:var(--v-border-2);color:var(--v-text);background:var(--v-soft)}
-.dsh-vault-health-btn[data-tone="warn"]{
+.dsh-vault-remind-btn:hover{border-color:var(--v-border-2);color:var(--v-text);background:var(--v-soft)}
+.dsh-vault-remind-btn[data-tone="warn"]{
   border-color:color-mix(in srgb,var(--v-warn) 40%,transparent);
   color:var(--v-warn);background:color-mix(in srgb,var(--v-warn) 8%,transparent);
 }
-.dsh-vault-health-btn[data-tone="bad"]{
+.dsh-vault-remind-btn[data-tone="bad"]{
   border-color:color-mix(in srgb,var(--v-err) 42%,transparent);
   color:var(--v-err);background:color-mix(in srgb,var(--v-err) 8%,transparent);
 }
 /* 徽标：数字反相（底=语义色、字=卡片底色）。不用 currentColor 做底——
    那样字色与底色同源，深色主题下数字会整块消失。 */
-.dsh-vault-health-badge{
+.dsh-vault-remind-badge{
   display:inline-flex;align-items:center;justify-content:center;
   min-width:17px;height:17px;box-sizing:border-box;padding:0 5px;
   border-radius:var(--v-r-pill);
@@ -798,57 +837,52 @@ const SHEET = `
   font-size:10.5px;font-weight:700;line-height:17px;
   font-variant-numeric:tabular-nums;
 }
-.dsh-vault-health-btn[data-tone="warn"] .dsh-vault-health-badge{background:var(--v-warn);color:var(--v-card)}
-.dsh-vault-health-btn[data-tone="bad"] .dsh-vault-health-badge{background:var(--v-err);color:var(--v-card)}
-/* 全部健康：不显示「0」——一个灰 0 会让人以为有 0 件事要处理（其实是没有
-   这个维度），图标本身已经说明了。 */
-.dsh-vault-health-btn[data-tone="good"] .dsh-vault-health-badge{display:none}
+.dsh-vault-remind-btn[data-tone="warn"] .dsh-vault-remind-badge{background:var(--v-warn);color:var(--v-card)}
+.dsh-vault-remind-btn[data-tone="bad"] .dsh-vault-remind-badge{background:var(--v-err);color:var(--v-card)}
+/* 一条要提醒的都没有：不显示「0」——一个灰 0 会让人以为有 0 件事要处理
+   （其实是没有这个维度），图标本身已经说明了。 */
+.dsh-vault-remind-btn[data-tone="good"] .dsh-vault-remind-badge{display:none}
 
-/* ══ 健康抽屉内容 ══════════════════════════════════════════════════ */
-.dsh-vault-health-score{
-  display:flex;align-items:center;gap:14px;
-  padding:14px;box-sizing:border-box;
+/* ══ 到期提醒窗口 ══════════════════════════════════════════════════
+   与原来那个「密码健康」抽屉的最大区别：这里没有分数、没有严重度排序表、
+   没有一键修。它只回答一个问题——「接下来哪几样东西会过期」。
+   所以视觉上是一个**日程式清单**：一行一件事，右侧是那句「还剩 N 天」。 */
+.dsh-vault-remind-head{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:13px 14px;box-sizing:border-box;
   border:1px solid var(--v-border);border-radius:var(--v-r-card);
   background:var(--v-sunk);
 }
-.dsh-vault-health-score-ring{flex:none;position:relative;width:62px;height:62px}
-.dsh-vault-health-score-ring svg{display:block;transform:rotate(-90deg)}
-.dsh-vault-health-score-num{
-  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-  font-size:19px;font-weight:600;line-height:1;color:var(--v-text);
-  font-variant-numeric:tabular-nums;
-}
-.dsh-vault-health-score-label{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
-.dsh-vault-health-facts{display:flex;flex-wrap:wrap;gap:6px}
-.dsh-vault-health-fact{
+.dsh-vault-remind-facts{display:flex;flex-wrap:wrap;gap:6px}
+.dsh-vault-remind-fact{
   display:inline-flex;align-items:center;gap:5px;
   height:22px;padding:0 9px;box-sizing:border-box;
   border:1px solid var(--v-border);border-radius:var(--v-r-pill);
   font-size:11.5px;line-height:22px;color:var(--v-text-2);
   font-variant-numeric:tabular-nums;
 }
-.dsh-vault-health-fact-num{font-weight:600;color:var(--v-text)}
+.dsh-vault-remind-fact-num{font-weight:600;color:var(--v-text)}
 
-.dsh-vault-health-group{display:flex;flex-direction:column;gap:6px}
-.dsh-vault-health-group-head{
+.dsh-vault-remind-group{display:flex;flex-direction:column;gap:6px}
+.dsh-vault-remind-group-head{
   display:flex;align-items:center;gap:7px;
   font-size:11.5px;font-weight:600;line-height:16px;letter-spacing:.04em;
   color:var(--v-text-3);
 }
-/* 严重度：只靠一枚小圆点 + 文字，不做色块条（一页里有三档严重度，色块会把
-   整个抽屉变成红黄绿灯箱）。 */
-.dsh-vault-health-sev{
+/* 档位：只靠一枚小圆点 + 文字，不做色块条（一页里最多三档，色块会把整个
+   窗口变成红黄绿灯箱）。 */
+.dsh-vault-remind-level{
   display:inline-flex;align-items:center;gap:5px;
   font-size:11px;font-weight:600;line-height:16px;
 }
-.dsh-vault-health-sev::before{
+.dsh-vault-remind-level::before{
   content:"";width:6px;height:6px;border-radius:50%;background:currentColor;
 }
-.dsh-vault-health-sev[data-sev="high"]{color:var(--v-err)}
-.dsh-vault-health-sev[data-sev="medium"]{color:var(--v-warn)}
-.dsh-vault-health-sev[data-sev="low"]{color:var(--v-text-3)}
+.dsh-vault-remind-level[data-level="expired"]{color:var(--v-err)}
+.dsh-vault-remind-level[data-level="soon"]{color:var(--v-warn)}
+.dsh-vault-remind-level[data-level="later"]{color:var(--v-text-3)}
 
-.dsh-vault-health-issue{
+.dsh-vault-remind-item{
   display:flex;align-items:flex-start;gap:9px;
   width:100%;box-sizing:border-box;
   padding:9px 10px;text-align:left;
@@ -857,21 +891,29 @@ const SHEET = `
   cursor:pointer;
   transition:border-color .14s ease,background .14s ease;
 }
-.dsh-vault-health-issue:hover{border-color:var(--v-border-2);background:var(--v-hover)}
-.dsh-vault-health-issue:focus-visible{
+.dsh-vault-remind-item:hover{border-color:var(--v-border-2);background:var(--v-hover)}
+.dsh-vault-remind-item:focus-visible{
   outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--v-accent) 40%,transparent);
 }
-.dsh-vault-health-issue-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.dsh-vault-health-issue-title{
+.dsh-vault-remind-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.dsh-vault-remind-item-title{
   font-size:12.5px;font-weight:500;line-height:18px;color:var(--v-text);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
-.dsh-vault-health-issue-msg{font-size:11.5px;line-height:17px;color:var(--v-text-2)}
-.dsh-vault-health-issue-detail{
+.dsh-vault-remind-item-meta{font-size:11.5px;line-height:17px;color:var(--v-text-2)}
+.dsh-vault-remind-item-days{
+  flex:none;align-self:center;
+  font-size:12px;font-weight:600;line-height:18px;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+.dsh-vault-remind-item-days[data-level="expired"]{color:var(--v-err)}
+.dsh-vault-remind-item-days[data-level="soon"]{color:var(--v-warn)}
+.dsh-vault-remind-item-days[data-level="later"]{color:var(--v-text-2)}
+.dsh-vault-remind-due{
   font-size:11px;line-height:16px;color:var(--v-text-3);
   font-variant-numeric:tabular-nums;
 }
-
 /* ══ 备份与恢复 ═════════════════════════════════════════════════════
    这两块是**救命通道**，所以视觉上要克制但信息必须齐：指纹（可核对）、
    口令（不落盘）、覆盖警告（红）。 */
@@ -961,7 +1003,8 @@ const SHEET = `
 /* ══ 生成按钮（密码字段右侧）════════════════════════════════════════
    与眼睛、验证码按钮并排，用同一档强调色（accent = 可逆动作）：它只把新口令
    填进输入框，**不落库**，用户还得回车 / 点保存才写入，所以浏览态也给这枚按钮。
-   与它形成对照的是 rotate-btn 的 warn 色与确认块的 err 色——那两级才是不可逆的。 */
+   强调色（accent）在本模块的语义是「可逆动作」：这枚按钮只改输入框里的草稿，
+   真正落库仍要用户点保存。 */
 .dsh-vault-gen-btn{
   flex:none;display:inline-flex;align-items:center;gap:4px;
   height:26px;padding:0 9px;
@@ -977,97 +1020,6 @@ const SHEET = `
   flex:1 1 100%;
   font-size:11px;line-height:16px;color:var(--v-text-3);
   font-variant-numeric:tabular-nums;
-}
-
-/* ══ 批量轮换（健康抽屉里的「一键修」）══════════════════════════════
-   这是全模块唯一会给**多条记录**同时写库的动作，视觉上必须与其它条目明显不同：
-   一块独立的带框区域，红边，确认按钮用 danger。 */
-.dsh-vault-rotate-block{
-  display:flex;flex-direction:column;gap:8px;
-  margin-top:2px;padding:11px 12px;box-sizing:border-box;
-  border:1px solid color-mix(in srgb,var(--v-warn) 34%,transparent);
-  border-radius:10px;
-  background:color-mix(in srgb,var(--v-warn) 7%,transparent);
-}
-.dsh-vault-rotate-block-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.dsh-vault-rotate-block-title{
-  flex:1;min-width:0;
-  font-size:12px;line-height:18px;color:var(--v-text-2);
-}
-.dsh-vault-rotate-btn{
-  flex:none;display:inline-flex;align-items:center;gap:5px;
-  height:26px;padding:0 10px;
-  border:1px solid color-mix(in srgb,var(--v-warn) 44%,transparent);
-  border-radius:var(--v-r-pill);
-  background:transparent;color:var(--v-warn);
-  font-family:inherit;font-size:11.5px;font-weight:600;line-height:26px;
-  cursor:pointer;white-space:nowrap;
-  transition:background .14s ease;
-}
-.dsh-vault-rotate-btn:hover:not(:disabled){background:color-mix(in srgb,var(--v-warn) 14%,transparent)}
-.dsh-vault-rotate-btn:disabled{opacity:.5;cursor:default}
-
-/* 二次确认块：把「会立即写入、无法恢复」这句话放大到足以被读到。
-   这一屏是整条链上唯一不可撤销的动作，文案比按钮更重要。 */
-.dsh-vault-rotate-confirm{
-  display:flex;flex-direction:column;gap:9px;
-  padding:12px;box-sizing:border-box;
-  border:1px solid color-mix(in srgb,var(--v-err) 40%,transparent);
-  border-radius:10px;
-  background:color-mix(in srgb,var(--v-err) 9%,transparent);
-}
-.dsh-vault-rotate-confirm-title{
-  font-size:12.5px;font-weight:600;line-height:19px;color:var(--v-err);
-}
-.dsh-vault-rotate-confirm-text{
-  font-size:11.5px;line-height:18px;color:var(--v-text-2);
-}
-.dsh-vault-rotate-confirm-text b{color:var(--v-text);font-weight:600}
-.dsh-vault-rotate-confirm-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-
-/* 结果面板：新密码必须能一眼看清、能复制。这是本功能唯一的产出。 */
-.dsh-vault-rotate-result{
-  display:flex;flex-direction:column;gap:8px;
-  padding:12px;box-sizing:border-box;
-  border:1px solid var(--v-border-2);border-radius:10px;
-  background:var(--v-sunk);
-}
-.dsh-vault-rotate-result-title{
-  font-size:12.5px;font-weight:600;line-height:19px;color:var(--v-text);
-}
-.dsh-vault-rotate-result-row{
-  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
-  padding:7px 0;
-  border-top:1px solid var(--v-border);
-}
-.dsh-vault-rotate-result-row:first-of-type{border-top:none}
-.dsh-vault-rotate-result-name{
-  flex:1 1 120px;min-width:0;
-  font-size:12px;line-height:18px;color:var(--v-text);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-}
-.dsh-vault-rotate-result-code{
-  flex:none;
-  padding:2px 7px;
-  border-radius:6px;
-  background:var(--v-soft);
-  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  font-size:12px;line-height:18px;color:var(--v-text);
-  letter-spacing:.4px;
-  cursor:pointer;
-  user-select:all;
-  word-break:break-all;
-}
-.dsh-vault-rotate-result-hint{
-  flex:1 1 100%;
-  font-size:11px;line-height:16px;color:var(--v-text-3);
-}
-.dsh-vault-rotate-skipped{
-  display:flex;flex-direction:column;gap:5px;
-}
-.dsh-vault-rotate-skipped-row{
-  display:flex;align-items:flex-start;gap:6px;
-  font-size:11.5px;line-height:17px;color:var(--v-text-3);
 }
 
 /* ══ TOTP 验证码 ════════════════════════════════════════════════════
@@ -1123,8 +1075,8 @@ const SHEET = `
   .dsh-vault-skeleton-row{animation:none!important}
   .dsh-vault-row,.dsh-vault-row-arrow,.dsh-vault-ghost-btn,.dsh-vault-group-add,
   .dsh-vault-photo-upload,.dsh-vault-btn,.dsh-vault-field-eye,.dsh-vault-photo-del,
-  .dsh-vault-health-btn,.dsh-vault-health-issue,.dsh-vault-totp-btn,
-  .dsh-vault-backup-input,.dsh-vault-gen-btn,.dsh-vault-rotate-btn{
+  .dsh-vault-remind-btn,.dsh-vault-remind-item,.dsh-vault-totp-btn,
+  .dsh-vault-backup-input,.dsh-vault-gen-btn{
     transition:none!important;
   }
 }

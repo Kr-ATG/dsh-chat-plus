@@ -130,19 +130,43 @@ assert(unknown.status === 404 && unknown.json !== null && unknown.json.ok === fa
 assert(typeof unknown.json.error === 'string' && unknown.json.error.includes('/nope'),
   'the 404 names the path it could not route')
 
-// ── 3. 健康审计 ─────────────────────────────────────────────────────────
-const health0 = await call('/health')
-assert(health0.status === 200 && health0.json.ok === true, 'GET /health answers ok')
-assert(health0.json.report.score === 100, 'an empty vault scores 100')
+// ── 3. 到期提醒 ─────────────────────────────────────────────────────────
+/* 原来这里是 /health 审计路由（弱口令 / 复用 / 分数）。用户 2026-10-27 要求删掉
+ * 那一整套，只留「会自己变坏」的日期提醒，于是路由改成 /reminders，断言也换成
+ * 日期语义：空库没有提醒、90 天内会报、已过期会报、响应里不出现任何明文。 */
+const remind0 = await call('/reminders')
+assert(remind0.status === 200 && remind0.json.ok === true, 'GET /reminders answers ok')
+assert(Array.isArray(remind0.json.report.reminders) && remind0.json.report.reminders.length === 0,
+  'an empty vault has no reminders')
 
+const soonDate = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+const soonRecord = await call('/record', { method: 'POST', body: {
+  scene: 'document', title: '路由测试 · 护照',
+  fields: [{ key: 'expiry', label: '到期日', type: 'date', value: soonDate }],
+} })
+const remind1 = await call('/reminders')
+assert(remind1.json.report.reminders.some((item) => item.recordId === soonRecord.json.record.id),
+  'GET /reminders lists the document expiring in 10 days')
+const remindItem = remind1.json.report.reminders.find((item) => item.recordId === soonRecord.json.record.id)
+assert(remindItem.days > 0 && remindItem.days <= 90, 'the reminder carries the remaining days')
+assert(remindItem.fieldLabel === '到期日' && remindItem.due === soonDate,
+  'the reminder carries the field label and the exact date so the user can verify it')
+assert(remindItem.expired === false, 'a future date is not marked expired')
+
+// 密码类记录绝不出现在提醒里：那一整套审计已经不在了，别再借道提醒复活它。
 await call('/record', { method: 'POST', body: {
   scene: 'accounts', title: '路由测试 · 弱口令',
   fields: [{ key: 'password', label: '密码', type: 'secret', value: '123456' }],
 } })
-const health1 = await call('/health')
-assert(health1.json.report.issues.some((i) => i.kind === 'weak-password'),
-  'GET /health flags the weak password that was just saved')
-assert(!health1.text.includes('123456'), 'the health response never carries the password itself')
+const remind2 = await call('/reminders')
+assert(!remind2.json.report.reminders.some((item) => item.title === '路由测试 · 弱口令'),
+  'a record with no date field never shows up in the reminder list')
+assert(!remind2.text.includes('123456'), 'the reminder response never carries a secret value')
+// 已删掉的那几条路由必须真的不存在（否则等于留着半套旧功能）。
+for (const gone of ['/health', '/rotate']) {
+  const response = await call(gone)
+  assert(response.status === 404, 'the retired route ' + gone + ' is really gone')
+}
 
 // ── 4. 密钥指纹 ─────────────────────────────────────────────────────────
 const keyInfo = await call('/key-info')
@@ -235,30 +259,15 @@ assert(pwdLong.json.generated.length === 128, 'a too-long request is clamped dow
 const pwdNoSym = await call('/password', { method: 'POST', body: { symbols: false, length: 40 } })
 assert(!/[!#$%&*+\-=?@^_]/.test(pwdNoSym.json.generated.password), 'symbols:false really removes every symbol')
 assert(pwd1.json.generated.entropyBits > 80, 'the reported entropy is high enough to be meaningful')
-// ── 10. 批量换密：审计 → 一键修的闭环 ──────────────────────────────────
-const mk = async (title, pw) => {
-  const r = await call('/record', { method: 'POST', body: { scene: 'accounts', title, fields: [{ key: 'password', label: '密码', type: 'secret', value: pw }] } })
-  return r.json.record.id
-}
-const rotateA = await mk('复用站点 A', 'same-password-123')
-const rotateB = await mk('复用站点 B', 'same-password-123')
-const rot = await call('/rotate', { method: 'POST', body: { ids: [rotateA, rotateB] } })
-assert(rot.status === 200 && rot.json.ok === true, 'POST /rotate succeeds')
-assert(rot.json.rotated.length === 2, 'both records were rotated')
-assert(rot.json.rotated[0].password !== rot.json.rotated[1].password, 'each record gets its OWN new password')
-assert(rot.json.rotated.every((item) => item.password !== 'same-password-123'), 'the reused password is really gone')
-assert((rot.headers.get('cache-control') ?? '') === 'no-store', 'the rotated passwords are never cached')
-assert(rot.json.rotated.every((item) => item.password.length >= 12), 'rotated passwords are long enough')
+// ── 10. 批量换密已随健康审计一起删除 ──────────────────────────────────
 /*
- * 换完之后健康报告里那条复用问题必须消失 —— 这是整条闭环唯一的验收标准。
+ * /rotate 的唯一用途是「审计发现一组复用密码 → 一键换成互不相同的强口令」。
+ * 审计按用户要求删掉之后，这条路由就没有入口了；留着它等于留一个「一次改写
+ * 最多 50 条记录密码」的口子，而页面上没有任何东西能触发它。
+ * 所以这里反过来断言它**不存在**，防止将来有人照着旧文档把它加回来。
  */
-const healthAfterRotate = await call('/health')
-const stillReused = healthAfterRotate.json.report.issues.filter((i) => i.kind === 'reused-password')
-assert(stillReused.length === 0, 'the reuse issue disappears from the health report after rotating')
-const rotatedStay = await call('/reveal', { method: 'POST', body: { id: rotateA, key: 'password' } })
-assert(rotatedStay.json.value === rot.json.rotated.find((i) => i.id === rotateA).password, 'the rotated password is the one actually stored')
-const noIds = await call('/rotate', { method: 'POST', body: {} })
-assert(noIds.status === 400, 'rotate without ids is refused')
+const rotGone = await call('/rotate', { method: 'POST', body: { ids: ['x'] } })
+assert(rotGone.status === 404, 'POST /rotate is gone with the health audit it served')
 // ── 云端同步路由（/sync 系列）───────────────────────────────────────────
 /* 这一组路由是**唯一会主动向插件外部发请求**的地方，所以除了「通不通」，还要
  * 验三件在真实使用里会出事的东西：

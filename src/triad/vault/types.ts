@@ -35,8 +35,13 @@
  * pending 字段与配置里的 trustAutoUpdates 一起删除；老库里已经挂着的标记由
  * store.migrate 的 v1→v2 逐条清掉（不清的话老记录会永远挂着，而页面已经没有
  * 任何确认入口，标记就成了纯噪音）。
+ *
+ * v3（2026-10-27）：记录加 category（用途分类）。用户要求「给账号密码这个组加个
+ * 分类，用于区分什么用途一目了然」——分组（scene）回答「这是什么类型的信息」，
+ * 分类（category）回答「这条是干什么用的」（服务器运维 / AI 服务 / 开发工具…）。
+ * 纯新增字段，老记录缺省为空串（= 未分类），migrate 只补默认值、不猜内容。
  */
-export const VAULT_SCHEMA_VERSION = 2
+export const VAULT_SCHEMA_VERSION = 3
 
 /**
  * 敏感字段在 HTTP 响应里的掩码（**客户端与 host 必须用同一个字面量**）。
@@ -208,6 +213,17 @@ export interface VaultRecord {
   title: string
   /** 副标题（手机号后四位、卡组织；可缺省）。 */
   subtitle?: string
+  /**
+   * 用途分类（「服务器运维」「AI 服务」…；可缺省 = 未分类）。
+   *
+   * 与 scene 正交：scene 是**分组**（这条信息是什么类型：账号 / 卡 / 证件），
+   * category 是**用途**（这条信息拿来干什么）。用户 2026-10-27 的要求是
+   * 「区分什么用途一目了然」——分组头已经说明类型了，用途得在记录行上直接看得见，
+   * 所以它是记录级字段而不是又一个 scene：scene 是抽屉式的单选导航，每加一个
+   * 就多一张分组卡；用途是横切维度（同一台 VPS 的账号、它的 SSH 密钥、它的
+   * 面板密码都算「服务器运维」），塞进 scene 会把一条实体拆散到几个分组里。
+   */
+  category?: string
   /** 字段列表（顺序 = 页面显示顺序）。 */
   fields: VaultField[]
   /** 照片。 */
@@ -263,6 +279,15 @@ export interface VaultScene {
   builtin: boolean
   /** 字段模板（新建记录时预填，用户可增删）。 */
   fieldTemplate: Array<Pick<VaultField, 'key' | 'label' | 'type' | 'sensitive'>>
+  /**
+   * 用途分类的建议清单（页面下拉的候选，用户仍可自由输入新值）。
+   *
+   * 为什么放在场景上而不是全局一份：分类的语汇是**按分组不同**的——账号密码
+   * 里是「服务器运维 / AI 服务 / 开发工具」，证件里是「本人 / 家属」，支付里
+   * 是「日常消费 / 订阅」。全局一份会让「本人」出现在账号密码的下拉里。
+   * 缺省空数组 = 这个场景还没配建议（页面只给自由输入）。
+   */
+  categories?: string[]
   /** 是否以照片为主（证件类 true，只影响页面按钮提示）。 */
   photoFirst?: boolean
 }
@@ -275,6 +300,10 @@ export const DEFAULT_SCENES: readonly VaultScene[] = [
     desc: '网站的账户与密码',
     order: 10,
     builtin: true,
+    // 用途语汇（用户 2026-10-27 要求「区分什么用途一目了然」）。顺序按常见度排，
+    // 前几个是这台机器上真实在用的：服务器运维（VPS / 云主机）、AI 服务（模型
+    // 网关 / 订阅）、开发工具（GitHub / 包管理器）。
+    categories: ['服务器运维', 'AI 服务', '开发工具', '社交账号', '购物与支付', '工作协作', '娱乐订阅', '域名与证书'],
     fieldTemplate: [
       { key: 'username', label: '用户名', type: 'text' },
       { key: 'password', label: '密码', type: 'secret' },
@@ -288,6 +317,7 @@ export const DEFAULT_SCENES: readonly VaultScene[] = [
     desc: '邮箱账户、二次验证',
     order: 20,
     builtin: true,
+    categories: ['主邮箱', '工作邮箱', '注册用小号', '恢复邮箱'],
     fieldTemplate: [
       { key: 'address', label: '邮箱地址', type: 'email' },
       { key: 'password', label: '密码', type: 'secret' },
@@ -301,6 +331,7 @@ export const DEFAULT_SCENES: readonly VaultScene[] = [
     desc: '银行卡、信用卡、会员卡',
     order: 30,
     builtin: true,
+    categories: ['日常消费', '订阅扣费', '境外汇款', '储蓄'],
     fieldTemplate: [
       { key: 'number', label: '卡号', type: 'text', sensitive: true },
       { key: 'holder', label: '持卡人', type: 'text' },
@@ -314,6 +345,7 @@ export const DEFAULT_SCENES: readonly VaultScene[] = [
     desc: '电话、地址、社交账号',
     order: 40,
     builtin: true,
+    categories: ['本人', '家人', '工作', '紧急联系'],
     fieldTemplate: [
       { key: 'phone', label: '电话', type: 'phone' },
       { key: 'address', label: '地址', type: 'text' },
@@ -327,6 +359,7 @@ export const DEFAULT_SCENES: readonly VaultScene[] = [
     order: 50,
     builtin: true,
     photoFirst: true,
+    categories: ['本人', '家属', '出入境', '职业资质'],
     fieldTemplate: [
       { key: 'number', label: '证件号码', type: 'text', sensitive: true },
       { key: 'name', label: '姓名', type: 'text' },
@@ -499,6 +532,74 @@ export function publicVaultConfig(config: VaultConfig): Partial<VaultConfig> {
 }
 
 /* ───────────────────────────── 工具函数 ───────────────────────────── */
+
+/**
+ * 用途分类的归一化（**唯一入口**，页面 / 抽取 / 导入都走它）。
+ *
+ * 归一化只做三件事：去首尾空白、压缩内部空白、截断过长值。刻意**不做同义词
+ * 归并**（「运维」→「服务器运维」这类）：分类是给人看的自由标签，猜错比不猜
+ * 更糟——用户写了「运维」，页面就显示「运维」，而不是自作主张改成别的词。
+ * 真正的收敛靠场景的 categories 建议清单（下拉里已有的直接点选）。
+ *
+ * 上限 24 字：分类是要塞进列表行徽标的，再长就撑破一行；而且它会进注入上下文，
+ * 一段超长文本在这里没有信息量。
+ */
+export const VAULT_CATEGORY_MAX = 24
+
+export function normalizeCategory(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const text = value.replace(/\s+/g, ' ').trim()
+  if (text === '') return ''
+  return text.length > VAULT_CATEGORY_MAX ? text.slice(0, VAULT_CATEGORY_MAX) : text
+}
+
+/**
+ * 某个场景的分类建议清单（去重、去空、保持定义顺序）。
+ *
+ * 页面下拉用它，抽取 prompt 也用它——两边必须同源，否则模型报的分类永远
+ * 不在用户看到的候选里，用户就得每次都手输。
+ */
+export function sceneCategories(scene: VaultScene | undefined): string[] {
+  if (scene === undefined || !Array.isArray(scene.categories)) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of scene.categories) {
+    const value = normalizeCategory(raw)
+    if (value === '' || seen.has(value)) continue
+    seen.add(value)
+    out.push(value)
+  }
+  return out
+}
+
+/**
+ * 一个分组里实际在用的分类（建议清单 + 已有记录里出现过的，按出现次数降序）。
+ *
+ * 为什么要把「已有记录里出现过的」也并进来：用户手输过一次「家庭NAS」之后，
+ * 下一次新建同组记录时它就该出现在下拉里，而不是要再手输一遍。
+ */
+export function collectCategories(records: VaultRecord[], scene: VaultScene | undefined): string[] {
+  const counts = new Map<string, number>()
+  for (const value of sceneCategories(scene)) counts.set(value, 0)
+  for (const record of records) {
+    const value = normalizeCategory(record.category)
+    if (value === '') continue
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+  }
+  const suggested = new Set(sceneCategories(scene))
+  return [...counts.entries()]
+    .sort((a, b) => {
+      // 建议清单里的排在前面（保持清单顺序），其余按使用次数降序。
+      const ai = suggested.has(a[0]) ? 0 : 1
+      const bi = suggested.has(b[0]) ? 0 : 1
+      if (ai !== bi) return ai - bi
+      if (ai === 0) {
+        return sceneCategories(scene).indexOf(a[0]) - sceneCategories(scene).indexOf(b[0])
+      }
+      return b[1] - a[1]
+    })
+    .map(([value]) => value)
+}
 
 /**
  * 字段是否按敏感处理。
