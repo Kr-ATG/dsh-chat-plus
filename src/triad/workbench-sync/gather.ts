@@ -47,16 +47,17 @@ export interface GatheredWorkbenchPayload {
   skills?: GatheredSkills
 }
 
-/** 递归统计目录大小。 */
-export async function getDirSize(dirPath: string): Promise<number> {
+/** 递归统计目录大小（支持忽略以 . 开头的隐藏目录/回收站）。 */
+export async function getDirSize(dirPath: string, ignoreHidden = false): Promise<number> {
   if (!existsSync(dirPath)) return 0
   let total = 0
   try {
     const entries = await readdir(dirPath, { withFileTypes: true })
     for (const entry of entries) {
+      if (ignoreHidden && entry.name.startsWith('.')) continue
       const full = join(dirPath, entry.name)
       if (entry.isDirectory()) {
-        total += await getDirSize(full)
+        total += await getDirSize(full, ignoreHidden)
       } else if (entry.isFile()) {
         const s = await stat(full)
         total += s.size
@@ -68,18 +69,50 @@ export async function getDirSize(dirPath: string): Promise<number> {
   return total
 }
 
-/** 获取各项工作台资产的体积。 */
+/** 精准统计纯净核心业务资产体积（排除同步运行历史账本、审计追加日志与回收站，保持数据无变动时体积绝对恒定）。 */
 export async function getWorkbenchSizes(): Promise<{
   vaultBytes: number
   memoryBytes: number
   skillsBytes: number
   totalBytes: number
 }> {
-  const [vaultBytes, memoryBytes, skillsBytes] = await Promise.all([
-    getDirSize(vaultHome()),
-    getDirSize(memoryHome()),
-    getDirSize(skillsHome()),
-  ])
+  // 1. 档案：vault.json + key + blobs/（排除 store/workbench-sync.json 运行历史与 audit.jsonl 审计日志）
+  let vaultBytes = 0
+  const vRoot = vaultHome()
+  if (existsSync(join(vRoot, 'vault.json'))) {
+    vaultBytes += (await stat(join(vRoot, 'vault.json')).catch(() => ({ size: 0 }))).size
+  }
+  if (existsSync(join(vRoot, 'key'))) {
+    vaultBytes += (await stat(join(vRoot, 'key')).catch(() => ({ size: 0 }))).size
+  }
+  const blobsDir = join(vRoot, 'blobs')
+  if (existsSync(blobsDir)) {
+    vaultBytes += await getDirSize(blobsDir, true)
+  }
+
+  // 2. 记忆：entries.json + state.json + projects/（排除日常运行追加的 changes/*.jsonl）
+  let memoryBytes = 0
+  const mRoot = memoryHome()
+  const entriesFile = join(mRoot, 'store', 'entries.json')
+  const stateFile = join(mRoot, 'store', 'state.json')
+  if (existsSync(entriesFile)) {
+    memoryBytes += (await stat(entriesFile).catch(() => ({ size: 0 }))).size
+  }
+  if (existsSync(stateFile)) {
+    memoryBytes += (await stat(stateFile).catch(() => ({ size: 0 }))).size
+  }
+  const projectsDir = join(mRoot, 'projects')
+  if (existsSync(projectsDir)) {
+    memoryBytes += await getDirSize(projectsDir, true)
+  }
+
+  // 3. 技能：skills/ 目录下的自定义技能（排除 .trash 回收站）
+  let skillsBytes = 0
+  const sRoot = skillsHome()
+  if (existsSync(sRoot)) {
+    skillsBytes += await getDirSize(sRoot, true)
+  }
+
   return {
     vaultBytes,
     memoryBytes,
@@ -153,11 +186,13 @@ async function gatherMemory(): Promise<GatheredMemory> {
   return { entriesJson, stateJson, projects }
 }
 
-/** 递归收集目录下的所有文件。 */
+/** 递归收集目录下的所有文件（自动排除以 . 开头的隐藏目录/回收站/系统隐藏文件）。 */
 async function collectFilesRecursively(dir: string, baseDir: string, out: Record<string, string>): Promise<void> {
   if (!existsSync(dir)) return
   const entries = await readdir(dir, { withFileTypes: true })
   for (const entry of entries) {
+    // 排除以 . 开头的隐藏目录（如 .trash, .git 等）与隐藏文件
+    if (entry.name.startsWith('.')) continue
     const full = join(dir, entry.name)
     if (entry.isDirectory()) {
       await collectFilesRecursively(full, baseDir, out)
