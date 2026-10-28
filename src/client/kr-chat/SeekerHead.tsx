@@ -6,8 +6,8 @@
  * 2026-10-25 用户要求：「新对话页面的上面放上我们这个东西」—— 新对话（空白 Hero
  * 态）也要有这张卡头，让用户在发第一条消息之前就能看到"她在这儿"。
  *
- * 但卡头不能复制两份：它包含立绘、浏览器标志、按钟点轮换的空闲文案、齿轮与邮箱
- * 两枚动作按钮（还带着 e2e 依赖的 id）。两份必然分叉 —— 改一处忘了另一处，
+ * 但卡头不能复制两份：它包含立绘、浏览器标志、按钟点轮换的空闲文案、Git / 邮箱 /
+ * 齿轮三枚动作按钮（还带着 e2e 依赖的 id）。两份必然分叉 —— 改一处忘了另一处，
  * 表现是"新对话页的图标是旧的"这类没人会想到去查的 bug。
  *
  * 所以把卡头抽成这个组件，操作面板卡与新对话页共用同一份。
@@ -28,10 +28,11 @@ import { idleClipFor, type MotionClipId } from './motion-clips.ts'
 import type { StageMode } from './stage-mode.ts'
 import { activateBrowserWindow } from '../browser-flag/activate.ts'
 import { browserFlagTitle, type BrowserActivitySession } from '../browser-flag/store.ts'
+import { workspaceCwdOf } from '../client-ctx.ts'
 import { getPanelSettingsStore } from './panel-settings-store.ts'
 import { getMailDrawerStore } from './mail-drawer-store.ts'
 import { getMailUnreadStore } from './mail-unread-store.ts'
-import { getGitRosterStore } from './git-roster-store.ts'
+import { getGitRosterStore, useGitRosterSnapshot } from './git-roster-store.ts'
 import { SeekerGitStatus } from './SeekerGitStatus.tsx'
 import { GitRosterModal } from './GitRosterModal.tsx'
 import { useFeature } from '../features/gate.tsx'
@@ -88,7 +89,7 @@ export interface SeekerHeadProps {
   /** 工作区根目录（优先）。 */
   readonly cwd?: string
   /**
-   * 是否渲染右上角那两枚动作按钮（齿轮 + 邮箱）。默认 true。
+   * 是否渲染右上角那三枚动作按钮（Git / 邮箱 / 齿轮）。默认 true。
    *
    * **新对话页必须传 false**（2026-10-25 修）：那两枚按钮带固定 id
    * （`kr-panel-settings-btn` / `kr-mail-btn`），而新对话页的 Hero 卡头是**常驻
@@ -186,12 +187,24 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
     void unreadStore.checkUnread(false)
   }, [mailOn, unreadStore])
 
+  /*
+   * Git 未提交项目角标（2026-10-29 用户要求：Git 图标要像邮箱按钮一样提示
+   * 「有多少个 Git 项目没有提交」）。
+   *
+   * 数字取 **Git 大盘里有未提交改动的仓库个数**（工作区 + 自制插件）：
+   * 一个仓库改了 11 个文件也只算 1，不是文件条数。当前工作区本身不是 Git
+   * 仓库时（例如 D:\AI\Dsh 这种多插件工作区），仍能显示各插件仓库里有
+   * 未提交改动的项目数，不会整枚消失。
+   *
+   * 数据走共享的 git-roster-store：角标与大盘弹窗共用同一份快照、同一个
+   * 45 秒轮询（/api/chat-flow/git-roster 会逐个仓库跑 git status，不能让
+   * 两处各轮一遍）。view.git-status 关闭时不订阅，store 内也不会启动定时器。
+   */
+  const resolvedCwd = cwd ?? workspaceCwdOf(sessionId)
+  const gitRosterSnapshot = useGitRosterSnapshot(chrome && gitStatusOn)
+  const gitDirtyRepoCount = gitRosterSnapshot.dirtyRepoCount
+  const gitRosterOpen = gitRosterSnapshot.open
   const gitRosterStore = getGitRosterStore()
-  const gitRosterOpen = useSyncExternalStore(
-    (cb) => gitRosterStore.subscribe(cb),
-    () => gitRosterStore.open,
-    () => gitRosterStore.open,
-  )
 
   /*
    * 点浏览器标志 → 把那个窗口拉到前台（2026-10-25 用户要求）。
@@ -344,19 +357,29 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
           type="button"
           id="kr-git-roster-btn"
           className="kr-plain-head__tool"
-          title="工作区与自制插件 Git 大盘"
-          aria-label="工作区与自制插件 Git 大盘"
+          title={gitDirtyRepoCount > 0 ? `工作区与自制插件 Git 大盘 · ${gitDirtyRepoCount} 个项目有未提交改动` : '工作区与自制插件 Git 大盘'}
+          aria-label={gitDirtyRepoCount > 0 ? `工作区与自制插件 Git 大盘，${gitDirtyRepoCount} 个项目有未提交改动` : '工作区与自制插件 Git 大盘'}
           aria-expanded={gitRosterOpen}
           data-open={gitRosterOpen || undefined}
+          data-dirty={gitDirtyRepoCount > 0 || undefined}
           onClick={(event) => {
             event.stopPropagation()
             gitRosterStore.toggle()
           }}
         >
-          {/* Git 官方经典菱形 Logo（正统 Git SCM 矢量） */}
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M23.546 10.93L13.067.452a1.5 1.5 0 0 0-2.126 0L8.808 2.585l3.247 3.248a1.782 1.782 0 0 1 2.25 2.252l3.125 3.125a1.784 1.784 0 1 1-.95.952l-2.91-2.91v4.542a1.783 1.783 0 1 1-1.34 0V8.895a1.78 1.78 0 0 1-.986-.986L7.99 4.656.454 12.193a1.5 1.5 0 0 0 0 2.126l10.479 10.478a1.5 1.5 0 0 0 2.126 0l10.487-10.487a1.5 1.5 0 0 0 0-2.126l.002-.002z" />
+          {/*
+           * Git 分支图标（2026-10-29 按用户提供的图二替换原来的菱形 Logo）：
+           * 两个节点 + 一条分支线，语义是「分支 / 提交历史」，与 Git 大盘入口一致。
+           * 纯手写内联 SVG（仓库硬约束，禁止外部图标库）。
+           */}
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" data-git-branch-icon="true">
+            <path d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 8a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0-9a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z" />
           </svg>
+          {gitDirtyRepoCount > 0 && (
+            <span className="kr-plain-head__badge" data-count={gitDirtyRepoCount} data-kind="git-dirty-repos" aria-hidden="true">
+              {gitDirtyRepoCount > 99 ? '99+' : gitDirtyRepoCount}
+            </span>
+          )}
         </button>
         )}
         {mailOn && (
@@ -382,6 +405,7 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
             <span
               className="kr-plain-head__badge"
               data-count={unreadCount}
+              data-kind="mail-unread"
               aria-hidden="true"
             >
               {unreadCount > 99 ? '99+' : unreadCount}{unreadHasMore && unreadCount <= 99 ? '+' : ''}
@@ -417,7 +441,7 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
           </svg>
         </button>
       </div>
-      {gitStatusOn && <SeekerGitStatus sessionId={sessionId} cwd={cwd} />}
+      {gitStatusOn && <SeekerGitStatus sessionId={sessionId} cwd={resolvedCwd} />}
       {gitStatusOn && <GitRosterModal />}
       </>
       )}

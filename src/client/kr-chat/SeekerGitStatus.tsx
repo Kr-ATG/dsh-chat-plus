@@ -15,42 +15,19 @@
  * @module
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import type { ReactElement, MouseEvent } from 'react'
 import { getService, workspaceCwdOf } from '../client-ctx.ts'
 import { GitCommitModal } from './GitCommitModal.tsx'
+import { getGitRosterStore } from './git-roster-store.ts'
+import { refreshGitStatus, useGitStatusSnapshot } from './git-status-store.ts'
+import type { GitStatusData } from './git-status-types.ts'
 
-export interface GitCommitInfo {
-  readonly timestamp: number
-  readonly relative: string
-  readonly subject: string
-  readonly hash: string
-  readonly dateIso: string
-}
-
-export interface GitStatusData {
-  readonly ok: boolean
-  readonly isGit: boolean
-  readonly cwd?: string
-  readonly branch?: string
-  readonly lastCommit?: GitCommitInfo
-  readonly pendingCount: number
-  readonly stagedCount: number
-  readonly unstagedCount: number
-  readonly clean: boolean
-  readonly pendingFiles?: readonly string[]
-  readonly changes?: readonly {
-    readonly path: string
-    readonly status: 'M' | 'A' | 'D' | 'R' | '?' | 'U'
-    readonly rawCode: string
-  }[]
-  readonly diffStat?: string
-  readonly needsMerge?: boolean
-  readonly mergeReason?: 'conflict' | 'behind' | 'merging'
-  readonly aheadCount?: number
-  readonly behindCount?: number
-  readonly error?: string
-}
+/**
+ * 兼容旧导入路径：GitCommitInfo / GitStatusData 已搬到 git-status-types.ts，
+ * 由状态 store 与组件共用（避免 store ↔ 组件循环 import）。
+ */
+export type { GitCommitInfo, GitStatusData } from './git-status-types.ts'
 
 export interface SeekerGitStatusProps {
   /** 当前会话 ID（用来解析工作区根目录）。 */
@@ -174,49 +151,32 @@ export function startCommitSession(data: GitStatusData, workspaceCwd?: string): 
  * Seeker 卡头右侧 Git 状态小徽标。
  */
 export function SeekerGitStatus({ sessionId, cwd: explicitCwd }: SeekerGitStatusProps): ReactElement | null {
-  const [data, setData] = useState<GitStatusData | null>(null)
-  const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
-  const timerRef = useRef<number>(0)
 
   const resolvedCwd = explicitCwd ?? workspaceCwdOf(sessionId)
 
+  /*
+   * Git 状态由共享 store 统一拉取（2026-10-29）。
+   *
+   * 这张微组件与 GitCommitModal 共用同一份**单仓库**状态（git-status-store）；
+   * 卡头 Git 图标的角标则取 git-roster-store 的「大盘待提交合计」（工作区 +
+   * 自制插件）。两者职责不同：微组件回答「当前工作区怎样」，角标回答「所有
+   * 仓库一共还有多少没提交」。提交成功后 fetchStatus 会把两边一起刷新。
+   *
+   * store 的引用计数保证只有一个订阅者时它才轮询，最后一个离开才停。原先
+   * 这里自己 setInterval + setData，若角标再加一份就会同页请求两遍
+   * /api/chat-flow/git-status（host 每次要跑 6~8 条 git 子命令）。
+   */
+  const snapshot = useGitStatusSnapshot(resolvedCwd, true)
+  const data = snapshot.data
   const fetchStatus = useCallback(() => {
-    const query = resolvedCwd ? `?cwd=${encodeURIComponent(resolvedCwd)}` : ''
-    setLoading(true)
-    fetch(`/api/chat-flow/git-status${query}`, {
-      method: 'GET',
-      headers: { accept: 'application/json' },
-      cache: 'no-store',
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json() as Promise<GitStatusPayloadLike>
-      })
-      .then((json) => {
-        if (json && json.ok) {
-          setData(json as GitStatusData)
-        } else {
-          setData(null)
-        }
-      })
-      .catch(() => {
-        setData(null)
-      })
-      .finally(() => {
-        setLoading(false)
-      })
+    void refreshGitStatus(resolvedCwd, true)
+    // 表单提交完成后，卡头 Git 图标上的「大盘待提交合计」也要立即跟着掉。
+    // 单仓库 store 与大盘 store 是两份数据（后者覆盖所有插件仓库），只刷前者
+    // 会让角标停在旧数字上，最长要等 45 秒轮询才恢复。
+    void getGitRosterStore().refresh(true)
   }, [resolvedCwd])
-
-  useEffect(() => {
-    fetchStatus()
-    // 15 秒轮询一次保持提交时间与状态最新
-    timerRef.current = window.setInterval(fetchStatus, 15000)
-    return () => {
-      if (timerRef.current !== 0) window.clearInterval(timerRef.current)
-    }
-  }, [fetchStatus])
 
   const onCommitClick = useCallback((event: MouseEvent) => {
     event.stopPropagation()
@@ -346,10 +306,4 @@ export function SeekerGitStatus({ sessionId, cwd: explicitCwd }: SeekerGitStatus
       />
     </div>
   )
-}
-
-interface GitStatusPayloadLike {
-  ok?: boolean
-  isGit?: boolean
-  [key: string]: unknown
 }

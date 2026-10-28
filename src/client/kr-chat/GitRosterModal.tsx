@@ -13,36 +13,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement, MouseEvent } from 'react'
 import { getService } from '../client-ctx.ts'
-import { getGitRosterStore } from './git-roster-store.ts'
+import { getGitRosterStore, useGitRosterSnapshot } from './git-roster-store.ts'
+import type { GitRosterItem } from './git-roster-store.ts'
 
-export interface GitRosterItem {
-  readonly name: string
-  readonly path: string
-  readonly category: 'workspace' | 'plugin'
-  readonly isGit: boolean
-  readonly branch?: string
-  readonly lastCommit?: {
-    readonly timestamp: number
-    readonly relative: string
-    readonly subject: string
-    readonly hash: string
-    readonly dateIso: string
-  }
-  readonly pendingCount: number
-  readonly conflictCount: number
-  readonly clean: boolean
-  readonly needsMerge: boolean
-  readonly mergeReason?: 'conflict' | 'behind' | 'merging'
-  readonly aheadCount: number
-  readonly behindCount: number
-  readonly error?: string
-}
-
-export interface GitRosterData {
-  readonly ok: boolean
-  readonly workspaces: readonly GitRosterItem[]
-  readonly plugins: readonly GitRosterItem[]
-}
+/** 兼容旧导入路径：类型已搬到 git-roster-store.ts（store 与弹窗共用）。 */
+export type { GitRosterData, GitRosterItem } from './git-roster-store.ts'
 
 function fillComposerDraft(text: string): void {
   try {
@@ -130,53 +105,24 @@ function launchSessionForRepo(repo: GitRosterItem, onClose: () => void): void {
 
 export function GitRosterModal(): ReactElement | null {
   const store = getGitRosterStore()
-  const [open, setOpen] = useState(store.open)
-  const [loading, setLoading] = useState(false)
-  const [data, setData] = useState<GitRosterData | null>(null)
+  /*
+   * 数据与开合状态全部来自共享 store（2026-10-29）：
+   * 卡头 Git 图标的待提交角标与本弹窗用的是同一份大盘数据、同一个 45 秒轮询；
+   * 弹窗打开时立即 force 刷新一次，避免看到打开前最多 45 秒的旧数字。
+   */
+  const snapshot = useGitRosterSnapshot(true)
   const [activeTab, setActiveTab] = useState<'all' | 'plugins' | 'workspaces'>('all')
-
-  useEffect(() => {
-    return store.subscribe(() => {
-      setOpen(store.open)
-    })
-  }, [store])
+  const open = snapshot.open
+  const data = snapshot.data
+  const loading = snapshot.loading
 
   const loadRoster = useCallback(() => {
-    let extraPaths: string[] = []
-    try {
-      const workspacesService = getService<any>('workspaces')
-      const items = workspacesService?.list?.getSnapshot?.()?.items
-      if (Array.isArray(items)) {
-        extraPaths = items.map((i: any) => i.directory).filter((d: any) => typeof d === 'string' && d !== '')
-      }
-    } catch {}
-
-    const query = extraPaths.length > 0 ? `?workspaces=${encodeURIComponent(extraPaths.join(','))}` : ''
-    setLoading(true)
-    fetch(`/api/chat-flow/git-roster${query}`, {
-      method: 'GET',
-      headers: { accept: 'application/json' },
-      cache: 'no-store',
-    })
-      .then((res) => res.json() as Promise<GitRosterData>)
-      .then((res) => {
-        if (res && res.ok) {
-          setData(res)
-        }
-      })
-      .catch((err) => {
-        console.warn('[git-roster] 加载失败:', err)
-      })
-      .finally(() => {
-        setLoading(false)
-      })
-  }, [])
+    void store.refresh(true)
+  }, [store])
 
   useEffect(() => {
-    if (open) {
-      loadRoster()
-    }
-  }, [open, loadRoster])
+    if (open) void store.refresh(true)
+  }, [open, store])
 
   if (!open) return null
 
@@ -196,11 +142,10 @@ export function GitRosterModal(): ReactElement | null {
     displayItems = workspaces
   }
 
-  const totalPending = (data?.plugins.reduce((acc, p) => acc + p.pendingCount, 0) ?? 0)
-    + (data?.workspaces.reduce((acc, w) => acc + w.pendingCount, 0) ?? 0)
-
-  const totalConflicts = (data?.plugins.reduce((acc, p) => acc + p.conflictCount, 0) ?? 0)
-    + (data?.workspaces.reduce((acc, w) => acc + w.conflictCount, 0) ?? 0)
+  // 与卡头角标同一份计算（store 的 dirtyRepoCountOf / totalConflictsOf），
+  // 不在弹窗里另写一套 reduce —— 否则角标与弹窗顶部数字会各算各的。
+  const dirtyRepoCount = snapshot.dirtyRepoCount
+  const totalConflicts = snapshot.totalConflicts
 
   return (
     <div
@@ -235,10 +180,10 @@ export function GitRosterModal(): ReactElement | null {
 
             {/* 顶栏全局状态：中性色低饱和概览 */}
             <div className="kr-git-roster-modal__stats">
-              {totalPending > 0 && (
+              {dirtyRepoCount > 0 && (
                 <span className="kr-git-roster-stat kr-git-roster-stat--pending">
                   <span className="kr-git-roster-stat__dot" />
-                  <span>{totalPending} 待提交</span>
+                  <span>{dirtyRepoCount} 个项目未提交</span>
                 </span>
               )}
               {totalConflicts > 0 && (

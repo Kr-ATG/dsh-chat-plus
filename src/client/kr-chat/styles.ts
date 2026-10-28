@@ -2394,32 +2394,41 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   background: color-mix(in srgb, var(--kr-accent) 12%, transparent);
 }
 
-/* 邮箱未读条数角标徽章（小巧红底白字药丸，带底色描边） */
+/*
+ * 动作按钮右上角的数量角标（邮箱未读 / Git 未提交项目数共用）。
+ *
+ * 2026-10-29 用户两次反馈后统一成这套简约样式：
+ *   · 11px 高的小圆片（不是 14px 药丸）、字号走 --kr-fs-10 档位；
+ *   · 淡色底 + 同色数字，无白描边、无弹入动画，不跟图标抢注意力；
+ *   · 色相按 data-kind 区分：邮箱未读用淡红（danger），Git 项目数用淡主色。
+ * 两个角标只差颜色，尺寸、位置与排版完全一致，并排时读成同一套 UI。
+ */
 .kr-plain-head__badge {
   position: absolute;
-  top: -1px;
+  top: -2px;
   right: -2px;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
+  min-width: 11px;
+  height: 11px;
+  padding: 0 2px;
   border-radius: 999px;
-  background: var(--dsw-alias-state-business-danger, #e5484d);
-  color: #ffffff;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-danger, #e5484d) 14%, transparent);
+  color: var(--dsw-alias-state-business-danger, #e5484d);
   font-size: var(--kr-fs-10, 10px);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  line-height: 14px;
+  line-height: 11px;
   text-align: center;
   white-space: nowrap;
   pointer-events: none;
   box-sizing: border-box;
-  box-shadow: 0 0 0 1.5px var(--kr-bg, var(--dsw-alias-layer-background-page, #ffffff));
-  animation: kr-badge-pop .18s cubic-bezier(.34, 1.56, .64, 1) both;
+  box-shadow: none;
+  animation: none;
 }
 
-@keyframes kr-badge-pop {
-  from { opacity: 0; transform: scale(0.6); }
-  to { opacity: 1; transform: scale(1); }
+/* Git 未提交项目数：同一套小圆片，只把色相换成主色（不是邮箱的红色）。 */
+.kr-plain-head__badge[data-kind="git-dirty-repos"] {
+  background: color-mix(in srgb, var(--kr-accent) 16%, transparent);
+  color: var(--kr-accent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2428,9 +2437,6 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   }
   .kr-plain-head__tool:active {
     transform: none;
-  }
-  .kr-plain-head__badge {
-    animation: none;
   }
 }
 

@@ -6364,6 +6364,49 @@ if (krEnabled) {
       pass('邮箱未读角标：卡头订阅 mail-unread-store + 仅 >0 渲染 + 99+ 折叠 + 快照引用稳定（防 React #185）')
     }
 
+    /*
+     * 10d) Git 待提交角标（2026-10-29 用户要求「操作面板的这个 git 图标换图二，
+     *      并且提示有多少个需要提交的，跟邮箱的检查一样」）。
+     *
+     * 五条一起才成立，缺一条都是「看起来做了、其实不会亮」：
+     *   1. Git 图标不再是原来的 GitHub 菱形 Logo，换成图二的 git-branch 图标；
+     *   2. SeekerHead 从 git-roster-store 订阅「有未提交改动的项目数」（不是自己 fetch）；
+     *   3. 角标只在 >0 时渲染、三位数折成 99+、title/aria-label 带「N 个项目有未提交改动」；
+     *   4. GitRosterModal 与角标共用同一个 store（不再自己 fetch / 自己轮询）；
+     *   5. SeekerGitStatus 仍与 git-status-store 共用单仓库轮询（不重复请求）。
+     */
+    const gitStoreSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/git-status-store.ts'), 'utf8')
+    const gitRosterStoreSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/git-roster-store.ts'), 'utf8')
+    const gitRosterModalSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/GitRosterModal.tsx'), 'utf8')
+    const gitStatusSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/SeekerGitStatus.tsx'), 'utf8')
+    const krStyleSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/styles.ts'), 'utf8')
+    if (!/data-git-branch-icon/.test(seekerHeadSrcHere) || /M23\.546/.test(seekerHeadSrcHere)) {
+      fail('Git 图标必须换成图二的 git-branch 图标（不再使用 GitHub 菱形 Logo）')
+    } else if (!/useGitRosterSnapshot/.test(seekerHeadSrcHere) || !/dirtyRepoCount/.test(seekerHeadSrcHere)) {
+      fail('SeekerHead 必须从 git-roster-store 订阅「有未提交改动的项目数」（不要在组件里自己 fetch）')
+    } else if (!/gitDirtyRepoCount > 0/.test(seekerHeadSrcHere) || seekerHeadSrcHere.indexOf("'99+'") === -1) {
+      fail('Git 角标必须只在项目数 >0 时渲染，并把三位数折成 99+')
+    } else if (!/个项目有未提交改动/.test(seekerHeadSrcHere)) {
+      fail('Git 按钮的 title / aria-label 必须带「N 个项目有未提交改动」')
+    } else if (!/useGitRosterSnapshot/.test(gitRosterModalSrc) || !/dirtyRepoCount/.test(gitRosterModalSrc) || /fetch\(\`\/api\/chat-flow\/git-roster/.test(gitRosterModalSrc)) {
+      fail('GitRosterModal 必须与角标共用 git-roster-store（禁止自己 fetch 大盘）并显示项目数')
+    } else if (/setInterval\(\s*fetchStatus/.test(gitStatusSrc) || !/useGitStatusSnapshot/.test(gitStatusSrc) || !/refreshGitStatus/.test(gitStatusSrc) || !/getGitRosterStore\(\).refresh\(true\)/.test(gitStatusSrc)) {
+      fail('SeekerGitStatus 必须与 git-status-store 共用单仓库轮询，且提交后同时刷新大盘角标')
+    } else if (!/__dshChatPlusGitRosterStore__/.test(gitRosterStoreSrc) || !/STORE_BRAND/.test(gitRosterStoreSrc)) {
+      fail('git-roster-store 必须挂 window + 品牌字段（否则 live reload 后两套轮询分叉）')
+    } else if (!/dirtyRepoCountOf/.test(gitRosterStoreSrc) || !/return this\._snapshot/.test(gitRosterStoreSrc)) {
+      fail('git-roster-store 必须计算 dirtyRepoCountOf 且 getSnapshot 返回稳定引用')
+    } else if (!/__dshChatPlusGitStatusStore__/.test(gitStoreSrc) || !/return this\.entries\.get\(cwd\)\?\.snapshot \?\? EMPTY_SNAPSHOT/.test(gitStoreSrc)) {
+      fail('git-status-store 必须挂 window 且 getSnapshot 返回稳定引用')
+    } else if (!/data-kind="git-dirty-repos"/.test(seekerHeadSrcHere)
+      || !/data-kind="mail-unread"/.test(seekerHeadSrcHere)
+      || !/\.kr-plain-head__badge\[data-kind="git-dirty-repos"\]/.test(krStyleSrc)
+      || !/\.kr-plain-head__badge\s*\{[\s\S]{0,900}?animation:\s*none/.test(krStyleSrc)) {
+      fail('邮箱与 Git 两个角标都必须用同一套简约样式（data-kind 区分色相、无弹入动画）')
+    } else {
+      pass('Git 角标：卡头订阅 git-roster-store 的「有未提交改动项目数」 + 图标换 git-branch + 仅 >0 渲染 / 99+ 折叠 + 简约淡色变体 + 与大盘弹窗共用轮询')
+    }
+
     // 11) 共享 store 的跨 bundle 共享语义：live reload 会让模块级单例分叉，
     //     表现为"点按钮抽屉不开"。必须挂 window + 品牌字段判别。
     const storeSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/panel-settings-store.ts'), 'utf8')
