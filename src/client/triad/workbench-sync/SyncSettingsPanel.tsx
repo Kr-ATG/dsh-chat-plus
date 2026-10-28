@@ -80,6 +80,7 @@ export function SyncSettingsPanel({ onClose }: SyncSettingsPanelProps): JSX.Elem
   const [includeVault, setIncludeVault] = useState<boolean>(true)
   const [includeMemory, setIncludeMemory] = useState<boolean>(true)
   const [includeSkills, setIncludeSkills] = useState<boolean>(true)
+  const [includeFeed, setIncludeFeed] = useState<boolean>(true)
 
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -94,6 +95,8 @@ export function SyncSettingsPanel({ onClose }: SyncSettingsPanelProps): JSX.Elem
       setIncludeVault(s.includeVault)
       setIncludeMemory(s.includeMemory)
       setIncludeSkills(s.includeSkills)
+      // 兜底 true：旧版 host（尚未重启）的状态里没有这个字段，升级瞬间不该显示成「未勾选」
+      setIncludeFeed(s.includeFeed ?? true)
       if (s.progress) setProgress(s.progress)
       setRunning(s.running)
     } catch (err) {
@@ -141,6 +144,7 @@ export function SyncSettingsPanel({ onClose }: SyncSettingsPanelProps): JSX.Elem
         includeVault,
         includeMemory,
         includeSkills,
+        includeFeed,
       })
       setStatus(updated)
       setPassphrase('')
@@ -206,7 +210,7 @@ export function SyncSettingsPanel({ onClose }: SyncSettingsPanelProps): JSX.Elem
           <span className={syncCss.eyebrow}><i />Workbench Sync</span>
           <h1 className={syncCss.title}>同步设置 <em>/ 工作台资产双向漫游</em></h1>
           <p className={syncCss.hint}>
-            将档案（账号密码与证件）、长期记忆库、自定义技能与 MCP 配置进行端侧加盐强加密后推送到您的 GitHub 私库，实现跨机一键漫游。
+            将档案（账号密码与证件）、长期记忆库、自定义技能与 MCP 配置、动态工作台的提示词与关注对象进行端侧加盐强加密后推送到您的 GitHub 私库，实现跨机一键漫游。
           </p>
         </div>
         <div className={syncCss.headActions}>
@@ -275,6 +279,14 @@ export function SyncSettingsPanel({ onClose }: SyncSettingsPanelProps): JSX.Elem
             <span className={syncCss.statValue}>{formatBytes(status?.localSkillsBytes ?? 0)}</span>
             <span className={syncCss.statSub}>
               自定义技能包与 MCP 开关
+            </span>
+          </div>
+
+          <div className={syncCss.stat}>
+            <span className={syncCss.statLabel}>动态设置规模</span>
+            <span className={syncCss.statValue}>{formatBytes(status?.localFeedBytes ?? 0)}</span>
+            <span className={syncCss.statSub}>
+              生成提示词 · 生成模型 · 关注对象
             </span>
           </div>
         </div>
@@ -524,6 +536,14 @@ export function SyncSettingsPanel({ onClose }: SyncSettingsPanelProps): JSX.Elem
                 onChange={(e) => { setIncludeSkills(e.target.checked) }}
               />
               <span>技能与 MCP 开关</span>
+            </label>
+            <label className={syncCss.checkboxRow} title="同步动态工作台设置页里的提示词、生成模型、关注对象（人物 / 公司）与 X 同步账号">
+              <input
+                type="checkbox"
+                checked={includeFeed}
+                onChange={(e) => { setIncludeFeed(e.target.checked) }}
+              />
+              <span>动态设置</span>
             </label>
           </div>
 

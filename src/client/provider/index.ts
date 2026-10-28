@@ -60,7 +60,13 @@ export function applyProviderClient(ctx: ClientContext): void {
   // 不塞进下面的延迟注入里——那组服务是对话输入区座位专用的。
   guarded('supplier settings section', () => { applySupplierSection(ctx) })
   // 对话输入区的两个座位：延迟注入，服务缺失时只有这两块不挂。
+  //
+  // ⚠ 这里**故意不用 featureMount 做 apply 期门**：两个模块内部各自订阅
+  // input.model-seats / input.prompt-optimize（onFeatureChange），关闭时
+  // 动态摘除自己的座位、打开时原地恢复。若在外层再做一次 apply 期门，
+  // 用户上次关掉过的那一项连监听都装不上，重新打开必须刷新页面。
   ctx.inject([...providerClientServices], (scope: ClientContext) => {
     guarded('model seats', () => applyModelSeats(scope))
     guarded('prompt optimize', () => applyPromptOptimize(scope))
-  })}
+  })
+}

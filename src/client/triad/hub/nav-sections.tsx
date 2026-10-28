@@ -48,7 +48,7 @@ import { getService } from '../../client-ctx.js'
 import { ErrorBoundary } from '../../error-boundary.js'
 import { WorkbenchGridIcon } from './WorkbenchPanel.js'
 import { useSyncNotice } from './sync-notice.js'
-import { WORKBENCH_ROW_MARK, WORKBENCH_TABS, openWorkbench } from './row-flyout.js'
+import { useVisibleWorkbenchTabs, WORKBENCH_ROW_MARK, WORKBENCH_TABS, openWorkbench } from './row-flyout.js'
 import {
   GALLERY_KIND_LABEL,
   GALLERY_KIND_ORDER,
@@ -161,6 +161,16 @@ function tabIcon(tab: (typeof WORKBENCH_TABS)[number]['id']): NavSectionIcon {
       'aria-hidden': true,
     }
     switch (tab) {
+      case 'feed':
+        // 动态 = 一叠横向信息流（与 row-flyout.tsx 的 WorkbenchTabIcon 同一枚形状：
+        // 侧栏行与 hover 浮层用的是同一条菜单，两边图标不同形会显得是两个入口）。
+        return (
+          <svg {...common}>
+            <rect x="3" y="4" width="18" height="5" rx="1.6" />
+            <rect x="3" y="11.5" width="13" height="4.6" rx="1.4" />
+            <rect x="3" y="18.2" width="8.5" height="2.6" rx="1.3" />
+          </svg>
+        )
       case 'memory':
         return (
           <svg {...common}>
@@ -928,6 +938,11 @@ function EntryRow({ entry, expanded }: { entry: NavEntryDef; expanded: boolean }
 
 /** 侧栏本体：一个切换行 + 当前区域的条目行。 */
 function SidebarSections(): JSX.Element | null {
+  // 订阅 work.* 八个开关（hook 必须无条件、且在任何条件 return 之前调用）。
+  // 侧栏条目与工作台 tab 共用同一份可见性：tab 关掉，这一行入口同一拍消失；
+  // 重新打开同一拍回来。切换行「工作区 / 操作间」本身不挂在工作台开关上，
+  // 所以即使八个页面全关，双屏导航仍然可用。
+  const visibleTabs = useVisibleWorkbenchTabs()
   // version 参与下面的 layout effect 依赖：注册表一改就重新同步一次官方 chrome。
   const version = useNavVersion()
   const rail = useRail()
@@ -937,7 +952,12 @@ function SidebarSections(): JSX.Element | null {
   const next = nextSectionId()
   const activeDef = sections.find((section) => section.id === active)
   const isPluginSection = activeDef?.source === 'plugin'
-  const entries = isPluginSection ? entriesOfSection(active ?? '') : []
+  // 注册表里仍然保留全部 workbench-* 条目（热重载 / 重新打开时不用重建），
+  // 渲染时按开关过滤：非 workbench-* 的自定义菜单（未来别的模块注册的）不受影响。
+  const visibleEntryIds = new Set(visibleTabs.map(tab => `workbench-${tab.id}`))
+  const entries = isPluginSection
+    ? entriesOfSection(active ?? '').filter((entry) => !entry.id.startsWith('workbench-') || visibleEntryIds.has(entry.id))
+    : []
   // 展开态来自持久化层（用户选的是「记住上次展开状态」）：渲染时现读，
   // 点整行写回后由注册表 notify 触发重渲染，不另存组件 state。
   // 手风琴语义（2026-10-26）：集合里至多一个 id，其余行必然收起。

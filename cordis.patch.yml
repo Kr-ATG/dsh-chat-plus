@@ -14,4 +14,34 @@
 - insert:
     - id: dsh-chat-plus
       name: dsh-chat-plus
+    - id: dsh-chat-plus-cards
+      name: dsh-chat-plus/packages/cards
+    - id: dsh-chat-plus-seeker
+      name: dsh-chat-plus/packages/seeker
+    - id: dsh-chat-plus-done-pill
+      name: dsh-chat-plus/packages/done-pill
+    - id: dsh-chat-plus-memory
+      name: dsh-chat-plus/packages/memory
+    - id: dsh-chat-plus-skills
+      name: dsh-chat-plus/packages/skills
+    - id: dsh-chat-plus-usage
+      name: dsh-chat-plus/packages/usage
+    - id: dsh-chat-plus-gallery
+      name: dsh-chat-plus/packages/gallery
+    - id: dsh-chat-plus-vault
+      name: dsh-chat-plus/packages/vault
+    - id: dsh-chat-plus-prompt
+      name: dsh-chat-plus/packages/prompt
+    - id: dsh-chat-plus-feed
+      name: dsh-chat-plus/packages/feed
+    - id: dsh-chat-plus-sync
+      name: dsh-chat-plus/packages/sync
+    - id: dsh-chat-plus-provider
+      name: dsh-chat-plus/packages/provider
+    - id: dsh-chat-plus-mail
+      name: dsh-chat-plus/packages/mail
+    - id: dsh-chat-plus-input
+      name: dsh-chat-plus/packages/input
+    - id: dsh-chat-plus-host
+      name: dsh-chat-plus/packages/host
 

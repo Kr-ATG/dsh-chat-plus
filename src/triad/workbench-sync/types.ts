@@ -5,6 +5,7 @@
  *   · 档案（Vault：账号密码、服务器、证件、图片及主密钥）
  *   · 记忆（Memory：条目数据库 entries.json、状态元数据、各工作区 meta.json）
  *   · 技能（Skills：自定义技能包与 SKILL.md、技能启停开关）
+ *   · 动态设置（Feed：生成提示词、生成模型、关注对象与 X 同步账号）
  *
  * 安全约束：
  *   · 严禁在代码中出现任何私库、Token 或个人信息；
@@ -59,6 +60,8 @@ export interface WorkbenchSyncSettings {
   includeMemory: boolean
   /** 是否包含技能（默认 true）。 */
   includeSkills: boolean
+  /** 是否包含动态设置（提示词 / 生成模型 / 关注对象，默认 true）。 */
+  includeFeed: boolean
   /** 上次成功上传时间（ISO 字符串）。 */
   lastUploadedAt?: string
   /** 上次成功上传的 commit sha。 */
@@ -96,6 +99,7 @@ export interface WorkbenchSyncPublic {
   includeVault: boolean
   includeMemory: boolean
   includeSkills: boolean
+  includeFeed: boolean
   nextUploadAt: string
   nextSyncAt: string
   lastUploadedAt: string
@@ -107,6 +111,7 @@ export interface WorkbenchSyncPublic {
   localVaultBytes: number
   localMemoryBytes: number
   localSkillsBytes: number
+  localFeedBytes: number
   passphraseSet: boolean
   tokenSet: boolean
   tokenSource: 'gh' | 'stored' | 'none'
@@ -129,6 +134,7 @@ export interface WorkbenchSyncPatch {
   includeVault?: boolean
   includeMemory?: boolean
   includeSkills?: boolean
+  includeFeed?: boolean
   clearToken?: boolean
   clearPassphrase?: boolean
 }
@@ -143,6 +149,7 @@ export const DEFAULT_WORKBENCH_SYNC_SETTINGS: WorkbenchSyncSettings = {
   includeVault: true,
   includeMemory: true,
   includeSkills: true,
+  includeFeed: true,
   history: [],
 }
 

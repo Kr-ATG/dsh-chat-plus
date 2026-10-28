@@ -45,6 +45,7 @@ import {
   type RunningAppWindow,
 } from './data.ts'
 import { injectRunningAppsStyles } from './styles.ts'
+import { featureEnabledNow, onFeatureChange } from '../features/gate.tsx'
 
 /** 菜单里这一组的标题（官方菜单对未登记的 source 名会原样显示，这里给中文）。 */
 const SECTION_TITLE = '运行中的程序'
@@ -205,18 +206,21 @@ export function applyRunningAppsSource(ctx: ClientContext): void {
     codec: {
       clipboardText: (ref: string) => '@app:' + (ref.split(':').slice(1).join(':') || ref),
       serialize: async (ref: string) => {
-        const apps = cached ?? (await fetchRunningApps()) ?? []
+        const apps = lastKnown ?? (await fetchRunningApps()) ?? []
         return serializeAppRef(ref, apps)
       },
     },
   }
 
-  // 插件装配完就预热一次：把 host 侧的常驻采集器拉起来（冷启动 600~700ms），
-  // 这样用户第一次打 @ 时就是 2~4ms 的真采集。失败无所谓（采集器不可用时
-  // 只是候选为空，官方文件/会话候选照常）。
-  void load(new AbortController().signal)
-
-  ctx.effect(() => {
+  /**
+   * 注册 @ 源；返回注销函数。
+   *
+   * 每次真正挂载都预热一次：把 host 侧的常驻采集器拉起来（冷启动 600~700ms），
+   * 这样用户第一次打 @ 时就是 2~4ms 的真采集。失败无所谓（采集器不可用时
+   * 只是候选为空，官方文件/会话候选照常）。
+   */
+  const mountSource = (): (() => void) => {
+    void load(new AbortController().signal)
     let unregister: (() => void) | undefined
     try {
       unregister = inputTriggers.registerSource(source)
@@ -225,7 +229,28 @@ export function applyRunningAppsSource(ctx: ClientContext): void {
       console.warn('[running-apps] @ 源注册失败：', error)
     }
     return () => { if (unregister !== undefined) unregister() }
-  }, 'running-apps: @ source')
+  }
+
+  /**
+   * 开关同步：关掉 = 整个 @ 源注销，打 @ 时不会出现「运行中的程序」这一组
+   * （连空分组都不留；官方的文件/会话候选照常工作）；打开 = 重新注册并预热。
+   */
+  let disposeSource: (() => void) | null = null
+  const syncSource = (enabled: boolean): void => {
+    if (enabled) {
+      if (disposeSource === null) disposeSource = mountSource()
+    } else {
+      disposeSource?.()
+      disposeSource = null
+    }
+  }
+  syncSource(featureEnabledNow('input.running-apps'))
+  const off = onFeatureChange('input.running-apps', syncSource)
+  ctx.effect(() => () => {
+    off()
+    disposeSource?.()
+    disposeSource = null
+  }, 'running-apps: @ source feature switch')
 }
 
 export const __test = { toCandidate, makeIconComponent, renderAppIcon, SECTION_TITLE }

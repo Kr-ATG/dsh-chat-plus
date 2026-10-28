@@ -1,13 +1,21 @@
 /**
- * 工作台本地资产收集与还原（档案、记忆、技能）。
+ * 工作台本地资产收集与还原（档案、记忆、技能、动态设置）。
  *
  * 不碰系统提示词与全局设定。所有写盘走原子写与目录递归保护。
+ *
+ * 「动态设置」只同步**配置面**：state.json 里的 config 段（生成提示词 /
+ * 生成模型 / cron / X 同步账号）与 entities.json（关注对象）。
+ * 刻意**不碰** posts.json（生成内容）与 gate / runs / xSync（运行态）——
+ * 云同步的语义是「换台机器接着用同一套设置」，把这些运行账本带过去会让
+ * 新机器的单飞锁与增量去重状态错乱。
  */
 
 import { existsSync } from 'node:fs'
 import { cp, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
+import { feedDataDir } from '../../feed/store.js'
+import { getActiveEntityStore, getActiveFeedStore } from '../../feed/store-singleton.js'
 import { getWebuiMemoryStore } from '../memory-store-singleton.js'
 import { memoryHome } from '../memory/engine/store.js'
 import { VaultCipher } from '../vault/crypto.js'
@@ -38,6 +46,13 @@ export interface GatheredSkills {
   files: Record<string, string> // relativePath -> base64
 }
 
+export interface GatheredFeed {
+  /** state.json 的 config 段原文（提示词 / 生成模型 / cron / X 账号）。 */
+  configJson?: string
+  /** entities.json 原文（关注对象：人物 / 公司）。 */
+  entitiesJson?: string
+}
+
 export interface GatheredWorkbenchPayload {
   format: 'dsh-workbench-sync'
   version: 1
@@ -45,6 +60,7 @@ export interface GatheredWorkbenchPayload {
   vault?: GatheredVault
   memory?: GatheredMemory
   skills?: GatheredSkills
+  feed?: GatheredFeed
 }
 
 /** 递归统计目录大小（支持忽略以 . 开头的隐藏目录/回收站）。 */
@@ -74,6 +90,7 @@ export async function getWorkbenchSizes(): Promise<{
   vaultBytes: number
   memoryBytes: number
   skillsBytes: number
+  feedBytes: number
   totalBytes: number
 }> {
   // 1. 档案：vault.json + key + blobs/（排除 store/workbench-sync.json 运行历史与 audit.jsonl 审计日志）
@@ -113,11 +130,30 @@ export async function getWorkbenchSizes(): Promise<{
     skillsBytes += await getDirSize(sRoot, true)
   }
 
+  // 4. 动态设置：只算云同步真正会带走的两个文件（state.json 的 config 段 + entities.json），
+  //    不把 posts.json / state.json 其余运行态算进去 —— 否则"本地数据总体积"会和实际包内容脱节。
+  let feedBytes = 0
+  const fRoot = feedDataDir()
+  const feedStateFile = join(fRoot, 'state.json')
+  if (existsSync(feedStateFile)) {
+    try {
+      const parsed = JSON.parse(await readFile(feedStateFile, 'utf8')) as { config?: unknown }
+      if (parsed !== null && typeof parsed === 'object' && parsed.config !== undefined) {
+        feedBytes += Buffer.byteLength(JSON.stringify(parsed.config), 'utf8')
+      }
+    } catch {}
+  }
+  const feedEntitiesFile = join(fRoot, 'entities.json')
+  if (existsSync(feedEntitiesFile)) {
+    feedBytes += (await stat(feedEntitiesFile).catch(() => ({ size: 0 }))).size
+  }
+
   return {
     vaultBytes,
     memoryBytes,
     skillsBytes,
-    totalBytes: vaultBytes + memoryBytes + skillsBytes,
+    feedBytes,
+    totalBytes: vaultBytes + memoryBytes + skillsBytes + feedBytes,
   }
 }
 
@@ -216,17 +252,52 @@ async function gatherSkills(): Promise<GatheredSkills> {
   return { files }
 }
 
+/**
+ * 收集动态设置数据。
+ *
+ * 只取两份「设置」：
+ *   · state.json 的 config 段（提示词 / 生成模型 / cron / X 账号）
+ *   · entities.json（关注对象）
+ *
+ * 为什么不整份拷贝 state.json：里面有 gate（单飞闸门）、runs（轮次历史）、
+ * xSync（已见推文 id）。这些是**本机运行态**，搬到另一台机器上轻则让
+ * 增量去重错乱，重则带着一条 running 锁过去、新机器白等 10 分钟租约。
+ */
+async function gatherFeed(): Promise<GatheredFeed> {
+  const root = feedDataDir()
+  let configJson: string | undefined
+  const stateFile = join(root, 'state.json')
+  if (existsSync(stateFile)) {
+    try {
+      const parsed = JSON.parse(await readFile(stateFile, 'utf8')) as { config?: unknown }
+      if (parsed !== null && typeof parsed === 'object' && parsed.config !== null && typeof parsed.config === 'object') {
+        configJson = JSON.stringify(parsed.config)
+      }
+    } catch {}
+  }
+
+  let entitiesJson: string | undefined
+  const entitiesFile = join(root, 'entities.json')
+  if (existsSync(entitiesFile)) {
+    try { entitiesJson = await readFile(entitiesFile, 'utf8') } catch {}
+  }
+
+  return { configJson, entitiesJson }
+}
+
 /** 整体收集工作台本地资产。 */
 export async function gatherWorkbenchAssets(options: {
   includeVault: boolean
   includeMemory: boolean
   includeSkills: boolean
+  includeFeed?: boolean
   vaultStore: VaultStore
 }): Promise<GatheredWorkbenchPayload> {
-  const [vault, memory, skills] = await Promise.all([
+  const [vault, memory, skills, feed] = await Promise.all([
     options.includeVault ? gatherVault(options.vaultStore) : undefined,
     options.includeMemory ? gatherMemory() : undefined,
     options.includeSkills ? gatherSkills() : undefined,
+    options.includeFeed === true ? gatherFeed() : undefined,
   ])
 
   return {
@@ -236,6 +307,7 @@ export async function gatherWorkbenchAssets(options: {
     ...(vault ? { vault } : {}),
     ...(memory ? { memory } : {}),
     ...(skills ? { skills } : {}),
+    ...(feed ? { feed } : {}),
   }
 }
 
@@ -335,6 +407,65 @@ export async function restoreMemory(memory: GatheredMemory): Promise<{ entries: 
   }
 
   return { entries: entriesCount }
+}
+
+/**
+ * 还原动态设置（config 段 + 关注对象）。
+ *
+ * 两条硬规矩：
+ *  1. **合并 config，不整份覆盖 state.json**：本机的 gate / runs / xSync 必须
+ *     原样保留 —— 用云端包里的旧运行账本覆盖等于把本机正在跑的那一轮「抹掉」；
+ *  2. 写完通知活跃 FeedStore / EntityStore 的 reload()，否则用户点完同步、动态页
+ *     仍显示旧设置，要重启 DSH 才生效。
+ */
+export async function restoreFeed(feed: GatheredFeed): Promise<{ entities: number; config: boolean }> {
+  const root = feedDataDir()
+  await mkdir(root, { recursive: true })
+
+  // 1. 关注对象：整份替换（覆盖前留一份本地快照）
+  let entityCount = 0
+  if (typeof feed.entitiesJson === 'string' && feed.entitiesJson.trim() !== '') {
+    const entitiesFile = join(root, 'entities.json')
+    if (existsSync(entitiesFile)) {
+      await atomicWriteFile(entitiesFile + '.bak-before-sync', await readFile(entitiesFile)).catch(() => undefined)
+    }
+    await atomicWriteFile(entitiesFile, feed.entitiesJson)
+    try {
+      const parsed = JSON.parse(feed.entitiesJson) as { entities?: unknown[] }
+      if (Array.isArray(parsed.entities)) entityCount = parsed.entities.length
+    } catch {}
+  }
+
+  // 2. 配置段：合并进本机 state.json（保留 gate / runs / xSync / lastRunAt 等）
+  let configRestored = false
+  if (typeof feed.configJson === 'string' && feed.configJson.trim() !== '') {
+    const stateFile = join(root, 'state.json')
+    let state: Record<string, unknown> = {}
+    if (existsSync(stateFile)) {
+      try {
+        const parsed = JSON.parse(await readFile(stateFile, 'utf8')) as unknown
+        if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          state = parsed as Record<string, unknown>
+        }
+      } catch {}
+      await atomicWriteFile(stateFile + '.bak-before-sync', await readFile(stateFile)).catch(() => undefined)
+    }
+    try {
+      const config = JSON.parse(feed.configJson) as unknown
+      if (config !== null && typeof config === 'object' && !Array.isArray(config)) {
+        state.config = config
+        if (typeof state.version !== 'number') state.version = 1
+        await atomicWriteFile(stateFile, JSON.stringify(state, null, 2))
+        configRestored = true
+      }
+    } catch {}
+  }
+
+  // 3. 热重载：活跃实例读回新盘面（未装配 / 未启用动态模块时静默跳过）
+  try { await getActiveFeedStore()?.reload?.() } catch {}
+  try { await getActiveEntityStore()?.reload?.() } catch {}
+
+  return { entities: entityCount, config: configRestored }
 }
 
 /** 还原技能数据（含孤儿技能安全隔离清理与内置技能防删保护）。 */

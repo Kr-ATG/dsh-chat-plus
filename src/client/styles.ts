@@ -1088,8 +1088,21 @@ header:has([role='tablist']) [class*='_tabs']:not([role='tablist']) > :not([role
 }
 
 /* 标签本体：下划线收回到贴着文字（官方 11px 底衬是给整行贴边用的），
-   hover 提色 + 下划线从中心展开，选中态常驻蓝色下划线。 */
+   hover 提色 + 下划线从中心展开，选中态常驻蓝色下划线。
+
+   ⚠ 0.2.2-alpha.2 起官方把「点击热区」从 padding 里拆了出来：
+     .wSkVaW_tab{--dsh-tab-hit-inline:10px;
+                 margin:-10px calc(-1 * var(--dsh-tab-hit-inline)) 0;
+                 padding:10px var(--dsh-tab-hit-inline) 9px;min-height:35px}
+   横向负 margin 与横向 padding 等宽，视觉上正好抵消，所以官方标签文字仍在原处、
+   只是热区左右各宽出 10px。我们为了让 44px 单行 header 里的标签只有 26px
+   视觉高度，把 padding 压回 2px/8px —— 此时**必须同时把 margin 与 min-height
+   归零**：负 margin 还在而 padding 没了的话，标签间距会从 gap(22) 塌成 2px
+   （实测「Seeker对话轨迹」挤成一串）；35px 的 min-height 还会把文字顶得偏上。
+   这两行是 0.2.2-alpha.2 的兼容兜底，不是可删的微调。 */
 header [role='tablist'] > [class*='_tab'] {
+  margin: 0;
+  min-height: 0;
   padding: 2px 0 8px;
   /* 微浮起与提色同步走，抬升 1px 刚好压在下划线上沿之外，不糊掉指示条。 */
   transition: color .18s ease, transform .18s cubic-bezier(.2, .8, .2, 1);

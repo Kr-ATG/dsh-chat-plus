@@ -87,6 +87,9 @@ const TOOL_BADGE: Readonly<Record<string, ActivityKind>> = {
   cmd: K.command,
   zsh: K.command,
   fish: K.command,
+  // dsh-ops（2026-10-27 补）：ops_bash 在 Windows 上顶替官方 pwsh，命令文本同样
+  // 在 command 参数里，所以下面那条 shell 正则也会命中它。
+  ops_bash: K.command,
 }
 
 /** `callView.card === 'generic'` `kind` → badge, as a safety net for unnamed tools. */

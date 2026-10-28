@@ -25,6 +25,7 @@ import { createMailInjector } from './inject.js'
 import { clearMailStatusSource, setMailStatusSource } from './registry.js'
 import type { MailHostContext } from './context.js'
 import type { MailConfig } from './types.js'
+import { hostFeatureEnabled } from '../features/store.ts'
 
 /** 邮箱工作台配置（cordis.patch.yml 的 mail 段）。 */
 export interface MailHostConfig extends Partial<MailConfig> {}
@@ -118,7 +119,7 @@ export async function applyMailHost(ctx: MailHostContext, input: MailHostConfig 
   try {
     const injector = createMailInjector(service, ctx.logger, {
       // 只看声明开关（injectEnabled）：与工具面无关。
-      isEnabled: () => service.getConfig().injectEnabled,
+      isEnabled: () => hostFeatureEnabled('prompt.mail') && service.getConfig().injectEnabled,
       // 工具在不在，决定注入文本走工具还是走命令行。
       toolsAvailable: () => toolsDispose !== null,
     })

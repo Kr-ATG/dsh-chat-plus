@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "System prompt",
+    "description": "Inspect the exact system prompt sent to the model for the current session."
+  }
+}

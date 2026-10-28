@@ -34,6 +34,7 @@ import { getPanelSettingsStore } from './panel-settings-store.ts'
 import { getMailDrawerStore } from './mail-drawer-store.ts'
 import { idlePhraseFor, THINKING_PHRASE } from './idle-phrase.ts'
 import { idleClipFor } from './motion-clips.ts'
+import { featureEnabledNow } from '../features/gate.tsx'
 
 /** 容器 id（幂等复用 + 冒烟断言）。 */
 export const HERO_HEAD_ID = 'dsh-seeker-hero-head'
@@ -135,6 +136,19 @@ function getHost(): HeroHeadHost {
 export function syncSeekerHeroHead(shouldShow: boolean, running = false): void {
   if (typeof document === 'undefined') return
   const host = getHost()
+
+  /*
+   * view.hero-head 关闭：**不挂载**，已挂的也隐藏。
+   *
+   * 判在这里而不是只判调用方：这个同步函数是 250ms 轮询入口，任何新增调用方
+   * 都不该能绕过开关把卡头挂上去。已挂的容器只做 display:none（保留 React 根，
+   * 重新打开时立刻恢复，也避免 Hero 区反复重建造成闪烁）；没挂的连 createRoot
+   * 都不会发生。
+   */
+  if (!featureEnabledNow('view.hero-head')) {
+    if (host.container !== null) host.container.style.display = 'none'
+    return
+  }
 
   if (!shouldShow) {
     if (host.container !== null) {

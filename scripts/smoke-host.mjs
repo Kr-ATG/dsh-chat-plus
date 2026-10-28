@@ -120,6 +120,34 @@ const stubCtx = {
       callback(providerCtx)
       return
     }
+    /*
+     * 「多服务」合并桩（2026-10-27 补）。
+     *
+     * 背景：main 的 triad 注入是
+     *   inject(['webServer','tools','credentials','sessions','sessionPersistence','settings','llm'])
+     * —— names 里**同时**含 tools 与 webServer/settings/llm。只按下一条
+     * （「含 tools 就回 effect+tools 桩」）分派时，applyTriadHost 里任何一次
+     * 读 ctx.webServer / ctx.settings 都会抛（TypeError 或 cordis 的
+     * "cannot get property without inject"）。目前 triad 内部每个模块都有独立
+     * try/catch，所以异常被吞成 warn、装配链不会中断 —— 但**桩的保真度太低**：
+     * 它让「triad 模块其实一个都没挂上」这件事在冒烟里看不出来，一旦哪天
+     * triad 把 try/catch 收窄，冒烟就会以「路由少了」这种与根因无关的方式变红。
+     *
+     * 所以这里按「注入的服务名集合」回一个尽量齐全的桩：既保留原来
+     * tools/registeredTools 的采集，也补上 webServer/settings/llm/sessions 等，
+     * 让 triad 那一条注入能真的跑起来。**这是改测试桩，不是改产品代码** ——
+     * 产品侧的注入结构与 try/catch 一律不动。
+     */
+    const rest = names.filter(name => name !== 'tools')
+    if (names.includes('tools') && rest.length > 0) {
+      const multi = {
+        ...providerCtx,
+        effect(fn) { const d = fn(); return typeof d === 'function' ? d : () => {} },
+        tools: { register(definition) { registeredTools.push(definition); return () => {} } },
+      }
+      callback(multi)
+      return
+    }
     if (names.includes('tools')) {
       // tools 桩：download 工具注册捕获。
       callback({
@@ -288,12 +316,19 @@ else pass('deferred webServer callback executed')
 // system-prompt 是 2026-10-27 新增：操作间「系统提示词」页的只读数据源
 // （assemble 出口抓到的最终快照）。它注册在自己的延迟注入里，漏注册的表现是
 // 「页面永远说取不到快照」，界面上不会报错 —— 计数 + 路径断言一起钉住。
-if (registered.length !== 18) {
-  fail(`expected exactly 18 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
+// 26 = 19（上一轮既有）+ 7（2026-10-28 自 dsh-companion 移植的对话胶囊）：
+//   4 条 done-pill（增量 / 壳热区 / 通知 / 通知点击）+ 2 条录屏（窗口枚举 / 抓帧）
+//   + 1 条提示音 prefix。
+// 这些路由漏注册的表现全是静默的：胶囊不出现、通知不弹、录屏面板只剩整屏 ——
+// 只有计数与路径断言能钉住它们。
+if (registered.length !== 27) {
+  fail(`expected exactly 27 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
 } else {
   const exacts = registered.filter(spec => spec?.kind === 'exact')
   const prefix = registered.filter(spec => spec?.kind === 'prefix')
-  if (!exacts.some(spec => spec?.path === '/api/chat-flow/generated-images')) {
+  if (!exacts.some(spec => spec?.path === '/api/chat-flow/components')) {
+    fail(`missing feature switches route (exact /api/chat-flow/features): ${JSON.stringify(exacts)}`)
+  } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/generated-images')) {
     fail(`unexpected exact route specs: ${JSON.stringify(exacts)}`)
   } else if (!exacts.some(spec => spec?.path === '/api/chat-flow/generated-images/materialize')) {
     fail('missing generated-images materialize route (exact /api/chat-flow/generated-images/materialize)')
@@ -366,6 +401,46 @@ if (registered.length !== 18) {
     fail(`missing motion asset route (prefix /api/chat-flow/motion): ${JSON.stringify(prefix)}`)
   } else {
     pass('registered /api/chat-flow/motion (kind=prefix, 9 webm + 9 poster)')
+  }
+  // 个人动态（Feed）：操作间「动态」页的全部数据面都在这个前缀下。
+  // 漏注册的表现是「页面一直空态」，界面上不报错 —— 只能靠断言钉住。
+  const feed = prefix.find(spec => spec?.path === '/api/dsh-feed')
+  if (feed === undefined) {
+    fail(`missing feed route (prefix /api/dsh-feed): ${JSON.stringify(prefix.map(spec => spec?.path))}`)
+  } else {
+    pass('registered /api/dsh-feed (kind=prefix, posts/config/run/status/runs)')
+  }
+  /*
+   * 对话完成胶囊（2026-10-28 自 dsh-companion 移植）：4 条私有路由。
+   * 每条漏注册的后果都不会抛错，只会表现为「完成列表永远空」「通知不弹」
+   * 「点通知不跳」—— 必须逐条按路径断言。
+   */
+  for (const path of [
+    '/api/dsh-done-pill',
+    '/api/dsh-done-pill/shell-hot',
+    '/api/dsh-done-pill/notify',
+    '/api/dsh-done-pill/notify-click',
+  ]) {
+    if (!exacts.some(spec => spec?.path === path)) fail(`missing done-pill route: ${path}`)
+  }
+  if (exacts.some(spec => spec?.path === '/api/dsh-done-pill')
+    && exacts.some(spec => spec?.path === '/api/dsh-done-pill/notify-click')) {
+    pass('registered done-pill routes (items / shell-hot / notify / notify-click, kind=exact)')
+  }
+  // 录屏：窗口枚举与 PrintWindow 抓帧（两条都是 exact；客户端 rec-picker 按原路径请求）。
+  for (const path of ['/api/dsh-companion/rec-windows', '/api/dsh-companion/rec-frame']) {
+    if (!exacts.some(spec => spec?.path === path)) fail(`missing done-pill recorder route: ${path}`)
+  }
+  if (exacts.some(spec => spec?.path === '/api/dsh-companion/rec-windows')
+    && exacts.some(spec => spec?.path === '/api/dsh-companion/rec-frame')) {
+    pass('registered done-pill recorder routes (rec-windows / rec-frame, kind=exact)')
+  }
+  // 提示音：prefix 一条，客户端与壳页面共用同一个 URL。
+  const sfx = prefix.find(spec => spec?.path === '/api/chat-flow/sfx')
+  if (sfx === undefined) {
+    fail(`missing done-pill sfx route (prefix /api/chat-flow/sfx): ${JSON.stringify(prefix.map(spec => spec?.path))}`)
+  } else {
+    pass('registered /api/chat-flow/sfx (kind=prefix, task-done.wav)')
   }
   for (const spec of registered) {
     if (typeof spec?.handler !== 'function') fail(`route handler is not a function: ${spec?.path}`)

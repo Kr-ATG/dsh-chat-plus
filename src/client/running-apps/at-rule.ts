@@ -58,6 +58,10 @@
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// 功能门（src/client/features/gate.tsx）**故意不在模块顶层静态 import**：
+// 本文件会被 scripts/test-at-guard.mjs 用 Node 直接 import（纯判据冒烟），
+// Node 的 type-stripping 不认 .tsx 扩展名，静态 import 会让测试直接挂掉。
+// 真正装配时再异步载入，见 applyAtGuard 末尾。
 
 /** 官方 file 规则的 id（覆盖它必须用同一个 id）。 */
 export const FILE_RULE_ID = 'file'
@@ -187,7 +191,8 @@ export function applyAtGuard(ctx: ClientContext): void {
 
   const rule = buildGuardRule()
 
-  ctx.effect(() => {
+  /** 注册守卫规则；返回注销函数。 */
+  const mountRule = (): (() => void) => {
     let dispose: (() => void) | undefined
     try {
       dispose = register(rule)
@@ -195,7 +200,45 @@ export function applyAtGuard(ctx: ClientContext): void {
       console.warn('[running-apps] @ 误判修复规则注册失败：', error)
     }
     return () => { if (dispose !== undefined) dispose() }
-  }, 'running-apps: @ guard rule')
+  }
+
+  /**
+   * 开关同步：关掉 = 规则注销，官方原始判据接管（「@的时候」这类写法又会
+   * 被误认成文件芯片——这是用户主动选择关闭的已知代价）；打开 = 立即恢复
+   * 抢位规则，不需要刷新。
+   */
+  let disposeRule: (() => void) | null = null
+  const syncRule = (enabled: boolean): void => {
+    if (enabled) {
+      if (disposeRule === null) disposeRule = mountRule()
+    } else {
+      disposeRule?.()
+      disposeRule = null
+    }
+  }
+
+  // 先登记卸载清理，再异步装载功能门 —— 保证无论门模块何时就绪，
+  // 插件卸载都会把规则与订阅一起收干净。
+  let disposed = false
+  let off: (() => void) | null = null
+  ctx.effect(() => () => {
+    disposed = true
+    off?.()
+    off = null
+    disposeRule?.()
+    disposeRule = null
+  }, 'running-apps: @ guard rule feature switch')
+
+  void import('../features/gate.tsx').then(({ featureEnabledNow, onFeatureChange }) => {
+    if (disposed) return
+    syncRule(featureEnabledNow('input.at-guard'))
+    off = onFeatureChange('input.at-guard', syncRule)
+  }).catch((error) => {
+    // 功能门模块加载失败（理论上只会在打包异常时发生）：按默认开启处理，
+    // 保住「@ 中文不误判」这个修复本身，别让一个开关读不到就回退成 bug。
+    console.warn('[running-apps] @ 守卫功能门加载失败，按开启处理：', error)
+    if (!disposed) syncRule(true)
+  })
 }
 
 /** 导出给冒烟直接对拍（判据错了不会报错，只会让普通文字变成芯片、或让真路径变成文字）。 */

@@ -171,8 +171,14 @@ function resolveAgentSession(agent: unknown): SessionResolution {
  * 官方 `dsh-tool-pwsh` 与 `dsh-tool-bash` 注册名就是这两个；`shell` / `terminal`
  * 是同一族在别的发行版的叫法，一并认下 —— 多认一个不存在的名字没有任何代价，
  * 漏认一个的代价是「换平台后标志永远不亮」。
+ *
+ * `ops_bash`（2026-10-27 补）：第三方插件 dsh-ops 在 Windows 上会**顶替掉官方
+ * `pwsh`**（mode-minimal/standard/ptc/cordis 四行的 shell 替换都指向它），所以
+ * 装了那个插件之后，本机真正跑命令行的工具名就是 `ops_bash`。不收它，浏览器
+ * 操作标志在使用 bash 跑 ego-browser 时永远不亮。它的命令文本同样在
+ * `arguments.command`，与官方 pwsh/bash 完全一致。
  */
-export const SHELL_TOOL_NAMES: readonly string[] = ['pwsh', 'bash', 'shell', 'terminal', 'powershell']
+export const SHELL_TOOL_NAMES: readonly string[] = ['pwsh', 'bash', 'shell', 'terminal', 'powershell', 'ops_bash']
 
 /**
  * 浏览器自动化 CLI 的可执行名（段首命令，全小写比较、去目录前缀与扩展名）。

@@ -56,9 +56,13 @@ import { applyToolsGateClient } from './tools-gate/index.tsx'
 import { applyBrowserFlagClient } from './browser-flag/index.ts'
 import { applySidebarDocument } from './sidebar-doc/index.tsx'
 import { applyUiFont } from './ui-font/index.ts'
+import { applyDonePill } from './done-pill/pill.tsx'
+import { startShellHotReporter } from './done-pill/shell-hot.ts'
 import { applySidebarMedia } from './sidebar-media/index.tsx'
 import { buildActivityGrid, activityColor, ACTIVITY_COLUMNS } from './triad/usage/dashboard/ActivityGrid.js'
 import { setClientCtx } from './client-ctx.ts'
+import { applyFeatureSwitches } from './features/index.tsx'
+import { featureEnabledNow, featureMount } from './features/gate.tsx'
 
 /** 顶层服务依赖（client boot graph 用）。 */
 // 并集 = 原 dsh-chat-plus 的 slots + 原 dsh-triad 的 locale/inputTriggers/sessions
@@ -166,6 +170,12 @@ export function apply(ctx: ClientContext): void {
   // （ctx.get('sidebarRight') / ctx.get('sessions')），见 client-ctx.ts。
   setClientCtx(ctx as unknown as { get?(name: string): any })
 
+  // ── 组件开关：全体功能的运行时门 ─────────────────────────────────────
+  // 先于所有功能挂载：store 的首帧值来自 localStorage，之后每 2 秒（及窗口
+  // 聚焦时）从 /api/chat-flow/components 校准到宿主 loader 的真实行状态。
+  // 插件页面的开关由 cordis.patch.yml 的 16 条 insert 原生提供，这里不自绘面板。
+  guarded(ctx, 'feature switches', () => { applyFeatureSwitches(ctx) })
+
   // ── 界面字体（最早应用）──────────────────────────────────────────────
   // 用户选中的字体必须**先于**其它一切挂载生效：它只改几个根 CSS 变量
   // （--dsh-font-family-text/-code 是官方 0.2.1 的可写槽位，--dsw-font-family /
@@ -175,7 +185,25 @@ export function apply(ctx: ClientContext): void {
   //
   // 2026-10-14 曾整块下线（理由：与官方「更多字体设置」重复、多背 5MB webfont），
   // 2026-10-25 按用户要求装回来 —— 恢复时发现变量层变了，详见 ui-font/font.ts 头注释。
+  // input.ui-font 不在外层做 apply 期门：ui-font 内部自带 onFeatureChange，
+  // 外层门会让「上次关闭 → 本次打开」时监听装不上、必须刷新。
   guarded(ctx, 'ui font', () => { applyUiFont(ctx) })
+
+  // ── 对话完成胶囊（2026-10-28 自 dsh-companion 移植）────────────────────
+  // 顶部悬浮胶囊 + 左下角小横条两种形态（设置里切换）、任务完成三通道提醒
+  // （原生通知 → 壳页面桌面浮窗 → 页内卡）、录屏成 GIF、待机机器人。
+  // 存储键 / 样式类名 / 槽位 id / 宿主路由沿用 dsh-companion 原值，
+  // 浏览器里的已读、位置与外观设置无缝延续。
+  // 依赖 slots（顶层 inject 已有）；其它服务全部懒取，缺了只降级不拖垮插件。
+  // view.done-pill 也不在外层做 apply 期门：胶囊组件用 FeatureGate 包住，
+  // 内部按组件行状态渲染/卸载，拨完开关 2 秒内生效。
+  guarded(ctx, 'done pill', () => { applyDonePill(ctx) })
+  // 壳子顶栏热区让位：胶囊贴顶时顶部那条隐形拖拽带会吞掉上半段的点击/悬停，
+  // 这里把胶囊矩形上报给 host、由 host 经 CDP 让拖拽带在胶囊范围内穿透。
+  // 纯浏览器访问（无壳子）时上报始终失败，模块内部有 5s 冷却，零副作用。
+  guarded(ctx, 'done pill shell hot', () => {
+    ctx.effect(() => startShellHotReporter(), 'dsh-chat-plus: done-pill shell hot reporter')
+  })
 
   // 样式：工具聚合（dts__）、思考/流卡（dtt__）两枚 + 截图面板（tsh__）独立
   // <style>，幂等注入。
@@ -187,7 +215,7 @@ export function apply(ctx: ClientContext): void {
   guarded(ctx, 'iu styles', injectIuStyles)
   // `/iu` 斜杠指令：把「出卡片」从模型的判断变成用户的显式命令。
   // 与内置提示词通道互补——那条只让模型「知道能力存在」，这条是硬要求。
-  guarded(ctx, 'iu slash source', () => { applyIuSlash(ctx) })
+  featureMount(ctx, 'card.iu', 'iu slash source', () => { applyIuSlash(ctx) })
   // 「@ 运行中的程序」：打 @ 时除了官方文件/会话候选，再列出此刻真的开着的
   // 窗口（带进程图标 + 窗口标题）。数据来自 host 半身常驻 PowerShell 采集器
   // （/api/chat-flow/running-apps，2~4ms 一次），客户端 2s 缓存。
@@ -195,11 +223,14 @@ export function apply(ctx: ClientContext): void {
   // 为什么不自己重写菜单：官方 ui-input-trigger 的候选管线已经处理了键盘上下、
   // 回车、点选、hover、高亮、滚动、无障碍——重写就是抄一份官方实现，官方改版
   // 就跟着坏。这里只注册一个 @ 源 + 一个自定义图标组件。
+  // input.running-apps 内部自带 onFeatureChange（会注销/重注册 @ 源），
+  // 外层不再判开关，否则上次关过就装不上监听。
   guarded(ctx, 'running apps @ source', () => { applyRunningAppsSource(ctx) })
   // 修「普通对话里的 @ 被误渲染成蓝色文件芯片」：官方 @ 文件规则的判据只要求
   // 「@ 前是空白、后跟一串非空白字符」，中文里「@的时候」这种写法会被误认成
   // 文件路径（文件不存在 → 蓝色虚线芯片）。这里注册一条 order 更小的规则，
   // 把「不像路径的 @」盖回普通文字。判据与抢位原理见 running-apps/at-rule.ts。
+  // input.at-guard 同理：规则注册/注销由模块内部的 onFeatureChange 负责。
   guarded(ctx, 'running apps @ guard', () => { applyAtGuard(ctx) })
   guarded(ctx, 'download card styles', injectDownloadStyles)
   // 共享活动抽屉：思考与工具调用的详情面板（body 级宿主，只挂一次）。
@@ -213,7 +244,7 @@ export function apply(ctx: ClientContext): void {
   guarded(ctx, 'open path fix', installOpenPathFix)
 
   // 对话截图：assistant 消息操作栏相机按钮 → 截图面板（独立 id，KR模式生效）。
-  guarded(ctx, 'screenshot seat', () => { applyMessageScreenshot(ctx) })
+  featureMount(ctx, 'card.screenshot', 'screenshot seat', () => { applyMessageScreenshot(ctx) })
 
   // 总结卡外观（框 + 阴影）开关：读 localStorage → 给 body 挂 data-dsh-reply-plain。
   //
@@ -276,7 +307,7 @@ export function apply(ctx: ClientContext): void {
   // key = wire 工具名）。host 半身注册 download 工具 + 进度路由；运行中约
   // 700ms 轮询真实进度（字节/速度/ETA），完成态读 meta 摘要。host 未就绪或
   // 旧版本时优雅降级为时长显示。
-  guarded(ctx, 'download toolview seat', () => {
+  featureMount(ctx, 'card.download', 'download toolview seat', () => {
     ctx.slots.inject('tool.call.toolview', () => ctx.slots.register(
       { name: 'tool.call.toolview', key: 'download' },
       DownloadCard,
@@ -287,7 +318,7 @@ export function apply(ctx: ClientContext): void {
   //
   // 已被 KR_CHAT_ENABLED 关闭 —— 只隐藏、不删除：控制器、样式、面板组件全部
   // 原样留在 kr-chat/ 下，把 enabled.ts 里的开关改回 true 即完整恢复。
-  if (KR_CHAT_ENABLED) {
+  if (KR_CHAT_ENABLED && featureEnabledNow('view.seeker')) {
     guarded(ctx, 'kr-chat styles', injectKrStyles)
     guarded(ctx, 'kr-chat controller', mountKrChatController)
   }
@@ -310,7 +341,7 @@ export function apply(ctx: ClientContext): void {
   // 空白 Hero 态照常渲染，会话 id 一变即清空活动抽屉 / live todos / 已选轮次，
   // 免得切会话后抽屉里还留着上一会话的思考与工具树。与 KR 的可见 UI 无关，
   // 因此不随开关关闭。
-  guarded(ctx, 'stat ttft styles', injectTtftFlatStyles)
+  featureMount(ctx, 'view.stats-ttft', 'stat ttft styles', injectTtftFlatStyles)
 
   guarded(ctx, 'kr-todo bridge', () => {
     ctx.slots.inject('conversation.input.dock', () => ctx.slots.register(
@@ -322,7 +353,7 @@ export function apply(ctx: ClientContext): void {
   // 首 token 平均平铺：官方会话统计把这数藏在点开的卡片里，这里把它追认进
   // 输入框下状态栏同一行。同槽再加一个隐形桥（order 1000，不占视觉行），
   // 读 sessionStats 投影（整场会话），无投影时用窗口节点现算。
-  guarded(ctx, 'stats ttft flat', () => {
+  featureMount(ctx, 'view.stats-ttft', 'stats ttft flat', () => {
     ctx.slots.inject('conversation.input.dock', () => ctx.slots.register(
       { name: 'conversation.input.dock', id: 'dsh-stats-ttft-flat', order: 1000 },
       TtftFlatBridge,
@@ -380,7 +411,7 @@ export function apply(ctx: ClientContext): void {
   // （它内部各渲染器也是 `ctx.documentPreviews.register`）。bundle 顺序里
   // dsh-web-app 在本插件之前，provide 已发生；老宿主没这个包时读取抛错，
   // applySidebarDocument 内部 catch 后原样兜底。
-  guarded(ctx, 'sidebar document renderer', () => {
+  featureMount(ctx, 'card.sidebar-doc', 'sidebar document renderer', () => {
     applySidebarDocument(ctx as unknown as Record<string, any>)
   })
 
@@ -391,7 +422,7 @@ export function apply(ctx: ClientContext): void {
   // 这个收口就等于把音频与视频从"能看"退化回"打不开"。
   // 注册方式与上面的文档渲染器同一套（documentPreviews + extension 档 + 同 id
   // 的 keyed 正文槽位），正文是原生 <video> / <audio>。
-  guarded(ctx, 'sidebar media renderer', () => {
+  featureMount(ctx, 'card.sidebar-media', 'sidebar media renderer', () => {
     applySidebarMedia(ctx as unknown as Record<string, any>)
   })
 }
@@ -405,6 +436,44 @@ export { buildActivityGrid, activityColor, ACTIVITY_COLUMNS }
  * 所以从 triad 半身一路转发到 client 入口。
  */
 export { collectModels, collectProviders, filterDaysByScope, providerOfModel } from './triad/usage/dashboard/aggregate.ts'
+/**
+ * 纯逻辑再导出：动态页「模型」这一格的判定口径（供 smoke 直接断言）。
+ *
+ * 这三条判错都**不会报错**，只会让界面显示一个看起来正常的错值：
+ *  · followDefaultLabel —— 往括号里塞一个假的模型名，用户以为在用它；
+ *  · effectiveModelOf  —— 配置是 default 时显示「跟随系统默认」四个字而不显示
+ *    真正在跑的模型，用户无从验证「换的生效了没有」；
+ *  · modelLabel        —— 未知 id 被换成别的名字，等于替用户改了设置。
+ */
+export { FOLLOW_DEFAULT, followDefaultLabel, normalizeRun as normalizeFeedRun } from './triad/feed/api.ts'
+export { effectiveModelOf, modelLabel } from './triad/feed/FeedPanel.tsx'
+/**
+ * 纯逻辑再导出：动态页「日期格式 / 进度估算 / 来源名」三组判据（供 smoke 直接断言）。
+ *
+ * 这几条判错都**不会报错**，只会让界面安静地显示一个看起来正常的错值：
+ *  · fullDateText / dayHeadingText —— 年月日错成别的日期，用户拿它当"什么时候发的"依据；
+ *  · medianOf / runDurationsOf   —— ETA 估错，用户看着"预计 10 秒"等了三分钟；
+ *  · sourceLabelOf / prettySiteName —— 域名映射错，卡片上挂一个不是那家媒体的名字。
+ * 塞在组件里会被 esbuild 内联，只能正则读源码，挡不住逻辑错，所以必须从这里真导出。
+ */
+export {
+  agoText,
+  clockText,
+  dateKeyOf,
+  dayHeadingText,
+  elapsedText,
+  fullDateText,
+  medianOf,
+  outcomeLabelOf,
+  prettySiteName,
+  runDurationsOf,
+  runProgressOf,
+  runToneOf,
+  sourceLabelOf,
+  splitSkipNotes,
+  statusLabelOf,
+  MAX_SKIP_NOTES_SHOWN,
+} from './triad/feed/progress.ts'
 export { toPlainStep, plainToolName, siteOf, isMetaTool, spawnsSubagents, humanIssue } from './kr-chat/plain-language.ts'
 export { buildPlainTimeline, condenseSteps } from './kr-chat/plain-timeline.ts'
 /**

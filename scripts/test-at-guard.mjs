@@ -78,7 +78,11 @@ console.log('[at-guard] 装配')
 {
   const src = readFileSync(resolve(ROOT, 'src/client/index.ts'), 'utf8')
   check('client 入口装配了 guard', src.includes('applyAtGuard'))
-  check('guard 走 guarded 容错', src.includes("guarded(ctx, 'running apps @ guard'"))
+  // 2026-10-28：功能开关改造后入口用 featureMount（受控装配 + 运行时门），
+  // 旧写法 guarded 也仍然算数——两种都属于「单模块失败不拖垮整体」。
+  const guardMounted = src.includes("guarded(ctx, 'running apps @ guard'")
+    || src.includes("featureMount(ctx, 'input.at-guard', 'running apps @ guard'")
+  check('guard 走受控装配容错（guarded / featureMount 均可）', guardMounted)
   const mod = readFileSync(resolve(ROOT, 'src/client/running-apps/at-rule.ts'), 'utf8')
   check('通过 uiConversation.userText.register 注册', mod.includes('uiConversation') && mod.includes('register'))
   check('缺服务时静默降级', mod.includes('console.warn'))

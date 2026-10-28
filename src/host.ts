@@ -56,10 +56,20 @@ import { applyToolsGate } from './tools-gate/index.ts'
 import { applyBrowserOnDemand } from './browser-on-demand/index.ts'
 import { applyBrowserActivity } from './browser-activity/index.ts'
 import { applyRunningApps } from './running-apps/index.ts'
+import { applyDonePillHost } from './host/done-pill/index.ts'
+import { applyRecWindows } from './host/done-pill/rec-windows.js'
+import { applyRecCapture } from './host/done-pill/rec-capture.js'
+import { applySfxRoutes } from './host/done-pill/sfx.ts'
 // 「系统提示词」观测（2026-10-27）：assemble 出口抓最终快照 + 只读路由，
 // 供操作间「系统提示词」页查看「这次发送会话会带上的提示词」。
 import { applySystemPromptInspector } from './system-prompt/index.ts'
+// 个人动态（Feed，2026-10-27）：/api/dsh-feed/* 路由 + 生成闸门与 X 同步。
+// 内容由后台按用户提示词生成（不是用户发帖、不是订阅流），见
+// docs/2026-10-25-personal-feed-design.md。写作走可注入的 writer：
+// 默认产占位内容，所以没有真实 LLM 时整条链路（排序/删除/单飞锁）照样可验。
+import { applyFeedHost } from './feed/index.ts'
 import { applyGitStatusRoutes, GIT_STATUS_ROUTE, collectGitStatus, handleGitStatusRoute } from './git-status/index.ts'
+import { applyFeatureRoutes, hostFeatureEnabled, initializeFeatures } from './features/store.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
 export { applyFontRoutes, FONT_ROUTE } from './fonts/index.ts'
 // 「任务动画」资产（/api/chat-flow/motion/*）：9 段透明底 WebM + 首帧海报。
@@ -193,6 +203,79 @@ export {
   handleGitStatusRoute,
   formatRelativeTime,
 } from './git-status/index.ts'
+// 个人动态（Feed）的可测面：装配入口 + 路由前缀 + 排序/来源判定/X 解析的纯函数。
+// 这几块判错了**都不会抛错** —— 排序错只是「今天/昨天穿插」，X 解析错只是
+// 「少几条」，删除错只是「删了还在」。所以必须能被冒烟直接对拍。
+export { applyFeedHost, parseCronIntervalMs } from './feed/index.ts'
+export type { FeedHostConfig, FeedHostHandle } from './feed/index.ts'
+export { FEED_ROUTE_PREFIX, DEFAULT_FEED_CONFIG, FEED_FRESH_WINDOW_MS, MAX_SEEN_TWEET_IDS, FEED_FRESH_WINDOW_MS as FEED_FRESH_MS } from './feed/types.ts'
+export type { FeedPost, FeedSource, FeedComment, FeedConfig, FeedRun, XSyncState, XTweet } from './feed/types.ts'
+// 关注对象（2026-10-27「右侧悬浮球」）：类型、存储、归属判定。
+// 归属判定是**纯逻辑**，判错不会抛错、只会让某个人名下空空的 —— 必须能被冒烟对拍。
+export type { FollowedEntity, FeedEntitiesFile } from './feed/types.ts'
+export { ENTITIES_SCHEMA_VERSION, MAX_ENTITIES, MAX_ENTITY_ALIASES, newEntityId } from './feed/types.ts'
+export {
+  EntityStore,
+  createEntityMatcher,
+  initialOf,
+  matchKeywordsOf,
+  normalizeAliases,
+  normalizeEntity,
+  normalizeUrl,
+  normalizeXHandle,
+  sharedEntityStore,
+  withResolvedEntities,
+  writerEntitiesOf,
+  xHandlesOf,
+} from './feed/entities.ts'
+export type { EntityMatcher, EntityMatchKind, EntityPatch, EntityInput, EntityWriteResult, WriterEntity } from './feed/entities.ts'
+export { toEntityView, syncXHandles } from './feed/api.ts'
+export type { EntityView } from './feed/api.ts'
+export {
+  sortFeedPosts,
+  groupFeedPosts,
+  queryFeedPosts,
+  isUnread,
+  isExpired,
+  priorityKey,
+  dayKeyOf,
+} from './feed/rank.ts'
+export type { FeedDayKey, FeedFilterKey, FeedDayGroup } from './feed/rank.ts'
+export {
+  classifySource,
+  extractNextData,
+  parseTweetsFromNextData,
+  parseTweetTime,
+  tweetUrlOf,
+  selectNewTweets,
+  mergeSeenTweets,
+  splitTweetsByFreshness,
+  pickHandlesForRound,
+  runXSyncRound,
+  tweetToSource,
+  describeOutcome,
+  normalizeHost,
+  X_HANDLE_GAP_MS,
+  X_MAX_ATTEMPTS,
+  X_MAX_HANDLES_PER_ROUND,
+  X_COOLDOWN_MS,
+  X_RETRY_DELAY_MS,
+  X_FETCH_TIMEOUT_MS,
+  fetchXProfile,
+} from './feed/sources.ts'
+export {
+  requestRun,
+  promptChanged,
+  normalizePrompt,
+  promptHashOf,
+  createPlaceholderWriter,
+  createFeedRunner,
+  sanitizeDraft,
+  LEASE_MS,
+  LEASE_RENEW_MS,
+} from './feed/trigger.ts'
+export { FeedStore, feedDataDir } from './feed/store.ts'
+export { toDayViews, toPostView, loopbackAllowed } from './feed/api.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'dsh-chat-plus'
@@ -274,13 +357,19 @@ function handleGeneratedImages(ctx: Record<string, any>, req: any, res: any): vo
  * 的写法一致。
  */
 export function apply(ctx: Record<string, any>, config?: { mail?: Record<string, unknown>; toolsGate?: Record<string, unknown>; browserOnDemand?: Record<string, unknown>; browserActivity?: Record<string, unknown> }): void {
+  // 组件开关：登记宿主 context（host 各模块在 apply 期用 hostFeatureEnabled
+  // 读 loader 行状态），再注册 /api/chat-flow/components 只读路由。
+  initializeFeatures(ctx)
   ctx.inject(['webServer'], (webCtx: any) => {
+    applyFeatureRoutes(webCtx)
     // 生图画廊：spill 结果读取（exact 路由）。
-    webCtx.effect(() => webCtx.webServer.register({
-      kind: 'exact',
-      path: '/api/chat-flow/generated-images',
-      handler: (req: any, res: any) => handleGeneratedImages(webCtx, req, res),
-    }), 'dsh-chat-plus: generated-images route')
+    if (hostFeatureEnabled('host.generated-images')) {
+      webCtx.effect(() => webCtx.webServer.register({
+        kind: 'exact',
+        path: '/api/chat-flow/generated-images',
+        handler: (req: any, res: any) => handleGeneratedImages(webCtx, req, res),
+      }), 'dsh-chat-plus: generated-images route')
+    }
     /*
      * 生图画廊「落盘」（exact，紧跟读图路由之后）：把只存在于 spill 文本里的
      * 图片解码/下载成真实文件，好让官方右侧 Sidebar 能像打开普通文件一样打开
@@ -292,33 +381,71 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
      *
      * handler 自己带跨站闸门（GET/POST 都挡）：这条会往磁盘写文件，不是只读。
      */
-    webCtx.effect(() => webCtx.webServer.register({
-      kind: 'exact',
-      path: MATERIALIZE_ROUTE,
-      handler: (req: any, res: any) => handleMaterialize(webCtx, req, res),
-    }), 'dsh-chat-plus: generated-images materialize route')
+    if (hostFeatureEnabled('host.generated-images')) {
+      webCtx.effect(() => webCtx.webServer.register({
+        kind: 'exact',
+        path: MATERIALIZE_ROUTE,
+        handler: (req: any, res: any) => handleMaterialize(webCtx, req, res),
+      }), 'dsh-chat-plus: generated-images materialize route')
+    }
     // 对话截图：常驻无头浏览器渲染 + render/save/reveal/image/diagnose
     // （prefix 路由；applyScreenshot 内部自己挂 effect 与回收）。
-    applyScreenshot(webCtx)
+    if (hostFeatureEnabled('host.screenshot-engine')) applyScreenshot(webCtx)
     // 下载工具的实时进度路由（GET /api/chat-flow/download/progress）。
-    applyDownloadRoutes(webCtx)
+    if (hostFeatureEnabled('host.download')) applyDownloadRoutes(webCtx)
     // 「用文件资源管理器打开」修复：官方那条被 windowsHide 吞了窗口。
-    applyOpenPathRoutes(webCtx)
+    if (hostFeatureEnabled('host.open-path')) applyOpenPathRoutes(webCtx)
     // 「用默认应用打开文件」修复（2026-10-21）：见 src/open-file/index.ts。
-    applyOpenFileRoutes(webCtx)
+    if (hostFeatureEnabled('host.open-file')) applyOpenFileRoutes(webCtx)
     // 界面字体资产（/api/chat-flow/fonts/*）：把随包的霞鹜新致宋 woff2 与许可
     // 原文吐给浏览器。字体不内联进 client 产物——5.0MB 的资产若内联，从不切字体
     // 的用户也要白下载一次。
     //
     // 2026-10-14 曾随「界面字体」整块下线，2026-10-25 按用户要求装回来。
-    applyFontRoutes(webCtx)
+    if (hostFeatureEnabled('host.fonts')) applyFontRoutes(webCtx)
+    // 对话完成胶囊的辅助路由（2026-10-28 自 dsh-companion 移植）：
+    //   · 录屏窗口枚举 / 逐帧抓取（Win32 PrintWindow，免遮挡、支持子窗口）；
+    //   · 提示音静态资源（胶囊通知的提示音，壳页面与本页共用一个 URL）。
+    // 三块彼此独立、各自 try/catch：缺 WebServer 之外的服务也不会拖垮其它路由。
+    try {
+      if (hostFeatureEnabled('host.done-pill-media')) {
+        applyRecWindows(webCtx)
+        applyRecCapture(webCtx)
+        applySfxRoutes(webCtx)
+      }
+    } catch (error) {
+      try {
+        webCtx.logger?.warn?.(`[dsh-chat-plus] done-pill media routes failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`)
+      } catch { /* 日志不可用也不炸 */ }
+    }
     // 「任务动画」资产（/api/chat-flow/motion/*，2026-10-26）：操作面板卡头那 9 段
     // 透明底 WebM（思考 / 开始操作 / 操作中 / 查看照片 / 操作结束 / 完成 / 吃饭 /
     // 观月 / 小憩）与各自的首帧海报。与字体同一条理由：2.57MB 的动画若内联进
     // client.js，关掉动画的人也要白下载一次；走路由后只拉当前在播的那一段。
-    applyMotionRoutes(webCtx)
+    if (hostFeatureEnabled('host.motion')) applyMotionRoutes(webCtx)
     // 当前工作区 Git 状态与一键提交流路由
-    applyGitStatusRoutes(webCtx, ctx)
+    if (hostFeatureEnabled('host.git-status')) applyGitStatusRoutes(webCtx, ctx)
+    /*
+     * 个人动态（Feed）：/api/dsh-feed/*（prefix）。
+     *
+     * 只依赖 webServer，所以挂在这一层；内部各子模块（X 同步 / 写作 /
+     * 定时）各自 try/catch —— X 抓不到只是「本轮没有 X 线索」，绝不影响
+     * 其它部分与插件其它能力（docs/2026-10-27-x-feed-availability.md 的
+     * 硬要求：抓取必须可失败、可降级）。
+     *
+     * 装配是异步的（store 要先 load），失败不能从延迟注入回调冒出去 ——
+     * 那会中断本插件后面所有 ctx.inject（triad / provider / mail 全不挂）。
+     */
+    try {
+      // 同步装配：路由与 effect 必须在**本次回调内**注册完（见 applyFeedHost 的说明）。
+      if (hostFeatureEnabled('host.feed')) applyFeedHost(webCtx as never)
+    } catch (error) {
+      try {
+        webCtx.logger?.warn?.(
+          `[dsh-chat-plus] feed workbench failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+        )
+      } catch { /* 拿不到 logger 时静默：不为了记日志再抛一次 */ }
+    }
     // Office / PDF 页图与 PDF 渲染（/api/chat-flow/office/*）：画廊 ppt/word 缩略图、
     // 产出物弹窗内联预览、官方侧边栏 ppt/word 接管三处共用。挂载时顺带校正
     // process.env.TEMP —— 官方 office-to-pdf 的 LibreOffice 转换要求 scratch 落在
@@ -329,7 +456,7 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
     // 抛 `cannot get property "x" without inject` —— 若在 catch 里再读 logger 抛出，
     // 会从 apply 冒出去连累整棵插件树。这里只做「尽力记一笔」。
     try {
-      applyOfficePreview(webCtx)
+      if (hostFeatureEnabled('host.office-preview')) applyOfficePreview(webCtx)
     } catch (error) {
       try {
         webCtx.logger?.warn?.(
@@ -344,12 +471,14 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
   // 诊断（外链会被 CSP 拦、100vh 会出滚动条、整页底色会变成色差板子……）。
   // 两件事共用同一个 tools 依赖，任一失败都不该连累另一个，所以分开 try。
   ctx.inject(['tools'], (toolsCtx: any) => {
-    applyDownloadTool(toolsCtx)
+    if (hostFeatureEnabled('input.download-tool')) applyDownloadTool(toolsCtx)
     try {
-      toolsCtx.effect(
-        () => toolsCtx.tools.register(validateHtmlCardTool),
-        'dsh-chat-plus: validate_html_card tool',
-      )
+      if (hostFeatureEnabled('input.validate-card-tool')) {
+        toolsCtx.effect(
+          () => toolsCtx.tools.register(validateHtmlCardTool),
+          'dsh-chat-plus: validate_html_card tool',
+        )
+      }
     } catch (error) {
       try {
         toolsCtx.logger?.warn?.(('[dsh-chat-plus] validate_html_card 注册失败：'
@@ -384,7 +513,7 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
   ctx.inject(
     [...providerHubServices],
     (providerCtx: any) => {
-      applyProviderHub(providerCtx)
+      if (hostFeatureEnabled('host.provider-hub')) applyProviderHub(providerCtx)
     },
   )
 
@@ -394,6 +523,7 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
   // 时不再需要问用户要邮箱）。只依赖 webServer + tools，任一缺失则整块不挂，
   // 其余能力照常（延迟注入的天然降级）。
   ctx.inject(['webServer', 'tools'], (mailCtx: any) => {
+    if (!hostFeatureEnabled('host.mail')) return
     void applyMailHost(mailCtx, (config?.mail ?? {}) as never).catch((error: unknown) => {
       mailCtx.logger?.warn?.(
         `[dsh-chat-plus] mail workbench failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
@@ -412,7 +542,7 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
   // 冒出去，中断本插件后面所有 ctx.inject（triad 工作台全不挂）。模块内部
   // 已对缺失服务逐项自查，这里再加一层兜底，任何意外都只让闸门失效。
   try {
-    applyToolsGate(ctx as never, (config?.toolsGate ?? {}) as never)
+    if (hostFeatureEnabled('input.tools-gate')) applyToolsGate(ctx as never, (config?.toolsGate ?? {}) as never)
   } catch (error) {
     ctx.logger?.warn?.(
       `[dsh-chat-plus] tools gate failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
@@ -427,7 +557,7 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
   // 与闸门同理：延迟注入回调里抛错会从 apply 冒出去、中断后面所有 inject，
   // 所以这里单独兜底，任何意外都只让「按需拉起」失效（退回手动启动 Chrome）。
   try {
-    applyBrowserOnDemand(ctx as never, (config?.browserOnDemand ?? {}) as never)
+    if (hostFeatureEnabled('host.browser-on-demand')) applyBrowserOnDemand(ctx as never, (config?.browserOnDemand ?? {}) as never)
   } catch (error) {
     ctx.logger?.warn?.(
       `[dsh-chat-plus] browser-on-demand failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
@@ -443,7 +573,7 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
   // 毁掉真实的工具调用 —— 模块内部已全程 try/catch，这里再加一层，最坏结果
   // 只是「图标不亮」。
   try {
-    applyBrowserActivity(ctx as never, (config?.browserActivity ?? {}) as never)
+    if (hostFeatureEnabled('host.browser-activity')) applyBrowserActivity(ctx as never, (config?.browserActivity ?? {}) as never)
   } catch (error) {
     ctx.logger?.warn?.(
       `[dsh-chat-plus] browser-activity failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
@@ -461,7 +591,7 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
   //
   // 同样单独兜底：延迟注入回调里抛错会从 apply 冒出去、中断后面所有 inject。
   try {
-    applyRunningApps(ctx as never)
+    if (hostFeatureEnabled('host.running-apps')) applyRunningApps(ctx as never)
   } catch (error) {
     ctx.logger?.warn?.(
       `[dsh-chat-plus] running-apps failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
@@ -480,10 +610,23 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
   //
   // 同样单独兜底：延迟注入回调里抛错会从 apply 冒出去、中断后面所有 inject。
   try {
-    applySystemPromptInspector(ctx as never)
+    if (hostFeatureEnabled('host.system-prompt')) applySystemPromptInspector(ctx as never)
   } catch (error) {
     ctx.logger?.warn?.(
       `[dsh-chat-plus] system-prompt inspector failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+    )
+  }
+
+  // ── 对话完成胶囊（2026-10-28 自 dsh-companion 移植）──────────────────────
+  // 全局监听 session/event（含后台会话）：回合结束提取问题与回复全文，存内存
+  // 完成列表；GET /api/dsh-done-pill 供前端增量轮询，另有 /shell-hot、
+  // /notify、/notify-click 三条辅助路由（内部自己 ctx.inject(['webServer'])，
+  // 缺服务时静默不挂路由，不影响前面已装配的其它能力）。
+  try {
+    if (hostFeatureEnabled('view.done-pill')) applyDonePillHost(ctx as never)
+  } catch (error) {
+    ctx.logger?.warn?.(
+      `[dsh-chat-plus] done-pill host failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
     )
   }
 }

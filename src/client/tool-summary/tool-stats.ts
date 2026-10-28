@@ -198,7 +198,8 @@ export function classifyActivity(block: ToolCallBlock): ToolActivity {
   const view = callViewOf(block)
   if (view !== null && view.card === 'terminal') return 'command'
   if (view !== null && view.card === 'generic' && view.kind === 'execute') return 'command'
-  if (/^(bash|sh|pwsh|powershell|cmd|zsh)$/i.test(name)) return 'command'
+  // dsh-ops（2026-10-27 补）：ops_bash 在 Windows 上顶替官方 pwsh。
+  if (/^(bash|sh|pwsh|powershell|cmd|zsh|ops_bash)$/i.test(name)) return 'command'
   return 'other'
 }
 

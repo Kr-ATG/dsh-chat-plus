@@ -960,17 +960,17 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
   // 通道总数的历史注释会误导下一个人，直接钉住条数表述与实现一致。
   // 2026-10-09：diagram 通道随图形 iu kind（graph/arch/sequence）移除，五条→四条。
   // 2026-10-21：soul 通道随灵魂模块整块删除，四条→三条。
-  need(/四条\*\*内置通道\*\*[\s\S]{0,160}step 纪律/.test(injectSrc),
-    'inject.ts 头部注释声明的内置通道条数与实现一致（当前 4 条：zh / html / team / step）')
+  need(/四条\*\*内置通道\*\*[\s\S]{0,160}任务清单纪律/.test(injectSrc),
+    'inject.ts 头部注释声明的内置通道条数与实现一致（当前 4 条：zh / html / team / 任务清单纪律）')
 
-  // ── step 纪律通道（2026-10-23 新增：减少模型往返）──────────────────
+  // ── 任务清单纪律通道（2026-10-28 独立：原先挂在 step 纪律第五节）──────
   //
-  // 这条通道投的是一段**行为纪律**，不是能力文档：告诉模型「无数据依赖的多条
-  // 动作要合并进一次调用」。它的价值全部来自实测数字（拆 3 step 25.7s / 合并
-  // 1 step 5.3s），所以断言里必须钉住几个数字与反判据——只写「尽量合并」是口号，
-  // 模型会过度合并、把依赖链压成一条命令，出错返工反而更慢。
+  // 用户要求「step 去掉，任务清单保留」：step 纪律整条退役，清单纪律独立成通道
+  // （自己的开关、自己的首步计数、自己的注入文本）。这条投的是**行为纪律**，
+  // 不是能力文档，所以断言钉住最容易做错的几个点——少一条模型就会退回旧行为
+  // （一次性补标 / 把交棒事项挂 pending / 拿 pending 当「等用户」）。
   if (route !== undefined) {
-    const callStep = async (method, url) => {
+    const callTodoRule = async (method, url) => {
       const captured = { status: 0, body: null }
       const res = {
         writeHead: (status) => { captured.status = status },
@@ -980,49 +980,41 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
       await new Promise((r) => setTimeout(r, 60))
       return captured
     }
-    const gotStep = await callStep('GET', '/api/dsh-memory/step-inject-state')
-    need(gotStep.status === 200, `GET /step-inject-state answers 200（实得 ${gotStep.status}）`)
-    need(typeof gotStep.body?.enabled === 'boolean', 'step-inject-state returns a boolean enabled')
-    need(gotStep.body?.enabled === true, `step 通道默认开（实得 ${JSON.stringify(gotStep.body)}）`)
-    need(gotStep.body?.builtin === true, 'step-inject-state is tagged builtin (无卸载入口)')
-    const isStep = await callStep('GET', '/api/dsh-memory/inject-state?sessionId=smoke-step')
-    need(typeof isStep.body?.stepEnabled === 'boolean', 'GET /inject-state 顺带回传 stepEnabled')
+    const gotTodoRule = await callTodoRule('GET', '/api/dsh-memory/todo-rule-inject-state')
+    need(gotTodoRule.status === 200, `GET /todo-rule-inject-state answers 200（实得 ${gotTodoRule.status}）`)
+    need(typeof gotTodoRule.body?.enabled === 'boolean', 'todo-rule-inject-state returns a boolean enabled')
+    need(gotTodoRule.body?.enabled === true, `任务清单纪律通道默认开（实得 ${JSON.stringify(gotTodoRule.body)}）`)
+    need(gotTodoRule.body?.builtin === true, 'todo-rule-inject-state is tagged builtin (无卸载入口)')
+    const isTodoRule = await callTodoRule('GET', '/api/dsh-memory/inject-state?sessionId=smoke-todo-rule')
+    need(typeof isTodoRule.body?.todoRuleEnabled === 'boolean', 'GET /inject-state 顺带回传 todoRuleEnabled')
   }
-  // 规范文本住在独立模块（inject.ts 只 import 常量），所以扫 step-rule.ts 本体；
-  // 扫 inject.ts 会得到一串假失败——常量名在、正文不在。
-  const stepRuleSrc = readFileSync(resolve(ROOT, 'src/triad/memory/engine/step-rule.ts'), 'utf8')
-  need(/STEP_INJECTION_RULE/.test(stepRuleSrc), 'step-rule.ts 导出 STEP_INJECTION_RULE 常量')
+  // 规范文本住在独立模块（inject.ts 只 import 常量），所以扫 todo-rule.ts 本体。
+  const todoRuleSrc = readFileSync(resolve(ROOT, 'src/triad/memory/engine/todo-rule.ts'), 'utf8')
+  need(/TODO_RULE_INJECTION_RULE/.test(todoRuleSrc), 'todo-rule.ts 导出 TODO_RULE_INJECTION_RULE 常量')
   for (const [needle, why] of [
-    ['合并判据', '正向判据（A 的结果不影响 B 的参数才合并）'],
-    ['不要合并', '反判据（真依赖 / 独立审批 / 输出超限三种情况必须拆开）'],
-    ['并行不是杠杆', '钉住「并行没用」这条已被实测证伪的方向'],
-    ['79%', '实测收益数字（没有数字规则就退化成口号）'],
-    ['1635', '本机可合并空间的量化依据'],
-    ['重复 read', '同文件重复读这条实测发现'],
-    // ── 第五节：任务清单纪律（2026-10-25 从记忆库并入本通道）──────────────
-    //
-    // 这几条原先住在记忆库的一条 pinned 记忆里（mem_0e2d4a98ddb90f7c）。并进
-    // 代码的理由：它是**行为纪律**而不是"用户说过什么"，混在记忆库里会被检索与
-    // 预算机制影响（预算挤掉、相似度没命中就消失），而纪律必须每次都成立。
-    //
-    // 断言钉住 5 个判据 —— 它们分别对应「最容易做错的那一步」，少一条模型就会
-    // 退回旧行为（一次性补标 / 把交棒事项挂 pending / 拿 pending 当"等用户"）：
-    ['任务清单纪律', '第五节的存在（与自动收口是同一件事的两半）'],
-    ['收尾清零', '收尾必须把清单收干净——不收就会出现"永远挂着的进行中"'],
-    ['不等于"等待用户"', '钉住 pending 最常见的误用（这条用户点名反馈过）'],
+    ['任务清单纪律', '通道的标题行（注入后模型靠它认出这是清单纪律）'],
+    ['开工先列', '多步任务第一步就写清单，不许做完再补'],
+    ['收尾清零', '收尾必须把清单收干净——不收就会出现「永远挂着的进行中」'],
+    ['不等于「等待用户」', '钉住 pending 最常见的误用（这条用户点名反馈过）'],
     ['交棒事项不进清单', '用户点名反馈：等审阅/等重启不能写进清单挂 pending'],
-    ['收口本身不占条目', '元纪律：不要为了收口而往清单里加一条"更新任务清单"'],
+    ['收口本身不占条目', '元纪律：不要为了收口而往清单里加一条「更新任务清单」'],
   ]) {
-    need(stepRuleSrc.includes(needle), `step 纪律注入规范必须写清「${why}」（缺 ${needle}）`)
+    need(todoRuleSrc.includes(needle), `任务清单纪律注入规范必须写清「${why}」（缺 ${needle}）`)
   }
-  need(/stepStepCounters/.test(injectSrc) && /isStepInjectEnabled/.test(injectSrc),
-    'step 通道有独立 step 计数器（不与其它通道抢首步名额）')
-  need(/stepInjectDefaultEnabled: boolean/.test(typesSrc), 'MemoryConfig 声明 stepInjectDefaultEnabled')
-  need(/stepInjectDefaultEnabled: true/.test(typesSrc), 'stepInjectDefaultEnabled 默认 true')
-  need(/CONFIG_BOOLEAN_KEYS[\s\S]{0,400}stepInjectDefaultEnabled/.test(typesSrc),
-    'stepInjectDefaultEnabled 在 CONFIG_BOOLEAN_KEYS 里（否则面板/补丁写不进去）')
-  need(/isStepInjectEnabled/.test(storeSrc) && /setStepInjectEnabled/.test(storeSrc),
-    'store 提供 step 开关的读写')
+  // step 纪律通道 2026-10-28 整条退役：做**反向断言**——注入引擎里不得再出现
+  // 它的常量与计数器，磁盘上也不该留着 step-rule.ts，否则下一个人会顺手复活它。
+  need(!/STEP_INJECTION_RULE/.test(injectSrc) && !/stepStepCounters/.test(injectSrc),
+    'step 纪律通道已退役（inject.ts 不得残留 STEP_INJECTION_RULE / stepStepCounters）')
+  need(!existsSync(resolve(ROOT, 'src/triad/memory/engine/step-rule.ts')),
+    'step-rule.ts 已删除（通道整条退役，不是只关开关）')
+  need(/todoRuleStepCounters/.test(injectSrc) && /isTodoRuleInjectEnabled/.test(injectSrc),
+    '任务清单纪律通道有独立 step 计数器（不与其它通道抢首步名额）')
+  need(/todoRuleInjectDefaultEnabled: boolean/.test(typesSrc), 'MemoryConfig 声明 todoRuleInjectDefaultEnabled')
+  need(/todoRuleInjectDefaultEnabled: true/.test(typesSrc), 'todoRuleInjectDefaultEnabled 默认 true')
+  need(/CONFIG_BOOLEAN_KEYS[\s\S]{0,400}todoRuleInjectDefaultEnabled/.test(typesSrc),
+    'todoRuleInjectDefaultEnabled 在 CONFIG_BOOLEAN_KEYS 里（否则面板/补丁写不进去）')
+  need(/isTodoRuleInjectEnabled/.test(storeSrc) && /setTodoRuleInjectEnabled/.test(storeSrc),
+    'store 提供任务清单纪律开关的读写')
   need(!/soul|Soul|灵魂/.test(injectSrc), 'inject.ts 不得残留灵魂通道（2026-10-21 整块删除）')
   need(/isTeamInjectEnabled/.test(storeSrc) && /setTeamInjectEnabled/.test(storeSrc),
     'store 提供 team 开关的读写')
@@ -1075,13 +1067,13 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
     need(clientToggle.includes('团队协作'), `抽屉里有 team 通道这一行（${key} 的承载者）`)
   }
   need(clientToggle.includes(`pushChannel('teamEnabled'`), 'Toggle 写 team 通道走 teamEnabled 键')
-  // step 通道：抽屉里的硬编码行 + 写入口键 + 缺字段兜底口径三处必须齐。
+  // 任务清单纪律：抽屉里的硬编码行 + 写入口键 + 缺字段兜底口径三处必须齐。
   // 兜底口径是历史最易错点（谁 !== false、谁 === true），所以直接钉源码表达式。
-  need(clientToggle.includes('step 纪律'), '抽屉里有 step 通道这一行')
-  need(clientToggle.includes(`pushChannel('stepEnabled'`), 'Toggle 写 step 通道走 stepEnabled 键')
+  need(clientToggle.includes('任务清单纪律'), '抽屉里有任务清单纪律这一行')
+  need(clientToggle.includes(`pushChannel('todoRuleEnabled'`), '抽屉写任务清单纪律走 todoRuleEnabled 键')
   const clientToggleSrc = readFileSync(resolve(ROOT, 'src/client/triad/memory/Toggle.tsx'), 'utf8')
-  need(/stepEnabled: res\.stepEnabled !== false/.test(clientToggleSrc),
-    'stepEnabled 缺字段按「开」兜底（默认开的通道；与 team 的 === true 口径不同）')
+  need(/todoRuleEnabled: res\.todoRuleEnabled !== false/.test(clientToggleSrc),
+    'todoRuleEnabled 缺字段按「开」兜底（默认开的通道；与 team 的 === true 口径不同）')
 
   // ── 回合结束自动收口（todo-closure） ────────────────────────────────
   // 它不是「注入通道」（不往上下文里塞任何文本），而是**行为通道**：回合结束时
@@ -1421,7 +1413,10 @@ need(![...routes.keys()].some(p => p.startsWith('/api/chat-flow/') && p.includes
    * 所以闸门只能读 `injectEnabled`，**绝不能**把 `enabled` 也相与进来。
    * 这条断言钉的就是那个相与（它曾经真的写在那里）。
    */
-  need(/isEnabled:\s*\(\)\s*=>\s*service\.getConfig\(\)\.injectEnabled/.test(mailIndexSrc),
+  // 2026-10-28：功能开关改造在闸门前面加了 hostFeatureEnabled('prompt.mail') 的
+  // 运行时门（只影响「用户有没有关掉这条通道」，与邮箱工作台总开关 enabled 无关）。
+  // 核心判据不变：isEnabled 必须读 injectEnabled；下面的反向断言继续禁止与 enabled 相与。
+  need(/isEnabled:\s*\(\)\s*=>[\s\S]{0,160}?service\.getConfig\(\)\.injectEnabled/.test(mailIndexSrc),
     '注入闸门只读 injectEnabled（与工作台总开关解耦）')
   need(!/isEnabled:\s*\(\)\s*=>\s*\{[\s\S]{0,200}?&&[\s\S]{0,80}?injectEnabled/.test(mailIndexSrc),
     '注入闸门不得把 enabled 与 injectEnabled 相与（那会让工作台一关、声明跟着哑掉）')

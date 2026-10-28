@@ -19,6 +19,7 @@ import type { ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ModelSeatInjected } from './types'
 import { ModelSeat } from './ModelSeat'
 import { EffortSeat } from './EffortSeat'
+import { featureEnabledNow, onFeatureChange } from '../../features/gate.tsx'
 
 /**
  * 挂载供应商标签 + 模型选择座位 + 推理等级入口。
@@ -44,20 +45,61 @@ export function applyModelSeats(ctx: ClientContext): void {
     }
   }
 
-  // 模型选择入口：工具行右侧。
-  scope.slots.inject('conversation.input.right', () => scope.slots.register({
-    name: 'conversation.input.right',
-    id: 'peff-model',
-    order: 20,
-    inject: (sessionId: SessionId): ModelSeatInjected => face(sessionId),
-  }, ModelSeat))
+  /**
+   * 注册两个座位，返回摘除函数。
+   *
+   * 分开成「注册 / 摘除」而不是直接写死两次 inject，是为了让 input.model-seats
+   * 能在用户拨开关的当下**真正撤掉座位**（而不是只让组件返回 null 留一个空位）。
+   */
+  const mountSeats = (): (() => void) => {
+    const disposers: Array<() => void> = []
+    try {
+      // 模型选择入口：工具行右侧。
+      disposers.push(scope.slots.inject('conversation.input.right', () => scope.slots.register({
+        name: 'conversation.input.right',
+        id: 'peff-model',
+        order: 20,
+        inject: (sessionId: SessionId): ModelSeatInjected => face(sessionId),
+      }, ModelSeat)))
+      // 推理等级：接管模型座位（负数 priority 覆盖 ui-model-selection 的 ModelSelect），
+      // 位于模型名右侧、靠近发送按钮。
+      disposers.push(scope.slots.inject('conversation.input.model', () => scope.slots.register({
+        name: 'conversation.input.model',
+        id: 'peff-effort',
+        priority: -100,
+        inject: (sessionId: SessionId): ModelSeatInjected => face(sessionId),
+      }, EffortSeat)))
+    } catch (error) {
+      console.warn('[provider/model-seats] 座位注册失败：', error)
+    }
+    return () => {
+      for (const dispose of disposers.reverse()) {
+        try { dispose() } catch { /* 已被级联移除：忽略 */ }
+      }
+    }
+  }
 
-  // 推理等级：接管模型座位（负数 priority 覆盖 ui-model-selection 的 ModelSelect），
-  // 位于模型名右侧、靠近发送按钮。
-  scope.slots.inject('conversation.input.model', () => scope.slots.register({
-    name: 'conversation.input.model',
-    id: 'peff-effort',
-    priority: -100,
-    inject: (sessionId: SessionId): ModelSeatInjected => face(sessionId),
-  }, EffortSeat))
+  /**
+   * 开关同步：关掉 = 两个座位一起摘掉（输入框上方的供应商/模型选择器与推理
+   * 滑杆都不占位，用户看到的是一条干净的输入行）；打开 = 原地恢复。
+   *
+   * 只在模块内部做，不在 provider/index.ts 外层做 apply 期门：外层门在用户
+   * 上次把开关关掉的情况下会连监听都装不上，重新打开必须刷新页面。
+   */
+  let disposeSeats: (() => void) | null = null
+  const syncSeats = (enabled: boolean): void => {
+    if (enabled) {
+      if (disposeSeats === null) disposeSeats = mountSeats()
+    } else {
+      disposeSeats?.()
+      disposeSeats = null
+    }
+  }
+  syncSeats(featureEnabledNow('input.model-seats'))
+  const off = onFeatureChange('input.model-seats', syncSeats)
+  ctx.effect(() => () => {
+    off()
+    disposeSeats?.()
+    disposeSeats = null
+  }, 'dsh-chat-plus: model seats feature gate')
 }

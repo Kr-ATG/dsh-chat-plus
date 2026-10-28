@@ -12,6 +12,13 @@
  *
  * 页面顶部因此不再需要 tab 栏，只留一行面包屑（工作台 / 当前分类）说明身在何处。
  *
+ * ── 这张表是侧栏的**唯一真相**（2026-10-27 补记）─────────────────────
+ * hub/nav-sections.tsx 的 registerDefaultEntries() 直接遍历 WORKBENCH_TABS，
+ * 逐条调 navMenuItem（id = workbench-<tab>、order = 10 + index * 10）生成
+ * 「操作间」里的菜单行。所以**加一个分类 = 在这张表里加一行**，侧栏那一行会
+ * 自动出现、滚轮顺序与 ⌘N 直切自动跟上。
+ * ⚠ 千万不要为了加菜单另外手动 navMenuItem 一次 —— 那会出现两行同名菜单。
+ *
  * 邮件分类（原第 6 格）已于 2026-10 摘除：入口搬到 Seeker 顶栏齿轮右侧的邮件
  * 按钮 + 居中只读卡片（src/client/kr-chat/mail-drawer.tsx）。
  *
@@ -34,6 +41,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import type { WorkbenchTab } from './WorkbenchPanel.js'
 import { readRail } from '../sidebar-nav.js'
 import { getService } from '../../client-ctx.js'
+import { featureEnabledNow, useFeature } from '../../features/gate.tsx'
 
 /** 侧栏行内的标记属性（图标组件渲染，委托监听据此认行）。 */
 export const WORKBENCH_ROW_MARK = 'data-workbench-row'
@@ -55,6 +63,9 @@ export interface WorkbenchTabMeta {
 }
 
 export const WORKBENCH_TABS: readonly WorkbenchTabMeta[] = [
+  // 「动态」是操作间第一项（2026-10-27 用户要求）：排在记忆之前，order 由本表
+  // 下标推导（10 + index * 10），所以它拿到 10，其余依次后移。
+  { id: 'feed', label: '动态', desc: '为你生成的资讯动态' },
   { id: 'memory', label: '记忆', desc: '条目 · 变更 · 修订' },
   { id: 'skills', label: 'SKILL', desc: '技能包与技能开关' },
   { id: 'usage', label: '用量', desc: 'Token 消耗与活动热力' },
@@ -63,6 +74,49 @@ export const WORKBENCH_TABS: readonly WorkbenchTabMeta[] = [
   { id: 'prompt', label: '系统提示词', desc: '发送时带上的那段提示' },
   { id: 'sync', label: '同步设置', desc: '工作台资产云端双向同步' },
 ] as const
+
+/**
+ * 分类 → 功能开关 id（work.* 八项）。
+ *
+ * 这张映射是「分类可见性」的唯一真相：侧栏条目、hover 浮层、页面回落
+ * 都从这里查。八个 work.* 前缀相同、后缀与 WorkbenchTab 一一对应，
+ * 所以不需要在别处再写第二份 if/else——多一处就会多一次「某个入口忘关」。
+ */
+export const WORKBENCH_TAB_FEATURE: Readonly<Record<WorkbenchTab, string>> = {
+  feed: 'work.feed',
+  memory: 'work.memory',
+  skills: 'work.skills',
+  usage: 'work.usage',
+  gallery: 'work.gallery',
+  vault: 'work.vault',
+  prompt: 'work.prompt',
+  sync: 'work.sync',
+}
+
+/** 同步判断某个分类当前是否开启（事件回调 / 非渲染路径用）。 */
+export function workbenchTabEnabled(tab: WorkbenchTab): boolean {
+  return featureEnabledNow(WORKBENCH_TAB_FEATURE[tab])
+}
+
+/**
+ * React 渲染期订阅：返回当前仍开启的分类（顺序沿用 WORKBENCH_TABS）。
+ *
+ * 必须是固定 8 次 useFeature 调用，不能 map 循环——hooks 数量要在任何两次
+ * 渲染之间保持一致。关掉某个分类后，侧栏行与 hover 浮层同一拍消失；
+ * 重新打开也同一拍回来，不需要刷新页面。
+ */
+export function useVisibleWorkbenchTabs(): readonly WorkbenchTabMeta[] {
+  const feed = useFeature(WORKBENCH_TAB_FEATURE.feed)
+  const memory = useFeature(WORKBENCH_TAB_FEATURE.memory)
+  const skills = useFeature(WORKBENCH_TAB_FEATURE.skills)
+  const usage = useFeature(WORKBENCH_TAB_FEATURE.usage)
+  const gallery = useFeature(WORKBENCH_TAB_FEATURE.gallery)
+  const vault = useFeature(WORKBENCH_TAB_FEATURE.vault)
+  const prompt = useFeature(WORKBENCH_TAB_FEATURE.prompt)
+  const sync = useFeature(WORKBENCH_TAB_FEATURE.sync)
+  const enabled: Record<WorkbenchTab, boolean> = { feed, memory, skills, usage, gallery, vault, prompt, sync }
+  return WORKBENCH_TABS.filter(tab => enabled[tab.id])
+}
 
 /** 读当前分类（localStorage 回填，非法值回落记忆页）。 */
 export function readWorkbenchTab(): WorkbenchTab {
@@ -99,12 +153,16 @@ export function openWorkbench(tab?: WorkbenchTab): void {
   } catch { /* 忽略点击错误 */ }
 }
 
-/** 滚轮步进：循环取下一个/上一个分类。 */
+/** 滚轮步进：只在仍开启的分类之间循环（关掉的页面不能被滚轮转出来）。 */
 function stepTab(current: WorkbenchTab, delta: number): WorkbenchTab {
-  const index = WORKBENCH_TABS.findIndex((t) => t.id === current)
+  // 用 featureEnabledNow 而不是渲染期的 hook：监听器挂在 window 上，
+  // 每滚一格现读一次，用户刚拨的开关立刻算数。
+  const tabs = WORKBENCH_TABS.filter((t) => workbenchTabEnabled(t.id))
+  if (tabs.length === 0) return current
+  const index = tabs.findIndex((t) => t.id === current)
   const base = index < 0 ? 0 : index
-  const next = (base + delta + WORKBENCH_TABS.length) % WORKBENCH_TABS.length
-  return WORKBENCH_TABS[next].id
+  const next = (base + delta + tabs.length) % tabs.length
+  return tabs[next].id
 }
 
 const STYLE_ID = 'dsh-workbench-row-flyout-styles'
@@ -151,6 +209,10 @@ function ensureFlyStyles(): void {
 export function WorkbenchTabIcon({ tab, size = 14 }: { tab: WorkbenchTab; size?: number }): JSX.Element {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
   switch (tab) {
+    case 'feed':
+      // 动态 = 一叠横向信息流（三条长短不一的线 + 左上角一张卡片）：
+      // 语义是「一条条按时间刷下来的东西」，与记忆的「大脑」、画廊的「相框」都不同形。
+      return (<svg {...common}><rect x="3" y="4" width="18" height="5" rx="1.6" /><rect x="3" y="11.5" width="13" height="4.6" rx="1.4" /><rect x="3" y="18.2" width="8.5" height="2.6" rx="1.3" /></svg>)
     case 'memory':
       return (<svg {...common}><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" /></svg>)
     case 'skills':
@@ -166,6 +228,12 @@ export function WorkbenchTabIcon({ tab, size = 14 }: { tab: WorkbenchTab; size?:
     case 'prompt':
       // 系统提示词 = 一份带横线的文档：语义是「模型开工前被交代的那张纸」。
       return (<svg {...common}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /><path d="M9 13h4M9 17h6" /></svg>)
+    case 'sync':
+      // 同步设置 = 云 + 向上箭头（与 nav-sections 的 tabIcon 同一枚，见那里的说明）。
+      // ⚠ 这一类原先就漏了 case（本 switch 没有 default、返回类型不含 undefined），
+      // tsc 一直报「Function lacks ending return statement」；本次加 feed 时一并补齐，
+      // 否则加完 feed 这条历史遗留错误会把「新加的 case 漏不漏」的判据搅混。
+      return (<svg {...common}><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" /><path d="m11 13 2-2 2 2" /><path d="M13 11v6" /></svg>)
   }
 }
 
@@ -309,6 +377,10 @@ function Flyout({ top, left, current, onEnter, onLeave }: {
   onEnter: () => void
   onLeave: () => void
 }): JSX.Element {
+  // 订阅 work.* 八个开关：被关掉的分类不出现在浮层里（入口与页面同时消失，
+  // 不会出现「浮层还在、点进去一片空白」）。hook 必须在下面所有 hooks 之前
+  // 无条件调用，保证关闭/打开切换时 hooks 数量不变。
+  const visibleTabs = useVisibleWorkbenchTabs()
   // 视口夹紧：行贴屏幕下缘时浮层不能伸出视口。
   const [clamp, setClamp] = useState(0)
   const ref = useRef<HTMLDivElement | null>(null)
@@ -330,7 +402,7 @@ function Flyout({ top, left, current, onEnter, onLeave }: {
       onMouseLeave={onLeave}
     >
       <div className="wbf-title">工作台</div>
-      {WORKBENCH_TABS.map((meta) => (
+      {visibleTabs.map((meta) => (
         <button
           key={meta.id}
           type="button"

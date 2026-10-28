@@ -23,6 +23,7 @@ import { isCurrentTurnRunning, resolveLatestTurn } from './turn-state.ts'
 import { KrAgentPanel } from './KrAgentPanel.tsx'
 import { activityStore } from '../tool-summary/activity-drawer.tsx'
 import { getCurrentChatSnapshot, latestChatSessionId, leaveCurrentChatSession, subscribeLatestChatSnapshot } from '../tool-summary/TurnProcessShadowView.tsx'
+import { featureEnabledNow } from '../features/gate.tsx'
 
 let isSwitchingToKr = false
 
@@ -556,7 +557,9 @@ export function mountKrChatController(): void {
        * 卡头组件不再自己开定时器）。判据与右栏大盘完全同一口径。
        */
       syncSeekerHeroHead(
-        isKr && !hasConversationContent(),
+        // view.hero-head 关闭时不挂新对话页卡头（同步函数内部还有一道同样的
+        // 判据，这里提前判是为了避免每 250ms 白算一次 running）。
+        featureEnabledNow('view.hero-head') && isKr && !hasConversationContent(),
         isCurrentTurnRunning(Math.max(1, resolveLatestTurn())),
       )
     } catch (error) {

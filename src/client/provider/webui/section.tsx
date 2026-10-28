@@ -36,6 +36,7 @@ import { VideoModelBlock } from './video/VideoModelBlock.tsx'
 import { createLegacyApi } from './api-adapter.ts'
 import { ProxyPanel } from '../panel/proxy-panel.tsx'
 import { getService } from '../../client-ctx.js'
+import { FeatureGate, featureEnabledNow, onFeatureChange } from '../../features/gate.tsx'
 
 /** 供应商页需要的依赖（由 settings.section 的 inject 面提供）。 */
 export interface SupplierInjected {
@@ -197,6 +198,17 @@ export function SupplierSection(props: Partial<SupplierInjected> = {}): unknown 
 }
 
 /**
+ * 渲染期门：供应商组件行关闭时整页不渲染（设置导航里也不再出现）。
+ *
+ * 与 hideOfficialModelsNav 的联动在 applySupplierSection 里：关闭时把官方
+ * 「模型」页恢复回来，否则用户既没有供应商页、也没有官方模型页，等于把模型
+ * 配置入口整个藏掉。
+ */
+function SupplierSectionGated(props: Partial<SupplierInjected> = {}): unknown {
+  return h(FeatureGate, { feature: 'host.provider-hub' }, h(SupplierSection, props))
+}
+
+/**
  * 注册「供应商」设置页，并隐藏官方「模型」页导航项。
  *
  * 座位参数（id `provider-hub` / order 10 / label「供应商」）与迁进工作台之前
@@ -206,8 +218,20 @@ export function SupplierSection(props: Partial<SupplierInjected> = {}): unknown 
 export function applySupplierSection(ctx: ClientContext): void {
   ctx.effect(() => {
     const removeStyles = injectStyles()
-    const stopHide = hideOfficialModelsNav()
-    return () => { removeStyles(); stopHide() }
+    // 官方「模型」页的隐藏跟随供应商组件行：关掉供应商行时把它恢复，
+    // 否则设置里两个模型配置入口同时消失（供应商页被 gate、官方页被藏）。
+    let stopHide: (() => void) | null = null
+    const syncHide = (enabled: boolean): void => {
+      if (enabled) {
+        if (stopHide === null) stopHide = hideOfficialModelsNav()
+      } else {
+        stopHide?.()
+        stopHide = null
+      }
+    }
+    syncHide(featureEnabledNow('host.provider-hub'))
+    const off = onFeatureChange('host.provider-hub', syncHide)
+    return () => { off(); removeStyles(); stopHide?.(); stopHide = null }
   }, 'dsh-chat-plus: supplier styles + hide official models')
 
   ctx.effect(() => {
@@ -220,7 +244,7 @@ export function applySupplierSection(ctx: ClientContext): void {
         order: 10,
         label: '供应商',
         inject: injected,
-      }, SupplierSection),
+      }, SupplierSectionGated),
     )
     return () => {
       try { (unregister as unknown as () => void)?.() } catch { /* 已被级联移除 */ }

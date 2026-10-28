@@ -25,11 +25,11 @@
  *     也不留 —— 一行「另有 N 个代码文件」仍然在提示"这里有一批你看不到的东西"，
  *     而对读者来说那批东西本来就该去对话流的工具折叠里看。这张卡只列成品。
  *
- * **没有产出时整张卡不渲染**（2026-10-19 按用户要求）。这里刻意与「任务概览」
- * 相反 —— 任务卡空态常驻的理由是"每轮几乎都会写清单，空态本身有信息量"；而
- * 大多数对话根本不会产出文件，一张长期写着"本次会话还没有产出文件"的卡只是在
- * 右栏底部白占一块。所以空态交给**挂载方**（KrAgentPanel 的 outputs.items.length
- * 判定），组件内部不再保留空态分支 —— 它拿到 items 时必定非空。
+ * **没有产出时整张卡不渲染**（2026-10-19 按用户要求；2026-10-28 用户再次强调
+ * 「空的不要显示卡片」）。挂载方先按 outputs.items.length 拦一道；组件内部再按
+ * **过滤后**的 items.length 兜一道 —— 路径核对（gonePaths）把条目全部剔除后，
+ * 原始清单可能非空、屏幕上却只剩「0 项」，这一层必须也 return null，否则右栏
+ * 底部会留一张空壳卡。任务概览卡现在同样空时不渲染（2026-10-28 统一口径）。
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -446,6 +446,10 @@ export const KrOutputsCard = memo(function KrOutputsCard({
    * 走到这里时 items 必非空（空态由挂载方拦掉，见文件头）。
    */
   const header = `${items.length} 项`
+
+  // 2026-10-28：过滤后为空也不渲染（路径核对全部剔除时，清单只剩「0 项」空壳）。
+  // 放在全部 hooks 之后，保证 hooks 顺序稳定。
+  if (items.length === 0) return null
 
   return (
     <div className="kr-card kr-card--outputs">

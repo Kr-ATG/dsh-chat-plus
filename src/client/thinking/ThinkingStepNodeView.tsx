@@ -61,6 +61,7 @@ import { latestChatSnapshot, setLatestChatSnapshot } from '../tool-summary/TurnP
 import { workspaceCwdOf } from '../client-ctx.ts'
 import { looksLikeFilePath, localFileMediaUrl, resolveWorkspacePath, tryOpenInSidebar } from '../open-preview.ts'
 import { linkifyFilePaths, promoteStandaloneImagePath } from '../path-linkify.ts'
+import { useFeature } from '../features/gate.tsx'
 
 const EMPTY_STEPS: readonly ChatNode<'assistant-step'>[] = []
 const EMPTY_TOOLS: readonly ChatNode<'tool-call'>[] = []
@@ -155,8 +156,22 @@ interface AssistantBodyEnv {
   readonly onFill?: ((text: string) => boolean) | undefined
 }
 
+/**
+ * 正文围栏卡片的功能开关（关闭时保持官方 Markdown 原样）。
+ *
+ * 由 ThinkingStepNodeView 顶层 useFeature 读出后逐层传下来：AssistantBody 是
+ * 普通函数（不是组件），在里面调 hook 会破坏父组件的 hook 顺序。
+ */
+interface CardFeatureFlags {
+  readonly html: boolean
+  readonly iu: boolean
+  readonly diagram: boolean
+  readonly protoTabs: boolean
+  readonly pathLinkify: boolean
+}
+
 /** 助手正文：text 走官方 MarkdownText、image 走官方槽、未知块 JsonBlock。 */
-function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, mentions, labels, t, env }: {
+function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, mentions, labels, t, env, cards }: {
   blocks: readonly AssistantBlockLike[]
   streaming: boolean
   interrupted?: boolean | undefined
@@ -165,6 +180,8 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
   labels: MarkdownLabels
   t: ChatViewSlotProps['t']
   env?: AssistantBodyEnv | undefined
+  /** 围栏卡片开关：关掉的层整段跳过切分（见 CardFeatureFlags）。 */
+  cards: CardFeatureFlags
 }): { hasVisible: boolean; rendered: ReactNode[] } {
   const hasVisible = streaming
     || interrupted === true
@@ -188,6 +205,13 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
    */
   const decorate = (source: string): string => {
     if (streaming) return source
+    /*
+     * card.path-linkify 关闭：既不把裸路径改写成链接，也不把「单独一张图片路径」
+     * 提升成图片。**必须在读 decorateCache 之前返回** —— 缓存里存的是改写后的
+     * 文本，先读缓存会让开关关闭后仍拿到上次开着时的链接版本（甚至路径指向
+     * 一个已经不存在的目标）。官方 Markdown 原样渲染即可。
+     */
+    if (!cards.pathLinkify) return source
     const cached = decorateCache.get(source)
     if (cached !== undefined) return cached
     let result = source
@@ -226,8 +250,38 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
         // 之类的示例文本，先切 html 才不会把示例误当成真卡片）；iu 其次（它的
         // JSON 正文里也可能含示例围栏）；剩下的 markdown 片段再走 diagram。
         // 顺序反过来会让外层示例里的围栏被吃掉。
+        /*
+         * 围栏切分链（card.html / card.iu / card.diagram / card.proto-tabs）：
+         *
+         * 每个开关关闭时**只跳过这一层切分**，文本继续往下交给更内层的切分器、
+         * 最后回到官方 MarkdownText。绝不把整段文本丢掉 —— 关掉一张卡片最坏的
+         * 结果只能是「围栏当普通代码块显示」，不能是白屏（「关个开关整段正文
+         * 消失」是这类 feature gate 最容易踩的坑）。
+         */
+        const pushMarkdown = (key: string, text: string): void => {
+          if (text === '') return
+          rendered.push(
+            <Fresh live={streaming} freshKey={`${key}-md`}><MarkdownText text={decorate(text)} streaming={streaming} labels={labels} fileMentions={mentionResolver} pathImages={env?.pathImages} /></Fresh>,
+          )
+        }
+        const pushDiagram = (key: string, text: string): void => {
+          if (text === '') return
+          // card.diagram 关闭：diagram 围栏不再变成卡片，按官方 Markdown 原样显示。
+          if (!cards.diagram) { pushMarkdown(key, text); return }
+          // streaming 透传：流式期未闭合的 ```diagram 要变成占位卡，而不是
+          // 把半截 JSON 逐字往外冒（此前这条通道完全没有流式态）。
+          splitDiagram(text, streaming).forEach((sub, subIndex) => {
+            if (sub.kind === 'diagram') {
+              rendered.push(<Fresh live={streaming} freshKey={`${key}-dg${subIndex}`}><DiagramCard spec={sub.spec} pending={sub.pending} bytes={sub.bytes} /></Fresh>)
+            } else if (sub.text !== '') {
+              pushMarkdown(`${key}-md${subIndex}`, sub.text)
+            }
+          })
+        }
         const pushMd = (key: string, text: string): void => {
           if (text === '') return
+          // card.iu 关闭：iu 围栏交给下层（diagram / 官方 Markdown），保持原文。
+          if (!cards.iu) { pushDiagram(key, text); return }
           splitIu(text, streaming).forEach((iuSub, iuIndex) => {
             if (iuSub.kind === 'iu') {
               // key 里不能带 pending：闭合那一刻 key 必须保持不变，React 才会
@@ -240,22 +294,15 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
                 </Fresh>,
               )
             } else if (iuSub.text !== '') {
-              // streaming 透传：流式期未闭合的 ```diagram 要变成占位卡，而不是
-              // 把半截 JSON 逐字往外冒（此前这条通道完全没有流式态）。
-              splitDiagram(iuSub.text, streaming).forEach((sub, subIndex) => {
-                if (sub.kind === 'diagram') {
-                  rendered.push(<Fresh live={streaming} freshKey={`${key}-iu${iuIndex}-dg${subIndex}`}><DiagramCard spec={sub.spec} pending={sub.pending} bytes={sub.bytes} /></Fresh>)
-                } else if (sub.text !== '') {
-                  rendered.push(
-                    <Fresh live={streaming} freshKey={`${key}-iu${iuIndex}-md${subIndex}`}><MarkdownText text={decorate(sub.text)} streaming={streaming} labels={labels} fileMentions={mentionResolver} pathImages={env?.pathImages} /></Fresh>,
-                  )
-                }
-              })
+              pushDiagram(`${key}-iu${iuIndex}`, iuSub.text)
             }
           })
         }
         const pushHtml = (key: string, text: string): void => {
           if (text === '') return
+          // card.html 关闭：html 围栏不变成沙箱卡片，继续按 iu / diagram / 官方
+          // Markdown 原样渲染（流式期也不会出现「预渲染中」占位卡）。
+          if (!cards.html) { pushMd(key, text); return }
           // streaming 必须透传：流式期未闭合的 ```html 要变成「预渲染中」占位卡，
           // 而不是把几百行代码逐字往外冒。定稿后同一条围栏若仍未闭合（模型输出
           // 被截断），回退成代码块显示真实内容。
@@ -273,7 +320,10 @@ function AssistantBody({ blocks, streaming, interrupted, renderMessageImages, me
             }
           })
         }
-        const parts = splitProtoTabs(block.text, streaming)
+        // card.proto-tabs 关闭：不做 proto 切分，整段按普通 Markdown 往下走。
+        const parts = cards.protoTabs
+          ? splitProtoTabs(block.text, streaming)
+          : [{ kind: 'md' as const, text: block.text }]
         // 快路径判据必须是「真的有个围栏」，不能只测正文里出现过 html 三个字母
         // ——「HTML 卡片」这种普通措辞会让每段正文都白跑一遍切分。
         if (parts.length === 1 && parts[0]?.kind === 'md' && parts[0].text.indexOf('diagram') < 0 && !looksLikeHtmlFence(parts[0].text) && !looksLikeIuFence(parts[0].text)) {
@@ -339,6 +389,22 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
   props: ChatNodeViewProps<'assistant-step'>,
 ) {
   const { node, useTurnData, useChat, openFile, renderMessageImages, fileMentions, t } = props
+  /*
+   * 功能开关（live）——对话流里的思考卡 / 问答卡 / 各类围栏卡片。
+   *
+   * ⚠ 一律在组件顶部无条件调用，不能写进下面的 JSX 条件或 `if (!pluginRenders)`
+   * 之后：本组件同一个节点会在 reasoning / response 两份投影里各渲染一次，
+   * 条件调 hook 会让 hook 数量随投影与开关变化，React 直接崩（表现是整段正文
+   * 消失，比「开关没生效」严重得多）。
+   */
+  const thinkingOn = useFeature('view.thinking')
+  const askOn = useFeature('view.panel-ask')
+  const htmlCardOn = useFeature('card.html')
+  const iuCardOn = useFeature('card.iu')
+  const diagramCardOn = useFeature('card.diagram')
+  const protoTabsOn = useFeature('card.proto-tabs')
+  const pathLinkifyOn = useFeature('card.path-linkify')
+  const generatedImagesOn = useFeature('card.generated-images')
   /**
    * 本次渲染属于官方的哪一份投影（owner 分组的 groupPart）。
    *
@@ -708,7 +774,15 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
   // DSH spill 成「preview + locator」，由 host 路由读回完整图片（见
   // use-generated-images.ts）。不依赖正文 markdown，因此模型只写路径
   // 文字时图片也会直接显示。
-  const generated = useGeneratedImages(toolNodes)
+  /*
+   * card.generated-images 关闭：**不请求 spill、不渲染画廊条**。
+   *
+   * useGeneratedImages 内部是 useState/useEffect，必须无条件调用（条件调用会
+   * 让 hook 顺序随开关变化）。这里用「开关关 → 传空工具列表」的方式让它自然
+   * 得到 EMPTY：scan 为空 → 没有 locator → effect 直接 setSpill(EMPTY)，一次
+   * /api/chat-flow/generated-images 都不会发。
+   */
+  const generated = useGeneratedImages(generatedImagesOn ? toolNodes : EMPTY_TOOLS)
   // 画廊挂在回合内「最后一个 assistant-step」：回合进行中 = 生图后最新的
   // 步骤（图即时可见），回合收口后即最终回复总结卡（用户期望的位置）。
   const galleryStepKey = useChat(snapshot => {
@@ -721,7 +795,7 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
     }
     return lastStep
   })
-  const gallery = !isReasoningProjection && generated.urls.length > 0 && node.key === galleryStepKey
+  const gallery = !isReasoningProjection && generatedImagesOn && generated.urls.length > 0 && node.key === galleryStepKey
     ? <GeneratedImageStrip images={generated.urls} model={generated.model} />
     : undefined
 
@@ -784,6 +858,25 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
   const labels = useMemo(() => markdownLabelsFrom(t), [t])
 
   const OfficialComp = getOfficialAssistantNodeView()
+  /*
+   * view.thinking 关闭：在**过程投影**（groupPart=reasoning）里把整个节点原样
+   * 交回官方 AssistantNodeView —— 这是本文件里唯一能真正「把 thinking block
+   * 交回官方」的姿态，官方自己的 ReasoningRow / DisclosureRow 会照常渲染并可
+   * 展开。官方在 reasoning 投影下只渲染 reasoning 块（AssistantMarkdown 的
+   * groupPart 过滤），所以不会把正文重复渲染一份。
+   *
+   * 只让出过程投影、答案投影仍走插件：答案投影里官方本来也不渲染 reasoning
+   * （AssistantMarkdown: groupPart === 'response' 时跳过 reasoning），让出去只会
+   * 连带丢掉 html / iu 围栏卡片。这样关掉思考卡后正文与卡片都还在，是损失最小
+   * 的接法。
+   *
+   * ⚠ 不能改成「把 reasoning 块从 data.blocks 里过滤掉、其余照旧插件渲染」：
+   * 官方拿不到 block 就不是「不折叠」而是「没有」，用户看到的是思考整段消失
+   * ——正是本次接线要避免的「关开关把正文一起藏了」。
+   */
+  if (!thinkingOn && isReasoningProjection && OfficialComp) {
+    return <OfficialComp {...props} />
+  }
   if (!pluginRenders && OfficialComp) {
     /*
      * 普通「对话」把 assistant-step 原样交回官方：thinking block 照常传给
@@ -811,6 +904,13 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
     labels,
     t,
     env: bodyEnv,
+    cards: {
+      html: htmlCardOn,
+      iu: iuCardOn,
+      diagram: diagramCardOn,
+      protoTabs: protoTabsOn,
+      pathLinkify: pathLinkifyOn,
+    },
   })
 
   /*
@@ -876,7 +976,7 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
   const cardAnchorKey = summarizing ? lastStepKey : firstReasoningStepKey
   const ownsReasoningCard = cardAnchorKey !== undefined && node.key === cardAnchorKey
   const projectionAllowsCard = summarizing ? groupPart !== 'reasoning' : groupPart !== 'response'
-  const inlineReasoning = KR_CHAT_ENABLED && isKrMode && projectionAllowsCard
+  const inlineReasoning = thinkingOn && KR_CHAT_ENABLED && isKrMode && projectionAllowsCard
     && ownsReasoningCard && reasoningItems.length > 0
     ? (
       <KrReasoningCard
@@ -907,7 +1007,7 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
    * 一起收成标题行让位给正文（用户要求「回复完成后这个提问也收起」）。
    */
   const turnAsks = useMemo(() => collectAsks(toolNodes), [toolNodes])
-  const inlineAsk = KR_CHAT_ENABLED && KR_ASK_CARD_VISIBLE && isKrMode && projectionAllowsCard
+  const inlineAsk = askOn && KR_CHAT_ENABLED && KR_ASK_CARD_VISIBLE && isKrMode && projectionAllowsCard
     && ownsReasoningCard && turnAsks.length > 0
     ? <KrAskCard asks={turnAsks} inline summarizing={summarizing} />
     : undefined

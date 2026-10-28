@@ -13,9 +13,6 @@ import { KrTaskOverviewCard, type DshTaskItem, type TaskSource } from './KrTaskO
 import { KrMemoryCard } from './KrMemoryCard.tsx'
 import { KrToolCallsCard, type ToolCallItemView } from './KrToolCallsCard.tsx'
 import { usePanelSqueezed } from './use-adaptive-rows.ts'
-import { ShotPanel } from '../shot/Panel.tsx'
-import { collectMessages, deriveCurrentDialogueTitle, type ShotRange, type ShotMessage } from '../shot/collect.ts'
-import { useModalClose } from '../modal-animation.ts'
 import { buildPlainTimeline } from './plain-timeline.ts'
 import { turnInputImageCount } from './turn-input-images.ts'
 import { spawnsSubagents } from './plain-language.ts'
@@ -24,12 +21,13 @@ import { KrSubagentsCard } from './KrSubagentsCard.tsx'
 import { useSubagentCatalog } from './subagent-catalog.ts'
 import { KrOutputsCard } from './KrOutputsCard.tsx'
 import { collectOutputs, collectSessionToolNodes, EMPTY_OUTPUTS, outputsFingerprint, type OutputsView } from './outputs.ts'
-import { AGENT_DISPLAY_NAME, KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PANEL_HEADER_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE, KR_SUBAGENTS_CARD_VISIBLE, KR_TOOL_CALLS_CARD_VISIBLE } from './enabled.ts'
+import { KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE, KR_SUBAGENTS_CARD_VISIBLE, KR_TOOL_CALLS_CARD_VISIBLE } from './enabled.ts'
 import { subscribeToolCallsVisible, toolCallsVisible } from '../tool-calls-visible.js'
 import { subscribePlainTimelineVisible, plainTimelineVisible } from '../plain-timeline-visible.js'
 import { KrPanelSettings } from './KrPanelSettings.tsx'
 import { installConversationScrollGuard } from './scroll-guard.ts'
 import { useOfficialWidthHandleFix } from './official-width-handles.ts'
+import { useFeature } from '../features/gate.tsx'
 
 /**
  * 左侧对话流必须保留的最小宽度（px）。
@@ -114,6 +112,24 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   const toolCallsOn = useSyncExternalStore(subscribeToolCallsVisible, toolCallsVisible, toolCallsVisible)
   // 操作面板卡的同款展示开关（同族：纯呈现偏好、localStorage、跨窗口同步）。
   const plainTimelineOn = useSyncExternalStore(subscribePlainTimelineVisible, plainTimelineVisible, plainTimelineVisible)
+
+  /*
+   * 功能开关（live）——右栏各卡是否渲染。
+   *
+   * ⚠ 全部在组件顶层**无条件**调用，一个都不能挪进各自的 JSX 分支：
+   * 用户拨开关时组件原地重渲染，条件里的 hook 会让这棵树的 hook 调用顺序
+   * 整体位移，React 直接抛 "Rendered fewer hooks than expected"，整块右栏
+   * 消失。开关值只作为后面 JSX 的布尔条件使用。
+   *
+   * 与 KR_*_CARD_VISIBLE 那组构建期常量是**叠加**关系：常量保留为历史
+   * 隐藏开关（改回 false 重新构建仍可整块关闭），功能开关是给用户的运行时入口。
+   */
+  const panelLiveOn = useFeature('view.panel-live')
+  const panelSubagentsOn = useFeature('view.panel-subagents')
+  const panelTasksOn = useFeature('view.panel-tasks')
+  const panelOutputsOn = useFeature('view.panel-outputs')
+  const panelMemoryOn = useFeature('view.panel-memory')
+  const panelToolCallsOn = useFeature('view.panel-tool-calls')
 
   // 监听快照更新（实时响应新提问、流式输出与会话切换）
   const [snapTick, setSnapTick] = useState(0)
@@ -569,20 +585,6 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     // 依然该被看见。不算进来的话，切到新一轮的瞬间整栏会闪一次空态。
     || outputs.items.length > 0
 
-  // 大盘副标题
-  const subtitle = useMemo(() => {
-    if (tasks.length > 0) {
-      const done = tasks.filter((t) => t.status === 'completed').length
-      return `${done}/${tasks.length} 项任务已完成`
-    }
-    if (currentRunning) return '正在执行工具调用…'
-    if (tools.length > 0) return `${tools.length} 次工具调用 · 耗时 ${durationText}`
-    return hasContent ? '对话已就绪' : '等待本次对话开始…'
-  }, [tasks, currentRunning, tools.length, durationText, hasContent])
-
-  // 对话截图弹窗控制
-  const [shotOpen, setShotOpen] = useState(false)
-  const { closing: shotClosing, requestClose: requestShotClose } = useModalClose(shotOpen, () => { setShotOpen(false) })
 
   /* ── 右栏挤压自适应 ─────────────────────────────────────────────────────
      记忆卡是滚动区之下的独立 flex footer（永远钉在右栏最下方，不可挤压），
@@ -603,11 +605,6 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   const heightFingerprint = `${memoryTick}|${reasoningChars}|${reasoningTexts.length}|${tools.length}|${tasks.length}|${plainTimeline.steps.length}|${outputs.items.length}|${subagentCatalog.rows.length}`
   const panelSqueezed = usePanelSqueezed(scrollRef, heightFingerprint)
 
-  // 会话切换（新建 / 切换 / 离开）时重置本面板的本地视图状态，
-  // 避免「截图弹窗开着」被带到新会话。
-  useEffect(() => {
-    setShotOpen(false)
-  }, [latestChatSessionId])
 
   // ── 左边缘拖拽调宽 ────────────────────────────────────────────────────
   // pointer events（不是 mouse events）：Pointer Capture 保证指针滑出手柄、
@@ -753,71 +750,6 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     }
   }, [dragging, store])
 
-  const collectForShot = useCallback((range: ShotRange): ShotMessage[] => {
-    // 走归属校验的读取口：截图不该把上一会话的对话内容截进来。
-    const snap = getCurrentChatSnapshot()
-    if (!snap) return []
-    return collectMessages(snap, displayTurn, range)
-  }, [displayTurn])
-
-  const dialogueTitle = useMemo(() => {
-    const snap = getCurrentChatSnapshot()
-    // 1. 优先直接从官方快照的 navigation.current 提取真实提问 Prompt
-    if (snap?.navigation?.current && Array.isArray(snap.navigation.current)) {
-      const navItem = snap.navigation.current.find((n: any) => n.turn === displayTurn)
-      if (navItem?.prompt && typeof navItem.prompt === 'string' && navItem.prompt.trim() !== '') {
-        const p = navItem.prompt.trim()
-        return p.length > 60 ? `${p.slice(0, 60)}…` : p
-      }
-    }
-    // 2. 从 deriveCurrentDialogueTitle 中基于消息节点深入提取
-    if (snap) {
-      try {
-        const title = deriveCurrentDialogueTitle(snap, displayTurn)
-        if (title && title.trim() !== '') {
-          return title
-        }
-      } catch (err) {
-        console.warn('[kr-agent-panel] deriveCurrentDialogueTitle error', err)
-      }
-    }
-    // 3. DOM 兜底：直接从左侧对话流中查找该轮的用户提问或主要文字
-    if (typeof document !== 'undefined') {
-      try {
-        const userEl = document.querySelector<HTMLElement>(`[data-chat-turn="${displayTurn}"][data-chat-flow-kind="user"], [data-chat-turn="${displayTurn}"] [data-chat-flow-kind="user"]`)
-        if (userEl) {
-          const text = userEl.textContent?.trim()
-          if (text) {
-            const clean = text.replace(/\d+月\d+日\s+\d+:\d+.*$/, '').trim()
-            if (clean) return clean.length > 60 ? `${clean.slice(0, 60)}…` : clean
-          }
-        }
-        const turnEls = document.querySelectorAll<HTMLElement>(`[data-chat-turn="${displayTurn}"]`)
-        for (const el of turnEls) {
-          const kind = el.getAttribute('data-chat-flow-kind')
-          if (kind === 'assistant-step') {
-            const text = el.textContent?.trim()
-            if (text) {
-              const clean = text.replace(/^本轮完成.*?[Git\d]+/, '').trim()
-              if (clean) return clean.length > 60 ? `${clean.slice(0, 60)}…` : clean
-            }
-          }
-        }
-      } catch {}
-    }
-    return ''
-  }, [displayTurn, actTick, snapTick])
-
-  // 大盘顶栏标题：直接展示选中的对话内容/标题，而不是“第几轮”
-  const headerTitle = useMemo(() => {
-    if (dialogueTitle && dialogueTitle.trim() !== '') {
-      return dialogueTitle
-    }
-    if (currentRunning) return `${AGENT_DISPLAY_NAME} 执行中`
-    if (validSelectedTurn !== null) return '已选对话'
-    return hasContent ? '任务已完成' : '新对话'
-  }, [dialogueTitle, currentRunning, validSelectedTurn, hasContent])
-
   return (
     <div
       ref={panelRef}
@@ -886,59 +818,6 @@ export const KrAgentPanel = memo(function KrAgentPanel({
         aria-hidden="true"
       >{`${width} px`}</div>
 
-      {/* 顶部 Header：头像 + 标题（当前对话提问）+ 副标题（任务/工具统计行）
-          + 右侧「生成对话截图」一枚按钮（原先还有一枚「收起大盘 ×」，与标签行
-          那枚开关是一对，已随大盘常驻化一起删除）。
-          整块由 KR_PANEL_HEADER_VISIBLE 门控（默认隐藏，只隐藏不删除）：
-          截图入口另有归属 —— assistant 消息操作栏的相机按钮常驻（见
-          shot/index.tsx），走同一个 ShotPanel。 */}
-      {KR_PANEL_HEADER_VISIBLE && (
-      <div className="kr-panel__header">
-        <div className="kr-panel__avatar">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="4" y="8" width="16" height="12" rx="2" />
-            <path d="M12 2v6M9 5h6M8 14h.01M16 14h.01M10 17h4" />
-          </svg>
-        </div>
-
-        <div className="kr-panel__titles">
-          <div className="kr-panel__title-row">
-            <span className={`kr-panel__status-dot ${currentRunning ? 'kr-panel__status-dot--running' : ''}`} />
-            <span className="kr-panel__title" title={headerTitle}>
-              {headerTitle}
-            </span>
-            {validSelectedTurn !== null && (
-              <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 4, background: 'rgba(127, 127, 127, 0.12)', color: 'var(--dsw-alias-label-secondary)', border: '1px solid var(--kr-card-border)', fontWeight: 500, flex: 'none' }}>
-                已选对话
-              </span>
-            )}
-          </div>
-          {/* 统计副标题：纯展示，不可点击（统计指标按钮与药丸行已按要求移除） */}
-          <div className="kr-panel__subtitle" title={subtitle}>
-            {subtitle}
-          </div>
-        </div>
-
-        <div className="kr-panel__actions">
-          <button
-            type="button"
-            className="kr-panel__action-btn"
-            onClick={() => setShotOpen(true)}
-            title="生成对话截图"
-            aria-label="生成对话截图"
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-              <path
-                d="M9.75 2.5H6.25L4.85 4.5H3C2.17 4.5 1.5 5.17 1.5 6V12.5C1.5 13.33 2.17 14 3 14H13C13.83 14 14.5 13.33 14.5 12.5V6C14.5 5.17 13.83 4.5 13 4.5H11.15L9.75 2.5Z"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <circle cx="8" cy="9.25" r="2.25" />
-            </svg>
-          </button>
-        </div>
-      </div>
-      )}
 
       {/* 滚动卡片列表 */}
       <div className="kr-panel__scroll" ref={scrollRef}>
@@ -977,7 +856,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
          * 操作面板此时上移 5 行。这个取舍是用户明确选的 —— 他觉得一张只有空窗的
          * 卡比这 5 行的位移更碍眼。
          */}
-        {KR_SUBAGENTS_CARD_VISIBLE && (
+        {KR_SUBAGENTS_CARD_VISIBLE && panelSubagentsOn && (
           <KrSubagentsCard
             catalog={subagentCatalog}
             spawning={spawnedInSession}
@@ -994,10 +873,11 @@ export const KrAgentPanel = memo(function KrAgentPanel({
          * 子智能体（谁在干活）→ 操作面板（我干了什么）→ 任务概览（计划）→ 产出物。
          *
          * 后缀 plainTimelineOn 是**运行时**展示开关（「大盘设置 → 展示」里那枚），
-         * 与构建开关 KR_PLAIN_TIMELINE_CARD_VISIBLE 叠加：构建开关决定这张卡还
-         * 存不存在，运行时开关决定用户此刻要不要看。两个都开才渲染。
+         * 与构建开关 KR_PLAIN_TIMELINE_CARD_VISIBLE、功能开关 view.panel-live 三层
+         * 叠加：构建开关决定这张卡还存不存在，功能开关是插件页面的统一入口，
+         * 运行时开关决定用户此刻要不要看。三个都开才渲染。
          */}
-        {KR_PLAIN_TIMELINE_CARD_VISIBLE && plainTimelineOn && (
+        {KR_PLAIN_TIMELINE_CARD_VISIBLE && plainTimelineOn && panelLiveOn && (
           <KrPlainTimelineCard
             timeline={plainTimeline}
             running={currentRunning}
@@ -1008,12 +888,14 @@ export const KrAgentPanel = memo(function KrAgentPanel({
           />
         )}
 
-        {/* 任务概览卡片：常驻，无任务时给一行低对比度空态。
+        {/* 任务概览卡片：空任务时整卡不渲染（2026-10-28 用户要求「空的不要显示卡片」）。
             source 由 KrAgentPanel 的 tasksView 判定（turn / session / none）：
             只有**看历史轮次**时才会是 session，卡片据此标注「会话清单」小标。
             本轮没写 todo 时就是空 —— 用户 2026-10-24：「发送新的对话时任务概览
-            应该是空的才对」。 */}
-        <KrTaskOverviewCard tasks={tasks} isRunning={currentRunning} source={tasksView.source} />
+            应该是空的才对」；2026-10-28 进一步要求空卡不要占右栏位置。 */}
+        {panelTasksOn && tasks.length > 0 && (
+          <KrTaskOverviewCard tasks={tasks} isRunning={currentRunning} source={tasksView.source} />
+        )}
 
         {/* 思考过程卡已从右栏移出，改为贴在 KR 对话流里（见 ThinkingStepNodeView
             挂的 KrReasoningCard inline 模式）：思考与它对应的回答是同一件事的
@@ -1030,7 +912,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
             任务清单几乎每轮都会有，空态本身是信息（"这轮还没列计划"）；而产出物
             大多数对话压根不会有文件，一张常驻的"本次会话还没有产出文件"只是在右栏
             底部长期占一块地方说"没事发生"，每轮都要看一眼。 */}
-        {KR_OUTPUTS_CARD_VISIBLE && outputs.items.length > 0 && (
+        {KR_OUTPUTS_CARD_VISIBLE && panelOutputsOn && outputs.items.length > 0 && (
           <KrOutputsCard
             outputs={outputs}
             squeezed={panelSqueezed}
@@ -1055,9 +937,9 @@ export const KrAgentPanel = memo(function KrAgentPanel({
 
         两块都 return null 时 footer 命中 :empty，自身连 padding 一起收起。
       */}
-      {(KR_MEMORY_CARD_VISIBLE || (KR_TOOL_CALLS_CARD_VISIBLE && toolCallsOn && toolViews.length > 0)) && (
+      {((KR_MEMORY_CARD_VISIBLE && panelMemoryOn) || (KR_TOOL_CALLS_CARD_VISIBLE && panelToolCallsOn && toolCallsOn && toolViews.length > 0)) && (
         <div className="kr-panel__memory-dock">
-          {KR_TOOL_CALLS_CARD_VISIBLE && toolCallsOn && (
+          {KR_TOOL_CALLS_CARD_VISIBLE && panelToolCallsOn && toolCallsOn && (
             <KrToolCallsCard
               tools={toolViews}
               running={currentRunning}
@@ -1070,7 +952,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
               }}
             />
           )}
-          {KR_MEMORY_CARD_VISIBLE && (
+          {KR_MEMORY_CARD_VISIBLE && panelMemoryOn && (
             <KrMemoryCard
               squeezed={panelSqueezed}
               onContentChange={handleMemoryContentChange}
@@ -1086,18 +968,6 @@ export const KrAgentPanel = memo(function KrAgentPanel({
           2 条外观偏好仍是 localStorage。 */}
       <KrPanelSettings sessionId={latestChatSessionId} />
 
-      {shotOpen && (
-        <ShotPanel
-          closing={shotClosing}
-          onClose={requestShotClose}
-          collect={collectForShot}
-          initialRange="turn"
-          title={dialogueTitle || '对话记录'}
-          dialogueTitle={dialogueTitle}
-          sessionTitle={dialogueTitle}
-          cwd=""
-        />
-      )}
     </div>
   )
 })

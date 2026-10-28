@@ -20,6 +20,7 @@ import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/c
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { PromptOptimizeButton } from './PromptOptimizeButton'
 import type { PromptOptimizeInjected } from './PromptOptimizeButton'
+import { featureEnabledNow, onFeatureChange } from '../../features/gate.tsx'
 
 /** 共享清洗器（与 host 半身同一份源码，供冒烟与面板兜底复用）。 */
 export { cleanOptimized, collapseToLine, previewOptimized } from '../../../provider/modules/prompt-optimize-clean.ts'
@@ -34,7 +35,8 @@ export function applyPromptOptimize(ctx: ClientContext): void {
     const models = scope.modelDirectories
     const sessions = scope.sessions
 
-    scope.slots.inject('conversation.input.right', () => scope.slots.register({
+    /** 注册 ✨ 图标座位；返回摘除函数（关闭开关时真正撤掉，不留空位）。 */
+    const mountButton = (): (() => void) => scope.slots.inject('conversation.input.right', () => scope.slots.register({
       name: 'conversation.input.right',
       id: 'dsh-prompt-optimize',
       // 模型座位 order 20；本图标 order 4 位于团队按钮（order 5）左侧。
@@ -49,6 +51,26 @@ export function applyPromptOptimize(ctx: ClientContext): void {
         }
       },
     }, PromptOptimizeButton))
+
+    // 开关同步：关掉 = ✨ 图标从输入框右侧消失，输入框照常可用；打开 = 原地恢复。
+    // 与模型座位的开关彼此独立：只关提示词优化时，供应商标签 / 模型选择器 /
+    // 推理强度滑杆仍照常挂载，反之亦然。
+    let disposeButton: (() => void) | null = null
+    const syncButton = (enabled: boolean): void => {
+      if (enabled) {
+        if (disposeButton === null) disposeButton = mountButton()
+      } else {
+        disposeButton?.()
+        disposeButton = null
+      }
+    }
+    syncButton(featureEnabledNow('input.prompt-optimize'))
+    const off = onFeatureChange('input.prompt-optimize', syncButton)
+    ctx.effect(() => () => {
+      off()
+      disposeButton?.()
+      disposeButton = null
+    }, 'dsh-chat-plus: prompt optimize feature gate')
   } catch (error) {
     console.warn(`[hub/prompt-optimize] 挂载失败：${error instanceof Error ? error.message : String(error)}`)
   }

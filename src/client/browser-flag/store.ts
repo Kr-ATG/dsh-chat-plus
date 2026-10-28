@@ -424,6 +424,18 @@ export function stopBrowserActivityPolling(): void {
 }
 
 /**
+ * 清空活动快照（功能总开关关闭时用）。
+ *
+ * 只停轮询不够：快照里最后一批活动会让操作面板卡头的浏览器图标继续亮着，
+ * 看起来像「开关拨了没反应」。清空并通知订阅者，图标立刻熄灭。
+ * 预览数据也一并清掉（否则 window 调试入口灌的数据会挂着不灭）。
+ */
+export function resetBrowserActivitySnapshot(): void {
+  previewActive = false
+  publishSessions(new Map())
+}
+
+/**
  * 挂 window 调试入口：灌一份会话数组即可在页面上看到标志与动效。
  *
  * 只挂 window、只写快照，不动轮询器 —— 真实活动出现时以路由数据为准覆盖。
@@ -439,4 +451,12 @@ export function mountBrowserFlagPreview(): void {
       return snapshot.bySession.size
     }
   }
+}
+
+/** 撤掉 window 调试入口（功能总开关关闭时用，避免预览数据绕过开关点亮图标）。 */
+export function unmountBrowserFlagPreview(): void {
+  if (typeof window === 'undefined') return
+  try {
+    delete (window as unknown as Record<string, unknown>)[BROWSER_FLAG_PREVIEW_KEY]
+  } catch { /* 忽略删除失败 */ }
 }

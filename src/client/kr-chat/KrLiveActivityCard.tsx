@@ -125,10 +125,11 @@ async function cropAvatar(file: File): Promise<string> {
 
 function toolVerb(name: string): string {
   const lower = name.toLowerCase()
-  if (/^(read|read_file|view|open_file)$/.test(lower)) return '读取文件'
-  if (/^(write|edit|apply_patch|str_replace_editor)$/.test(lower)) return '修改文件'
-  if (/^(bash|pwsh|shell|terminal|exec_command|run_code)$/.test(lower)) return '执行命令'
-  if (/^(grep|glob|find|search)$/.test(lower)) return '搜索文件'
+  // dsh-ops（2026-10-27 补）：ops_* 工具在对应模式下顶替官方同名工具。
+  if (/^(read|read_file|view|open_file|ops_read_files|ops_inspect_local_file)$/.test(lower)) return '读取文件'
+  if (/^(write|edit|apply_patch|str_replace_editor|ops_write_file|ops_edit_file|ops_replace)$/.test(lower)) return '修改文件'
+  if (/^(bash|pwsh|shell|terminal|exec_command|run_code|ops_bash)$/.test(lower)) return '执行命令'
+  if (/^(grep|glob|find|search|ops_grep|ops_glob)$/.test(lower)) return '搜索文件'
   if (/^(web_search|web_fetch|web_open)$/.test(lower)) return '检索网页'
   if (lower === 'skill') return '加载技能'
   if (/memory|summar/.test(lower)) return '整理记忆'

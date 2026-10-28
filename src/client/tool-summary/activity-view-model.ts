@@ -47,10 +47,13 @@ export function toolArgsRaw(block: ToolCallBlock): string {
 }
 
 export function classifyCategory(name: string): ViewCategory {
-  if (/^(write|edit|apply_patch|patch|str_replace_editor)$/.test(name)) return 'write'
-  if (/^(read|read_file)$/.test(name)) return 'read'
-  if (/^(bash|shell|terminal|terminal_send|exec_command|pwsh)$/.test(name)) return 'terminal'
-  if (/^(grep|glob|find|search)$/.test(name)) return 'search'
+  // dsh-ops（2026-10-27 补）：它的 ops_* 工具在 Standard/Cordis 模式下顶替官方
+  // read/glob/grep/write/edit，在全部 Windows 模式下顶替 pwsh。这里按同一分类
+  // 归类，否则装了插件之后整条工具行会掉进 'other'、标题退化成原始工具名。
+  if (/^(write|edit|apply_patch|patch|str_replace_editor|ops_write_file|ops_edit_file|ops_replace|ops_copy|ops_move)$/.test(name)) return 'write'
+  if (/^(read|read_file|ops_read_files|ops_inspect_local_file)$/.test(name)) return 'read'
+  if (/^(bash|shell|terminal|terminal_send|exec_command|pwsh|ops_bash)$/.test(name)) return 'terminal'
+  if (/^(grep|glob|find|search|ops_grep|ops_glob)$/.test(name)) return 'search'
   if (/^(web_search|web_fetch|web_open)$/.test(name)) return 'web'
   return 'other'
 }

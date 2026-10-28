@@ -289,12 +289,13 @@ async function main() {
       mailAria: mail.getAttribute('aria-label'),
       mailHasSvg: mail.querySelectorAll('svg').length,
       mailClass: mail.className,
-      // 搬家后的真实关系：同一个 .kr-plain-head__tools 里的兄弟，齿轮在前。
+      // 搬家与对调后的真实关系：同一个 .kr-plain-head__tools 里的兄弟，邮箱在前、齿轮在后。
       gearInTools: gear.closest('.kr-plain-head__tools') !== null,
       mailInTools: mail.closest('.kr-plain-head__tools') !== null,
       gearInTablist: gear.closest('header [role="tablist"]') !== null,
       mailInTablist: mail.closest('header [role="tablist"]') !== null,
       mailPrevId: mail.previousElementSibling ? mail.previousElementSibling.id : null,
+      gearPrevId: gear.previousElementSibling ? gear.previousElementSibling.id : null,
       seekerExists: Boolean(seeker),
       gearMarginLeft: getComputedStyle(gear).marginLeft,
       mailMarginLeft: getComputedStyle(mail).marginLeft,
@@ -304,7 +305,7 @@ async function main() {
       mailBg: getComputedStyle(mail).backgroundColor,
       gearColor: getComputedStyle(gear).color,
       mailColor: getComputedStyle(mail).color,
-      gap: Math.round(mail.getBoundingClientRect().left - gear.getBoundingClientRect().right),
+      gap: Math.round(gear.getBoundingClientRect().left - mail.getBoundingClientRect().right),
     };
   })()`)
   log('ORDER=' + JSON.stringify(order))
@@ -329,20 +330,20 @@ async function main() {
     fail(`按钮不在 .kr-plain-head__tools 里（齿轮 ${order.gearInTools} / 邮箱 ${order.mailInTools}）—— 没搬进卡头右上角`)
   } else if (order.gearInTablist || order.mailInTablist) {
     fail(`按钮仍在顶栏 tablist 里（齿轮 ${order.gearInTablist} / 邮箱 ${order.mailInTablist}）—— 搬家没做干净，会与卡头那组重复 id`)
-  } else if (order.mailPrevId !== 'kr-panel-settings-btn') {
-    fail(`邮箱前面的兄弟是 ${order.mailPrevId}，应为 kr-panel-settings-btn（顺序必须是 齿轮 → 邮箱）`)
+  } else if (order.gearPrevId !== 'kr-mail-btn') {
+    fail(`齿轮前面的兄弟是 ${order.gearPrevId}，应为 kr-mail-btn（顺序必须是 邮箱 → 齿轮）`)
   } else if (order.mailHasSvg !== 1) {
     fail(`邮箱按钮的图标应为 1 个内联 SVG，实得 ${order.mailHasSvg}`)
-  } else if (order.mailAria !== '邮箱') {
-    fail(`邮箱按钮 aria-label 应为「邮箱」，实得 ${order.mailAria}`)
+  } else if (!order.mailAria || !order.mailAria.startsWith('邮箱')) {
+    fail(`邮箱按钮 aria-label 应包含「邮箱」，实得 ${order.mailAria}`)
   } else if (order.gap === null || order.gap > 8) {
-    fail(`齿轮与邮箱按钮的视觉间距 ${order.gap}px 太大（应并排读成一对）`)
+    fail(`邮箱与齿轮按钮的视觉间距 ${order.gap}px 太大（应并排读成一对）`)
   } else if (order.gearW !== order.mailW) {
     fail(`两枚按钮尺寸不一致（齿轮 ${order.gearW}px / 邮箱 ${order.mailW}px），并排看不出是一对`)
   } else if (order.gearBg !== order.mailBg || order.gearColor !== order.mailColor) {
     fail(`两枚按钮常态配色不一致（齿轮 ${order.gearBg}/${order.gearColor}，邮箱 ${order.mailBg}/${order.mailColor}）`)
   } else {
-    ok(`卡头右上角：齿轮 → 邮箱 并排（间距 ${order.gap}px，同尺寸 ${order.gearW}px，同配色，都不在顶栏）`)
+    ok(`卡头右上角：邮箱 → 齿轮 并排（间距 ${order.gap}px，同尺寸 ${order.gearW}px，同配色，都不在顶栏）`)
   }
 
   // ── B. hover 反馈（用户偏好的微交互）───────────────────────────────────

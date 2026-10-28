@@ -74,6 +74,10 @@ const clientBundle = {
   sourcemap: true,
   logLevel: 'info',
   external: CLIENT_EXTERNAL,
+  // 胶囊的待机机器人引擎 src/client/done-pill/vendor/open-bot-motion.js 是第三方
+  // MIT 代码按原样 vendored（上游有一个无害的重复对象键 scale）。与 dsh-companion
+  // 的构建同款处理：只静音这一条警告，不修改第三方便宜代码；其它警告照常显示。
+  logOverride: { 'duplicate-object-key': 'silent' },
   // @deepseek-ai/* 默认走运行时 require（模块表）；唯二例外随包内联：
   // schemastery + cosmokit —— 工作台「供应商」页要反序列化 settings schema
   // （webui/schema-path.ts），而这两个包不在浏览器模块表里，运行时 require 会炸。

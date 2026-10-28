@@ -748,6 +748,9 @@ function dedupeKey(path: string): string {
 export const ARG_PATH_TOOLS = new Set([
   'write', 'edit', 'apply_patch', 'str_replace_editor',
   'download', 'present',
+  // dsh-ops（2026-10-27 补）：Standard/Cordis 模式会把官方 write/edit 换成这几个。
+  // 参数形态与官方一致（path / files[].path），走同一套证据闸门。
+  'ops_write_file', 'ops_edit_file', 'ops_replace',
 ])
 
 /**
@@ -765,6 +768,9 @@ export const RESULT_PATH_TOOLS = new Set([
   'download', 'present',
   'generate_image', 'generate_video',
   'bash', 'pwsh', 'exec_command', 'shell', 'terminal', 'terminal_send',
+  // dsh-ops（2026-10-27 补）：ops_bash 在 Windows 上顶替官方 pwsh，是命令行
+  // 产出路径的唯一线索；三个 ops 写类工具的结果里也会带落盘路径。
+  'ops_bash', 'ops_write_file', 'ops_edit_file', 'ops_replace',
   // run_code（2026-10-04 补）：DSH 的 PTC 沙箱工具，模型在**代码体**里调
   // generate_image / fs.writeFileSync 落盘是它最主要的产出形态 —— 路径只出现在
   // 代码与打印结果里，参数里只有 code/description。不收它，整轮生图/脚本落盘的

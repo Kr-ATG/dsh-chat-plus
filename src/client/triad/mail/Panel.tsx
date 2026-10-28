@@ -52,6 +52,7 @@ import { MailApiError } from './api.js'
 import { css, ensureMailStyles } from './styles.js'
 import { wrapMailHtml } from './sanitize.js'
 import { PopoverShell } from '../popover-shell.js'
+import { getMailUnreadStore } from '../../kr-chat/mail-unread-store.ts'
 
 /** 文件夹。 */
 type Folder = 'inbox' | 'sent' | 'trash' | 'spam'
@@ -294,7 +295,15 @@ export function MailPanel({ onClose, api, initialFolder, initialMessageId, embed
     try {
       setDetail(await api.read(id))
       // 读过的邮件在列表里同步去未读点，避免「点开了还是未读」的错位。
-      setMessages(previous => previous.map(item => item.message_id === id ? { ...item, is_read: true } : item))
+      setMessages(previous => {
+        const wasUnread = previous.some(item => item.message_id === id && !item.is_read)
+        if (wasUnread) {
+          try {
+            getMailUnreadStore().decrement()
+          } catch {}
+        }
+        return previous.map(item => item.message_id === id ? { ...item, is_read: true } : item)
+      })
     } catch (err) {
       setDetail(null)
       setError({ message: err instanceof Error ? err.message : String(err), needsAuth: err instanceof MailApiError && err.needsAuth })

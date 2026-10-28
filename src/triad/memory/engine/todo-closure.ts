@@ -35,6 +35,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { MemoryConfig } from '../types.js'
 import type { MemoryStore } from './store.js'
+import { hostFeatureEnabled } from '../../../features/store.ts'
 
 /** 收口用的最小日志面（ctx.logger 的子集；记日志本身失败也不该影响收口）。 */
 export interface TodoClosureLogger {
@@ -97,7 +98,7 @@ export function createTodoClosure(
       if (session === undefined || session === null) return
 
       // 开关闸门：三态（state 显式值 ?? config 默认），与其它内置通道同一口径。
-      const enabled = await store.isTodoClosureEnabled(config.todoClosureDefaultEnabled !== false)
+      const enabled = hostFeatureEnabled('prompt.auto-close') && await store.isTodoClosureEnabled(config.todoClosureDefaultEnabled !== false)
       if (!enabled) return
 
       // 投影服务缺席（插件按需装配 / 本 DSH 版本无该服务）时静默跳过：

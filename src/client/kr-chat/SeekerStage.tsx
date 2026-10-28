@@ -296,8 +296,18 @@ export function SeekerStage({
           // 自动播放被策略拒绝时（极少：这里全程 muted）静默认了，别抛到 React。
           if (started !== undefined) void started.catch(() => {})
         }
-      } else if (!el.paused) {
-        el.pause()
+      } else {
+        if (!el.paused) el.pause()
+        /*
+         * view.task-motion 关闭后的「静态首帧」：把**当前激活**的片段倒回 0。
+         *
+         * 只在 motion 从 true 变 false（或静止态下切片段）时走到这里。不重置的话，
+         * 用户在动画播到一半时关掉开关，画面会冻在那一帧 —— 看起来像播放器卡死，
+         * 而不是「她安静地站着」。poster 只在从未 play 过时显示，救不了这种情况。
+         */
+        if (!motion && id === active) {
+          try { el.currentTime = 0 } catch { /* 元数据还没到：下次渲染再试 */ }
+        }
       }
     }
   }, [motion])

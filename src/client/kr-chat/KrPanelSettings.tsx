@@ -36,7 +36,7 @@
  * 分组按**行为**划分，不按"看起来差不多"划分：
  *   · 提示词通道 —— 真的往提示词里注入文本的 4 条；
  *   · 展示       —— 纯 localStorage 外观偏好，一个字都不进提示词；
- *   · 任务清单   —— 清单怎么被写出来（step 纪律）、怎么收尾（自动收口）。
+ *   · 任务清单   —— 清单怎么写（任务清单纪律）、怎么收尾（自动收口）。
  *     这两行的**作用机理相反**（一个写提示词、一个由 host 改清单状态），所以
  *     **不合并成一个开关** —— 合并会强迫用户做无意义的交易（想关"末项转圈"
  *     就得连带关掉"少往返"）。归同组只负责"看起来归一类"，不负责"共用一个开关"。
@@ -248,7 +248,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
    * 路由时会静默丢弃写入，回滚会让 UI 显示一个它并不具备的能力，回读拿到的是真实状态。
    */
   const pushChannel = useCallback((
-    key: 'zhEnabled' | 'htmlEnabled' | 'teamEnabled' | 'todoClosureEnabled' | 'stepEnabled',
+    key: 'zhEnabled' | 'htmlEnabled' | 'teamEnabled' | 'todoClosureEnabled' | 'todoRuleEnabled',
     next: boolean,
   ): void => {
     setBusy(true)
@@ -259,8 +259,8 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
         ? api.setHtmlInjectState(next)
         : key === 'teamEnabled'
           ? api.setTeamInjectState(next)
-          : key === 'stepEnabled'
-            ? api.setStepInjectState(next)
+          : key === 'todoRuleEnabled'
+            ? api.setTodoRuleInjectState(next)
             : api.setTodoClosureState(next)
     void write
       .then(res => {
@@ -382,8 +382,8 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
   const teamOn = state.teamEnabled === true
   // 自动收口与 zh 同口径（默认开）：缺字段按开，别抄 html / team 的 === true。
   const todoClosureOn = state.todoClosureEnabled !== false
-  // step 纪律与 zh / 自动收口同口径（默认开）：缺字段按开。
-  const stepOn = state.stepEnabled !== false
+  // 任务清单纪律与 zh / 自动收口同口径（默认开）：缺字段按开。
+  const todoRuleOn = state.todoRuleEnabled !== false
   /*
    * Agent 邮箱：唯一一条**跨模块**通道（承载在 dsh-mail），也是唯一一条会「不可用」的行。
    *
@@ -558,7 +558,7 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
                   `D:\AI\E…`，而路径恰恰是「哪个工作区」的唯一无歧义标识；
                 · 它和左栏「提示词通道」是**写入侧 vs 读取侧**的相反语义，并排
                   读起来像同一种能力的两半。
-              搬下去之后左栏 5 行 / 右栏 4 行（「回合结束自动收口」已另起「任务清单」
+              搬下去之后左栏 5 行 / 右栏 4 行（「回合结束自动收口」已另起「行为纪律」
               组挪到右栏，见下面那段注释），两栏高度差收到约 37px —— 设置面板不是
               表格，剩下的那点差不值得再为它调结构。 */}
           <div className="kr-settings__col kr-settings__col--aside">
@@ -615,28 +615,20 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
           </div>
 
           {/*
-           * 「任务清单」组：与"清单怎么被写出来、怎么收尾"有关的两条。
+           * 「任务清单」组：清单怎么写（任务清单纪律）、怎么收尾（自动收口）。
            *
-           * 2026-10-25 用户提「记忆里那个 todo 纪律能不能和回合结束自动收口合并」。
-           * 落地方式是**合并规范文本、不合并开关**：
+           * 2026-10-28 用户要求「step 去掉，任务清单保留」：step 纪律通道整条
+           * 退役（它管的「一次调用装多少动作」连同文本一起删除），原先挂在它
+           * 第五节的任务清单纪律独立成通道（engine/todo-rule.ts），自己的开关、
+           * 自己的首步注入。组标题于是恢复成「任务清单」—— 组里两行都归清单管。
            *
-           *   · 规范文本已合并：todo 纪律原先住在记忆库的一条 pinned 记忆里
-           *     （mem_0e2d4a98ddb90f7c），现已并入 step 纪律通道
-           *     （step-rule.ts 第五节）。那条记忆已软废弃，不会重复注入。
-           *     为什么该并：它是**行为纪律**不是"用户说过什么"，住在记忆库里会被
-           *     检索/预算机制影响（预算挤掉、相似度没命中就消失），而纪律必须每次
-           *     都成立；且它与自动收口本就是同一件事的两半 —— 纪律让模型做对，
-           *     收口在没做到时兜底，分开写谁都不像完整契约。
+           * 两行**没有合并成一个开关**（用户问过能不能合）：任务清单纪律往
+           * 提示词里写约束（模型接下来怎么做），自动收口是 host 侧监听器
+           * （agent/turn-stopping 把残留 in_progress 改写成 pending），一个字都
+           * 不进提示词。合成一个开关的后果是想关掉「末项别再转圈」就得连带关掉
+           * 「清单纪律」，两个诉求毫无关系。
            *
-           *   · 开关**不合并**：step 纪律往提示词里写约束（模型接下来怎么做），
-           *     自动收口是 host 侧监听器（agent/turn-stopping 把残留 in_progress
-           *     改写成 pending），一个字都不进提示词。合成一个开关的直接后果是
-           *     想关掉「末项别再转圈」就得连带关掉「少往返」，两个诉求毫无关系。
-           *
-           * 但它们确实属于同一个话题，所以归一组、让读者一眼看到「这两件事都归
-           * 清单管」；组头写的是两者真正共有的东西（一个管纪律、一个管兜底）。
-           *
-           * ⚠ 组头右侧不能写「不进提示词」—— 那句对自动收口成立、对 step 纪律
+           * ⚠ 组头右侧不能写「不进提示词」—— 那句对自动收口成立、对清单纪律
            * 不成立。这正是上一轮修过的坑（「回合结束自动收口」住在「提示词通道」
            * 组里、而它自己写着「不改提示词」），别在新结构里再犯一次。
            */}
@@ -648,12 +640,12 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
             <SettingsRow
               index={8}
               lead
-              label="step 纪律"
-              hint="合并动作、写清任务清单"
-              title="两条行为纪律装在一次注入里：① 把无数据依赖的多条动作合并进一次调用，减少模型往返（实测 3 条命令：拆 3 步 25.7s → 合并 1 步 5.3s）；② 任务清单怎么用 —— 开工先列、过程中逐项推进、收尾清零，pending 不等于「等待用户」。每会话首步注入一次。"
-              on={stepOn}
+              label="任务清单纪律"
+              hint="开工先列、收尾清零"
+              title="多步任务第一步就写 todo_write；过程中逐项推进、收尾清零；pending 不等于「等待用户」，交棒事项（等审阅 / 等重启）不进清单。每会话首步注入一次，是下面那条自动收口的纪律面。"
+              on={todoRuleOn}
               busy={busy}
-              onToggle={() => { pushChannel('stepEnabled', !stepOn) }}
+              onToggle={() => { pushChannel('todoRuleEnabled', !todoRuleOn) }}
             />
             <SettingsRow
               index={9}
@@ -865,8 +857,8 @@ export function KrPanelSettings({ sessionId }: KrPanelSettingsProps): JSX.Elemen
  * 原来只有 `hint`：它既是**上屏的短句**，又被当成 `title` 的全文。两者合一在
  * 说明长于一行时是够用的，但一旦「每行只占一行」成为默认排版，它就不成立了 ——
  * 短句是**给扫视用的**（差异那半句），全文是**给追问用的**（关掉到底会怎样）。
- * 例：step 纪律那一行的全文有 80 余字，而扫视时读者只需要「无依赖的动作合并成
- * 一次调用」这一句。
+ * 例：任务清单纪律那一行的全文有 60 余字，而扫视时读者只需要「开工先列、
+ * 收尾清零」这一句。
  *
  * 所以给一个可选的 `title`：传了就用它当悬停全文，`hint` 退化成纯展示短句；
  * 不传则沿用旧行为（hint 兼任 title），既有调用点一处都不用改。

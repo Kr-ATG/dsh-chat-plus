@@ -30,9 +30,11 @@ import { activateBrowserWindow } from '../browser-flag/activate.ts'
 import { browserFlagTitle, type BrowserActivitySession } from '../browser-flag/store.ts'
 import { getPanelSettingsStore } from './panel-settings-store.ts'
 import { getMailDrawerStore } from './mail-drawer-store.ts'
+import { getMailUnreadStore } from './mail-unread-store.ts'
 import { getGitRosterStore } from './git-roster-store.ts'
 import { SeekerGitStatus } from './SeekerGitStatus.tsx'
 import { GitRosterModal } from './GitRosterModal.tsx'
+import { useFeature } from '../features/gate.tsx'
 
 /** 一行状态：要么是一个动作，要么是空闲文案。 */
 export interface SeekerHeadLine {
@@ -128,6 +130,17 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
   } = props
 
   /*
+   * 功能开关（live）——卡头是「右栏操作面板」与「新对话页 Hero」共用的唯一一份，
+   * 所以动画 / Git / 邮箱三个开关都在这里统一判，两处自然一致，不需要各写一遍。
+   *
+   * 同样必须顶层无条件调用：卡头经常随面板每 250ms 重渲染，条件调 hook 会让
+   * 组件树直接崩。
+   */
+  const taskMotionOn = useFeature('view.task-motion')
+  const gitStatusOn = useFeature('view.git-status')
+  const mailOn = useFeature('view.mail')
+
+  /*
    * 两枚动作按钮的开合态。必须**订阅**而不是读一次：按钮的 data-open 决定它亮不亮，
    * 读一次的话点了之后要等下一次重渲染才变色（而且可能是几十秒后）。
    *
@@ -146,6 +159,33 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
     () => mailStore.open,
     () => mailStore.open,
   )
+  const unreadStore = getMailUnreadStore()
+  /*
+   * view.mail 关闭时**不能订阅 unreadStore**：它的 `subscribe()` 内部会调用
+   * `ensureAutoPoll()`，一订阅就启动 45s 轮询 + visibility / focus 监听。
+   * Agent Mail 有 10 次/分的硬限额，关掉的按钮不该还在后台打请求。
+   *
+   * 做法是给 useSyncExternalStore 换一个**空订阅函数**（订阅动作本身不能条件
+   * 跳过，hook 必须无条件调用）；开关重新打开时 mailOn 变化会让它重新用真
+   * 订阅，store 那边的 `ensureAutoPoll` 若从未启动过就会在这一刻启动。
+   */
+  const unreadSubscribe = useCallback(
+    (cb: () => void): (() => void) => (mailOn ? unreadStore.subscribe(cb) : () => {}),
+    [mailOn, unreadStore],
+  )
+  const unreadSnapshot = useSyncExternalStore(
+    unreadSubscribe,
+    () => unreadStore.getSnapshot(),
+    () => unreadStore.getSnapshot(),
+  )
+  const { count: unreadCount, hasMore: unreadHasMore } = unreadSnapshot
+
+  useEffect(() => {
+    // view.mail 关闭：连这一次首帧静默检查也不发（订阅层同理，见上）。
+    if (!mailOn) return
+    void unreadStore.checkUnread(false)
+  }, [mailOn, unreadStore])
+
   const gitRosterStore = getGitRosterStore()
   const gitRosterOpen = useSyncExternalStore(
     (cb) => gitRosterStore.subscribe(cb),
@@ -226,10 +266,12 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
        * 盒子尺寸不变（92×164，见 styles.ts 的 .kr-stage）：用户点名
        * 「不需要动」—— 卡头的排版一个像素都不该因为换素材而位移。
        */}
+      {/* view.task-motion 关闭：motion=false 让 SeekerStage 只显示当前状态的静态首帧
+          （它内部会把画面收到 restingClip，不会停在一段被暂停的一次性动画上）。 */}
       <SeekerStage
         mode={stageMode}
         idleClip={idleClip ?? idleClipFor(idleLine)}
-        motion={motion}
+        motion={motion && taskMotionOn}
       />
       {/*
        * 名字 + 浏览器标志（同一行）。
@@ -290,7 +332,14 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
        */}
       {chrome && (
       <>
+      {/*
+       * 三枚按钮各自受功能开关控制：Git（view.git-status）、邮箱（view.mail）可以
+       * 单独关掉，齿轮设置按钮（大盘设置）不属于这几个 id，保持常驻。
+       * 关掉 Git 时连 SeekerGitStatus 的 15s 轮询与 GitRosterModal 一起摘掉——
+       * 只藏按钮不卸载组件等于还在后台每 15 秒请求一次 /git-status。
+       */}
       <div className="kr-plain-head__tools">
+        {gitStatusOn && (
         <button
           type="button"
           id="kr-git-roster-btn"
@@ -309,6 +358,37 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
             <path d="M23.546 10.93L13.067.452a1.5 1.5 0 0 0-2.126 0L8.808 2.585l3.247 3.248a1.782 1.782 0 0 1 2.25 2.252l3.125 3.125a1.784 1.784 0 1 1-.95.952l-2.91-2.91v4.542a1.783 1.783 0 1 1-1.34 0V8.895a1.78 1.78 0 0 1-.986-.986L7.99 4.656.454 12.193a1.5 1.5 0 0 0 0 2.126l10.479 10.478a1.5 1.5 0 0 0 2.126 0l10.487-10.487a1.5 1.5 0 0 0 0-2.126l.002-.002z" />
           </svg>
         </button>
+        )}
+        {mailOn && (
+        <button
+          type="button"
+          id="kr-mail-btn"
+          className="kr-plain-head__tool"
+          title={unreadCount > 0 ? `邮箱 · ${unreadCount}${unreadHasMore ? '+' : ''} 封未读` : '邮箱'}
+          aria-label={unreadCount > 0 ? `邮箱，${unreadCount}${unreadHasMore ? '+' : ''} 封未读` : '邮箱'}
+          aria-expanded={mailOpen}
+          data-open={mailOpen || undefined}
+          data-unread={unreadCount > 0 || undefined}
+          onClick={(event) => {
+            event.stopPropagation()
+            mailStore.toggle()
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="1.6" y="3.2" width="12.8" height="9.6" rx="1.6" />
+            <path d="M2.2 4.4 8 8.6l5.8-4.2" />
+          </svg>
+          {unreadCount > 0 && (
+            <span
+              className="kr-plain-head__badge"
+              data-count={unreadCount}
+              aria-hidden="true"
+            >
+              {unreadCount > 99 ? '99+' : unreadCount}{unreadHasMore && unreadCount <= 99 ? '+' : ''}
+            </span>
+          )}
+        </button>
+        )}
         <button
           type="button"
           id="kr-panel-settings-btn"
@@ -336,27 +416,9 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
             <path fillRule="evenodd" d="M10.6 1.5h2.8a1 1 0 0 1 .99.86l.24 1.83a8.2 8.2 0 0 1 2.14 1.24l1.72-.7a1 1 0 0 1 1.24.42l1.4 2.42a1 1 0 0 1-.22 1.28l-1.4 1.2a8.2 8.2 0 0 1 0 2.47l1.4 1.2a1 1 0 0 1 .22 1.28l-1.4 2.42a1 1 0 0 1-1.24.42l-1.72-.7a8.2 8.2 0 0 1-2.14 1.24l-.24 1.83a1 1 0 0 1-.99.86h-2.8a1 1 0 0 1-.99-.86l-.24-1.83a8.2 8.2 0 0 1-2.14-1.24l-1.72.7a1 1 0 0 1-1.24-.42l-1.4-2.42a1 1 0 0 1 .22-1.28l1.4-1.2a8.2 8.2 0 0 1 0-2.47l-1.4-1.2a1 1 0 0 1-.22-1.28l1.4-2.42a1 1 0 0 1 1.24-.42l1.72.7a8.2 8.2 0 0 1 2.14-1.24l.24-1.83a1 1 0 0 1 .99-.86Zm1.4 6.9a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2Z" />
           </svg>
         </button>
-        <button
-          type="button"
-          id="kr-mail-btn"
-          className="kr-plain-head__tool"
-          title="邮箱"
-          aria-label="邮箱"
-          aria-expanded={mailOpen}
-          data-open={mailOpen || undefined}
-          onClick={(event) => {
-            event.stopPropagation()
-            mailStore.toggle()
-          }}
-        >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <rect x="1.6" y="3.2" width="12.8" height="9.6" rx="1.6" />
-            <path d="M2.2 4.4 8 8.6l5.8-4.2" />
-          </svg>
-        </button>
       </div>
-      <SeekerGitStatus sessionId={sessionId} cwd={cwd} />
-      <GitRosterModal />
+      {gitStatusOn && <SeekerGitStatus sessionId={sessionId} cwd={cwd} />}
+      {gitStatusOn && <GitRosterModal />}
       </>
       )}
     </div>

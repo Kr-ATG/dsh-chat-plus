@@ -225,9 +225,14 @@ body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-turn]:not([d
 /* ══ 头部 KR 对话分类标签（与官方原生标签保持完全一致的块级排版与基线） ════════ */
 /* padding 与 styles.ts 里 header [role=tablist] > [class*='_tab'] 的覆盖值对齐
    （2px 上 / 8px 下，line-height 16 → 总高 26），三者基线才会真正齐平；
-   hover 的 -1px 抬升也跟着官方那两个标签同步，一个动效口径。 */
+   hover 的 -1px 抬升也跟着官方那两个标签同步，一个动效口径。
+   margin / min-height 归零的理由见 styles.ts 同一段注释：0.2.2-alpha.2 官方给
+   tab 加了 -10px 横向热区 margin 与 35px min-height，这里自绘的按钮也必须
+   是同一套盒模型，否则它和左右两个官方标签的间距会差 20px。 */
 .kr-tab-btn {
   display: block;
+  margin: 0;
+  min-height: 0;
   padding: 2px 0 8px;
   border: none;
   background: transparent;
@@ -2334,6 +2339,7 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 }
 
 .kr-plain-head__tool {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2388,12 +2394,43 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   background: color-mix(in srgb, var(--kr-accent) 12%, transparent);
 }
 
+/* 邮箱未读条数角标徽章（小巧红底白字药丸，带底色描边） */
+.kr-plain-head__badge {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-business-danger, #e5484d);
+  color: #ffffff;
+  font-size: var(--kr-fs-10, 10px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 14px;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  box-sizing: border-box;
+  box-shadow: 0 0 0 1.5px var(--kr-bg, var(--dsw-alias-layer-background-page, #ffffff));
+  animation: kr-badge-pop .18s cubic-bezier(.34, 1.56, .64, 1) both;
+}
+
+@keyframes kr-badge-pop {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .kr-plain-head__tool {
     transition: background-color .12s linear, color .12s linear;
   }
   .kr-plain-head__tool:active {
     transform: none;
+  }
+  .kr-plain-head__badge {
+    animation: none;
   }
 }
 
@@ -7634,7 +7671,7 @@ body[data-ds-dark-theme] .kr-settings {
 /* 组头：左边标题、右边「这一组共有的性质」（2026-10-25）。
  *
  * 为什么要右半边那块小字：拥挤的一大来源是**共性被抄进了每一行**——
- * 「每会话首步注入一次」在团队协作与 step 纪律两行里各写了一遍，「只改本机观感 /
+ * 「每会话首步注入一次」在团队协作与任务清单纪律两行里各写了一遍，「只改本机观感 /
  * 随浏览器持久保存」在展示组三行里各写了一遍。这些是**整组的性质**，说一次就够，
  * 提到组头右侧之后，各行的短说明就只剩「这一行和别行有什么不同」。
  *

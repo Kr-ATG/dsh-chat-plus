@@ -12,6 +12,7 @@ import { decryptSyncPayload, encryptSyncPayload, gitBlobSha, hashData } from './
 import {
   gatherWorkbenchAssets,
   getWorkbenchSizes,
+  restoreFeed,
   restoreMemory,
   restoreSkills,
   restoreVault,
@@ -305,17 +306,23 @@ export class WorkbenchSyncEngine {
       this.advanceStep(0, 'done', `私库验证通过（分支: ${branch}）`)
 
       // Step 2: gather
-      this.advanceStep(1, 'running', '正在收集档案、记忆与技能...')
+      this.advanceStep(1, 'running', '正在收集档案、记忆、技能与动态设置...')
       const payload = await gatherWorkbenchAssets({
         includeVault: file.settings.includeVault,
         includeMemory: file.settings.includeMemory,
         includeSkills: file.settings.includeSkills,
+        includeFeed: file.settings.includeFeed,
         vaultStore: this.vaultStore,
       })
       const vaultCount = payload.vault?.vaultJson ? JSON.parse(payload.vault.vaultJson)?.records?.length ?? 0 : 0
       const memoryCount = payload.memory?.entriesJson ? JSON.parse(payload.memory.entriesJson)?.entries?.length ?? 0 : 0
       const skillsCount = Object.keys(payload.skills?.files ?? {}).length
-      this.advanceStep(1, 'done', `已收集: 档案 ${vaultCount} 条, 记忆 ${memoryCount} 条, 技能文件 ${skillsCount} 个`)
+      const feedEntityCount = payload.feed?.entitiesJson ? JSON.parse(payload.feed.entitiesJson)?.entities?.length ?? 0 : 0
+      const feedParts: string[] = []
+      if (payload.feed?.configJson) feedParts.push('提示词与模型')
+      if (feedEntityCount > 0) feedParts.push(`关注对象 ${feedEntityCount} 个`)
+      const feedDetail = feedParts.length > 0 ? `, 动态设置(${feedParts.join(' / ')})` : ''
+      this.advanceStep(1, 'done', `已收集: 档案 ${vaultCount} 条, 记忆 ${memoryCount} 条, 技能文件 ${skillsCount} 个${feedDetail}`)
 
       // Step 3: fingerprint
       this.advanceStep(2, 'running', '比对本地数据指纹与远端提交...')
@@ -324,6 +331,7 @@ export class WorkbenchSyncEngine {
         vault: payload.vault,
         memory: payload.memory,
         skills: payload.skills,
+        feed: payload.feed,
       })
       const isUnchanged = file.lastDataHash === currentHash
 
@@ -367,6 +375,7 @@ export class WorkbenchSyncEngine {
         vaultRecords: vaultCount,
         memoryEntries: memoryCount,
         skillFiles: skillsCount,
+        feedEntities: feedEntityCount,
       })
       const packageBytes = Buffer.byteLength(encryptedPackage, 'utf8')
       this.advanceStep(3, 'done', `加密完成（压缩包体积: ${(packageBytes / 1024).toFixed(1)} KB）`)
@@ -474,7 +483,7 @@ export class WorkbenchSyncEngine {
       { id: 'verify', name: '验证 GitHub 私库连接与备份文件' },
       { id: 'download', name: '下载云端最新加密备份包' },
       { id: 'decrypt', name: '使用同步口令校验与解密' },
-      { id: 'restore', name: '恢复档案、记忆与技能数据' },
+      { id: 'restore', name: '恢复档案、记忆、技能与动态设置数据' },
       { id: 'reload', name: '工作台数据重载并就绪' },
     ]
     this.setProgress('pull', steps)
@@ -513,7 +522,7 @@ export class WorkbenchSyncEngine {
       this.advanceStep(2, 'done', '解密校验通过！')
 
       // Step 4: restore
-      this.advanceStep(3, 'running', '正在写入本地档案、记忆与技能文件...')
+      this.advanceStep(3, 'running', '正在写入本地档案、记忆、技能与动态设置文件...')
       let restoredVault = 0
       let restoredMemory = 0
       let restoredSkills = 0
@@ -532,8 +541,18 @@ export class WorkbenchSyncEngine {
         restoredSkills = sRes.files
         removedSkills = sRes.removedSkills
       }
+      let restoredFeedEntities = 0
+      let restoredFeedConfig = false
+      if (payload.feed && file.settings.includeFeed) {
+        const fRes = await restoreFeed(payload.feed)
+        restoredFeedEntities = fRes.entities
+        restoredFeedConfig = fRes.config
+      }
       const removedText = removedSkills > 0 ? ` (已同步清理 ${removedSkills} 个已删技能)` : ''
-      this.advanceStep(3, 'done', `已还原: 档案 ${restoredVault} 条, 记忆 ${restoredMemory} 条, 技能文件 ${restoredSkills} 个${removedText}`)
+      const feedText = payload.feed && file.settings.includeFeed && (restoredFeedConfig || restoredFeedEntities > 0)
+        ? `, 动态设置(${restoredFeedConfig ? '提示词与模型已恢复' : '无配置'}${restoredFeedEntities > 0 ? ` / 关注对象 ${restoredFeedEntities} 个` : ''})`
+        : ''
+      this.advanceStep(3, 'done', `已还原: 档案 ${restoredVault} 条, 记忆 ${restoredMemory} 条, 技能文件 ${restoredSkills} 个${removedText}${feedText}`)
 
       // Step 5: reload
       this.advanceStep(4, 'done', '所有资产已就绪并生效！')
@@ -560,6 +579,7 @@ export class WorkbenchSyncEngine {
           vault: payload.vault,
           memory: payload.memory,
           skills: payload.skills,
+          feed: payload.feed,
         }),
       })
       await this.recordRun(run)
@@ -600,6 +620,7 @@ export class WorkbenchSyncEngine {
     if (typeof patch.includeVault === 'boolean') nextSettings.includeVault = patch.includeVault
     if (typeof patch.includeMemory === 'boolean') nextSettings.includeMemory = patch.includeMemory
     if (typeof patch.includeSkills === 'boolean') nextSettings.includeSkills = patch.includeSkills
+    if (typeof patch.includeFeed === 'boolean') nextSettings.includeFeed = patch.includeFeed
 
     if (patch.clearToken === true) delete secrets.token
     else if (typeof patch.token === 'string' && patch.token.trim() !== '') {
@@ -670,6 +691,7 @@ export class WorkbenchSyncEngine {
       includeVault: file.settings.includeVault,
       includeMemory: file.settings.includeMemory,
       includeSkills: file.settings.includeSkills,
+      includeFeed: file.settings.includeFeed,
       nextUploadAt,
       lastUploadedAt: file.settings.lastUploadedAt ?? '',
       lastUploadedCommit: file.settings.lastUploadedCommit ?? '',
@@ -680,6 +702,7 @@ export class WorkbenchSyncEngine {
       localVaultBytes: sizes.vaultBytes,
       localMemoryBytes: sizes.memoryBytes,
       localSkillsBytes: sizes.skillsBytes,
+      localFeedBytes: sizes.feedBytes,
       passphraseSet: passphrase.length >= WORKBENCH_SYNC_MIN_PASSPHRASE,
       tokenSet: token.length > 0,
       tokenSource,

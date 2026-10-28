@@ -2,9 +2,9 @@
  * dsh-chat-plus — 任务概览卡片（一个卡片框统领全部任务项）。
  * 呈现 DSH 官方真实的 todo / task 列表。
  *
- * 卡片常驻：当前轮没有任务时给一行低对比度空态，而不是整张 return null。
- * 原因见下方注释——整张卡消失会让「模型什么时候想起写 todo」直接变成
- * 「卡片什么时候出现」。
+ * **空时整卡不渲染**（2026-10-28 用户要求「空的不要显示卡片」）。早前曾常驻
+ * 一行低对比度空态，理由是「卡片出现时机不该取决于模型什么时候写 todo」；
+ * 现在按用户口径统一为：没有任务就整卡消失，右栏不留空壳。
  *
  * ══ 本轮优化的设计取舍 ═══════════════════════════════════════════════════
  * 1. 行 key 不再信任上游 id。三条数据源（本轮快照 / live 投影 / 会话回溯）
@@ -132,13 +132,11 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
   const [flashDone, setFlashDone] = useState(false)
 
   /*
-   * 原来这里是 `if (!tasks || tasks.length === 0) return null`——卡片整张消失。
-   * 于是只要模型这一轮还没写出任务，右栏第一张卡就是空的；等第一条 todo 落地
-   * 时整张卡突然弹出来，读作「最后才出现」。卡片的出现时机不该取决于模型
-   * 什么时候想起写 todo。
+   * 空时整卡 return null（2026-10-28 用户要求「空的不要显示卡片」）。
    *
-   * 现在常驻：没有任务时给一行低对比度的空态，位置永远稳定；有任务时进度条
-   * 与列表自然填进去，不做整卡重挂载。
+   * 历史：这里曾改成常驻空态，理由是「卡片出现时机不该取决于模型什么时候写
+   * todo」。用户现在明确不要空壳——右栏宁可短一截，也不留一行「本轮还没有任务」
+   * 占位。空态分支保留在下方 hooks 之后 return，确保 React hooks 顺序稳定。
    */
   const empty = !tasks || tasks.length === 0
   const doneCount = tasks.filter((t) => t.status === 'completed').length
@@ -235,12 +233,9 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
    * 本身大。文字弱一级（.kr-card__meta）即可，扫读时不会和标题抢。
    */
   /*
-   * 空态文案：本轮还没有任务（2026-10-24 复核过）。
-   *
-   * 这一句现在会准确出现在「刚发出新一轮、模型还没写 todo」的那一屏 —— 取数口径
-   * 收紧之后就只剩本轮真实清单，再没有跨轮次回退来填它。所以文案不必改成
-   * 「本次对话还没有任务」（那是旧口径下的说法，暗示了跨轮次），"本轮"才是这张卡
-   * 实际回答的范围。
+   * 空态文案保留在计算里（2026-10-24 口径），但 2026-10-28 起空态不再渲染：
+   * 卡片在下面提前 return null（用户要求「空的不要显示卡片」）。保留是为了
+   * 不改变非空态的进度文案分支与既有断言。
    */
   const progressMeta = empty ? (
     '本轮还没有任务'
@@ -321,6 +316,10 @@ export const KrTaskOverviewCard = memo(function KrTaskOverviewCard({
       </div>
     )
   }
+
+  // 2026-10-28：空任务不渲染整卡（原来的常驻空态按用户要求取消）。
+  // 放在全部 hooks 之后，保证每次渲染的 hooks 数量一致。
+  if (empty) return null
 
   return (
     <div className="kr-card kr-card--task" data-empty={empty || undefined}>

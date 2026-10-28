@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Content cards",
+    "description": "Render html / iu / diagram / proto fences as interactive cards, plus download progress, screenshots, generated-image gallery and sidebar previews."
+  }
+}

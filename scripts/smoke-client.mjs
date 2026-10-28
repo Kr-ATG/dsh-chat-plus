@@ -428,6 +428,17 @@ const expectedStyles = [
   // 「@ 运行中的程序」（src/client/running-apps/styles.ts）：候选行里真实进程
   // 图标的尺寸/圆角/入场，以及前台窗口那枚小圆点。apply 阶段随 @ 源一起注入。
   'dsh-running-apps-styles',
+  // 工作台「动态」页（src/client/triad/feed/styles.ts，2026-10-27）：左栏频道 +
+  // 大标题 + 胶囊标签 + 按天分组的卡片流 + 原文来源浮层。apply 阶段由
+  // applyFeedClient 注入；**只有这一枚**（下面的数量断言精确比对，多一枚就红）。
+  'dsh-feed-styles',
+  // 对话完成胶囊（2026-10-28 自 dsh-companion 移植）：
+  //   pill.tsx 的 ensurePillKeyframes() → PILL_STYLE_ID；
+  //   sidebar-card.tsx 的 ensureCardLayoutCss() → CARD_LAYOUT_STYLE_ID。
+  // 两张表都由 applyDonePill 在 apply 阶段同步注入（不等 React 首帧），
+  // 漏一枚的后果是「胶囊在、样式全无」——必须钉住。
+  'dsh-done-pill-css',
+  'dsh-done-pill-card-layout',
   /*
    * 浏览器标志的样式表**已不在注入清单里**（2026-10-25 搬迁）。
    *
@@ -633,6 +644,36 @@ if (krEnabled) {
   }
 }
 
+// ── 顶栏视图标签的盒模型（0.2.2-alpha.2 热区兼容）──────────────────────────
+//
+// DSH 0.2.2-alpha.2 把 tab 的「点击热区」从 padding 里拆了出来：
+//   .wSkVaW_tab{--dsh-tab-hit-inline:10px; margin:-10px calc(-1 * var(--dsh-tab-hit-inline)) 0;
+//               padding:10px var(--dsh-tab-hit-inline) 9px; min-height:35px}
+// 横向负 margin 与横向 padding 等宽，官方标签文字仍在原处、只是热区宽了 20px。
+// 插件为了让 44px 单行 header 里的标签只有 26px 视觉高度，把 padding 压回 2px/8px；
+// 如果不同时把 margin / min-height 归零，负 margin 还在而横向 padding 没了 ——
+// 三个标签的视觉间距会从 22px 塌成 2px（实测「Seeker对话轨迹」挤成一串），
+// 35px 的 min-height 还会把文字顶得偏上。这类回归没有任何报错，必须钉住。
+{
+  const styleSrc = readFileSync(resolve(ROOT, 'src/client/styles.ts'), 'utf8')
+  const rule = styleSrc.match(/header \[role='tablist'\] > \[class\*='_tab'\] \{([\s\S]*?)\n\}/)
+  if (rule === null) {
+    fail('styles.ts 缺少顶栏标签本体规则（header [role=tablist] > [class*=_tab]）')
+  } else if (!/margin:\s*0\s*;/.test(rule[1]) || !/min-height:\s*0\s*;/.test(rule[1])) {
+    fail('顶栏标签规则必须把官方 -10px 横向热区 margin 与 35px min-height 归零（0.2.2-alpha.2 兼容）')
+  } else {
+    const krStyleSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/styles.ts'), 'utf8')
+    const krRule = krStyleSrc.match(/\.kr-tab-btn \{([\s\S]*?)\n\}/)
+    if (krRule === null) {
+      fail('kr-chat/styles.ts 缺少 .kr-tab-btn 规则')
+    } else if (!/margin:\s*0\s*;/.test(krRule[1]) || !/min-height:\s*0\s*;/.test(krRule[1])) {
+      fail('.kr-tab-btn 必须与官方 tab 同一套盒模型（margin / min-height 归零），否则 Seeker 标签的间距会差 20px')
+    } else {
+      pass('顶栏标签盒模型：归零官方热区 margin / min-height（0.2.2-alpha.2 兼容）')
+    }
+  }
+}
+
 // ── 总结卡外观开关（框 + 阴影）────────────────────────────────────────────
 //
 // 用户要求：Seeker 对话流总结卡的框与阴影要做成开关，开关放在 composer 那枚
@@ -803,7 +844,7 @@ if (krEnabled) {
   } else {
     pass(`外观偏好行 busy 恒 false（${localRows[0]} 处：总结卡外框 / 工具调用卡 / 操作面板）`)
   }
-  // 抽屉必须分组：注入通道 / 按工作区的记录开关 / 纯外观 / 任务清单，
+  // 抽屉必须分组：注入通道 / 按工作区的记录开关 / 纯外观 / 行为纪律，
   // 四者混一列会被读成同一种能力。抽屉里的组标题是**硬编码中文**（与它其余各行
   // 同款），不走 i18n —— 断言按实际写法钉。
   //
@@ -820,11 +861,21 @@ if (krEnabled) {
   } else if (!/>展示</.test(drawerSrc)) {
     fail('大盘设置抽屉缺「展示」组标题（外观偏好会被读成一条注入能力）')
   } else if (!/>任务清单</.test(drawerSrc)) {
+    // 组名 2026-10-28 恢复成「任务清单」：step 纪律整条退役，原先挂在它第五节的
+    // 任务清单纪律独立成通道（engine/todo-rule.ts）—— 组里两行都归清单管，
+    // 标题名副其实。
     fail('大盘设置抽屉缺「任务清单」组标题（自动收口不改提示词，不能留在提示词通道组里）')
-  } else if (/>提示词通道<[\s\S]{0,4000}?回合结束自动收口/.test(drawerSrc.replace(/<\/?div[^>]*>/g, '\u0001'))) {
-    // 分区之后写反了（把收口又挪回提示词通道组里）：允许跨子节点的粗略检查，
-    // 只要求这两样东西不在同一个 4000 字符窗口里同时出现。
-    fail('「回合结束自动收口」不得回到「提示词通道」组（它不改提示词，分组要与行为一致）')
+  } else if (!(() => {
+    // 顺序判据：drawerSrc 已剥掉块注释，这里直接比位置 ——「任务清单」组标题
+    // 必须排在「回合结束自动收口」那一行**之前**。
+    // 原判据是「提示词通道」与收口之间隔 4000 字符以上，那是个脆弱的代理指标：
+    // 2026-10-28 把组注释写短了三百来字，它立刻误报（代码明明没动分组）。
+    // 直接比位置就不会被注释长度影响：真挪回上面的组时，行的位置会跑到组标题之前。
+    const groupAt = drawerSrc.indexOf('>任务清单<')
+    const rowAt = drawerSrc.indexOf('label="回合结束自动收口"')
+    return groupAt >= 0 && rowAt > groupAt
+  })()) {
+    fail('「回合结束自动收口」必须排在「任务清单」组标题之后（它不改提示词，分组要与行为一致）')
   } else {
     pass('大盘设置抽屉：四组分区（提示词通道 / 任务清单 / 展示 / 工作区记忆区块）在位')
   }
@@ -936,10 +987,52 @@ const cell = (key) => registeredSlots.find((s) => s?.slot === 'conversation.chat
 // 按用户要求删除，槽位从 12 → 11。它的开关能力仍在 Seeker 右栏「大盘设置」抽屉里。
 // 2026-10-25：ui-font 通用设置行（settings.general.item / order 12）随「界面字体」
 // 功能恢复而回归，槽位从 11 → 12。
-if (registeredSlots.length !== 12) {
-  fail(`expected 12 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
+if (registeredSlots.length !== 27) {
+  fail(`expected 27 slot registrations, got ${registeredSlots.length}: ${JSON.stringify(registeredSlots)}`)
 } else {
-  pass('registered 12 seats (6 chat-plus + 4 triad + 1 provider settings section + 1 ttft flat bridge + 1 ui-font general row)')
+  pass('registered 27 seats (12 原有 + 15 对话胶囊：5 overlay + 1 sidebar.footer.action + 9 settings.general.item)')
+}
+
+// 对话完成胶囊（2026-10-28 自 dsh-companion 移植）：15 个座位一个都不能少。
+// 少一个的表现都不会抛错，只是「某种形态不见了」或「某条设置不出现」，
+// 所以逐个 id 断言，而不是只数总数。
+{
+  const seatIds = registeredSlots.map(s => s.id).filter(Boolean)
+  const expectedPillSeats = [
+    ['shell.overlay', 'dsh-done-pill', 90],
+    ['shell.overlay', 'dsh-done-pill-nav-toast', 91],
+    ['shell.overlay', 'dsh-done-pill-notify', 92],
+    ['shell.overlay', 'dsh-done-pill-rec-picker', 93],
+    ['shell.overlay', 'dsh-done-pill-rec-region', 94],
+    ['sidebar.footer.action', 'dsh-done-pill-card', 10],
+    ['settings.general.item', 'dsh-done-pill-mode', 30],
+    ['settings.general.item', 'dsh-done-pill', 31],
+    ['settings.general.item', 'dsh-done-pill-notify', 32],
+    ['settings.general.item', 'dsh-done-pill-rest', 33],
+    ['settings.general.item', 'dsh-done-pill-late', 34],
+    ['settings.general.item', 'dsh-done-pill-scale', 35],
+    ['settings.general.item', 'dsh-done-pill-font', 36],
+    ['settings.general.item', 'dsh-done-pill-rec-fps', 37],
+    ['settings.general.item', 'dsh-done-pill-rec-width', 38],
+  ]
+  let missing = 0
+  for (const [slot, id, order] of expectedPillSeats) {
+    const seat = registeredSlots.find(s => s.slot === slot && s.id === id)
+    if (seat === undefined) { fail(`missing done-pill seat ${slot}#${id}`); missing++ }
+    else if (seat.order !== order) { fail(`done-pill seat ${id} order 应为 ${order}，实得 ${seat.order}`); missing++ }
+  }
+  if (missing === 0) pass('对话胶囊 15 个座位齐全（5 overlay + 1 footer + 9 settings）')
+  void seatIds
+}
+
+// 胶囊样式/类名契约：PILL_CSS 里的根类名与 shell-hot 查询的类名必须同名。
+// 改名不会报错，只会让「壳子顶栏热区让位」静默失效（胶囊贴顶时点不到）。
+if (!code.includes('.dsh-done-pill-shell')) {
+  fail('client bundle is missing .dsh-done-pill-shell (壳子热区让位按这个类名查矩形)')
+} else if (!code.includes('dsh-done-pill-card-layout')) {
+  fail('client bundle is missing done-pill card layout stylesheet')
+} else {
+  pass('对话胶囊样式表与 shell-hot 类名契约齐全')
 }
 
 // 工具闸门卡片：挂在输入栏工具行**左端**（与记忆注入开关同一排），order 100。
@@ -2250,7 +2343,9 @@ if (krEnabled) {
 //     而为每行发一次文件请求的代价与收益完全不成比例）。
 //  3. 代码文件**不出现**（2026-10-19：源文件是材料不是成品，连计数都不留）。
 //  4. **没有产出时整张卡不挂载**（2026-10-19 按用户要求）：空态由 KrAgentPanel
-//     的 outputs.items.length > 0 拦掉，组件内部没有空态分支。
+//     的 outputs.items.length > 0 拦掉；2026-10-28 又补了组件内「过滤后 items 为空
+//     也 return null」的兜底（路径核对 can 把条目全剔除，原始清单非空但屏幕只剩
+//     「0 项」空壳）。任务概览卡同批改成空时不渲染。
 if (krEnabled) {
   const outputsCardSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrOutputsCard.tsx'), 'utf8')
   const outputsSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/outputs.ts'), 'utf8')
@@ -2313,8 +2408,18 @@ if (krEnabled) {
     fail('产出物卡不得渲染空态（无产出时整卡不挂载，由 KrAgentPanel 拦）')
   } else if (!/outputs\.items\.length > 0 && \(\s*<KrOutputsCard/.test(outputsPanelSrc)) {
     fail('挂载方必须用 outputs.items.length > 0 拦住空态下的产出物卡（没产出就不出现）')
+  } else if (!/if \(items\.length === 0\) return null/.test(outputsCode)) {
+    // 2026-10-28 用户要求「空的不要显示卡片」：路径核对全部剔除后（gonePaths），
+    // 原始清单非空、过滤后 items 为 0，必须在组件内 return null，否则只剩一张「0 项」空壳。
+    fail('产出物卡必须在过滤后 items 为空时 return null（防止「0 项」空壳）')
   } else if (!/KrOutputsCard[\s\S]{0,600}?squeezed=\{panelSqueezed\}/.test(outputsPanelSrc)) {
     fail('右栏挤压时必须把 squeezed 传给产出物卡（默认露出条数降一档）')
+  } else if (!/panelTasksOn\s*&&\s*tasks\.length > 0/.test(outputsPanelSrc)) {
+    // 2026-10-28 用户要求「空的不要显示卡片」：任务概览空时整卡不挂载。
+    fail('任务概览卡必须在 tasks.length > 0 时才挂载（空的不要显示卡片）')
+  } else if (!/if \(empty\) return null/.test(readFileSync(resolve(ROOT, 'src/client/kr-chat/KrTaskOverviewCard.tsx'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' '))) {
+    // 组件内再兜一道：即使挂载方条件漏了，空任务也不能渲染空壳。
+    fail('KrTaskOverviewCard 必须在 empty 时 return null（空任务不渲染整卡）')
   } else if (!/<KrSubagentsCard[\s\S]{0,1200}?<KrPlainTimelineCard[\s\S]{0,1500}?<KrTaskOverviewCard[\s\S]{0,1500}?<KrOutputsCard/.test(outputsPanelSrc)) {
     /*
      * 2026-10-24 第四轮定稿的顺序：子智能体 → 操作面板 → 任务概览 → 产出物。
@@ -3560,8 +3665,11 @@ if (krEnabled) {
   // 「系统提示词」(prompt) 是 2026-10-27 新增的第六类：只读视图；
   // 「同步设置」(sync) 是新增的第七类：工作台资产云端双向同步。
   // 它与前六类同源（都从 WORKBENCH_TABS 出），侧栏、浮层、⌘N 直切三处同步生效。
-  if (tabIds.join(',') !== 'memory,skills,usage,gallery,vault,prompt,sync') {
-    reasons.push(`WORKBENCH_TABS 必须是 memory/skills/usage/gallery/vault/prompt/sync 七项，实得 [${tabIds.join(', ')}]`)
+  // 「动态」(feed) 是 2026-10-27 新增的第一项：用户要求「操作间增加一级菜单动态」。
+  // 顺序即事实——它排在记忆之前（操作间第一项），且这张表是侧栏 / 浮层 / ⌘N 三处
+  // 的唯一真相，顺序写反了用户看到的菜单顺序也跟着反。
+  if (tabIds.join(',') !== 'feed,memory,skills,usage,gallery,vault,prompt,sync') {
+    reasons.push(`WORKBENCH_TABS 必须是 feed/memory/skills/usage/gallery/vault/prompt/sync 八项（feed 第一），实得 [${tabIds.join(', ')}]`)
   }
   if (!/return 'memory'/.test(flyoutSrc)) {
     reasons.push("readWorkbenchTab 的非法值回落必须是 'memory'")
@@ -5818,11 +5926,11 @@ if (krEnabled) {
     //    后面的序号，错开浮现会两行同时冒出来，而这既不该报错也不会打日志。
     const hostWriters = [
       'setZhInjectState', 'setHtmlInjectState',
-      'setTeamInjectState', 'setStepInjectState', 'setTodoClosureState', 'setMailInjectState',
+      'setTeamInjectState', 'setTodoRuleInjectState', 'setTodoClosureState', 'setMailInjectState',
     ]
     const missingWriter = hostWriters.filter(name => !src.includes(name))
     const rowCount = (src.match(/<SettingsRow\b/g) ?? []).length
-    // 10 处 = 4（中文 / 交互卡片 / 团队 / step 纪律）+ 2（邮箱「给开关 / 给角标」两分支）
+    // 10 处 = 4（中文 / 交互卡片 / 团队 / 任务清单纪律）+ 2（邮箱「给开关 / 给角标」两分支）
     //      + 1（自动收口）+ 3（展示组）。
     // 灵魂注入那一行 2026-10-21 随灵魂模块整块删除：通道没了，闸门也就没有意义。
     // 邮箱那个三态行写两个分支是**刻意的**：省略 on 的那一支才是「不给拨不动的开关」。
@@ -5832,6 +5940,8 @@ if (krEnabled) {
     // 10 个行序号（0..9）：邮箱两分支共用同一个 index（同一行的两种形态，不该占两个错开槽位）。
     // 2026-10-25 由 9 变 10：step 纪律从提示词通道组挪进「任务清单」组，与
     // 「回合结束自动收口」并列 —— 用户要求「任务清单相关的全部归到一个组」。
+    // 2026-10-28：step 纪律整条退役（用户要求「step 去掉，任务清单保留」），原先挂在
+    // 它第五节的任务清单纪律独立成通道、占同一个行位 —— 行数仍是 10。
     // 开关**没有合并**：两者作用机理相反（一个写提示词、一个改状态），绑成一个
     // 开关会强迫用户做无意义的交易（想关"末项转圈"就得连带关掉"少往返"）。
     const expectedIndexes = 10
@@ -6204,6 +6314,56 @@ if (krEnabled) {
       pass('大盘设置入口：齿轮+邮箱在操作面板卡头右上角（id 沿用）+ 旧顶栏按钮按位置清理')
     }
 
+    /*
+     * 10b) 邮箱在齿轮**之前**（2026-10-28 用户要求「邮箱与设置图标对调」）。
+     *
+     * 这条只能按源码里的**声明顺序**钉：JSX 子节点的先后就是渲染顺序，而
+     * e2e（test-mail-drawer.mjs）钉的是浏览器里的真实 DOM 顺序。两边各管一段
+     * ——源码改了没重建、或重建了但 DOM 被别处重排，各自都能报出来。
+     *
+     * ⚠ 顺序判据必须用 indexOf 比大小，不能用「两者都在」这种弱断言：
+     * 对调正是「两个 id 都还在、只是前后换了」的改动，弱断言对它完全无感。
+     */
+    const mailIdx = seekerHeadSrcHere.indexOf('id="kr-mail-btn"')
+    const gearIdx = seekerHeadSrcHere.indexOf('id="kr-panel-settings-btn"')
+    if (mailIdx === -1 || gearIdx === -1) {
+      fail('SeekerHead 里必须同时有邮箱与齿轮按钮')
+    } else if (mailIdx > gearIdx) {
+      fail('邮箱按钮必须排在齿轮**之前**（2026-10-28 用户要求对调：邮箱 → 齿轮）')
+    } else {
+      pass('卡头右上角顺序：Git → 邮箱 → 齿轮（邮箱在齿轮之前，与用户要求的对调一致）')
+    }
+
+    /*
+     * 10c) 邮箱未读角标（2026-10-28 用户要求「邮箱要有自动提示未读条数」）。
+     *
+     * 四条一起才成立，缺一条都是「看起来做了、其实不会亮」：
+     *   1. SeekerHead 从 mail-unread-store 订阅未读数（不是自己 fetch）；
+     *   2. 角标只在 count > 0 时渲染（0 封时不能挂一个空红点）；
+     *   3. 三位数走 99+（否则宽角标会把相邻的齿轮挤开）；
+     *   4. **store 的 getSnapshot 必须返回稳定引用** —— 这条是踩过的坑：
+     *      每次现造对象会让 useSyncExternalStore 判定"永远在变"，右栏大盘直接
+     *      撞 React error #185（Maximum update depth exceeded），整块右栏消失，
+     *      控制台只有一条压缩过的报错。实测 2026-10-28 就是这么把右栏搞没的。
+     */
+    const unreadStoreSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/mail-unread-store.ts'), 'utf8')
+    if (!/getMailUnreadStore/.test(seekerHeadSrcHere)) {
+      fail('SeekerHead 必须从 mail-unread-store 订阅未读数（不要在组件里自己轮询接口）')
+    } else if (!/unreadCount > 0/.test(seekerHeadSrcHere)) {
+      fail('未读角标必须只在 count > 0 时渲染（0 封不该挂一个空红点）')
+    } else if (seekerHeadSrcHere.indexOf("'99+'") === -1) {
+      fail('未读角标必须把三位数折成 99+（否则会把相邻按钮挤开）')
+    } else if (!/kr-plain-head__badge/.test(seekerHeadSrcHere)) {
+      fail('未读角标必须有 .kr-plain-head__badge 类名（样式按它上色定位）')
+    } else if (unreadStoreSrc.indexOf('private _snapshot: MailUnreadSnapshot') === -1
+      || unreadStoreSrc.indexOf('return this._snapshot') === -1) {
+      fail('mail-unread-store.getSnapshot 必须返回**稳定引用**（每次现造对象会让 useSyncExternalStore 无限重渲染，右栏直接消失）')
+    } else if (!/refreshSnapshot/.test(unreadStoreSrc)) {
+      fail('mail-unread-store 的状态变更必须经 refreshSnapshot 重建快照（否则 React 拿不到新值）')
+    } else {
+      pass('邮箱未读角标：卡头订阅 mail-unread-store + 仅 >0 渲染 + 99+ 折叠 + 快照引用稳定（防 React #185）')
+    }
+
     // 11) 共享 store 的跨 bundle 共享语义：live reload 会让模块级单例分叉，
     //     表现为"点按钮抽屉不开"。必须挂 window + 品牌字段判别。
     const storeSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/panel-settings-store.ts'), 'utf8')
@@ -6417,6 +6577,601 @@ if (krEnabled) {
       pass('apply 阶段已注入字体覆盖样式表（首帧即所选字体）')
     }
   }
+}
+
+/*
+ * ── 动态页「模型」这一格：不许假数据（2026-10-27）────────────────────────
+ *
+ * 用户原话：「现在开始完善所有功能，不要假数据，选中我们现在的这个模型然后
+ * 实际测试」。当时的下拉是硬编码六项：DeepSeek-V3 / R1 / Claude 3.5 Sonnet /
+ * GPT-4o / Qwen 2.5 72B —— **全是为了还原原型抄来的假模型名**，本机一个都没接，
+ * 选中任何一个都跑不起来。
+ *
+ * 所以这里钉三件事：
+ *  1. 那六个假名字**不许再出现在产物里**（写了就是回退）；
+ *  2. 判定口径正确（followDefaultLabel / effectiveModelOf / modelLabel 三条纯函数）；
+ *  3. 拉不到目录时必须有降级形态：只剩「跟随系统默认」一项、页面不白屏。
+ *
+ * 光断言「代码里没有 XXX」不够：把逻辑抽成纯函数在这里跑真值，能抓住
+ * 「常量删了但渲染层还在兜假名字」这种半修。
+ */
+{
+  const reasons = []
+  const api = mod
+
+  // ① 假模型名不得出现在 client 产物里（含 label 文案，不只是 id）。
+  const BANNED = ['DeepSeek-V3', 'DeepSeek-R1', 'Claude 3.5 Sonnet', 'GPT-4o', 'Qwen 2.5 72B', 'qwen-2.5-72b', 'claude-3-5-sonnet']
+  const leaked = BANNED.filter(name => code.includes(name))
+  if (leaked.length > 0) {
+    reasons.push(`产物里仍有硬编码的假模型名：${leaked.join(' / ')}（必须删干净，只能来自 host 的 /models）`)
+  }
+
+  // ② 纯函数口径。
+  if (typeof api.FOLLOW_DEFAULT !== 'string' || api.FOLLOW_DEFAULT !== 'default') {
+    reasons.push('FOLLOW_DEFAULT 必须是字符串 "default"（host 按这个值解析系统主模型）')
+  }
+  if (typeof api.followDefaultLabel !== 'function') {
+    reasons.push('followDefaultLabel 必须导出（供冒烟钉住「跟随系统默认（真实模型名）」口径）')
+  } else {
+    // 拿得到当前模型 → 文案必须带出来；拿不到 → 不许编一个名字。
+    const withName = api.followDefaultLabel('auto/deepseek-v4.1-flash')
+    if (!withName.includes('auto/deepseek-v4.1-flash')) {
+      reasons.push(`followDefaultLabel 必须带上当前真实模型名，实得「${withName}」`)
+    }
+    const withoutName = api.followDefaultLabel('')
+    if (/[（(]/.test(withoutName)) {
+      reasons.push(`拿不到当前模型时 followDefaultLabel 不许留空括号，实得「${withoutName}」`)
+    }
+  }
+
+  if (typeof api.effectiveModelOf !== 'function') {
+    reasons.push('effectiveModelOf 必须导出（顶部状态条「模型：xxx」的唯一真相）')
+  } else {
+    const catalog = {
+      models: [{ id: 'auto/deepseek-v4.1-flash', label: 'auto/deepseek-v4.1-flash', provider: 'alymagpie' }],
+      current: 'auto/deepseek-v4.1-flash',
+      source: 'host',
+    }
+    // 配置 = default → 显示**真实的**系统默认模型名，而不是「跟随系统默认」四个字。
+    const follow = api.effectiveModelOf('default', catalog, null)
+    if (follow.label !== 'auto/deepseek-v4.1-flash') {
+      reasons.push(`配置为 default 时必须显示实际生效的模型名，实得「${follow.label}」`)
+    }
+    // 配置 = 具体 id → 显示它本身。
+    const explicit = api.effectiveModelOf('auto/deepseek-v4.1-flash', catalog, null)
+    if (explicit.label !== 'auto/deepseek-v4.1-flash') {
+      reasons.push(`配置为具体 id 时必须显示该 id，实得「${explicit.label}」`)
+    }
+    // 目录全空（两级都拉不到）→ 只能如实说「跟随系统默认」，不许编名字。
+    const empty = api.effectiveModelOf('default', { models: [], current: '', source: 'none' }, null)
+    if (empty.label !== '跟随系统默认') {
+      reasons.push(`拉不到模型目录时必须显示「跟随系统默认」，实得「${empty.label}」`)
+    }
+    // host 报了上一轮实测 → 必须透传出来（用户据此确认「换的生效了没有」）。
+    const used = api.effectiveModelOf('default', { models: [], current: '', source: 'none' }, { modelUsed: 'auto/deepseek-v4.1-flash' })
+    if (used.lastUsed !== 'auto/deepseek-v4.1-flash') {
+      reasons.push('上一轮实际使用的模型（status.modelUsed）必须透传到 effectiveModelOf.lastUsed')
+    }
+    // 配置是 default 但目录没给 current 时，上一轮实测是**唯一**线索，要用上。
+    if (used.label !== 'auto/deepseek-v4.1-flash') {
+      reasons.push(`配置为 default 且目录无 current 时，应回落到上一轮实测的模型名，实得「${used.label}」`)
+    }
+  }
+
+  if (typeof api.modelLabel !== 'function') {
+    reasons.push('modelLabel 必须导出')
+  } else {
+    const labelCatalog = { models: [{ id: 'auto/deepseek-v4.1-flash', label: 'flash', provider: 'alymagpie' }], current: 'auto/deepseek-v4.1-flash', source: 'host' }
+    // 未知 id 必须原样显示：换成别的名字 = 替用户改了设置。
+    if (api.modelLabel('some/unknown-model', labelCatalog) !== 'some/unknown-model') {
+      reasons.push('modelLabel 对未知 id 必须原样显示（不得换成别的名字）')
+    }
+    if (api.modelLabel('default') !== '跟随系统默认') {
+      reasons.push('modelLabel("default") 必须是「跟随系统默认」')
+    }
+    // 目录里有 → 用目录给的 label（同名模型靠它带供应商）。
+    if (api.modelLabel('auto/deepseek-v4.1-flash', labelCatalog) !== 'flash') {
+      reasons.push('modelLabel 对目录内的模型必须用目录给的 label')
+    }
+  }
+
+  // ③ 降级形态必须写死在渲染层：候选列表首项恒为「跟随系统默认」。
+  const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/feed/FeedPanel.tsx'), 'utf8')
+  if (!/FOLLOW_DEFAULT/.test(panelSrc)) {
+    reasons.push('FeedPanel 必须用 FOLLOW_DEFAULT 构造「跟随系统默认」那一项')
+  }
+  if (!/fetchFeedModels/.test(panelSrc)) {
+    reasons.push('FeedPanel 必须调 fetchFeedModels 取真实模型列表（不能再读硬编码常量）')
+  }
+  // 拉模型失败不许写 loadError / 弹 toast —— 那会把整个页面标成坏的。
+  const loadCatalogSrc = panelSrc.match(/const loadCatalog[\s\S]{0,700}?\}, \[\]\)/)?.[0] ?? ''
+  if (loadCatalogSrc === '') {
+    reasons.push('FeedPanel 必须定义 loadCatalog 回调')
+  } else if (/setLoadError|toast\(/.test(loadCatalogSrc)) {
+    reasons.push('loadCatalog 失败时不许写 loadError 或弹 toast（模型列表拉不到不该把页面标成坏的）')
+  }
+
+  // ③b 「生成模型改为固定选择」（用户 2026-10-28）：候选来自进页面时的真实目录快照，
+  //     之后无论目录怎么刷新，下拉选项都不再变 —— 否则选中的项会因为一次目录抖动
+  //     而「自己跳掉」。同时也**不许**再出现硬编码的假模型名。
+  if (!/fixedModels/.test(panelSrc)) {
+    reasons.push('FeedPanel 必须用 fixedModels 固定模型候选（用户要求「生成模型改为固定选择」）')
+  }
+  if (/DeepSeek-V3\s*\(deepseek-chat\)|Qwen 2\.5 72B|claude-3-5-sonnet/.test(panelSrc)) {
+    reasons.push('FeedPanel 不许硬编码假模型名（固定选择只能固定「真实目录快照」）')
+  }
+
+  // ③c 下拉框 UI 必须是 DSH 官方输入框规格（0.5px 描边 / radius-md / bg-layer-1 / 32px）。
+  const feedStylesSrc = readFileSync(resolve(ROOT, 'src/client/triad/feed/styles.ts'), 'utf8')
+  if (!/\.fd-m-select\{[^}]*--dsw-radius-md/.test(feedStylesSrc)) {
+    reasons.push('动态页模型下拉必须用 DSH 官方圆角令牌 --dsw-radius-md（用户要求「下拉框 UI 改为 dsh 官方样式」）')
+  }
+  if (!/\.fd-m-select\{[^}]*--dsw-alias-bg-layer-/.test(feedStylesSrc)) {
+    reasons.push('动态页模型下拉必须用 DSH 官方底色令牌（bg-layer-1）')
+  }
+
+  // ④ api 层：fetchFeedModels 永不抛，且有两级真实回退。
+  const apiSrcPath = resolve(ROOT, 'src/client/triad/feed/api.ts')
+  const apiSrc = readFileSync(apiSrcPath, 'utf8')
+  const fnSrc = apiSrc.match(/export async function fetchFeedModels[\s\S]*?\n\}/)?.[0] ?? ''
+  if (fnSrc === '') {
+    reasons.push('api.ts 必须导出 fetchFeedModels')
+  } else {
+    if (!/dsh-memory\/models/.test(apiSrc)) {
+      reasons.push('fetchFeedModels 必须有 /api/dsh-memory/models 这级真实回退（本插件已挂载的真实 LLM 目录）')
+    }
+    if (/throw /.test(fnSrc)) {
+      reasons.push('fetchFeedModels 不许 throw（页面会白屏），失败返回 source:none + 空列表')
+    }
+    if (!/source: 'none'/.test(fnSrc)) {
+      reasons.push("fetchFeedModels 兜底必须返回 source:'none'（页面据此显示「跟随系统默认」）")
+    }
+  }
+
+  if (reasons.length > 0) fail('动态页模型列表：' + reasons.join('；'))
+  else pass('动态页模型列表：无假模型名，跟随默认显示真实模型名，拉不到时降级为单项且不白屏')
+}
+
+
+/*
+ * ── 动态页「进度估算 / 日期格式 / 来源名」的纯函数真值（2026-10-27）──────
+ *
+ * 用户原话：「还有每一条要显示出来年月日，在右上角显示当前更新状态，点击后可
+ * 弹出卡片显示目前正在更新的进度情况预计什么时候更新完成」。
+ *
+ * 这三组判据的共同点是：**判错不会报错，只会安静地显示一个看起来正常的错值**。
+ *   · 年月日错  → 用户拿它当「什么时候发的」的依据，错了就全错；
+ *   · ETA 估错  → 用户盯着「预计 10 秒」等了三分钟；
+ *   · 来源名错  → 卡片上挂一个不是那家媒体的名字。
+ * 所以它们必须跑**真值**断言，而不是只看源码里有没有这个词。
+ *
+ * ⚠ 这也是为什么这几个函数住在 src/client/triad/feed/progress.ts 而不在
+ * FeedPanel.tsx 里：塞在组件里会被 esbuild 内联进 JSX，外部拿不到，只能写
+ * 「源码里有没有这个函数名」的正则 —— 那种断言挡不住任何逻辑错误。
+ */
+{
+  const reasons = []
+  // dateOnlyText 不在清单里：它的输出已被 dayHeadingText 的三条断言完整覆盖
+  //（后者内部就是调它拼出「今天 · 2026年10月27日」），单独断言只是重复。
+  const need = ['fullDateText', 'dayHeadingText', 'dateKeyOf', 'agoText',
+    'elapsedText', 'clockText', 'medianOf', 'prettySiteName', 'sourceLabelOf',
+    'runDurationsOf', 'runProgressOf', 'statusLabelOf',
+    // 2026-10-27 新增：结局三态与判重理由（不导出就只能正则读源码，挡不住逻辑错）
+    'runToneOf', 'outcomeLabelOf', 'splitSkipNotes']
+  const missing = need.filter((name) => typeof mod[name] !== 'function')
+  if (missing.length > 0) {
+    reasons.push('client/index.ts 未再导出这些纯函数：' + missing.join(' / ')
+      + '（少了它们冒烟就只能靠正则读源码，挡不住逻辑错误）')
+  } else {
+    const D = (y, mo, d, h, mi) => new Date(y, mo - 1, d, h, mi, 0, 0).getTime()
+
+    // ① 完整年月日（用户点名要的「每一条要显示出来年月日」）
+    const full = mod.fullDateText(D(2026, 10, 27, 14, 32))
+    if (full !== '2026年10月27日 14:32') reasons.push('fullDateText 应得 2026年10月27日 14:32，实得 ' + full)
+    if (mod.fullDateText(D(2027, 1, 1, 0, 5)) !== '2027年1月1日 00:05') {
+      reasons.push('fullDateText 跨年/个位月日/补零口径不对（1月1日 00:05 应显示 2027年1月1日 00:05）')
+    }
+    // createdAt=0 是「无时间」哨兵，绝不能渲染成 1970 年。
+    if (mod.fullDateText(0) !== '') reasons.push('fullDateText(0) 必须是空串（0 是「无时间」哨兵，不是 1970 年）')
+
+    // ② 按天分组的组标题（今天/昨天带完整日期，更早直接是日期）
+    const now = D(2026, 10, 27, 15, 0)
+    const todayHead = mod.dayHeadingText(D(2026, 10, 27, 9, 0), now)
+    const ydayHead = mod.dayHeadingText(D(2026, 10, 26, 23, 0), now)
+    const oldHead = mod.dayHeadingText(D(2026, 10, 20, 10, 0), now)
+    if (todayHead !== '今天 · 2026年10月27日') reasons.push('今天组标题应得 今天 · 2026年10月27日，实得 ' + todayHead)
+    if (ydayHead !== '昨天 · 2026年10月26日') reasons.push('昨天组标题应得 昨天 · 2026年10月26日，实得 ' + ydayHead)
+    if (oldHead !== '2026年10月20日') reasons.push('更早的组标题应直接是日期 2026年10月20日，实得 ' + oldHead)
+    if (mod.dayHeadingText(0, now) !== '更早') reasons.push('createdAt=0 的组标题必须是「更早」，不能按 1970 年算日期')
+
+    // ③ 右上角更新状态（空闲带完整年月日 / 进行中 / 从未更新）
+    const idle = mod.statusLabelOf({ running: false, lastRunAt: D(2026, 10, 27, 14, 32), nextRunAt: 0, runs: [] }, false, now)
+    if (idle !== '上次更新 · 2026年10月27日 14:32') {
+      reasons.push('空闲态状态文案应得 上次更新 · 2026年10月27日 14:32，实得 ' + idle)
+    }
+    if (mod.statusLabelOf(null, true, now) !== '更新中') reasons.push('进行中状态文案必须是「更新中」')
+    if (mod.statusLabelOf(null, false, now) !== '尚未更新') reasons.push('从未跑过时必须说「尚未更新」，不能编一个时间')
+    // 老 host 没有 lastRunAt 但有 runs → 用最近一轮的 startedAt 兜底，而不是显示「尚未更新」。
+    const fallback = mod.statusLabelOf({
+      running: false, lastRunAt: 0, nextRunAt: 0,
+      runs: [{ id: 'r', trigger: 'manual', status: 'ok', startedAt: D(2026, 10, 27, 14, 32), finishedAt: D(2026, 10, 27, 14, 33), modelUsed: '', stats: {}, error: '', blockedBy: '' }],
+    }, false, now)
+    if (fallback !== '上次更新 · 2026年10月27日 14:32') {
+      reasons.push('缺 lastRunAt 时应从 runs[0].startedAt 兜底，实得 ' + fallback)
+    }
+
+    // ④ 来源名（卡片头那一位，用户要求「变更为动态来源的名字」）
+    const src = (domain, title) => ({ url: 'https://' + domain + '/a', domain, title: title ?? domain, access: 'open' })
+    const one = mod.sourceLabelOf({ sources: [src('ithome.com')] })
+    if (one !== 'IT之家') reasons.push('单来源 ithome.com 应显示 IT之家，实得 ' + one)
+    const many = mod.sourceLabelOf({ sources: [src('ithome.com'), src('36kr.com')] })
+    if (many !== 'IT之家 等 2 个来源') reasons.push('多来源应显示 IT之家 等 2 个来源，实得 ' + many)
+    if (mod.sourceLabelOf({ sources: [] }) !== '网络') reasons.push('无来源时必须显示「网络」（不可点击的纯文本）')
+    // 子域 / www / .com.cn 都要命中同一份映射（后缀命中）
+    for (const pair of [['m.ithome.com', 'IT之家'], ['www.36kr.com', '36氪'],
+      ['finance.sina.com.cn', '新浪'], ['api-docs.deepseek.com', 'DeepSeek 官方']]) {
+      const got = mod.prettySiteName(src(pair[0]))
+      if (got !== pair[1]) reasons.push(pair[0] + ' 应映射为 ' + pair[1] + '，实得 ' + got)
+    }
+    // 映射不到 → 回落成**去 www 的裸域名**，不是原样吐回、也不是编一个名字。
+    const unknown = mod.prettySiteName(src('www.example.org'))
+    if (unknown !== 'example.org') reasons.push('未知域名应回落为去 www 的裸域 example.org，实得 ' + unknown)
+    // title 只在**连域名都没有**时才兜底（有域名一律用域名，见 ⑪ 的理由）
+    const titled = mod.prettySiteName({ url: '', domain: '', title: '某新闻 - 科技频道', access: 'open' })
+    if (titled !== '科技频道') reasons.push('无域名时 title 兜底应取末段 科技频道，实得 ' + titled)
+
+    // ⑤ 时长 / 中位数（ETA 的两个零件）
+    if (mod.elapsedText(12000) !== '12 秒') reasons.push('elapsedText 12 秒口径不对')
+    if (mod.elapsedText(95000) !== '1 分 35 秒') reasons.push('elapsedText 1 分 35 秒口径不对')
+    if (mod.medianOf([30000, 40000, 50000]) !== 40000) reasons.push('medianOf 奇数样本口径不对')
+    if (mod.medianOf([10000, 20000, 30000, 100000]) !== 25000) reasons.push('medianOf 偶数样本应取中间两个的均值')
+    // 中位数必须对离群点稳健 —— 这正是选它而不选平均值的唯一理由。
+    if (mod.medianOf([30000, 31000, 29000, 300000]) !== 30500) {
+      reasons.push('medianOf 必须抗离群点（用平均值就失去意义）')
+    }
+    // 样本不足 2 个时返回 null（一个样本撑不起「预计」）
+    if (mod.medianOf([30000]) !== null) reasons.push('medianOf 单样本必须返回 null')
+    if (mod.medianOf([]) !== null) reasons.push('medianOf 无样本必须返回 null')
+
+    // ⑥ 进度估算（用户点名要的「预计什么时候更新完成」）
+    const run = (startedAt, finishedAt, status, extra) => ({
+      id: 'r' + startedAt, trigger: 'manual', status, startedAt, finishedAt,
+      modelUsed: '', stats: {}, error: '', blockedBy: '', ...(extra ?? {}),
+    })
+    // 没有历史 → 给**区间**，不编精确值。
+    const noHistory = mod.runProgressOf({ running: true, lastRunAt: 0, nextRunAt: 0, runs: [] }, 5000, 5000)
+    if (noHistory.etaText !== '预计 30-60 秒') {
+      reasons.push('没有历史耗时时必须给保守区间 预计 30-60 秒，实得 ' + noHistory.etaText)
+    }
+    // 有历史 → 用中位数；文案里既要「还需多久」也要「几点完成」。
+    const hist = [run(1000, 31000, 'ok'), run(2000, 42000, 'ok'), run(3000, 33000, 'ok')]
+    const live = mod.runProgressOf({
+      running: true, lastRunAt: 3000, nextRunAt: 0,
+      runs: [run(100000, 0, 'running'), ...hist],
+    }, 110000, 0)
+    if (live.elapsedMs !== 10000) reasons.push('已用时间应为 10000ms，实得 ' + live.elapsedMs)
+    if (live.expectedMs !== 30000) reasons.push('历史 [30s,40s,30s] 的中位数应为 30000ms，实得 ' + live.expectedMs)
+    if (!live.etaText.includes('预计还需')) reasons.push('有历史时必须给出「预计还需 N」')
+    if (!live.etaText.includes('完成')) reasons.push('ETA 文案必须带上「预计几点完成」')
+    // 已经超过中位数时不能说「还需 -3 秒」。
+    const overdue = mod.runProgressOf({
+      running: true, lastRunAt: 3000, nextRunAt: 0,
+      runs: [run(100000, 0, 'running'), ...hist],
+    }, 190000, 0)
+    if (overdue.etaText !== '比往常慢一些，仍在进行') {
+      reasons.push('超时后必须改口 比往常慢一些，仍在进行，实得 ' + overdue.etaText)
+    }
+
+    // ⑦ 失败必须给出**具体原因**（不是只说「失败」）
+    const failRun = mod.runProgressOf({
+      running: false, lastRunAt: 9000, nextRunAt: 0,
+      runs: [run(9000, 12000, 'failed', { error: 'web 检索不可用：ECONNREFUSED' })],
+    }, 20000, 0)
+    if (failRun.failed !== true) reasons.push('failed 轮次必须标记为失败')
+    if (failRun.errorText !== 'web 检索不可用：ECONNREFUSED') {
+      reasons.push('失败原因必须原样透出 run.error，实得 ' + failRun.errorText)
+    }
+
+    // ⑧ 容错：host 是独立部署的另一半，字段缺失绝不能崩（崩在 render 里就是白屏）
+    let tolerant = true
+    try {
+      mod.runProgressOf(null, 1000, 0)
+      mod.runProgressOf({ running: true, lastRunAt: 0, nextRunAt: 0 }, 8000, 5000)
+      mod.statusLabelOf({ running: false, lastRunAt: 0, nextRunAt: 0 }, false, 1000)
+      mod.runProgressOf({ running: true, lastRunAt: 0, nextRunAt: 0, runs: null }, 8000, 5000)
+      mod.runDurationsOf(undefined)
+      /*
+       * 缺 stats 的 run 同样不许崩（2026-10-27 新增那三个 stats 字段之后，
+       * runProgressOf 会去读 stats.modelSkipNotes —— 读到 undefined 的属性
+       * 直接抛 TypeError，而它在 render 期间 = 整页白屏）。
+       */
+      const bareRun = { id: 'x', trigger: 'manual', status: 'skipped', startedAt: 1000, finishedAt: 2000, modelUsed: '', error: '', blockedBy: '' }
+      const bareView = { running: false, lastRunAt: 1000, nextRunAt: 0, runs: [bareRun] }
+      mod.runProgressOf(bareView, 5000, 0)
+      mod.outcomeLabelOf(bareView)
+    } catch (error) {
+      tolerant = false
+      reasons.push('老 host（缺 runs / 缺 stats）时纯函数抛异常了：' + (error?.message ?? error))
+    }
+    if (tolerant && mod.runProgressOf({ running: true, lastRunAt: 0, nextRunAt: 0 }, 8000, 5000).phase === '') {
+      reasons.push('缺 runs 时仍必须有阶段文案（不能是空串）')
+    }
+
+    // ⑨ 阶段必须由 host 的过程计数推出来（不是写死的五段轮播）
+    const phaseOf = (stats) => mod.runProgressOf({
+      running: true, lastRunAt: 1000, nextRunAt: 0,
+      runs: [run(1000, 0, 'running', { stats })],
+    }, 5000, 0).phase
+    if (!phaseOf({ queries: 3 }).includes('检索')) reasons.push('queries>0 时必须显示「正在检索资料」')
+    if (!phaseOf({ queries: 3, sourcesOpen: 2 }).includes('校验')) reasons.push('sourcesOpen>0 时必须显示「正在校验来源」')
+    if (!phaseOf({ queries: 3, sourcesOpen: 2, rawChars: 1800 }).includes('撰写')) reasons.push('rawChars>0 时必须显示「正在撰写内容」')
+    if (!phaseOf({ queries: 3, rawChars: 1800, postsCreated: 3 }).includes('上架')) reasons.push('postsCreated>0 时必须显示「正在上架」')
+
+    // ⑩ 【真实服务回归】host 的 FeedRun **成功时没有 error 这个键**（实测 runs[0] 字段：
+    //    id/trigger/modelUsed/startedAt/status/finishedAt/stats）。所以判失败必须看 error 的
+    //    **内容**，写成 `latest.error !== ''` 会让 undefined !== '' 恒真 —— 每一轮成功都被
+    //    说成「上一轮失败」，弹卡还会拉出空的失败原因区。这条断言就是那次实测的钉子。
+    const okNoErrorKey = mod.runProgressOf({
+      running: false, lastRunAt: 9000, nextRunAt: 0,
+      runs: [{ id: 'a', trigger: 'manual', status: 'ok', startedAt: 9000, finishedAt: 12000, modelUsed: '', stats: {}, blockedBy: '' }],
+    }, 20000, 0)
+    if (okNoErrorKey.failed !== false) {
+      reasons.push('成功轮次（run 上没有 error 键）不得被判成失败 —— undefined !== \'\' 恒真，会写错整块失败区')
+    }
+    if (okNoErrorKey.errorText !== '') reasons.push('成功轮次的 errorText 必须是空串')
+    if (okNoErrorKey.phase !== '上一轮已完成') {
+      reasons.push('成功轮次的阶段应说「上一轮已完成」，实得 ' + okNoErrorKey.phase)
+    }
+
+    // ⑪ 【真实服务回归】域名映射不到时用**域名**，绝不拿 sources[].title 顶上。
+    //    实测 title 是整篇文章标题（「技术出口目录修订（上篇）：同一AI模型，四种出海四种结论」），
+    //    摆到卡片头那一位会把整行撑成三行、把年月日挤没。
+    const unmapped = mod.prettySiteName({
+      url: 'https://unknown-firm.example/a', domain: 'unknown-firm.example',
+      title: '技术出口目录修订（上篇）：同一AI模型，四种出海四种结论', access: 'open',
+    })
+    if (unmapped !== 'unknown-firm.example') {
+      reasons.push('映射不到的域名必须原样显示域名，实得「' + unmapped + '」（拿文章标题顶上去会撑破卡片头）')
+    }
+    // 真实服务出现过的法律站点要能翻译成中文名（不是凭印象，是实测域名）
+    for (const pair of [['jtn.com', '天同律师事务所'], ['kingandwood.com', '金杜律师事务所'], ['junhe.com', '君合']]) {
+      const got = mod.prettySiteName({ url: 'https://' + pair[0] + '/a', domain: pair[0], title: 'x', access: 'open' })
+      if (got !== pair[1]) reasons.push(pair[0] + ' 应映射为 ' + pair[1] + '，实得 ' + got)
+    }
+
+    /* ⑫⑬ 这两组依赖 client/index.ts 再导出 shortModelName / pickTopicChannels。
+     * 那两个函数在我的作用域外（src/client/index.ts），已请 Lead 补导出；
+     * 补上后下面的真值断言自动生效，没补之前跳过而不是崩掉。 */
+    if (typeof mod.shortModelName === 'function' && typeof mod.pickTopicChannels === 'function') {
+    // ⑫ 模型名必须精简（用户原话：「上轮实测：alymagpie/auto/deepseek-v4.1-flash 太长了，
+    //    把 provider 前缀暴露出来了」）。完整 id 只留 title，正文只显示短名。
+    const cat = { models: [{ id: 'alymagpie/auto/deepseek-v4.1-flash', label: 'WB-Deepseek-Flash', provider: 'alymagpie' }], current: 'alymagpie/auto/deepseek-v4.1-flash', source: 'host' }
+    if (mod.shortModelName('alymagpie/auto/deepseek-v4.1-flash', cat) !== 'WB-Deepseek-Flash') {
+      reasons.push('目录里有这个模型时必须用官方 label（WB-Deepseek-Flash），不能显示路由串')
+    }
+    // 目录拉不到时至少要把 provider 前缀去掉（alymagpie/auto/xxx → xxx）
+    if (mod.shortModelName('alymagpie/auto/deepseek-v4.1-flash', null) !== 'deepseek-v4.1-flash') {
+      reasons.push('目录拉不到时也要去掉 provider 前缀，实得 ' + mod.shortModelName('alymagpie/auto/deepseek-v4.1-flash', null))
+    }
+    for (const raw of ['gpt-4o', '', '///']) {
+      try { mod.shortModelName(raw, null) } catch (error) {
+        reasons.push('shortModelName 对「' + raw + '」抛异常：' + (error?.message ?? error))
+      }
+    }
+
+    // ⑬ 左栏频道必须收窄（用户截图实测 13+ 个主题把左栏变成一长串标签）。
+    //    判据：只留 ≥2 条的、最多 6 个、按条数降序；**当前选中的那个一定保留**。
+    const topicsLike = [
+      { id: '合规', name: '合规', count: 8 }, { id: '开源', name: '开源', count: 6 },
+      { id: '出海', name: '出海', count: 5 }, { id: '监管', name: '监管', count: 4 },
+      { id: 'ai', name: 'ai', count: 4 }, { id: 'tech', name: 'tech', count: 4 },
+      { id: '大模型', name: '大模型', count: 3 }, { id: '许可证', name: '许可证', count: 2 },
+      { id: '开源许可', name: '开源许可', count: 1 }, { id: '美国', name: '美国', count: 1 },
+    ]
+    const picked = mod.pickTopicChannels(topicsLike, '')
+    if (picked.length > 6) reasons.push('左栏主题频道最多显示 6 个，实得 ' + picked.length)
+    if (!picked.every((t) => t.count >= 2)) reasons.push('只有 1 条动态的主题不该占左栏导航位')
+    if (picked[0].name !== '合规') reasons.push('主题频道必须按动态数降序（多的在前），实得第一项 ' + picked[0].name)
+    // ⚠ 这条最容易漏：选中的频道若被挤掉，选中态悬空、而且再也切不回去。
+    const withActive = mod.pickTopicChannels(topicsLike, '开源许可')
+    if (!withActive.some((t) => t.id === '开源许可')) {
+      reasons.push('当前选中的频道必须保留在左栏（哪怕只有 1 条）—— 否则选中态悬空且切不回去')
+    }
+    // 极端：20 个主题 + 选中一个被挤出前 6 的
+    const manyTopics = Array.from({ length: 20 }, (_, i) => ({ id: 'T' + i, name: 'T' + i, count: 100 - i }))
+    if (mod.pickTopicChannels(manyTopics, '').length > 6) reasons.push('主题再多也最多 6 个')
+    if (!mod.pickTopicChannels(manyTopics, 'T15').some((t) => t.id === 'T15')) {
+      reasons.push('被挤出前 N 的选中项也必须保留')
+    }
+    for (const input of [[], [{ id: 'a', name: 'a', count: 1 }]]) {
+      try { mod.pickTopicChannels(input, '') } catch (error) {
+        reasons.push('pickTopicChannels 对空/全 1 条输入抛异常：' + (error?.message ?? error))
+      }
+    }
+    }
+
+    /* ⑭【本次修复的核心】「没有新内容」必须与「更新失败」分开呈现。
+     *
+     * 真实服务实测的那一轮：host 报 status='failed' + error「模型判断本轮没有
+     * 新内容可写，主动跳过了 11 条」，而模型做得完全正确。界面因此报红色
+     * 「上一轮失败」，用户以为坏了 —— 这是必须修的误报。
+     *
+     * 四条判据，任何一条错都只会「安静地显示一个看起来正常的错值」：
+     *   · 色调错 → 正常态被染红（用户以为坏了）或故障被染灰（用户以为没事）；
+     *   · 文案错 → 「上一轮失败」这四个字本身就会让人去翻日志；
+     *   · 判重理由没透出 → 用户看不到「为什么这条没写」，功能最有说服力的部分消失；
+     *   · 真故障被吞成 skipped → 从此没人能从界面发现真实故障。
+     */
+    {
+      const skippedRun = (stats, extra) => run(9000, 12000, 'skipped', {
+        stats: { postsCreated: 0, modelSkipped: 11, noNewContent: true, ...(stats ?? {}) },
+        ...(extra ?? {}),
+      })
+      const viewOf = (latest) => mod.runProgressOf({ running: false, lastRunAt: 9000, nextRunAt: 0, runs: [latest] }, 20000, 0)
+
+      // ① 全判重复 → skipped：中性色、「没有新内容」、绝不是失败
+      const skipped = viewOf(skippedRun({ noNewContentReason: '模型判断 11 条候选都与已发内容重复' }))
+      if (skipped.failed !== false) reasons.push('⚠⚠ ① status=skipped 必须是 failed=false（正常态不是失败）')
+      if (skipped.skipped !== true) reasons.push('⚠⚠ ① status=skipped 必须标记 skipped=true')
+      if (skipped.tone !== 'skipped') reasons.push('⚠⚠ ① 色调必须是 skipped（中性灰），实得 ' + skipped.tone)
+      if (skipped.phase !== '没有新内容') reasons.push('⚠⚠ ① 阶段文案必须是「没有新内容」，实得 ' + skipped.phase)
+      if (/失败|错误|异常/.test(skipped.phase)) reasons.push('⚠⚠ ① 跳过态的文案里绝不许出现「失败/错误/异常」字样')
+      if (skipped.errorText !== '') reasons.push('① 跳过态的 errorText 必须是空串')
+      if (skipped.noteText !== '模型判断 11 条候选都与已发内容重复') {
+        reasons.push('⚠ ① 必须透出 host 的 noNewContentReason，实得「' + skipped.noteText + '」')
+      }
+      if (!Array.isArray(skipped.skipNotes)) reasons.push('① skipNotes 必须是数组（哪怕为空）')
+
+      // ①b 模型判重的具体理由要能被界面拿到（这是整个功能最有说服力的展示）
+      const notes = ['与《非标许可证加的不只是披露》重复：仍是同一篇金杜文章',
+        '与《1亿MAU触发披露》重复：讲的是同一件事']
+      const withNotes = viewOf(skippedRun({ modelSkipNotes: notes }))
+      if (withNotes.skipNotes.length !== 2) {
+        reasons.push('⚠⚠ ① modelSkipNotes 必须透到界面（用户要亲眼看到模型为什么判重复），实得 '
+          + withNotes.skipNotes.length + ' 条')
+      }
+      if (!withNotes.skipNotes[0].includes('非标许可证')) reasons.push('① 透出的理由必须是原文，不能改写')
+      // 默认只摆 3 条，其余折叠（11 条全摊开会把「再更新一轮」推出视野）
+      const split = mod.splitSkipNotes(['a', 'b', 'c', 'd', 'e'])
+      if (split.shown.length !== mod.MAX_SKIP_NOTES_SHOWN) {
+        reasons.push('① 默认只展开 ' + mod.MAX_SKIP_NOTES_SHOWN + ' 条理由，实得 ' + split.shown.length)
+      }
+      if (split.rest.length !== 2) reasons.push('① 其余理由应折进 rest（5 条里 2 条折叠），实得 ' + split.rest.length)
+      if (mod.splitSkipNotes([]).shown.length !== 0) reasons.push('① 没有理由时不该编出理由')
+      if (mod.splitSkipNotes(undefined).shown.length !== 0) reasons.push('① splitSkipNotes 必须容忍 undefined')
+
+      // ② 有产出被全部挡下（host 记 skipped 但没有判重标记）→ 仍是中性，不是失败
+      const blockedAll = viewOf(run(9000, 12000, 'skipped', { stats: { postsCreated: 0 } }))
+      if (blockedAll.failed !== false) reasons.push('② status=skipped 一律不是失败（无论有没有 noNewContent 标记）')
+      if (blockedAll.tone !== 'skipped') reasons.push('② 色调必须是 skipped，实得 ' + blockedAll.tone)
+
+      // ③ ok 有产出 → 绿 + 「上一轮已完成」
+      const okRun = viewOf(run(9000, 12000, 'ok', { stats: { postsCreated: 3 } }))
+      if (okRun.failed !== false || okRun.skipped !== false) reasons.push('③ ok 轮次既不是失败也不是跳过')
+      if (okRun.tone !== 'ok') reasons.push('⚠ ③ ok 轮次的色调必须是 ok（绿），实得 ' + okRun.tone)
+      if (okRun.phase !== '上一轮已完成') reasons.push('③ ok 轮次文案应说「上一轮已完成」，实得 ' + okRun.phase)
+      if (okRun.postsCreated !== 3) reasons.push('③ ok 轮次必须给出产出条数，实得 ' + okRun.postsCreated)
+
+      // ④ failed → 红 + 「上一轮失败」+ 真实错误（这条不许被新状态吞掉）
+      const failRun2 = viewOf(run(9000, 12000, 'failed', { error: 'JSON 解析失败（1800 字符）' }))
+      if (failRun2.failed !== true) reasons.push('⚠⚠ ④ 真故障必须仍是 failed（不许为了变绿把故障吞掉）')
+      if (failRun2.skipped !== false) reasons.push('⚠⚠ ④ 真故障不许被标成 skipped')
+      if (failRun2.tone !== 'failed') reasons.push('⚠⚠ ④ 真故障的色调必须是 failed（红），实得 ' + failRun2.tone)
+      if (failRun2.phase !== '上一轮失败') reasons.push('④ 真故障文案必须说「上一轮失败」，实得 ' + failRun2.phase)
+      if (failRun2.errorText !== 'JSON 解析失败（1800 字符）') reasons.push('④ 失败原因必须原样透出')
+
+      // ⑤ 老数据（历史 failed + 那段「跳过」error）：不迁移，仍是失败
+      const legacy = viewOf(run(9000, 12000, 'failed', { error: 'writer failed: 模型判断本轮没有新内容可写，主动跳过了 11 条' }))
+      if (legacy.failed !== true) reasons.push('⑤ 历史 failed 不做迁移（保留当时的判定口径），仍显示为失败')
+
+      // ⑥ 结局短语（右上角胶囊）：三档三色，skipped 不含「失败」字样
+      if (mod.outcomeLabelOf({ running: false, lastRunAt: 9000, nextRunAt: 0, runs: [skippedRun({})] }) !== '没有新内容') {
+        reasons.push('⑥ 胶囊结局短语：skipped 必须显示「没有新内容」')
+      }
+      if (mod.outcomeLabelOf({ running: false, lastRunAt: 9000, nextRunAt: 0, runs: [run(9000, 12000, 'ok')] }) !== '已完成') {
+        reasons.push('⑥ 胶囊结局短语：ok 必须显示「已完成」')
+      }
+      if (mod.outcomeLabelOf({ running: false, lastRunAt: 9000, nextRunAt: 0, runs: [run(9000, 12000, 'failed', { error: 'x' })] }) !== '上一轮失败') {
+        reasons.push('⑥ 胶囊结局短语：failed 必须显示「上一轮失败」')
+      }
+      if (mod.outcomeLabelOf({ running: false, lastRunAt: 9000, nextRunAt: 0, runs: [run(9000, 0, 'running')] }) !== '') {
+        reasons.push('⑥ 进行中不显示结局短语（避免「更新中」旁边挂一句上一轮的话）')
+      }
+
+      // ①c 跳过总数与已列出条数必须是两个数（理由只存前 10 条，实际跳过 11 条）。
+      //     混成一个，标题就会写「共 10 条」，用户对着 run.stats 一核就发现对不上。
+      const eleven = viewOf(skippedRun({ modelSkipped: 11, modelSkipNotes: Array.from({ length: 10 }, (_, i) => '理由' + i) }))
+      if (eleven.skippedTotal !== 11) {
+        reasons.push('⚠ ①c skippedTotal 必须是本轮实际跳过总数（11），实得 ' + eleven.skippedTotal
+          + ' —— 写成理由条数会让「11 条」说成「10 条」')
+      }
+      if (eleven.skipNotes.length !== 10) reasons.push('①c 理由清单只存 10 条（host 的截断口径），实得 ' + eleven.skipNotes.length)
+      // 老数据没有 modelSkipped 时退回理由条数，不能硬说「一条没跳」。
+      const legacyNotes = viewOf(skippedRun({ modelSkipped: undefined, modelSkipNotes: ['a', 'b'] }))
+      if (legacyNotes.skippedTotal !== 2) {
+        reasons.push('①c 缺 modelSkipped 时应退回理由条数（2），实得 ' + legacyNotes.skippedTotal)
+      }
+
+      // ⑥b 镜像层不许丢字段：host 下发 → client 归一化 → 界面能拿到。
+      //     这一层最容易悄悄失字段（host 明明给了，浏览器里就是没有），
+      //     而这次丢的正是「模型判重的理由」—— 用户要亲眼看到的东西。
+      if (typeof mod.normalizeFeedRun === 'function') {
+        const mirrored = mod.normalizeFeedRun({
+          id: 'r_mirror', trigger: 'manual', status: 'skipped', startedAt: 9000, finishedAt: 12000,
+          modelUsed: 'm', error: '',
+          stats: {
+            postsCreated: 0, modelSkipped: 11, noNewContent: true,
+            noNewContentReason: '模型判断 11 条候选都与已发内容重复',
+            modelSkipNotes: ['与《甲》重复：同一件事', '与《乙》重复：同一批资料'],
+          },
+        })
+        if (mirrored === null) reasons.push('⑥b normalizeFeedRun 对合法输入返回了 null')
+        else {
+          if (mirrored.status !== 'skipped') reasons.push('⑥b status=skipped 必须被镜像层认下来，实得 ' + mirrored.status)
+          if (mirrored.stats.noNewContent !== true) reasons.push('⚠⚠ ⑥b noNewContent 必须被镜像层保留（否则界面拿不到「不是故障」的依据）')
+          if (mirrored.stats.noNewContentReason !== '模型判断 11 条候选都与已发内容重复') {
+            reasons.push('⚠ ⑥b noNewContentReason 必须被镜像层保留（否则弹卡说不清为什么 0 条）')
+          }
+          if (!Array.isArray(mirrored.stats.modelSkipNotes) || mirrored.stats.modelSkipNotes.length !== 2) {
+            reasons.push('⚠⚠ ⑥b modelSkipNotes 必须被镜像层保留（这是用户要看到的判重理由）')
+          }
+          if (mirrored.stats.modelSkipped !== 11) {
+            reasons.push('⑥b modelSkipped 必须被镜像层保留，实得 ' + mirrored.stats.modelSkipped)
+          }
+        }
+      } else {
+        reasons.push('client/index.ts 未导出 normalizeFeedRun —— 镜像层丢字段只能靠肉眼查，挡不住')
+      }
+
+      // ⑦ 色调纯函数：唯一出口，认不出的状态一律按 ok（不制造恐慌）
+      if (mod.runToneOf('skipped', false) !== 'skipped') reasons.push('⑦ runToneOf(skipped) 必须是 skipped')
+      if (mod.runToneOf('failed', false) !== 'failed') reasons.push('⑦ runToneOf(failed) 必须是 failed')
+      if (mod.runToneOf('ok', false) !== 'ok') reasons.push('⑦ runToneOf(ok) 必须是 ok')
+      if (mod.runToneOf('running', true) !== 'running') reasons.push('⑦ 进行中的色调是 running')
+      if (mod.runToneOf('skipped', true) !== 'running') reasons.push('⑦ 正在跑时一律 running（哪怕上一轮是 skipped）')
+    }
+
+    if (reasons.length === 0) {
+      pass('动态页进度：年月日/组标题/更新状态/来源名/ETA 中位数/失败原因/容错 全对（真值断言）')
+      pass('动态页结局：ok 绿 / 没有新内容 中性灰 / 失败 红 三态分开（含模型判重理由透出）')
+    }
+  }
+  if (reasons.length > 0) fail('动态页进度与日期：' + reasons.join('；'))
+}
+
+// ── 工作台同步设置：同步范围必须有「动态设置」一档（2026-10-28 用户要求）──────
+//
+// 用户原话：「再增加一个复选框是动态的，同步和上传的内容是动态设置里面的数据」。
+// 这一档的判据要同时钉住三层：面板上有复选框、保存时真的带上 includeFeed、
+// host 的收集/恢复只碰 config 段与 entities.json（运行态绝不进城）。
+{
+  const reasons = []
+  const panel = readFileSync(resolve(ROOT, 'src/client/triad/workbench-sync/SyncSettingsPanel.tsx'), 'utf8')
+  const engine = readFileSync(resolve(ROOT, 'src/triad/workbench-sync/engine.ts'), 'utf8')
+  const gather = readFileSync(resolve(ROOT, 'src/triad/workbench-sync/gather.ts'), 'utf8')
+  const types = readFileSync(resolve(ROOT, 'src/triad/workbench-sync/types.ts'), 'utf8')
+
+  if (!/const \[includeFeed, setIncludeFeed\] = useState<boolean>\(true\)/.test(panel)) reasons.push('面板必须有 includeFeed 状态（默认勾选）')
+  if (!/<span>动态设置<\/span>/.test(panel)) reasons.push('同步范围必须出现「动态设置」复选框')
+  if (!/includeFeed,\n\s*\}\)/.test(panel)) reasons.push('保存配置时必须把 includeFeed 一起提交')
+  if (!/localFeedBytes/.test(panel)) reasons.push('规模大盘必须展示动态设置体积')
+
+  if (!/includeFeed\?: boolean/.test(types)) reasons.push('WorkbenchSyncPatch 必须声明 includeFeed')
+  if (!/includeFeed: true/.test(types)) reasons.push('includeFeed 默认必须为 true')
+
+  if (!/includeFeed: file\.settings\.includeFeed/.test(engine)) reasons.push('上传时必须按开关收集动态设置')
+  if (!/if \(typeof patch\.includeFeed === 'boolean'\) nextSettings\.includeFeed = patch\.includeFeed/.test(engine)) reasons.push('保存接口必须接受 includeFeed')
+  if (!/localFeedBytes: sizes\.feedBytes/.test(engine)) reasons.push('状态视图必须回传动态设置体积')
+
+  if (!/export interface GatheredFeed/.test(gather)) reasons.push('缺少 GatheredFeed 契约')
+  if (!/async function gatherFeed\(\)/.test(gather)) reasons.push('缺少动态设置收集实现')
+  if (!/export async function restoreFeed/.test(gather)) reasons.push('缺少动态设置还原实现')
+  // 恢复只能合并 config 段：整份 state 覆盖会带走本机 gate / runs / xSync
+  if (!/state\.config = config/.test(gather)) reasons.push('恢复 config 必须是合并进本机 state（state.config = config）')
+  if (!/getActiveFeedStore\(\)\?\.reload\?\./.test(gather)) reasons.push('恢复后必须热重载活跃 Feed store')
+
+  if (reasons.length > 0) fail('同步设置·动态设置：' + reasons.join('；'))
+  else pass('同步设置：同步范围新增「动态设置」一档（config + 关注对象；运行态不入包）')
 }
 
 console.log(`\n${process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED'} — ${CLIENT}`)

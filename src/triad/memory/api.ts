@@ -285,8 +285,8 @@ async function handle(
       const teamEnabled = await store.isTeamInjectEnabled(config.teamInjectDefaultEnabled !== false)
       // 自动收口同理并进回包（同一理由：开关浮层一次 hover 要知道全部通道状态）。
       const todoClosureEnabled = await store.isTodoClosureEnabled(config.todoClosureDefaultEnabled !== false)
-      // step 纪律通道同理并进回包（同一理由：开关浮层一次 hover 要知道全部通道状态）。
-      const stepEnabled = await store.isStepInjectEnabled(config.stepInjectDefaultEnabled !== false)
+      // 任务清单纪律通道同理并进回包（同一理由：开关浮层一次 hover 要知道全部通道状态）。
+      const todoRuleEnabled = await store.isTodoRuleInjectEnabled(config.todoRuleInjectDefaultEnabled !== false)
       // Agent 邮箱（跨模块）也并进回包：卡片一 hover 就要显示它的状态，
       // 另开一个 GET 等于把 composer 的轮询量翻倍（历史上打过一分钟 498 次）。
       const mailSource = getMailStatusSource()
@@ -322,7 +322,7 @@ async function handle(
         htmlEnabled,
         teamEnabled,
         todoClosureEnabled,
-        stepEnabled,
+        todoRuleEnabled,
         // mailEnabled 只跟**声明开关**走（injectEnabled），与工作台总开关解耦：
         // 工作台关着时声明照常生效，只是注入文本改走 agently-cli 命令行。
         // 相与是错的——那正是「用户开着声明、却被工作台吞掉」那个坑。
@@ -453,17 +453,18 @@ async function handle(
       return
     }
 
-    // ── step 纪律（减少模型往返）规范注入开关（内置能力，全局单值） ────
+    // ── 任务清单纪律规范注入开关（内置能力，全局单值） ────────────────
     // 与 html / team 端点同构，builtin:true 恒定——同样硬编码在插件里，无卸载入口。
-    if (method === 'GET' && rest === '/step-inject-state') {
-      const enabled = await store.isStepInjectEnabled(config.stepInjectDefaultEnabled !== false)
+    // 2026-10-28 由 /step-inject-state 改名：step 纪律通道整条退役，这条纪律独立。
+    if (method === 'GET' && rest === '/todo-rule-inject-state') {
+      const enabled = await store.isTodoRuleInjectEnabled(config.todoRuleInjectDefaultEnabled !== false)
       json(res, 200, { enabled, builtin: true })
       return
     }
-    if (method === 'POST' && rest === '/step-inject-state') {
+    if (method === 'POST' && rest === '/todo-rule-inject-state') {
       const body = await readBody(req) as Record<string, unknown>
       const enabled = body.enabled !== false
-      await store.setStepInjectEnabled(enabled)
+      await store.setTodoRuleInjectEnabled(enabled)
       json(res, 200, { ok: true, enabled, builtin: true })
       return
     }

@@ -283,11 +283,22 @@ export function PopoverShell({
    * page 形态的"关闭"是切回会话（与点侧边栏会话行同一效果），compact 是收起
    * 卡片；两者都由 onClose 收口。面板可自行拦截（技能面板在安装/确认进行中
    * 直接 return，不放行）。
+   *
+   * ⚠ **已被内层浮层处理过的 Esc 必须放行**（2026-10-27 实测缺陷）：
+   * 面板里的浮层（动态页的「原文来源」「更新进度」「设置」等）自己在 window
+   * 捕获阶段处理 Esc 并 preventDefault + stopPropagation。但本监听挂在 document
+   * 上，而浮层 portal 到 body 之后，事件路径是 window → document → body → …
+   * ——捕获阶段先到 window，**document 上的监听仍会收到同一个事件**。不检查
+   * defaultPrevented 的话，用户按一次 Esc 会同时关掉浮层和整个面板，
+   * 表现为「按 Esc 直接退出了动态页」。
    */
   useEffect(() => {
     if (closing) return undefined
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
+      if (event.key !== 'Escape') return
+      // 内层浮层已经消费过这个 Esc：不再上抛，避免一次按键关两层。
+      if (event.defaultPrevented) return
+      onClose()
     }
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('keydown', onKey) }

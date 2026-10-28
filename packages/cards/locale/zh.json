@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "正文卡片",
+    "description": "把 html / iu / diagram / proto 围栏渲染成能点的卡片，外加下载进度、对话截图、生图画廊与侧栏预览。"
+  }
+}

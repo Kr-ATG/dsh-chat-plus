@@ -7,6 +7,7 @@
  *  - usage      → 侧边栏导航行 + 用量紧凑卡片（唯一保留的自绘浮层入口）
  *  - skills     → 官方 main 页 + sidebar.panellist 菜单行 + `/` slash source + skill tool row
  *  - mail       → 官方 main 页 + sidebar.panellist 菜单行（Agent Mail 三栏工作台）
+ *  - feed       → 工作台分类「动态」（侧栏行由 nav-sections 按 WORKBENCH_TABS 自动生成）
  *  - responsive → 窄屏全局覆盖样式
  *
  * 定时自动化（原 automation 模块）已于 2026-09-28 删除：官方
@@ -32,6 +33,7 @@ import { applyMemoryClient } from './memory/index.js'
 import { apply as applySkillSource } from './skill-source/index.js'
 import { injectResponsiveStyles } from './responsive.js'
 import { buildActivityGrid, activityColor, ACTIVITY_COLUMNS } from './usage/dashboard/ActivityGrid.js'
+import { applyFeedClient } from './feed/index.js'
 
 /** Run one module's apply, logging and swallowing any failure. */
 function safe(label: string, run: (ctx: ClientContext) => void, ctx: ClientContext): void {
@@ -47,6 +49,10 @@ export function applyTriadClient(ctx: ClientContext): void {
   safe('responsive styles', (c) => { c.effect(injectResponsiveStyles, 'dsh-chat-plus: triad responsive styles') }, ctx)
   // 统一工作台（记忆、能力、用量、画廊）
   safe('workbench', applyWorkbenchSeat, ctx)
+  // 动态模块（2026-10-27）：只负责样式注入。
+  // ⚠ 侧栏「操作间 → 动态」那一行**不在这里注册**：nav-sections.tsx 会遍历
+  // WORKBENCH_TABS 自动生成全部条目，手动再 navMenuItem 一次会出现两行「动态」。
+  safe('feed', applyFeedClient, ctx)
   // 记忆模块：只剩 locale 字典注册（composer 注入开关已全部下线，见 memory/index.ts）
   safe('memory locale', applyMemoryClient, ctx)
   // 斜杠命令与技能工具行源

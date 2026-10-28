@@ -34,8 +34,12 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   mountBrowserFlagPreview,
+  resetBrowserActivitySnapshot,
+  unmountBrowserFlagPreview,
   startBrowserActivityPolling,
+  stopBrowserActivityPolling,
 } from './store.ts'
+import { featureEnabledNow, onFeatureChange } from '../features/gate.tsx'
 
 /**
  * 装配：轮询器 + window 预览入口。
@@ -47,18 +51,44 @@ import {
  * kr-chat/styles.ts 的 .kr-plain-head__browser），左侧会话列表不再有任何改动。
  * 这两步留着反而会往官方的会话行上打属性、注入一张用不到的样式表。
  */
-export function applyBrowserFlagClient(_ctx: ClientContext): void {
-  // 一份全局轮询器（不是每个消费点一个）：数据本来就是全量的。
-  try {
-    startBrowserActivityPolling()
-  } catch (error) {
-    console.warn('[dsh-chat-plus] 浏览器活动轮询启动失败：', error)
+export function applyBrowserFlagClient(ctx: ClientContext): void {
+  /**
+   * 开关同步：打开 = 轮询器启动 + window 调试入口可用（图标由消费端订阅快照）；
+   * 关闭 = 停轮询并清空快照 —— 已经亮着的图标立刻熄灭，之后也不再请求
+   * /api/chat-flow/browser-activity。打开后无需刷新，下一次轮询就把最新状态带回来。
+   */
+  const sync = (enabled: boolean): void => {
+    if (enabled) {
+      // 一份全局轮询器（不是每个消费点一个）：数据本来就是全量的。
+      try {
+        startBrowserActivityPolling()
+      } catch (error) {
+        console.warn('[dsh-chat-plus] 浏览器活动轮询启动失败：', error)
+      }
+      // window 调试/演示入口：不发起真实浏览器调用也能验证标志与动效。
+      try {
+        mountBrowserFlagPreview()
+      } catch (error) {
+        console.warn('[dsh-chat-plus] 浏览器标志预览入口挂载失败：', error)
+      }
+    } else {
+      try {
+        stopBrowserActivityPolling()
+        resetBrowserActivitySnapshot()
+        unmountBrowserFlagPreview()
+      } catch (error) {
+        console.warn('[dsh-chat-plus] 浏览器活动轮询停止失败：', error)
+      }
+    }
   }
-
-  // window 调试/演示入口：不发起真实浏览器调用也能验证标志与动效。
-  try {
-    mountBrowserFlagPreview()
-  } catch (error) {
-    console.warn('[dsh-chat-plus] 浏览器标志预览入口挂载失败：', error)
-  }
+  sync(featureEnabledNow('view.browser-flag'))
+  const off = onFeatureChange('view.browser-flag', sync)
+  ctx.effect(() => () => {
+    off()
+    try {
+      stopBrowserActivityPolling()
+      resetBrowserActivitySnapshot()
+      unmountBrowserFlagPreview()
+    } catch { /* 卸载时静默 */ }
+  }, 'dsh-chat-plus: browser flag feature switch')
 }

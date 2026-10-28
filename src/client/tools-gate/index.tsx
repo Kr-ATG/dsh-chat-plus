@@ -28,6 +28,7 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { GATE_STYLES } from './styles.ts'
 import { mountGateMenuIcons } from './menu-icons.ts'
+import { featureEnabledNow, onFeatureChange } from '../features/gate.tsx'
 
 /** host 状态路由（与 src/tools-gate/index.ts 的 GATE_ROUTE 逐字一致）。 */
 export const GATE_ROUTE = '/api/chat-flow/tools-gate'
@@ -234,14 +235,45 @@ export function applyToolsGateClient(ctx: ClientContext): void {
   try {
     ensureStyles()
     const scope = ctx
-    scope.slots.inject('conversation.input.left', () => scope.slots.register({
+
+    /** 注册闸门胶囊；返回摘除函数（关闭开关时真正从输入行撤掉）。 */
+    const mountCapsule = (): (() => void) => scope.slots.inject('conversation.input.left', () => scope.slots.register({
       name: 'conversation.input.left',
       id: 'dsh-tools-gate',
       order: 100,
       inject: (sessionId: SessionId) => ({ sessionId }),
     }, ToolsGateCard as never))
-    // `/` 菜单里给两条指令补图标（宿主命令没有官方图标通道，见 menu-icons.ts）。
-    mountGateMenuIcons()
+
+    /**
+     * 开关同步：关掉 = 输入栏左侧那排 computer-use / browser-use 胶囊消失，
+     * 模型侧的工具闸门状态不受影响（那是 host 的半身，仍可用 / 命令控制）；
+     * 打开 = 原地恢复。
+     */
+    let disposeCapsule: (() => void) | null = null
+    const syncCapsule = (enabled: boolean): void => {
+      if (enabled) {
+        if (disposeCapsule === null) {
+          try {
+            disposeCapsule = mountCapsule()
+          } catch (error) {
+            console.warn(`[dsh-chat-plus] 工具闸门胶囊挂载失败：${error instanceof Error ? error.message : String(error)}`)
+          }
+        }
+        // `/` 菜单里给两条指令补图标（宿主命令没有官方图标通道，见 menu-icons.ts）。
+        // 幂等：重复调用只绑一次观察器。
+        mountGateMenuIcons()
+      } else {
+        disposeCapsule?.()
+        disposeCapsule = null
+      }
+    }
+    syncCapsule(featureEnabledNow('input.tools-gate'))
+    const off = onFeatureChange('input.tools-gate', syncCapsule)
+    ctx.effect(() => () => {
+      off()
+      disposeCapsule?.()
+      disposeCapsule = null
+    }, 'dsh-chat-plus: tools gate feature switch')
   } catch (error) {
     console.warn(`[dsh-chat-plus] 工具闸门卡片挂载失败：${error instanceof Error ? error.message : String(error)}`)
   }
