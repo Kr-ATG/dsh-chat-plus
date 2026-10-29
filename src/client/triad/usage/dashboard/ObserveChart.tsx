@@ -24,7 +24,14 @@ const STYLE_ID = 'dsh-observe-chart-styles'
 const PLOT_HEIGHT = 248
 const PAD_LEFT = 46
 const PAD_RIGHT = 10
-const PAD_TOP = 16
+/*
+ * 顶部留白从 16 加到 30：轴单位（Token / 请求 / token/秒）原来画在
+ * PLOT_TOP - 6 = 10，顶端刻度文字画在 PLOT_TOP + 3 = 19，两行只差 9px，
+ * 9.5–10px 的字号直接叠在一起（用户截图里「Token」压着「1亿」）。
+ * 现在单位画在 PAD_TOP - 18 = 12、顶端刻度在 33，两者分开；
+ * 绘图区高度相应少 14px，但 248 的总高不变，卡片不会长高。
+ */
+const PAD_TOP = 30
 const PAD_BOTTOM = 24
 const PLOT_TOP = PAD_TOP
 const BOTTOM = PLOT_HEIGHT - PAD_BOTTOM
@@ -452,7 +459,7 @@ export function ObserveChart(props: ObserveChartProps): JSX.Element {
           role="img"
           aria-label={hourlyMode ? '今日 24 小时用量柱状图' : '按日用量堆叠柱状图'}
         >
-          <text className="obs-chart-axis-unit" x={PAD_LEFT - 7} y={PLOT_TOP - 6} textAnchor="end">{unitLabel}</text>
+          <text className="obs-chart-axis-unit" x={PAD_LEFT - 7} y={PAD_TOP - 18} textAnchor="end">{unitLabel}</text>
 
           {scale.ticks.map(value => {
             const y = yOf(value)

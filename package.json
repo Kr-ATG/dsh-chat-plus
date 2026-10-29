@@ -1,6 +1,6 @@
 {
   "name": "dsh-chat-plus",
-  "version": "1.11.2",
+  "version": "1.11.3",
   "description": "DeepSeek Harness 对话体验增强套件（零源码改动、纯插件注入）。Seeker 双栏执行大盘：任务 / 操作面板（9 段任务动画）/ 子智能体 / 产出物四张卡；正文可出 html 沙箱、diagram 流程图、iu 原生交互卡与 proto-tabs；另有 @ 运行中的程序、对话截图、下载工具、裸路径转链接、对话完成胶囊；供应商中心（API Key / 网络代理 / 生图识图生视频 / AnySearch）；记忆 / SKILL / 用量 / 画廊 / 档案 / 系统提示词 / 同步设置七个工作台（档案支持账号密码、证件与任意文件附件，敏感值加密落盘且绝不进上下文）。",
   "keywords": [
     "dsh",
