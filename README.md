@@ -495,8 +495,11 @@ ctx.effect(() => navSection({
 
 四张 KPI 卡：**Token**（输入 / 输出 / 缓存拆分）、**请求**（失败数、成功率、重试后成功）、
 **缓存命中率**（带进度条）、**输出速度**（token/秒 + 首字平均）。中段按日堆叠柱状图，
-四档口径 Token / 请求 / 速度可切，悬浮出卡片式 tooltip、点某天下钻；右栏是「拆分维度」
+三档口径 Token / 请求 / 速度可切，悬浮出卡片式 tooltip、点某天下钻；右栏是「拆分维度」
 列表（模型 / 供应商两个维度，同色系与柱图对齐）。底部 52 周活动热力图。
+
+进入页面默认落在「**今日**」：中段趋势图按 **24 小时（00:00–23:00）** 出柱，能看出一天里的
+用量分布；切到其它范围（近 7 天 / 本月 / 自定义等）恢复按日聚合。
 
 版面**铺满可用宽度**：KPI 用 auto-fit 栅格（宽屏均分、窄屏折行），右栏宽度 clamp 到 22%，
 热力图格子按容器实测宽度在 12–28px 之间自适应，断点用容器查询而不是视口查询——工作台
@@ -1233,6 +1236,7 @@ node scripts/smoke-triad-host.mjs    # 工作台 host：路由 + 记忆工具 + 
 node scripts/smoke-triad-client.mjs  # 工作台 client 纯逻辑
 node scripts/test-system-prompt.mjs  # 系统提示词观测（组装 / 分段 / 变量 / 快照折叠 / 路由）
 node scripts/test-scrollbar-autohide.mjs # 对话流滚动条自动隐藏（3 秒 / 容器替换重挂）
+node scripts/test-usage-hours.mjs     # 用量小时桶（今日 24 小时 / 重报替换）
 node scripts/test-workbench-sync.mjs # 工作台云端同步（打包加密 / 还原 / 主次优先级）
 node scripts/test-session-isolation.mjs  # 跨会话隔离（抽源码求值，真跑行为）
 node scripts/test-mail-two-phase.mjs     # 邮箱两阶段重放（host 能力）

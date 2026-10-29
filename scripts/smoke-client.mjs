@@ -3255,6 +3255,22 @@ if (krEnabled) {
   }
 }
 
+// ── 用量「今日」= 24 小时趋势（2026-10-29 用户要求） ──────────────────
+//
+// 用户原话：「用量进来就需要到今日，分类是今日的话这个趋势图要显示24小时」。
+// 三个面缺一不可：默认范围是 today；面板把 hours 传给图表；图表支持 hours。
+// host 的 24 小时桶由 scripts/test-usage-hours.mjs 做行为级验证。
+{
+  const panelSrc = readFileSync(resolve(ROOT, 'src/client/triad/usage/dashboard/ObservePanel.tsx'), 'utf-8')
+  const chartSrc = readFileSync(resolve(ROOT, 'src/client/triad/usage/dashboard/ObserveChart.tsx'), 'utf-8')
+  const reasons = []
+  if (!/useState<RangePreset>\('today'\)/.test(panelSrc)) reasons.push('ObservePanel 默认范围必须是今日')
+  if (!/payload\?\.hours/.test(panelSrc) || !/hours=\{scopedHours\}/.test(panelSrc)) reasons.push('ObservePanel 必须把 hours 传给趋势图')
+  if (!/hours\?: ObserveHourStat\[\]/.test(chartSrc)) reasons.push('ObserveChart 必须接受 hours?: ObserveHourStat[]')
+  if (reasons.length > 0) fail('用量今日 24 小时契约被破坏：' + reasons.join(' / '))
+  else pass('用量：默认今日 + 趋势图 24 小时（hours 通道）')
+}
+
 // ── 邮箱面板：纯查看（2026-10 入口搬迁 + 写操作 UI 全裁） ───────────────
 // 这一轮把邮件从「统一工作台第 6 个分类」搬成「Seeker 顶栏齿轮右侧的邮件按钮
 // + 只读浮层」（入口本体在 src/client/kr-chat/mail-drawer.tsx），同时把面板

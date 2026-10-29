@@ -49,7 +49,7 @@ import { apply as applySkills } from './skills-host.js';
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { applyUsageDelta, createUsageState, mergeInto, modelCountersOf, renderSignal, renderUsage, totalTokens, zeroBuckets } from "./usage.js";
+import { applyUsageDelta, createUsageState, dayKey, mergeHoursInto, mergeInto, modelCountersOf, renderSignal, renderUsage, totalTokens, zeroBuckets } from "./usage.js";
 import { ACCOUNT_REFRESH_MS, createAccountService, validateAccountConfig } from "./accounts.js";
 import { queryDeepseekBilling } from "./deepseek-billing.js";
 
@@ -80,7 +80,10 @@ const UPSTREAM_TIMEOUT_MS = 15000;
 // 「今天有 0 次失败」和「这批数据压根没统计过失败」变成同一个值。
 // v7 缓存**不丢弃**：见 MIGRATABLE_CACHE_VERSIONS——历史 token 完全相同，
 // 丢掉的代价是上万条会话重折与一次空面板，而计数在后台重折里补得回来。
-const CACHE_VERSION = 9;
+// v10（2026-10-29）：加回「今天 24 小时」桶（趋势图今日视图要用）。只保留
+// 昨天/今天两个自然日的小时桶；v9 缓存里没有小时数据，迁移时只把「今天已经
+// 有用量」的会话标记为小时重折，避免为了一个空桶重扫整个语料。
+const CACHE_VERSION = 10;
 
 /**
  * 还能直接读进来、随后在后台补全计数的旧缓存版本。
@@ -94,7 +97,7 @@ const CACHE_VERSION = 9;
  * 反过来，任何**改了 token 语义**的旧版本都不该进这张表——那样的缓存数据本身
  * 是错的，迁移过来只是把错数据洗成对的形状。
  */
-const MIGRATABLE_CACHE_VERSIONS = new Set([7, 8]);
+const MIGRATABLE_CACHE_VERSIONS = new Set([7, 8, 9]);
 
 /** Credential references the in-panel editor may write (SenseNova console login). */
 const WRITABLE_CREDENTIAL_REFS = new Set(["SENSENOVA_USERNAME", "SENSENOVA_PASSWORD", "SENSENOVA_CONSOLE_TOKEN", "DEEPSEEK_USER_TOKEN"]);
@@ -246,16 +249,30 @@ function serializeSession(state) {
 			compacted: entry.compacted ?? 0
 		};
 	}
+	const hours = {};
+	for (const [hour, entry] of state.hours ?? []) {
+		const models = {};
+		for (const [model, bucket] of entry.models ?? []) models[model] = { ...bucket };
+		hours[hour] = {
+			totals: { ...entry.totals },
+			models,
+			...countersOf(entry)
+		};
+	}
 	return {
 		kind: state.kind ?? "persisted",
 		// 「这份折叠态还没统计过计数」必须落盘：loadCache 读完 v7 缓存后 saveCache
 		// 立刻会以 v8 写出，若不留这个标记，下次启动就会把「没统计过」的 0 当成
 		// 「确实没有失败」——一个看起来完整、实则全错的数字。
 		...(state.countersStale === true ? { countersStale: true } : {}),
+		// 「今天的小时桶还没重建」同理：v9 缓存读进来之后若不留标记，下一轮
+		// 增量折只会看到新事件，今天早上的小时数据会永远缺一块。
+		...(state.hoursStale === true ? { hoursStale: true } : {}),
 		consumed: state.consumed ?? 0,
 		...(state.revision === void 0 ? {} : { revision: state.revision }),
 		...(typeof state.title === "string" ? { title: state.title } : {}),
 		days,
+		hours,
 		lastSample: state.lastSample === null ? null : {
 			key: state.lastSample.key,
 			day: state.lastSample.day,
@@ -317,6 +334,33 @@ function parseSession(raw) {
 			state.days.set(date, target);
 		}
 	}
+	if (raw.hours !== null && typeof raw.hours === "object") {
+		for (const [hour, entry] of Object.entries(raw.hours)) {
+			if (entry === null || typeof entry !== "object") continue;
+			const target = { totals: zeroBuckets(), models: new Map(), ...countersOf(entry) };
+			const totals = entry.totals;
+			if (totals !== null && typeof totals === "object") {
+				target.totals.inputTokens = Number.isFinite(totals.inputTokens) ? totals.inputTokens : 0;
+				target.totals.outputTokens = Number.isFinite(totals.outputTokens) ? totals.outputTokens : 0;
+				target.totals.cacheReadTokens = Number.isFinite(totals.cacheReadTokens) ? totals.cacheReadTokens : 0;
+				target.totals.cacheWriteTokens = Number.isFinite(totals.cacheWriteTokens) ? totals.cacheWriteTokens : 0;
+			}
+			if (entry.models !== null && typeof entry.models === "object") {
+				for (const [model, bucket] of Object.entries(entry.models)) {
+					if (bucket === null || typeof bucket !== "object") continue;
+					target.models.set(model, {
+						inputTokens: Number.isFinite(bucket.inputTokens) ? bucket.inputTokens : 0,
+						outputTokens: Number.isFinite(bucket.outputTokens) ? bucket.outputTokens : 0,
+						cacheReadTokens: Number.isFinite(bucket.cacheReadTokens) ? bucket.cacheReadTokens : 0,
+						cacheWriteTokens: Number.isFinite(bucket.cacheWriteTokens) ? bucket.cacheWriteTokens : 0,
+						...modelCountersOf(bucket)
+					});
+				}
+			}
+			state.hours.set(hour, target);
+		}
+	}
+	if (raw.hoursStale === true) state.hoursStale = true;
 	if (raw.lastSample !== null && raw.lastSample !== void 0 && typeof raw.lastSample === "object" && typeof raw.lastSample.key === "string" && typeof raw.lastSample.day === "string") {
 		const buckets = raw.lastSample.buckets ?? {};
 		state.lastSample = {
@@ -383,14 +427,19 @@ export function adoptCache(parsed) {
 		&& (parsed.version === CACHE_VERSION || MIGRATABLE_CACHE_VERSIONS.has(parsed.version))
 		&& parsed.sessions !== null && typeof parsed.sessions === "object";
 	if (!compatible) return fresh;
-	const migrating = parsed.version !== CACHE_VERSION;
+	const fromVersion = Number.isFinite(parsed.version) ? parsed.version : 0;
+	const today = dayKey(Date.now());
 	const sessions = {};
 	for (const [id, entry] of Object.entries(parsed.sessions)) {
 		if (typeof id !== "string" || id.length === 0) continue;
 		const state = parseSession(entry);
-		// 旧版本迁移进来的会话：token 桶照用，计数一次都没统计过。不标的话，
+		// v7/v8 的会话：token 桶照用，计数一次都没统计过。不标的话，
 		// 「失败数 0」会被当成真的没失败——一个看起来完整、实则全错的数字。
-		if (migrating) state.countersStale = true;
+		// v9 已经统计过计数，只需补小时桶，不能顺带把计数也重折。
+		if (fromVersion < 8) state.countersStale = true;
+		// v10 之前没有小时桶：只有「今天已经有用量」的会话值得重折（没有今日
+		// 用量的会话即使重折也只会得到空桶）。这样一次升级不会重扫整个语料。
+		if (fromVersion < 10 && state.days.has(today)) state.hoursStale = true;
 		sessions[id] = state;
 	}
 	return { version: CACHE_VERSION, sessions };
@@ -556,10 +605,11 @@ async function runPooled(items, limit, worker) {
 async function foldPersistedSession(persistence, id, revision, previous) {
 	const state = previous ?? createUsageState();
 	const wasPersisted = state.kind === "persisted";
-	// 迁移进来的旧折叠态（countersStale）：token 桶是对的，计数一次都没统计过。
-	// 必须从 seq 0 整份重折——增量折只能看到新事件，补不出历史计数。
-	// 注意先读日志再动状态：读失败时上层 catch 会保留旧缓存，面板不会变空。
-	const recount = state.countersStale === true;
+	// 迁移进来的旧折叠态：countersStale（v7/v8）表示计数一次都没统计过；
+	// hoursStale（v9→v10）表示今天的小时桶还没建。两种都必须从 seq 0 整份重折——
+	// 增量折只能看到新事件，补不出历史计数/历史小时。注意先读日志再动状态：
+	// 读失败时上层 catch 会保留旧缓存，面板不会变空。
+	const recount = state.countersStale === true || state.hoursStale === true;
 	const fromSeq = recount ? 0 : wasPersisted ? state.consumed ?? 0 : 0;
 	const events = await readPersistedEvents(persistence, id, fromSeq);
 	// 读到空日志时**不动**旧折叠态：那说明这次读没拿到东西（日志被清/路径变了），
@@ -567,6 +617,7 @@ async function foldPersistedSession(persistence, id, revision, previous) {
 	// 下一轮再试。
 	if (recount && events.length > 0) {
 		state.days = new Map();
+		state.hours = new Map();
 		state.openSteps = new Map();
 		state.recentStepStarts = new Map();
 		state.streamFirstToken = new Map();
@@ -577,9 +628,11 @@ async function foldPersistedSession(persistence, id, revision, previous) {
 		state.title = null;
 		state.pendingRetries = new Set();
 		state.countersStale = false;
+		state.hoursStale = false;
 	}
 	if (!wasPersisted) {
 		state.days = new Map();
+		state.hours = new Map();
 		state.openSteps = new Map();
 		state.recentStepStarts = new Map();
 		state.streamFirstToken = new Map();
@@ -599,6 +652,7 @@ async function foldPersistedSession(persistence, id, revision, previous) {
 	} else if (state.consumed > 0 && fresh[0].seq !== state.consumed + 1) {
 		// 确实有新事件却接不上：日志被截断/重写，从头重折。
 		state.days = new Map();
+		state.hours = new Map();
 		state.openSteps = new Map();
 		state.recentStepStarts = new Map();
 		state.streamFirstToken = new Map();
@@ -641,8 +695,28 @@ async function foldPersistedSession(persistence, id, revision, previous) {
  */
 function renderCachedSnapshot(cache) {
 	const byDay = new Map();
-	for (const state of Object.values(cache.sessions)) mergeInto(byDay, state.days);
-	return { ...renderUsage(byDay, null, Date.now()), stale: true };
+	const byHour = new Map();
+	for (const state of Object.values(cache.sessions)) {
+		mergeInto(byDay, state.days);
+		mergeHoursInto(byHour, state.hours);
+	}
+	return { ...renderUsage(byDay, byHour, Date.now()), stale: true };
+}
+
+/**
+ * 小时桶只留「昨天 + 今天」：更早的 key 从内存里删掉。
+ *
+ * 不删也能运行，但一个常驻进程会每天多攒 24 个桶 × 会话数，几个月后缓存
+ * 又会回到 v7 时代的体积。这里按日期前缀做一次线性清扫，成本可以忽略。
+ */
+function pruneHours(cache) {
+	const floor = dayKey(Date.now() - 86400000);
+	for (const state of Object.values(cache.sessions)) {
+		if (!(state.hours instanceof Map)) continue;
+		for (const key of [...state.hours.keys()]) {
+			if (key.slice(0, 10) < floor) state.hours.delete(key);
+		}
+	}
 }
 
 /**
@@ -723,8 +797,9 @@ async function collectUsageLocked(ctx) {
 			if (state.kind !== "live") {
 				// Live/persisted transition: refold the whole in-memory log.
 				// 迁移来的旧折叠态也走这条分支（kind 是 persisted），整份重折——
-				// 顺带把 countersStale 清掉：重折完计数就是真的了。
+				// 顺带把 countersStale / hoursStale 清掉：重折完计数和小时桶就是真的。
 				state.days = new Map();
+				state.hours = new Map();
 				state.openSteps = new Map();
 				state.recentStepStarts = new Map();
 				state.streamFirstToken = new Map();
@@ -734,6 +809,7 @@ async function collectUsageLocked(ctx) {
 				state.consumed = 0;
 				state.pendingRetries = new Set();
 				state.countersStale = false;
+				state.hoursStale = false;
 			}
 			// DSH 0.1.2-alpha.4 removed the public `Session#events` accessor
 			// (only snapshotEvents() remains). Read whichever the host
@@ -781,9 +857,10 @@ async function collectUsageLocked(ctx) {
 		for (const { id, revision } of entries) {
 			if (attached.has(id)) continue;
 			const previous = cache.sessions[id];
-			// countersStale：从 v7 缓存迁移进来的折叠态 token 是对的、计数一次都没
-			// 统计过。它必须进 stale 列表重折一遍，否则「失败数」会永远停在 0。
-			const needsRecount = previous !== void 0 && previous.countersStale === true;
+			// countersStale / hoursStale：旧缓存迁移来的折叠态 token 是对的，但
+			// 计数或今天的小时桶还没统计过。必须进 stale 列表重折，否则「失败数」
+			// 会永远停在 0、今天的 24 小时趋势永远只有后半段。
+			const needsRecount = previous !== void 0 && (previous.countersStale === true || previous.hoursStale === true);
 			if (!needsRecount && previous !== void 0 && previous.kind === "persisted" && revision !== void 0 && sameFileRevision(previous.revision, revision)) {
 				if (previous.revision !== revision) previous.revision = revision;
 				continue;
@@ -811,9 +888,14 @@ async function collectUsageLocked(ctx) {
 	for (const id of Object.keys(cache.sessions)) {
 		if (!attached.has(id) && !persistedIds.has(id)) delete cache.sessions[id];
 	}
+	pruneHours(cache);
 	const byDay = new Map();
-	for (const state of Object.values(cache.sessions)) mergeInto(byDay, state.days);
-	const rendered = renderUsage(byDay, null, Date.now());
+	const byHour = new Map();
+	for (const state of Object.values(cache.sessions)) {
+		mergeInto(byDay, state.days);
+		mergeHoursInto(byHour, state.hours);
+	}
+	const rendered = renderUsage(byDay, byHour, Date.now());
 	cachedUsageResult = rendered;
 	lastCollectTime = Date.now();
 	// Keep the atomic cache write inside the single-flight section: two passes

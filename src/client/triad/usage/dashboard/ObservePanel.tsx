@@ -42,6 +42,7 @@ import {
   OBSERVE_STATUS_LABELS,
   observeProviderOf,
   type ObserveDayStat,
+  type ObserveHourStat,
   type ObserveMetric,
   type ObserveModelStat,
   type ObservePayload,
@@ -247,7 +248,7 @@ function collectObserveOptions(days: ObserveDayStat[], within: string | null): {
  * 显示一批「明细里找不到来源」的数字。命中率按重算后的桶重算，与 host 侧
  * cacheHitRate() 同源，否则筛选后的命中率会与全量对不上。
  */
-function recomputeDay(d: ObserveDayStat, models: ObserveModelStat[]): ObserveDayStat {
+function recomputeDay<T extends ObserveDayStat>(d: T, models: ObserveModelStat[]): T {
   let input = 0, output = 0, cacheRead = 0, cacheWrite = 0
   let requests = 0, failed = 0, retriedSuccess = 0
   let genMs = 0, genTokens = 0, ttftMs = 0, ttftSteps = 0
@@ -281,7 +282,7 @@ function recomputeDay(d: ObserveDayStat, models: ObserveModelStat[]): ObserveDay
     ttftMs,
     ttftSteps,
     models,
-  }
+  } as T
 }
 
 /**
@@ -291,7 +292,7 @@ function recomputeDay(d: ObserveDayStat, models: ObserveModelStat[]): ObserveDay
  * 而大盘的 KPI 与拆分列表全靠这些字段。模型子集没变化时返回原对象，让下游
  * useMemo 的依赖比较能直接命中同一引用。
  */
-function applyScope(days: ObserveDayStat[], provider: string | null, model: string | null): ObserveDayStat[] {
+function applyScope<T extends ObserveDayStat>(days: T[], provider: string | null, model: string | null): T[] {
   if (provider === null && model === null) return days
   return days.map((d) => {
     const all = d.models ?? []
@@ -307,7 +308,7 @@ function applyScope(days: ObserveDayStat[], provider: string | null, model: stri
  * 「workbuddy」时不该漏掉 workbuddy-ai/... 之外的兄弟供应商，也不该因为模型名
  * 里恰好含这个词而把别家拉进来——两种都算命中，才是最不让人意外的行为。
  */
-function applyKeyword(days: ObserveDayStat[], query: string): ObserveDayStat[] {
+function applyKeyword<T extends ObserveDayStat>(days: T[], query: string): T[] {
   const q = query.trim().toLowerCase()
   if (q === '') return days
   return days.map((d) => {
@@ -328,7 +329,7 @@ function refreshLabel(ms: number): string {
 }
 
 export function ObservePanel(): JSX.Element {
-  const [preset, setPreset] = useState<RangePreset>('30d')
+  const [preset, setPreset] = useState<RangePreset>('today')
   const [custom, setCustom] = useState<DateRange | null>(null)
   const [payload, setPayload] = useState<ObservePayload | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -385,7 +386,10 @@ export function ObservePanel(): JSX.Element {
   }, [autoMs])
 
   const days = payload?.days ?? []
+  const hours = payload?.hours ?? []
   const { range, label: rangeLabel } = resolveRange(preset, custom)
+  /** 今日：趋势图切到 24 小时。旧 host 没有 hours 时自动退回按天。 */
+  const isHourlyRange = preset === 'today'
   const inRange = useMemo(() => days.filter(d => dayInRange(d.date, range)), [days, range.start, range.end])
 
   // 下拉选项取「范围 ∩ 全量」：范围决定看哪几天，选项要能选到该范围内真实出现过的。
@@ -399,6 +403,18 @@ export function ObservePanel(): JSX.Element {
     if (status === 'retried') return scoped.filter(d => (d.retriedSuccess ?? 0) > 0)
     return scoped
   }, [scoped, status])
+
+  /** 今日小时桶：与按天数据走同一套供应商 / 模型 / 搜索 / 状态筛选。 */
+  const scopedHours = useMemo<ObserveHourStat[]>(() => {
+    if (!isHourlyRange || hours.length === 0) return []
+    let list = applyKeyword(applyScope(hours, provider, model), query)
+    if (status === 'failed') list = list.filter(h => (h.failed ?? 0) > 0)
+    if (status === 'retried') list = list.filter(h => (h.retriedSuccess ?? 0) > 0)
+    return list
+  }, [hours, isHourlyRange, provider, model, query, status])
+  const activeHours = useMemo(() => scopedHours.filter(h => (h.tokens ?? 0) > 0 || (h.requests ?? 0) > 0).length, [scopedHours])
+  /** 小时桶有真实数据才切小时图；v9 缓存刚升级 / 旧 host 时退回按天一根柱。 */
+  const hasHourlyData = activeHours > 0
 
   const totals = useMemo(() => observeTotals(filtered), [filtered])
   const rows = useMemo<ObserveBreakdownRow[]>(() => {
@@ -539,7 +555,7 @@ export function ObservePanel(): JSX.Element {
     return <div className="obs-root" style={{ paddingTop: 12 }}>{topBar}{filterBar}<div className="obs-empty">加载中…</div></div>
   }
 
-  const noData = filtered.length === 0
+  const noData = filtered.length === 0 && !hasHourlyData
   /**
    * 模型明细不可用：整体有量、但每个模型行的 token 都是 0。
    *
@@ -556,7 +572,10 @@ export function ObservePanel(): JSX.Element {
       <div className="obs-bar">
         <span className="obs-foot">统计网关调用与会话日志调用；本地拒绝的请求不计入汇总。</span>
         <span className="obs-spacer" />
-        <span className="obs-meta">共 {inRange.length} 天 · 有量 {activeDays} 天 · {rows.length} 个模型</span>
+        <span className="obs-meta">
+          {isHourlyRange && hasHourlyData ? `今日 24 小时 · 有量 ${activeHours} 小时` : `共 ${inRange.length} 天 · 有量 ${activeDays} 天`}
+          {' · '}{rows.length} 个模型
+        </span>
       </div>
       <ObserveKpi totals={totals} />
       <div className="obs-main">
@@ -579,14 +598,24 @@ export function ObservePanel(): JSX.Element {
           <div className="obs-chart-slot">
             {noData
               ? <div className="obs-empty">当前范围与筛选下没有数据</div>
-              : (
-                <ObserveChart
-                  days={filtered}
-                  metric={metric}
-                  highlightDate={selectedDay}
-                  onSelectDate={setSelectedDay}
-                />
-              )}
+              : isHourlyRange && hasHourlyData
+                ? (
+                  <ObserveChart
+                    hours={scopedHours}
+                    days={[]}
+                    metric={metric}
+                    highlightDate={selectedDay === range.start ? range.start : null}
+                    onSelectDate={setSelectedDay}
+                  />
+                )
+                : (
+                  <ObserveChart
+                    days={filtered}
+                    metric={metric}
+                    highlightDate={selectedDay}
+                    onSelectDate={setSelectedDay}
+                  />
+                )}
           </div>
         </div>
         <div className="obs-side">

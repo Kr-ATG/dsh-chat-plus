@@ -63,10 +63,21 @@ export interface ObserveDayStat {
   models?: ObserveModelStat[]
 }
 
+/** 一天里某个小时的用量（今日 24 小时趋势用）。 */
+export interface ObserveHourStat extends ObserveDayStat {
+  /** 本地小时（0–23）。 */
+  hour: number
+}
+
 /** /api/usage-stats/usage 响应体（观测扩展后的形状）。 */
 export interface ObservePayload {
   ok: boolean
   days: ObserveDayStat[]
+  /**
+   * 今天的 24 个小时桶（00–23 全量补齐，缺数据的小时补 0）。
+   * 旧 host 没有这条字段时前端退回按天出柱，不得因此崩掉。
+   */
+  hours?: ObserveHourStat[]
   updatedAt?: number
   stale?: boolean
 }

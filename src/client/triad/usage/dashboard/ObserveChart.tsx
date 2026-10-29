@@ -15,7 +15,7 @@
  * 纯可读性上限的截断，不擅自改范围、不改数据。
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ObserveDayStat, ObserveMetric, ObserveModelStat } from './observe-types'
+import type { ObserveDayStat, ObserveHourStat, ObserveMetric, ObserveModelStat } from './observe-types'
 import { formatExact, formatUnits } from './format'
 
 const STYLE_ID = 'dsh-observe-chart-styles'
@@ -157,6 +157,8 @@ export function ensureObserveChartStyles(): void {
 
 export interface ObserveChartProps {
   days: ObserveDayStat[]
+  /** 「今日」专用：24 个小时桶。有值时优先按小时出柱，旧 host 没这个字段就退回按天。 */
+  hours?: ObserveHourStat[]
   metric: ObserveMetric
   highlightDate?: string | null
   onSelectDate?: (date: string | null) => void
@@ -171,6 +173,13 @@ interface ObserveSeg {
 }
 
 interface ObserveBar {
+  /** React key / hover 匹配键（按日=日期，按小时=日期+小时）。 */
+  key: string
+  /** 横轴标签（按日 05-12 / 按小时 09:00）。 */
+  label: string
+  /** tooltip 标题（按日 2026-10-29 / 按小时 2026-10-29 09:00）。 */
+  title: string
+  /** 点击下钻用的日期（按小时时是当天日期）。 */
   date: string
   /** 画在柱上的合计高度（speed 口径下就是当天平均出速）。 */
   total: number
@@ -258,7 +267,8 @@ function niceScale(max: number, count: number): { top: number; step: number } {
 
 export function ObserveChart(props: ObserveChartProps): JSX.Element {
   ensureObserveChartStyles()
-  const { days, metric, highlightDate, onSelectDate } = props
+  const { days, hours, metric, highlightDate, onSelectDate } = props
+  const hourlyMode = Array.isArray(hours) && hours.length > 0
 
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [width, setWidth] = useState(720)
@@ -280,23 +290,39 @@ export function ObserveChart(props: ObserveChartProps): JSX.Element {
   }, [])
 
   const { bars, clampNotice } = useMemo(() => {
-    const dayMap = new Map<string, ObserveDayStat>()
-    for (const day of days ?? []) {
-      if (day === null || day === undefined) continue
-      const date = typeof day.date === 'string' ? day.date.slice(0, 10) : ''
-      if (date.length !== 10) continue
-      dayMap.set(date, day)
+    const hourly = Array.isArray(hours) && hours.length > 0
+    const points: Array<{ key: string; date: string; label: string; title: string; day: ObserveDayStat }> = []
+    let clampNotice = ''
+
+    if (hourly) {
+      for (const hour of hours ?? []) {
+        if (hour === null || hour === undefined) continue
+        const hh = String(hour.hour).padStart(2, '0') + ':00'
+        points.push({ key: `${hour.date}-${hh}`, date: hour.date, label: hh, title: `${hour.date} ${hh}`, day: hour })
+      }
+    } else {
+      const dayMap = new Map<string, ObserveDayStat>()
+      for (const day of days ?? []) {
+        if (day === null || day === undefined) continue
+        const date = typeof day.date === 'string' ? day.date.slice(0, 10) : ''
+        if (date.length !== 10) continue
+        dayMap.set(date, day)
+      }
+      const sorted = [...dayMap.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+      const truncated = sorted.length > MAX_BARS
+      const used = truncated ? sorted.slice(sorted.length - MAX_BARS) : sorted
+      clampNotice = truncated ? `已折叠更早的 ${sorted.length - MAX_BARS} 天` : ''
+      for (const [date, day] of used) {
+        points.push({ key: date, date, label: date.slice(5), title: date, day })
+      }
     }
-    const sorted = [...dayMap.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
-    const truncated = sorted.length > MAX_BARS
-    const used = truncated ? sorted.slice(sorted.length - MAX_BARS) : sorted
 
     // 排名口径必须与右侧拆分列表一致（同一模型同色），两边都用「期间内按当前 metric
     // 的可加合计」。
     const weights: Array<{ model: string; weight: number }> = []
     const weightMap = new Map<string, number>()
-    for (const [, day] of used) {
-      for (const ms of day.models ?? []) {
+    for (const point of points) {
+      for (const ms of point.day.models ?? []) {
         weightMap.set(ms.model, (weightMap.get(ms.model) ?? 0) + modelValueOf(ms, metric))
       }
     }
@@ -304,12 +330,13 @@ export function ObserveChart(props: ObserveChartProps): JSX.Element {
     const rank = rankObserveModels(weights)
 
     const out: ObserveBar[] = []
-    for (const [date, day] of used) {
+    for (const point of points) {
+      const day = point.day
       const models = day.models ?? []
       const requests = day.requests ?? models.reduce((sum, ms) => sum + (ms.requests ?? 0), 0)
 
       if (metric === 'speed') {
-        // 速率不可加：柱子只表达「当天平均出速」，模型明细退到 tooltip。
+        // 速率不可加：柱子只表达「当天 / 该小时平均出速」，模型明细退到 tooltip。
         const detail: ObserveSeg[] = []
         for (const ms of models) {
           const speed = modelSpeedOf(ms)
@@ -325,10 +352,13 @@ export function ObserveChart(props: ObserveChartProps): JSX.Element {
         detail.sort((a, b) => b.value - a.value)
         const average = daySpeedOf(day)
         out.push({
-          date,
+          key: point.key,
+          label: point.label,
+          title: point.title,
+          date: point.date,
           total: average,
           segs: average > 0
-            ? [{ key: '__speed', label: '当日平均出速', value: average, color: observeSegColor(0) }]
+            ? [{ key: '__speed', label: hourly ? '该小时平均出速' : '当日平均出速', value: average, color: observeSegColor(0) }]
             : [],
           detail,
           requests,
@@ -369,14 +399,11 @@ export function ObserveChart(props: ObserveChartProps): JSX.Element {
 
       const segs = [...grouped.values()].sort((a, b) => b.value - a.value)
       const total = segs.reduce((sum, seg) => sum + seg.value, 0)
-      out.push({ date, total, segs, detail: segs, requests })
+      out.push({ key: point.key, label: point.label, title: point.title, date: point.date, total, segs, detail: segs, requests })
     }
 
-    return {
-      bars: out,
-      clampNotice: truncated ? `已折叠更早的 ${sorted.length - MAX_BARS} 天` : '',
-    }
-  }, [days, metric])
+    return { bars: out, clampNotice }
+  }, [days, hours, metric])
 
   const geometry = useMemo(() => {
     const plotWidth = Math.max(80, width - PAD_LEFT - PAD_RIGHT)
@@ -394,9 +421,9 @@ export function ObserveChart(props: ObserveChartProps): JSX.Element {
     return { top: nice.top, ticks }
   }, [bars])
 
-  const [hoverDate, setHoverDate] = useState<string | null>(null)
+  const [hoverKey, setHoverKey] = useState<string | null>(null)
   const tipBarRef = useRef<ObserveBar | null>(null)
-  const hoverBar = hoverDate === null ? null : bars.find(bar => bar.date === hoverDate) ?? null
+  const hoverBar = hoverKey === null ? null : bars.find(bar => bar.key === hoverKey) ?? null
   if (hoverBar !== null) tipBarRef.current = hoverBar
   const tipBar = hoverBar ?? tipBarRef.current
 
@@ -409,7 +436,7 @@ export function ObserveChart(props: ObserveChartProps): JSX.Element {
   const unitLabel = metric === 'tokens' ? 'Token' : metric === 'requests' ? '请求' : 'token/秒'
   const labelEvery = Math.max(1, Math.ceil(bars.length / Math.max(1, Math.floor(geometry.plotWidth / 66))))
 
-  const tipIndex = tipBar === null ? -1 : bars.findIndex(bar => bar.date === tipBar.date)
+  const tipIndex = tipBar === null ? -1 : bars.findIndex(bar => bar.key === tipBar.key)
   const tipWidth = Math.max(198, Math.min(276, width - 12))
   const tipCenter = tipIndex >= 0 ? PAD_LEFT + (tipIndex + 0.5) * geometry.step : 0
   const tipLeft = Math.min(Math.max(6, tipCenter - tipWidth / 2), Math.max(6, width - tipWidth - 6))
@@ -423,7 +450,7 @@ export function ObserveChart(props: ObserveChartProps): JSX.Element {
           height={PLOT_HEIGHT}
           viewBox={`0 0 ${width} ${PLOT_HEIGHT}`}
           role="img"
-          aria-label="按日用量堆叠柱状图"
+          aria-label={hourlyMode ? '今日 24 小时用量柱状图' : '按日用量堆叠柱状图'}
         >
           <text className="obs-chart-axis-unit" x={PAD_LEFT - 7} y={PLOT_TOP - 6} textAnchor="end">{unitLabel}</text>
 
@@ -440,8 +467,10 @@ export function ObserveChart(props: ObserveChartProps): JSX.Element {
 
           {bars.map((bar, index) => {
             const center = PAD_LEFT + (index + 0.5) * geometry.step
-            const selected = highlightDate !== undefined && highlightDate !== null && highlightDate === bar.date
-            const dim = highlightDate !== undefined && highlightDate !== null && highlightDate !== bar.date
+            // 小时模式没有「选中的某一小时」这条交互（点柱=下钻当天），
+            // 不让全部 24 根柱都套上选中描边。
+            const selected = !hourlyMode && highlightDate !== undefined && highlightDate !== null && highlightDate === bar.date
+            const dim = !hourlyMode && highlightDate !== undefined && highlightDate !== null && highlightDate !== bar.date
             let cursor = BOTTOM
             const rects = bar.segs
               .filter(seg => seg.value > 0)
@@ -454,9 +483,9 @@ export function ObserveChart(props: ObserveChartProps): JSX.Element {
               })
             return (
               <g
-                key={`${metric}:${bar.date}`}
+                key={`${metric}:${bar.key}`}
                 className="obs-chart-bar"
-                data-active={selected || (hoverBar !== null && hoverBar.date === bar.date) ? 'true' : 'false'}
+                data-active={selected || (hoverBar !== null && hoverBar.key === bar.key) ? 'true' : 'false'}
                 data-dim={dim ? 'true' : 'false'}
                 data-selected={selected ? 'true' : 'false'}
                 style={{ transformOrigin: `${center}px ${BOTTOM}px`, animationDelay: `${Math.min(index * 16, 380)}ms` }}
@@ -480,10 +509,10 @@ export function ObserveChart(props: ObserveChartProps): JSX.Element {
                   width={geometry.step}
                   height={BOTTOM - PLOT_TOP}
                   tabIndex={0}
-                  onMouseEnter={() => { setHoverDate(bar.date) }}
-                  onMouseLeave={() => { setHoverDate(null) }}
-                  onFocus={() => { setHoverDate(bar.date) }}
-                  onBlur={() => { setHoverDate(null) }}
+                  onMouseEnter={() => { setHoverKey(bar.key) }}
+                  onMouseLeave={() => { setHoverKey(null) }}
+                  onFocus={() => { setHoverKey(bar.key) }}
+                  onBlur={() => { setHoverKey(null) }}
                   onClick={() => {
                     if (onSelectDate === undefined) return
                     onSelectDate(selected ? null : bar.date)
@@ -500,14 +529,14 @@ export function ObserveChart(props: ObserveChartProps): JSX.Element {
             const center = PAD_LEFT + (index + 0.5) * geometry.step
             return (
               <text
-                key={`xlab-${bar.date}`}
+                key={`xlab-${bar.key}`}
                 className="obs-chart-xlab"
-                data-active={highlightDate === bar.date ? 'true' : 'false'}
+                data-active={!hourlyMode && highlightDate === bar.date ? 'true' : 'false'}
                 x={center}
                 y={BOTTOM + 15}
                 textAnchor="middle"
               >
-                {bar.date.slice(5)}
+                {bar.label}
               </text>
             )
           })}
@@ -516,7 +545,7 @@ export function ObserveChart(props: ObserveChartProps): JSX.Element {
 
         {tipBar !== null && (
           <div className="obs-tip" data-show={hoverBar === null ? 'false' : 'true'} style={{ left: tipLeft, width: tipWidth }}>
-            <div className="obs-tip-date">{tipBar.date.replace(/-/g, '/')}</div>
+            <div className="obs-tip-date">{tipBar.title.replace(/-/g, '/')}</div>
             {tipBar.detail.map(item => (
               <div className="obs-tip-row" key={`d-${item.key}`}>
                 <span className="obs-tip-dot" style={{ background: item.color }} />

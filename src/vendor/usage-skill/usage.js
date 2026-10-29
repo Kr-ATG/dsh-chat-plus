@@ -85,6 +85,25 @@ function zeroCounters() {
 	return counters;
 }
 
+/**
+ * 小时桶：token 四桶 + 与天级同名的计数 + 模型明细。
+ *
+ * 小时趋势图也要能跟着供应商 / 模型筛选，所以模型桶照样保留（量级很小：
+ * 只留今天与昨天，最多 48 个桶 × 每会话的模型数）。
+ */
+function hourEntryOf(byHour, hour) {
+	let entry = byHour.get(hour);
+	if (entry === void 0) {
+		entry = {
+			totals: zeroBuckets(),
+			models: new Map(),
+			...zeroCounters()
+		};
+		byHour.set(hour, entry);
+	}
+	return entry;
+}
+
 /** 读出任一桶上的计数器并补 0（老缓存缺字段时也给出完整形状）。 */
 function countersOf(source) {
 	const counters = {};
@@ -452,9 +471,17 @@ export function lastNaturalDays(endDay, count) {
  * boundaries without replaying the whole log.
  */
 export function createUsageState() {
+	const start = new Date();
+	start.setHours(0, 0, 0, 0);
 	return {
 		days: new Map(),
 		hours: new Map(),
+		/**
+		 * 小时桶的时间下限（毫秒）：只统计「昨天 00:00 起」的事件。
+		 * 全历史小时桶曾占缓存体积的 72%，现在趋势图只需要今天 24 小时，
+		 * 没有任何理由把几年前的每小时都留在内存与磁盘里。
+		 */
+		hourFloor: start.getTime() - 86400000,
 		lastSample: null,
 		currentModel: null,
 		consumed: 0,
@@ -515,6 +542,7 @@ export function createUsageState() {
 export function applyUsageDelta(state, events) {
 	let last = state.lastSample;
 	let currentModel = state.currentModel;
+	const hourFloor = Number.isFinite(state.hourFloor) ? state.hourFloor : Date.now() - 86400000;
 	for (const event of events) {
 		// 这里的 usage 样本要解析两次（计数兜底 + token 累加），而解析一次就要
 		// 反向扫完整条 stream。只算一遍，两条路径共用同一个对象。
@@ -551,15 +579,25 @@ export function applyUsageDelta(state, events) {
 		// 取消 / 流错误），与 requests 不相交，两者相加才是总尝试次数（分母）。
 		if (event.type === "assistant/message" || event.type === "assistant/attempt") {
 			const entry = entryOf(state.days, dayKey(event.time));
+			const hour = event.time >= hourFloor ? hourKey(event.time) : null;
+			const hourEntry = hour === null ? null : hourEntryOf(state.hours, hour);
 			if (sample === void 0) {
 				const fallbackModel = modelOf(event) ?? currentModel ?? "unknown/unknown";
 				const bucket = modelBucketOf(entry, fallbackModel);
 				if (event.type === "assistant/attempt") {
 					entry.failed += 1;
 					bucket.failed += 1;
+					if (hourEntry !== null) {
+						hourEntry.failed += 1;
+						modelBucketOf(hourEntry, fallbackModel).failed += 1;
+					}
 				} else {
 					entry.requests += 1;
 					bucket.requests += 1;
+					if (hourEntry !== null) {
+						hourEntry.requests += 1;
+						modelBucketOf(hourEntry, fallbackModel).requests += 1;
+					}
 				}
 			}
 			// 重试收口：这一步先前重试过，而这一条 assistant/message 就是那次重试
@@ -569,6 +607,7 @@ export function applyUsageDelta(state, events) {
 				if (state.pendingRetries.has(stepKey)) {
 					state.pendingRetries.delete(stepKey);
 					entry.retriedSuccess += 1;
+					if (hourEntry !== null) hourEntry.retriedSuccess += 1;
 				}
 			}
 		}
@@ -576,6 +615,7 @@ export function applyUsageDelta(state, events) {
 		// 在下面（保持既有语义），这里只做计数与配对。
 		if (event.type === "llm/retry-started") {
 			entryOf(state.days, dayKey(event.time)).retries += 1;
+			if (event.time >= hourFloor) hourEntryOf(state.hours, hourKey(event.time)).retries += 1;
 			state.pendingRetries.add(`${event.data?.turn}:${event.data?.step}`);
 		}
 		// 工作时长：step/start 与 step/end 配对，跨 fold 边界的未闭合 step
@@ -605,7 +645,9 @@ export function applyUsageDelta(state, events) {
 		const buckets = bucketsOf(sample.usage);
 		const model = modelOf(event) ?? currentModel ?? "unknown/unknown";
 		const day = dayKey(event.time);
+		const hour = event.time >= hourFloor ? hourKey(event.time) : null;
 		const entry = entryOf(state.days, day);
+		const hourEntry = hour === null ? null : hourEntryOf(state.hours, hour);
 		if (last !== null && last.key === sample.key) {
 			// Same turn/step re-reported: replace instead of double counting.
 			// 计数字段必须跟着 token 一起撤销：同一次结算里新样本（例如最终的
@@ -619,6 +661,19 @@ export function applyUsageDelta(state, events) {
 				if (previousModel !== void 0) {
 					subtractFrom(previousModel, last.buckets);
 					subtractModelCounters(previousModel, last.counters);
+				}
+			}
+			// 小时桶同样要撤销上一次样本：漏了这一步，重报会让某个小时翻倍。
+			if (last.hour !== void 0) {
+				const previousHour = state.hours.get(last.hour);
+				if (previousHour !== void 0) {
+					subtractFrom(previousHour.totals, last.buckets);
+					subtractCounters(previousHour, last.counters);
+					const previousHourModel = previousHour.models.get(last.model);
+					if (previousHourModel !== void 0) {
+						subtractFrom(previousHourModel, last.buckets);
+						subtractModelCounters(previousHourModel, last.counters);
+					}
 				}
 			}
 		}
@@ -671,7 +726,15 @@ export function applyUsageDelta(state, events) {
 		const modelBucket = modelBucketOf(entry, model);
 		addInto(modelBucket, buckets);
 		addModelCounters(modelBucket, counters);
-		last = { key: sample.key, day, hour: hourKey(event.time), model, buckets, counters };
+		// 小时桶与天级同源：token、计数、模型明细一起记，趋势图各口径才一致。
+		if (hourEntry !== null) {
+			addInto(hourEntry.totals, buckets);
+			addCounters(hourEntry, counters);
+			const hourModelBucket = modelBucketOf(hourEntry, model);
+			addInto(hourModelBucket, buckets);
+			addModelCounters(hourModelBucket, counters);
+		}
+		last = { key: sample.key, day, hour, model, buckets, counters };
 	}
 	state.lastSample = last;
 	state.currentModel = currentModel;
@@ -702,6 +765,25 @@ export function mergeInto(byDay, sessionDays) {
 		// 「未知」而不是 NaN，整个大盘也不会因为一份旧会话而整列崩掉。
 		addCounters(target, entry);
 		target.compacted += entry.compacted ?? 0;
+		for (const [model, bucket] of entry.models) {
+			const targetBucket = modelBucketOf(target, model);
+			addInto(targetBucket, bucket);
+			addModelCounters(targetBucket, bucket);
+		}
+	}
+}
+
+/**
+ * Merge one session's folded hours into a global per-hour map.
+ * @param byHour - global hour map to mutate.
+ * @param sessionHours - session hour map from its fold state.
+ */
+export function mergeHoursInto(byHour, sessionHours) {
+	if (!(sessionHours instanceof Map)) return;
+	for (const [hour, entry] of sessionHours) {
+		const target = hourEntryOf(byHour, hour);
+		addInto(target.totals, entry.totals);
+		addCounters(target, entry);
 		for (const [model, bucket] of entry.models) {
 			const targetBucket = modelBucketOf(target, model);
 			addInto(targetBucket, bucket);
@@ -749,16 +831,19 @@ export function consumeEvents(byDay, events) {
 
 /**
  * Render a global per-day map into the wire shape for the usage endpoint.
+ *
+ * `hours` only carries **today's 24 buckets**（00–23 全量补齐）：观测大盘
+ * 切到「今日」时用它画 24 小时趋势。更早的小时桶不返回、也不持久化——
+ * 全历史小时曾占响应与缓存的绝对大头，而没有任何界面消费它。
+ *
  * @param byDay - day → entry map.
- * @param _byHour - retired hourly map; accepted and ignored so existing call
- *   sites keep their shape. Nothing has consumed `hours` since the workbench
- *   was folded into this card, and it was 72% of the response body (every hour
- *   bucket ever recorded, forever) plus a second full-size fold to maintain.
- * @param updatedAt - computation timestamp.
- * @returns `{ days, total, updatedAt }` with `days` sorted ascending; each day
- *   carries `models` (descending by tokens) and a `cacheHitRate` percent.
+ * @param byHour - hour → entry map（只保证今天 24 个 key，缺的按 0 输出）。
+ * @param updatedAt - computation timestamp（也决定「今天」是哪一天）。
+ * @returns `{ days, hours, total, updatedAt }`；days/hours 均按时间升序，
+ *   each day/hour carries `models` (descending by tokens) and a
+ *   `cacheHitRate` percent.
  */
-export function renderUsage(byDay, _byHour, updatedAt) {
+export function renderUsage(byDay, byHour, updatedAt) {
 	const days = [...byDay.entries()]
 		.map(([date, entry]) => {
 			const models = [...entry.models.entries()]
@@ -783,6 +868,32 @@ export function renderUsage(byDay, _byHour, updatedAt) {
 			};
 		})
 		.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+	const stamp = Number.isFinite(updatedAt) ? updatedAt : Date.now();
+	const today = dayKey(stamp);
+	const hours = [];
+	for (let hour = 0; hour < 24; hour += 1) {
+		const key = `${today}-${String(hour).padStart(2, "0")}`;
+		const entry = byHour instanceof Map ? byHour.get(key) : void 0;
+		const buckets = entry === void 0 ? zeroBuckets() : entry.totals;
+		const models = entry === void 0 ? [] : [...entry.models.entries()]
+			.map(([model, bucket]) => ({
+				model,
+				...bucketsOf(bucket),
+				...modelCountersOf(bucket),
+				tokens: totalTokens(bucket),
+				cacheHitRate: cacheHitRate(bucket)
+			}))
+			.sort((a, b) => b.tokens - a.tokens);
+		hours.push({
+			hour,
+			date: today,
+			...buckets,
+			...(entry === void 0 ? zeroCounters() : countersOf(entry)),
+			tokens: totalTokens(buckets),
+			cacheHitRate: cacheHitRate(buckets),
+			models
+		});
+	}
 	const total = zeroBuckets();
 	const totalCounters = zeroCounters();
 	let totalCompacted = 0;
@@ -793,6 +904,7 @@ export function renderUsage(byDay, _byHour, updatedAt) {
 	}
 	return {
 		days,
+		hours,
 		total: {
 			...total,
 			...totalCounters,
@@ -800,7 +912,7 @@ export function renderUsage(byDay, _byHour, updatedAt) {
 			cacheHitRate: cacheHitRate(total),
 			compacted: totalCompacted
 		},
-		updatedAt
+		updatedAt: stamp
 	};
 }
 
