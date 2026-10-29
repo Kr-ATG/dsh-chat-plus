@@ -32,8 +32,6 @@
       name: dsh-chat-plus/packages/vault
     - id: dsh-chat-plus-prompt
       name: dsh-chat-plus/packages/prompt
-    - id: dsh-chat-plus-feed
-      name: dsh-chat-plus/packages/feed
     - id: dsh-chat-plus-sync
       name: dsh-chat-plus/packages/sync
     - id: dsh-chat-plus-provider

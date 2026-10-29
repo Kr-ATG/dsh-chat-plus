@@ -2,12 +2,11 @@
  * WorkbenchPanel — 4 合 1 统一工作台主容器。
  *
  * 聚合模块（顺序 = WORKBENCH_TABS 顺序 = 侧栏操作间顺序）：
- *  0. 动态 (Feed)      — 按提示词在后台生成的个人资讯流（操作间第一项）
- *  1. 记忆 (Memory)    — DSH 暗色系大盘与卡片流
- *  2. 能力 (Skills)    — 技能与 MCP 工具包管理
- *  3. 用量 (Usage)     — Token 消耗总览、24小时/月度平滑曲线与 52 周全局热力大盘
- *  4. 画廊 (Gallery)   — 多媒体画廊：所有对话生成的图片 / 网页 / 演示 / 文档一站查看
- *  5. 档案 (Vault)     — 结构化个人档案：账号密码 / 支付方式 / 联系方式 / 证件
+ *  0. 记忆 (Memory)    — DSH 暗色系大盘与卡片流
+ *  1. 能力 (Skills)    — 技能与 MCP 工具包管理
+ *  2. 用量 (Usage)     — Token 消耗总览、24小时/月度平滑曲线与 52 周全局热力大盘
+ *  3. 画廊 (Gallery)   — 多媒体画廊：所有对话生成的图片 / 网页 / 演示 / 文档一站查看
+ *  4. 档案 (Vault)     — 结构化个人档案：账号密码 / 支付方式 / 联系方式 / 证件
  *                        （与记忆库**互不隶属**：不受工作区开关管辖，敏感值加密
  *                        落盘且绝不进模型上下文；侧栏二级菜单 = 场景分组）
  *
@@ -29,7 +28,6 @@ import { SkillsPanel } from '../usage/dashboard/SkillsPanel.js'
 import { UsagePanel } from '../usage/dashboard/UsagePanel.js'
 import { GalleryPanel } from '../gallery/GalleryPanel.js'
 import { VaultPanel } from '../vault/Panel.js'
-import { FeedPanel } from '../feed/FeedPanel.js'
 import { SystemPromptPanel } from '../system-prompt/Panel.js'
 import { SyncSettingsPanel } from '../workbench-sync/SyncSettingsPanel.js'
 import { createMemoryApi } from '../memory/api.js'
@@ -46,14 +44,13 @@ import {
 /**
  * 工作台分类。
  *
- * 'feed' 是 2026-10-27 新增的「动态」（用户要求「操作间增加一级菜单动态」），
- * 刻意排在第一位：它是操作间的第一项，也是侧栏顺序 / 滚轮顺序 / ⌘N 直切
- * 顺序的唯一真相（三处都遍历 WORKBENCH_TABS，不另起一份表）。
+ * 顺序即侧栏顺序 / 滚轮顺序 / ⌘N 直切顺序的唯一真相（三处都遍历
+ * WORKBENCH_TABS，不另起一份表）。
  *
  * ⚠ DEFAULT_TAB 仍然是 'memory'：默认页是「上次看过的分类」（localStorage
- * 回填），首次安装落到记忆是既有约定，不因为加了一项就改默认落点。
+ * 回填），首次安装落到记忆是既有约定。
  */
-export type WorkbenchTab = 'feed' | 'memory' | 'skills' | 'usage' | 'gallery' | 'vault' | 'prompt' | 'sync'
+export type WorkbenchTab = 'memory' | 'skills' | 'usage' | 'gallery' | 'vault' | 'prompt' | 'sync'
 
 /**
  * 默认 Tab。
@@ -98,12 +95,10 @@ function PageHead({ tab }: { tab: WorkbenchTab }): JSX.Element | null {
   // 用量页头在 UsagePanel 嵌入分支内（与英雄区同一组件树）；
   // SKILL 页头由 SkillsPanel 自己的刊头（Skills / 索引 + 三格统计）承担，
   // 这里再画一次会变成「SKILL / 会什么」压着「Skills 索引」两个大标题。
-  // usage / skills / vault / feed 四个面板自带页头（巨型标题 + 说明），这里再画一次
+  // usage / skills / vault 三个面板自带页头（巨型标题 + 说明），这里再画一次
   // 会变成两层大标题压在一起。
-  // 'feed' 那层页头是原型定稿的（大头像 + 「苏墨的动态」+ 未读火苗 + 更新/设置
-  // 两枚胶囊），是页面识别度最高的元素，不能被 wb2 页头盖住。
   if (head === undefined || tab === 'usage' || tab === 'skills' || tab === 'vault'
-    || tab === 'sync' || tab === 'feed') return null
+    || tab === 'sync') return null
   return (
     <header className="wb2-head wb2-rise">
       <div className="wb2-head-l">
@@ -119,7 +114,7 @@ export function WorkbenchPanel({ onClose, initialTab = DEFAULT_TAB }: WorkbenchP
   ensureWorkbenchStyles()
   ensureWorkbenchTheme()
 
-  // 先无条件订阅 work.* 八个开关（hook 顺序固定），再由下面的渲染决定显示哪页。
+  // 先无条件订阅 work.* 七个开关（hook 顺序固定），再由下面的渲染决定显示哪页。
   // 关掉某个工作台后：侧栏入口、hover 浮层与本页内容同一拍消失；重新打开也
   // 同一拍回来，不需要刷新。
   const visibleTabs = useVisibleWorkbenchTabs()
@@ -220,14 +215,6 @@ export function WorkbenchPanel({ onClose, initialTab = DEFAULT_TAB }: WorkbenchP
                 </div>
                 <div>所有工作台开关都已关闭。可在「设置 → 插件 → dsh-chat-plus → 包含的组件」里重新打开。</div>
               </div>
-            </div>
-          )}
-
-          {/* 动态：自带页头（头像 + 名字 + 未读 + 更新/设置）与自己的两栏布局，
-              所以不套 wb2-page-wrap 的 PageHead —— 只借用它的纵向撑满。 */}
-          {effectiveTab === 'feed' && (
-            <div key="feed" className="wb2-page-wrap">
-              <FeedPanel onClose={onClose} embedded />
             </div>
           )}
 

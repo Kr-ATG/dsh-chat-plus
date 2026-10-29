@@ -503,7 +503,7 @@ assert(VaultCipher.fromKey(Buffer.alloc(16)) === null, 'a wrong-length key is re
  * pending: true，新抽出来的记录又会挂上而页面上已经没有确认入口。这些都
  * 不会崩，只会静默错，所以只能靠断言。
  */
-assert(VAULT_SCHEMA_VERSION === 3, 'the vault schema version is 3 (v2 retired pending, v3 added the purpose category)')
+assert(VAULT_SCHEMA_VERSION === 4, 'the vault schema version is 4 (v2 retired pending, v3 added category, v4 added file attachments)')
 
 // ① 确认动作的写入口整体没了：store 上不该再有 setPending。
 assert(typeof store.setPending !== 'function',
@@ -554,7 +554,7 @@ const v1Data = {
 }
 const migratedFromV1 = migrate(v1Data)
 const migratedPending = migratedFromV1.records.find((record) => record.id === 'rec_v1_pending')
-assert(migratedFromV1.schemaVersion === 3, 'migrate bumps a v1 store all the way to schema version 3')
+assert(migratedFromV1.schemaVersion === 4, 'migrate bumps a v1 store all the way to schema version 4')
 assert(migratedPending !== undefined && !('pending' in migratedPending),
   'migrate deletes the legacy pending flag instead of just no longer writing it')
 assert(migratedFromV1.records.length === 2, 'migrate keeps every record (the flag goes, the data stays)')
@@ -564,6 +564,11 @@ assert(migratedFromV1.records.every((record) => !('pending' in record)),
 assert(migratedPending.confidence === 0.42, 'migrate preserves confidence (it is provenance, not a pending marker)')
 assert(migratedPending.version === 7, 'migrate preserves the record version counter')
 assert(migratedPending.source === 'extract', 'migrate preserves the record source')
+// v4：文件附件是新字段，老记录必须补一个空数组（页面才能直接 .map / .length）。
+assert(migratedFromV1.records.every((record) => Array.isArray(record.files) && record.files.length === 0),
+  'migrate gives every legacy record an empty files array')
+assert(migratedFromV1.scenes.some((scene) => scene.id === 'configs'),
+  'migrate adds the built-in configs scene to a legacy vault')
 
 /*
  * ③ 应用层：applyVaultOps 写出来的记录上**没有** pending 字段。

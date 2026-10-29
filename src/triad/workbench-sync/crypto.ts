@@ -27,8 +27,6 @@ export interface SyncEnvelope {
     vaultRecords?: number
     memoryEntries?: number
     skillFiles?: number
-    /** 动态设置里的关注对象个数（提示词与模型是否包含由 configJson 是否存在决定）。 */
-    feedEntities?: number
   }
   kdf: {
     name: string

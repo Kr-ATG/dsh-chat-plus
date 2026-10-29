@@ -49,7 +49,8 @@ export const MAX_BLOB_BYTES = 20 * 1024 * 1024
 interface BlobIndexEntry {
   sha256: string
   bytes: number
-  mediaType: VaultBlobRef['mediaType']
+  /** MIME（图片为 image/*；文件为上传时声明，未知为 application/octet-stream）。 */
+  mediaType: string
   width: number
   height: number
   /** 引用它的 photoId（可能为空数组=待回收）。 */
@@ -150,12 +151,51 @@ export class BlobStore {
     const mediaType = detectMediaType(bytes)
     // 认不出魔数就拒收：客户端可能把 .heic 改了扩展名，或者传了非图片。
     if (mediaType === null) return null
+    return this.storeBytes(bytes, {
+      mediaType,
+      width: meta.width,
+      height: meta.height,
+      name: meta.name,
+      refId: meta.photoId,
+    })
+  }
+
+  /**
+   * 存一份**任意文件**字节（不校验图片魔数、不压缩）。
+   *
+   * 文件与照片共用同一棵 blobs 树与同一份索引：引用计数、删除、配额统计、
+   * 工作台云同步全部复用。区别只有一处——put 会拒绝非图片，putRaw 接受任意
+   * 字节（配置文件、订阅、证书、脚本都可以）。
+   * @returns 引用；空字节或超过单文件上限时返回 null。
+   */
+  async putRaw(
+    bytes: Buffer,
+    meta: { mediaType?: string; name?: string; refId: string },
+  ): Promise<VaultBlobRef | null> {
+    if (bytes.length === 0 || bytes.length > MAX_BLOB_BYTES) return null
+    const mediaType = typeof meta.mediaType === 'string' && meta.mediaType.trim() !== ''
+      ? meta.mediaType.trim()
+      : 'application/octet-stream'
+    return this.storeBytes(bytes, {
+      mediaType,
+      width: 0,
+      height: 0,
+      name: meta.name,
+      refId: meta.refId,
+    })
+  }
+
+  /** 存字节的公共实现（内容去重 + 引用登记 + 原子写）。 */
+  private async storeBytes(
+    bytes: Buffer,
+    meta: { mediaType: string; width: number; height: number; name?: string; refId: string },
+  ): Promise<VaultBlobRef> {
     const sha256 = sha256Of(bytes)
     const index = await this.loadIndex()
     const existing = index.blobs[sha256]
     if (existing !== undefined) {
       // 同字节已在盘上：只加引用，不重复写文件。
-      if (!existing.refs.includes(meta.photoId)) existing.refs.push(meta.photoId)
+      if (!existing.refs.includes(meta.refId)) existing.refs.push(meta.refId)
       existing.lastReadAt = new Date().toISOString()
       await this.saveIndex()
       return {
@@ -176,15 +216,15 @@ export class BlobStore {
     index.blobs[sha256] = {
       sha256,
       bytes: bytes.length,
-      mediaType,
-      width: Math.max(1, Math.round(meta.width)),
-      height: Math.max(1, Math.round(meta.height)),
-      refs: [meta.photoId],
+      mediaType: meta.mediaType,
+      width: Math.max(0, Math.round(meta.width)),
+      height: Math.max(0, Math.round(meta.height)),
+      refs: [meta.refId],
       createdAt: now,
       lastReadAt: now,
     }
     await this.saveIndex()
-    return { sha256, mediaType, width: Math.max(1, Math.round(meta.width)), height: Math.max(1, Math.round(meta.height)), bytes: bytes.length, name: meta.name }
+    return { sha256, mediaType: meta.mediaType, width: Math.max(0, Math.round(meta.width)), height: Math.max(0, Math.round(meta.height)), bytes: bytes.length, name: meta.name }
   }
 
   /**
@@ -264,6 +304,14 @@ export class BlobStore {
     delete index.blobs[sha256]
     await rm(this.pathOf(sha256), { force: true })
     await this.saveIndex()
+  }
+
+  /** 读 blob 元信息（下载文件时定 content-type 与长度）。 */
+  async info(sha256: string): Promise<{ sha256: string; bytes: number; mediaType: string } | null> {
+    const index = await this.loadIndex()
+    const entry = index.blobs[sha256]
+    if (entry === undefined) return null
+    return { sha256: entry.sha256, bytes: entry.bytes, mediaType: entry.mediaType }
   }
 
   /** 该 blob 是否仍在盘上（且大小与索引一致）。 */

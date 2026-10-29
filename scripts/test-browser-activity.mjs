@@ -69,7 +69,7 @@ for (const [name, value] of Object.entries({
 // ── 1. 契约常量 ───────────────────────────────────────────────────────────
 need(BROWSER_ACTIVITY_ROUTE === '/api/chat-flow/browser-activity',
   `路由常量与客户端一致：${BROWSER_ACTIVITY_ROUTE}`)
-need(BROWSER_ACTIVITY_LINGER_MS === 1500, `尾迹窗口 1500ms（实得 ${BROWSER_ACTIVITY_LINGER_MS}）`)
+need(BROWSER_ACTIVITY_LINGER_MS === 4000, `尾迹窗口 4000ms（实得 ${BROWSER_ACTIVITY_LINGER_MS}）`)
 need(BROWSER_ACTIVITY_DEBUG_LIMIT === 20, `诊断缓冲上限 20（实得 ${BROWSER_ACTIVITY_DEBUG_LIMIT}）`)
 
 // 来源常量必须与契约里的四条路径逐字一致（客户端/文档都按这几个字符串沟通）
@@ -319,7 +319,7 @@ function harness(options = {}) {
   need(interleaved.lingering === false, '还有一个调用在跑时不进尾迹')
 }
 
-// ── 6. 尾迹：1500ms 内仍可见，超过后消失 ──────────────────────────────────
+// ── 6. 尾迹：LINGER 内仍可见，超过后消失 ──────────────────────────────────
 {
   const h = harness()
   h.tracker.begin('S-1', 'call-a', 'mcp__playwright-mcp__browser_click')
@@ -334,14 +334,14 @@ function harness(options = {}) {
   need(inTrail.service === 'playwright-mcp' && inTrail.tool === 'browser_click',
     '尾迹期保留最后一次的 service/tool（图标 tooltip 还能说明刚做了什么）')
 
-  h.advance(1499)
-  need(h.row('S-1') !== undefined, '尾迹 1499ms 仍可见（上限内不掉）')
+  h.advance(BROWSER_ACTIVITY_LINGER_MS - 1)
+  need(h.row('S-1') !== undefined, `尾迹 ${BROWSER_ACTIVITY_LINGER_MS - 1}ms 仍可见（上限内不掉）`)
 
-  h.advance(1) // 累计 1500ms
-  need(h.row('S-1')?.lingering === true, '恰好 1500ms 边界仍可见（<= 而非 <）')
+  h.advance(1) // 累计到 LINGER
+  need(h.row('S-1')?.lingering === true, `恰好 ${BROWSER_ACTIVITY_LINGER_MS}ms 边界仍可见（<= 而非 <）`)
 
-  h.advance(1) // 1501ms
-  need(h.row('S-1') === undefined, '超过 1500ms 后消失')
+  h.advance(1) // 超界 1ms
+  need(h.row('S-1') === undefined, `超过 ${BROWSER_ACTIVITY_LINGER_MS}ms 后消失`)
   need(h.tracker.size === 0, '过期会话被惰性清出 Map（不留下只写不删的表）')
 }
 
@@ -380,10 +380,10 @@ function harness(options = {}) {
     h.advance(450) // 合计 600ms 的调用间隔
     if (h.row('S-live') === undefined) visibleThroughout = false
   }
-  need(visibleThroughout, `连续 5 次调用全程可见（间隔 600ms < 尾迹 1500ms，不得闪烁）`)
+  need(visibleThroughout, `连续 5 次调用全程可见（间隔 600ms < 尾迹 ${BROWSER_ACTIVITY_LINGER_MS}ms，不得闪烁）`)
 
   // 序列真结束：等过尾迹窗就必须灭
-  h.advance(1500)
+  h.advance(BROWSER_ACTIVITY_LINGER_MS)
   need(h.row('S-live') === undefined, '序列结束后超过尾迹窗，图标熄灭')
 }
 

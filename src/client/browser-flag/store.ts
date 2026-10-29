@@ -34,8 +34,22 @@ export const BROWSER_ACTIVITY_ROUTE = '/api/chat-flow/browser-activity'
 /** 有活动时的轮询间隔（ms）。 */
 export const FAST_POLL_MS = 1000
 
-/** 连续无活动后的保活间隔（ms）。 */
-export const SLOW_POLL_MS = 5000
+/**
+ * 连续无活动后的保活间隔（ms）。
+ *
+ * 2026-10-29 从 5000 降到 1500：**ego 的一次操作太短，5 秒的保活期会整段错过**。
+ *
+ * 症状（用户原话）：「使用 EGO 的时候操作间不显示浏览器标识了」。实测时序是：
+ * 一次 `ego-browser nodejs -e ...` 调用只跑 2–5 秒，结束后 host 侧只剩 1.5s 尾迹；
+ * 而轮询在连续无活动 3 轮后就降到 5s。于是「活动已经结束、下一次轮询还没到」，
+ * 回包永远是空的 —— 图标不是没渲染，是**从来没拿到过数据**（CDP 里实测：活动出现
+ * 后 7 秒才亮，那时调用早结束了）。
+ *
+ * 为什么敢降到 1.5s：有活动时本来就是 1000ms，本地同源 GET 的量级可以忽略；
+ * 而这条路由的语义是「此刻在不在操作浏览器」，是瞬时状态，保活期比活动期还慢
+ * 一倍多本身就是错的取舍。
+ */
+export const SLOW_POLL_MS = 1500
 
 /** 连续多少次无活动后降速。 */
 export const IDLE_ROUNDS_BEFORE_SLOW = 3

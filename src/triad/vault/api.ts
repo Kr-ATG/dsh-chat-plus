@@ -26,12 +26,11 @@ import { URL } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { rejectCrossSite } from '../../shared/csrf.ts'
 import { MIN_BACKUP_PASSWORD, createBackupPackage, keyFingerprint, readBackupPackage } from './backup.js'
+import { detectMediaType } from './blobs.js'
 import { VaultCipher } from './crypto.js'
 import { generatePassword } from './passgen.js'
 import { listVaultReminders } from './reminders.js'
 import type { VaultStore } from './store.js'
-import type { VaultSync } from './sync.js'
-import type { VaultSyncPatch } from './sync-types.js'
 import { generateTotp, parseTotpSecret } from './totp.js'
 import {
   DEFAULT_VAULT_CONFIG,
@@ -76,24 +75,17 @@ const SHA_PATTERN = /^[a-f0-9]{64}$/
 
 /* ───────────────────────── 挂载 ───────────────────────── */
 
-/**
- * 挂载全部路由（返回 disposer，交给 ctx.effect）。
- *
- * sync 可缺省：云端同步引擎是档案模块的**可选件**（构造它需要 cipher，而
- * cipher 在某些降级环境里是 null）。缺省时 /sync* 一律回 503，页面据此显示
- * 「云端备份不可用」——而不是让整个档案面板挂掉。
- */
+/** 挂载全部路由（返回 disposer，交给 ctx.effect）。 */
 export function mountVaultRoutes(
   ctx: Context,
   store: VaultStore,
   config: VaultConfig,
-  sync: VaultSync | null = null,
 ): () => void {
   return ctx.webServer.register({
     kind: 'prefix',
     path: ROUTE_PREFIX,
     handler: (req, res) => {
-      void handle(ctx, store, config, sync, req, res)
+      void handle(ctx, store, config, req, res)
     },
   })
 }
@@ -104,7 +96,6 @@ async function handle(
   ctx: Context,
   store: VaultStore,
   config: VaultConfig,
-  sync: VaultSync | null,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
@@ -162,6 +153,10 @@ async function handle(
     }
     if (method === 'GET' && rest === '/image') {
       await serveImage(store, url, res)
+      return
+    }
+    if (method === 'GET' && rest === '/file') {
+      await serveFile(store, url, res)
       return
     }
     if (method === 'GET' && rest === '/export') {
@@ -266,6 +261,21 @@ async function handle(
         : { ok: true, record })
       return
     }
+    if (method === 'POST' && rest === '/file') {
+      await handleFileUpload(store, req, res)
+      return
+    }
+    if (method === 'POST' && rest === '/file-delete') {
+      const body = await readBody(req)
+      if (body === null) { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return }
+      const id = requireString(body, 'id')
+      const fileId = requireString(body, 'fileId')
+      const record = await store.removeFile(id, fileId)
+      json(res, record === undefined ? 404 : 200, record === undefined
+        ? { ok: false, error: '文件或记录不存在' }
+        : { ok: true, record })
+      return
+    }
     if (method === 'POST' && rest === '/maintenance') {
       const swept = await store.blobs.sweepOrphans()
       const evicted = await store.enforceQuota(config.quotaBytes)
@@ -296,50 +306,6 @@ async function handle(
       await handleTotp(store, req, res)
       return
     }
-    // ── 云端同步（GitHub 私库自动上传）──────────────────────────────
-    //
-    // 这组路由是**唯一会主动向外部发请求**的地方，因此三条纪律比别处更硬：
-    //   · 令牌与口令只进不出（GET /sync 只回后四位与「有没有」）；
-    //   · 保存令牌/口令走 POST /sync，明文只在请求体里经过一次，落盘即密文；
-    //   · 上传目标必须是私有仓库（引擎内部硬校验，不靠前端）。
-    if (rest === '/sync' && method === 'GET') {
-      if (sync === null) { json(res, 503, { ok: false, error: '云端备份不可用：本机加密密钥未就绪' }); return }
-      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
-      res.end(JSON.stringify({ ok: true, sync: await sync.publicView() }))
-      return
-    }
-    if (rest === '/sync' && method === 'POST') {
-      if (sync === null) { json(res, 503, { ok: false, error: '云端备份不可用：本机加密密钥未就绪' }); return }
-      const body = await readBody(req)
-      if (body === null) { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return }
-      try {
-        json(res, 200, { ok: true, sync: await sync.save(body as VaultSyncPatch) })
-      } catch (error) {
-        // 校验失败（地址解析不了 / 口令太短 / 令牌形状不对）是**用户输入问题**，
-        // 回 400 而不是 500：页面据此把提示挂在输入框旁边。
-        json(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
-      }
-      return
-    }
-    if (rest === '/sync-now' && method === 'POST') {
-      if (sync === null) { json(res, 503, { ok: false, error: '云端备份不可用：本机加密密钥未就绪' }); return }
-      const run = await sync.runNow('manual')
-      // 同步失败**不是 HTTP 错误**：请求本身成功处理了，结果在 run.status 里。
-      // 这样页面能拿到完整的 run（含中文原因）而不必解析 5xx 的响应体。
-      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
-      res.end(JSON.stringify({ ok: true, run, sync: await sync.publicView() }))
-      return
-    }
-    if (rest === '/sync-verify' && method === 'POST') {
-      if (sync === null) { json(res, 503, { ok: false, error: '云端备份不可用：本机加密密钥未就绪' }); return }
-      try {
-        json(res, 200, { ok: true, probe: await sync.verify(), sync: await sync.publicView() })
-      } catch (error) {
-        json(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
-      }
-      return
-    }
-
     // ── 强口令生成（服务端 crypto.randomInt，绝不用 Math.random）────
     if (method === 'POST' && rest === '/password') {
       const body = await readBody(req)
@@ -557,6 +523,44 @@ async function handlePhoto(store: VaultStore, req: IncomingMessage, res: ServerR
   json(res, 200, { ok: true, photo, record })
 }
 
+/** 上传一个任意文件附件（配置文件 / 订阅 / 证书等，base64 传字节）。 */
+async function handleFileUpload(store: VaultStore, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await readBody(req)
+  if (body === null) { json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); return }
+  const id = requireString(body, 'id')
+  const name = typeof body.name === 'string' ? body.name.trim() : ''
+  if (name === '') { json(res, 400, { ok: false, error: '文件名不能为空' }); return }
+  if (name.length > 255) { json(res, 400, { ok: false, error: '文件名过长（最多 255 字符）' }); return }
+  const mimeType = typeof body.mimeType === 'string' && body.mimeType.trim() !== ''
+    ? body.mimeType.trim()
+    : 'application/octet-stream'
+  const raw = typeof body.data === 'string' ? body.data : ''
+  if (raw === '') { json(res, 400, { ok: false, error: '没有收到文件数据' }); return }
+  // 只收纯 base64：带 data: 前缀的会让 Buffer.from 解出垃圾字节。
+  const base64 = raw.includes(',') ? raw.slice(raw.indexOf(',') + 1) : raw
+  let bytes: Buffer
+  try {
+    bytes = Buffer.from(base64, 'base64')
+  } catch {
+    json(res, 400, { ok: false, error: '文件数据不是合法 base64' })
+    return
+  }
+  if (bytes.length === 0) { json(res, 400, { ok: false, error: '文件内容为空' }); return }
+  const record = await store.attachFile({
+    recordId: id,
+    name,
+    mimeType,
+    data: bytes,
+    ...(typeof body.label === 'string' && body.label.trim() !== '' ? { label: body.label } : {}),
+  })
+  if (record === null) {
+    json(res, 400, { ok: false, error: '文件无效、超过单文件上限（20MB）或已达到单条记录文件数上限' })
+    return
+  }
+  const file = record.files[record.files.length - 1]
+  json(res, 200, { ok: true, file, record })
+}
+
 /** 导入备份（合并语义：按 id 覆盖、按「场景+标题」去重、其余追加）。 */
 async function handleImport(store: VaultStore, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const body = await readBody(req)
@@ -624,8 +628,8 @@ async function handleBackup(store: VaultStore, req: IncomingMessage, res: Server
   const records = await store.listRecords({ includeArchived: true })
   const scenes = await store.listScenes()
   const photoCount = records.reduce((sum, record) => sum + record.photos.length, 0)
-  // 图片默认不进包（一张证件两三张图，十几个证件就是几十 MB，
-  // 大多数用户的诉求是「先把密码救回来」）。要图就显式传 includePhotos。
+  // 图片与文件默认不进包（一张证件两三张图、配置文件也可能几十 MB，
+  // 大多数用户的诉求是「先把密码救回来」）。要附件就显式传 includePhotos。
   let blobs: Array<{ sha256: string; bytes: Buffer }> | undefined
   if (body.includePhotos === true) {
     const snapshot = await store.blobs.snapshot()
@@ -700,19 +704,23 @@ async function handleRestore(store: VaultStore, req: IncomingMessage, res: Serve
     records,
     ...(scenes !== undefined ? { scenes } : {}),
   })
-  // ③ 图片按内容寻址逐个落盘。
+  // ③ 附件（图片 + 文件）按内容寻址逐个落盘。
   //
-  // 只调 put、不 claim：引用集合由记录里的 photo.blobs 决定，恢复后第一次
-  // sweepOrphans 会按记录重新对齐。这里额外 claim 会造出一个指向备份机器的
-  // photoId 的引用（那个 id 恢复后可能已被用户改过），永远清不掉还占配额。
+  // 只调 putRaw、不 claim：引用集合由记录里的 photo.blobs / file.sha256 决定，
+  // 恢复后第一次 sweepOrphans 会按记录重新对齐。这里额外 claim 会造出一个指向
+  // 备份机器的 refId（那个 id 恢复后可能已被用户改过），永远清不掉还占配额。
+  // putRaw 不校验图片魔数，所以配置文件这类文本字节也能原样回来。
   let restoredPhotos = 0
   for (const item of payload.blobs) {
     if (item.bytes.length === 0) continue
     try {
-      const ref = await store.blobs.put(item.bytes, { width: 0, height: 0, photoId: 'restore:' + item.sha256.slice(0, 12) })
+      const ref = await store.blobs.putRaw(item.bytes, {
+        mediaType: detectMediaType(item.bytes) ?? 'application/octet-stream',
+        refId: 'restore:' + item.sha256.slice(0, 12),
+      })
       if (ref !== null) restoredPhotos += 1
     } catch {
-      // 单张图写不进去不该让整个恢复失败：记录已经回来才是主要的。
+      // 单个附件写不进去不该让整个恢复失败：记录已经回来才是主要的。
     }
   }
   json(res, 200, {
@@ -799,6 +807,54 @@ async function serveImage(store: VaultStore, url: URL, res: ServerResponse): Pro
     'x-content-type-options': 'nosniff',
   })
   res.end(bytes)
+}
+
+/**
+ * 文件附件下载。
+ *
+ * 与图片直链同一道安全闸门：**只服务索引里登记过的 sha**，不接受任何路径参数。
+ * 文件名只用于 Content-Disposition（下载后的文件名），不参与读盘路径。
+ */
+async function serveFile(store: VaultStore, url: URL, res: ServerResponse): Promise<void> {
+  const sha = (url.searchParams.get('sha') ?? '').trim().toLowerCase()
+  if (!SHA_PATTERN.test(sha)) {
+    json(res, 400, { ok: false, error: 'sha 形状不合法' })
+    return
+  }
+  const info = await store.blobs.info(sha)
+  if (info === null) {
+    json(res, 404, { ok: false, error: '文件不存在或已被清理' })
+    return
+  }
+  const bytes = await store.blobs.get(sha)
+  if (bytes === null) {
+    json(res, 404, { ok: false, error: '文件已丢失或校验失败' })
+    return
+  }
+  const name = (url.searchParams.get('name') ?? '').trim().slice(0, 255) || 'download'
+  res.writeHead(200, {
+    'content-type': info.mediaType || 'application/octet-stream',
+    'content-length': String(bytes.length),
+    'content-disposition': contentDispositionOf(name),
+    // 内容寻址：同一 sha 的字节永不改变，可以长缓存。
+    'cache-control': 'private, max-age=31536000, immutable',
+    'x-content-type-options': 'nosniff',
+  })
+  res.end(bytes)
+}
+
+/**
+ * 生成 Content-Disposition。
+ *
+ * filename 用 ASCII 兜底、filename* 带 UTF-8 原名：中文文件名在旧浏览器里
+ * 也能落到一个可读的扩展名，而不会被当成头注入。CR/LF 必须先清掉——否则
+ * 一个带换行的文件名就能伪造响应头。
+ */
+function contentDispositionOf(name: string): string {
+  const clean = name.replace(/[\r\n]/g, ' ').trim() || 'download'
+  const fallback = clean.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')
+  const encoded = encodeURIComponent(clean).replace(/['()*]/g, (char) => '%' + char.charCodeAt(0).toString(16).toUpperCase())
+  return 'attachment; filename="' + fallback + '"; filename*=UTF-8\'\'' + encoded
 }
 
 /**

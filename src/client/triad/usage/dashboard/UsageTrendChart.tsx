@@ -351,7 +351,7 @@ export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate,
             总消耗 Tokens
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <span style={{ width: '12px', height: '2.5px', borderRadius: '2px', background: '#f59e0b' }} />
+            <span style={{ width: '12px', height: '2.5px', borderRadius: '2px', background: 'var(--dsw-alias-label-secondary, #8A8A94)' }} />
             输出 Tokens
           </span>
         </div>
@@ -438,7 +438,7 @@ export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate,
             <path
               d={outputSpline.linePath}
               fill="none"
-              stroke="#f59e0b"
+              stroke="var(--dsw-alias-label-secondary, #8A8A94)"
               strokeWidth="1.6"
               strokeDasharray="2 2"
               opacity="0.85"
@@ -583,10 +583,10 @@ export function UsageTrendChart({ days, range, rangeLabel, preset, selectedDate,
                 <text x="8" y="15" fontSize="10" fill="var(--dsw-alias-label-tertiary, #888)">
                   {tipPoint.data.subLabel}
                 </text>
-                <text x="8" y="30" fontSize="11.5" fontWeight="700" fill="#60a5fa" fontVariantNumeric="tabular-nums">
+                <text x="8" y="30" fontSize="11.5" fontWeight="700" fill="var(--dsw-alias-state-business-primary, #C3CEDF)" fontVariantNumeric="tabular-nums">
                   {formatUnits(tipPoint.data.total)}
                 </text>
-                <text x="64" y="30" fontSize="9.5" fill="#f59e0b" fontVariantNumeric="tabular-nums">
+                <text x="64" y="30" fontSize="9.5" fill="var(--dsw-alias-label-secondary, #8A8A94)" fontVariantNumeric="tabular-nums">
                   出 {formatUnits(tipPoint.data.output)}
                 </text>
               </g>

@@ -40,8 +40,13 @@
  * 分类，用于区分什么用途一目了然」——分组（scene）回答「这是什么类型的信息」，
  * 分类（category）回答「这条是干什么用的」（服务器运维 / AI 服务 / 开发工具…）。
  * 纯新增字段，老记录缺省为空串（= 未分类），migrate 只补默认值、不猜内容。
+ *
+ * v4（2026-10-29）：记录加 files（任意文件附件）。用户要求把 Clash 订阅配置这类
+ * **文件**也存进档案，并且随工作台云同步一起上传。文件与照片共用 blobs 树的
+ * 内容寻址存储，但**不做图片压缩、不校验图片魔数**——它是原样字节，靠 sha256
+ * 校验完整性。老记录 migrate 补空数组。
  */
-export const VAULT_SCHEMA_VERSION = 3
+export const VAULT_SCHEMA_VERSION = 4
 
 /**
  * 敏感字段在 HTTP 响应里的掩码（**客户端与 host 必须用同一个字面量**）。
@@ -131,8 +136,8 @@ export type VaultImageVariant = 'thumb' | 'display' | 'original'
 export interface VaultBlobRef {
   /** 字节的 sha256（十六进制）；blobs/<sha256> 即文件路径。 */
   sha256: string
-  /** 实际媒体类型（host 侧校验魔数）。 */
-  mediaType: 'image/jpeg' | 'image/png' | 'image/webp'
+  /** 实际媒体类型（图片由 host 侧校验魔数；文件按上传时声明，未知一律 application/octet-stream）。 */
+  mediaType: string
   /** 编码宽高（像素）。 */
   width: number
   height: number
@@ -167,6 +172,34 @@ export interface VaultPhoto {
   createdAt: string
 }
 
+/* ───────────────────────────── 文件附件 ───────────────────────────── */
+
+/**
+ * 任意文件附件（Clash / mihomo 订阅、Xray 配置、证书、脚本…）。
+ *
+ * 与照片的区别：照片有 thumb / display / original 三档、要压图、要宽高；
+ * 文件是**原样字节**，只存一份，下载时按原文件名还原。两者共用内容寻址的
+ * blobs 树，所以删除、引用计数、配额统计、云同步都走同一套。
+ */
+export interface VaultFile {
+  /** file_<16 位十六进制>。 */
+  id: string
+  /** 原始文件名（去路径；下载时还原）。 */
+  name: string
+  /** MIME（未知时 application/octet-stream）。 */
+  mimeType: string
+  /** 字节数。 */
+  bytes: number
+  /** 字节的 sha256（blobs 树里的存储名）。 */
+  sha256: string
+  createdAt: string
+  /** 可选显示名（列表里用；缺省用 name）。 */
+  label?: string
+}
+
+/** 单条记录最多文件数（超过提示用户另建一条记录）。 */
+export const MAX_FILES_PER_RECORD = 20
+
 /* ───────────────────────────── 变更历史 ───────────────────────────── */
 
 /** 变更来源。 */
@@ -182,6 +215,8 @@ export interface VaultChange {
     | 'field-remove'
     | 'photo-add'
     | 'photo-remove'
+    | 'file-add'
+    | 'file-remove'
     | 'scene-move'
     | 'title-update'
     | 'archive'
@@ -228,6 +263,8 @@ export interface VaultRecord {
   fields: VaultField[]
   /** 照片。 */
   photos: VaultPhoto[]
+  /** 任意文件附件（配置 / 订阅 / 证书等；与照片共用 blob 树）。 */
+  files: VaultFile[]
   /** 自由标签（跨场景检索）。 */
   tags: string[]
   /** 记录级备注。 */
@@ -368,6 +405,19 @@ export const DEFAULT_SCENES: readonly VaultScene[] = [
     ],
   },
   {
+    id: 'configs',
+    label: '配置文件',
+    desc: '任意软件与服务的配置文件、订阅、证书、脚本（含文件附件）',
+    order: 60,
+    builtin: true,
+    categories: ['代理节点', '服务器配置', '开发环境', '证书与脚本', '其它配置'],
+    fieldTemplate: [
+      { key: 'name', label: '名称', type: 'text' },
+      { key: 'usage', label: '用途', type: 'text' },
+      { key: 'note', label: '说明', type: 'note' },
+    ],
+  },
+  {
     id: 'other',
     label: '其它',
     desc: '不属于以上分类的记录',
@@ -392,8 +442,12 @@ export interface VaultData {
 export interface VaultStats {
   records: number
   photos: number
-  /** 全部 blob 字节数（去重后）。 */
+  /** 文件附件条数（同一个 blob 被多条记录引用会重复计数，与照片口径一致）。 */
+  files: number
+  /** 全部 blob 字节数（去重后；含照片与文件）。 */
   blobBytes: number
+  /** 文件附件实际占用字节（按唯一 sha 去重）。 */
+  fileBytes: number
   /** 各档分布（让用户看懂「原图占了多少」）。 */
   byVariant: Record<VaultImageVariant, { count: number; bytes: number }>
   computedAt: string

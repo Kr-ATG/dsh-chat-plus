@@ -93,7 +93,7 @@ export function VaultBackupPanel({ onRestored, onError, onFlash }: VaultBackupPa
       return
     }
     if (!window.confirm(
-      '现在导出备份包（' + (includePhotos ? '含图片' : '不含图片') + '）。' + '\n'
+      '现在导出备份包（' + (includePhotos ? '含图片与文件' : '不含图片与文件') + '）。' + '\n'
       + '请把口令记在别的地方：口令丢了这个包就打不开，也没有任何办法找回。',
     )) return
     setExporting(true)
@@ -140,7 +140,7 @@ export function VaultBackupPanel({ onRestored, onError, onFlash }: VaultBackupPa
       return
     }
     if (!window.confirm(
-      '恢复会覆盖这台机器上现在的全部档案记录与照片，之后无法退回。' + '\n'
+      '恢复会覆盖这台机器上现在的全部档案记录、照片与文件，之后无法退回。' + '\n'
       + '确定要恢复吗？',
     )) return
     setRestoring(true)
@@ -172,10 +172,10 @@ export function VaultBackupPanel({ onRestored, onError, onFlash }: VaultBackupPa
   const busy = exporting || restoring
 
   return (
-    <div className={css.backup}>
+    <div className={css.backup} data-role="backup">
       {/* ── 密钥 ── */}
-      <div className={css.backupSection}>
-        <div className={css.backupLabel}>
+      <div className={css.backupSection} data-role="section" data-section="key">
+        <div className={css.backupLabel} data-role="section-head">
           <KeyIcon size={14} />
           本机密钥
         </div>
@@ -205,8 +205,8 @@ export function VaultBackupPanel({ onRestored, onError, onFlash }: VaultBackupPa
       </div>
 
       {/* ── 导出 ── */}
-      <div className={css.backupSection}>
-        <div className={css.backupLabel}>
+      <div className={css.backupSection} data-role="section" data-section="export">
+        <div className={css.backupLabel} data-role="section-head">
           <DownloadIcon size={14} />
           导出备份
         </div>
@@ -240,7 +240,7 @@ export function VaultBackupPanel({ onRestored, onError, onFlash }: VaultBackupPa
           />
           把图片也打进包里（包会变大，但证件照片换机器后还在）
         </label>
-        <div className={css.backupRow}>
+        <div className={css.backupRow} data-role="actions">
           <button
             type="button"
             className={css.btn + ' ' + css.btnPri}
@@ -256,15 +256,15 @@ export function VaultBackupPanel({ onRestored, onError, onFlash }: VaultBackupPa
       </div>
 
       {/* ── 导入 ── */}
-      <div className={css.backupSection}>
-        <div className={css.backupLabel}>
+      <div className={css.backupSection} data-role="section" data-section="restore">
+        <div className={css.backupLabel} data-role="section-head">
           <UploadIcon size={14} />
           从备份恢复
         </div>
         <div className={css.backupWarn}>
           <span style={{ display: 'inline-flex', flex: 'none', marginTop: 1 }}><AlertIcon size={13} /></span>
           <span>
-            恢复会{' '}<b>覆盖</b>{' '}这台机器上现在的全部记录与照片，而且没有撤销。
+            恢复会{' '}<b>覆盖</b>{' '}这台机器上现在的全部记录、照片与文件，而且没有撤销。
             一般是换了机器、或旧库彻底坏了才用它。
           </span>
         </div>
@@ -291,7 +291,7 @@ export function VaultBackupPanel({ onRestored, onError, onFlash }: VaultBackupPa
           aria-label="备份包密码"
           onChange={(event) => { setRestorePassword(event.target.value) }}
         />
-        <div className={css.backupRow}>
+        <div className={css.backupRow} data-role="actions">
           <button
             type="button"
             className={css.btn + ' ' + css.btnDanger}

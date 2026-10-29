@@ -139,11 +139,11 @@ export function VaultPhotoGrid({
 
   return (
     <>
-      <div className={css.photoGrid}>
+      <div className={css.photoGrid} data-role="photo-grid" data-empty={record.photos.length === 0 ? '1' : '0'}>
         {record.photos.map((photo) => {
           const thumb = photo.blobs.thumb ?? photo.blobs.display
           return (
-            <div key={photo.id} className={css.photoCard}>
+            <div key={photo.id} className={css.photoCard} data-role="photo-card">
               <img
                 className={css.photoThumb}
                 src={vaultImageUrl(thumb.sha256)}
@@ -169,7 +169,7 @@ export function VaultPhotoGrid({
 
         {!full && (
           unsaved ? (
-            <div className={css.photoUpload} style={{ cursor: 'default' }}>
+            <div className={css.photoUpload} data-role="photo-upload" data-unsaved="1" style={{ cursor: 'default' }}>
               <CameraIcon size={16} />
               <span>先点下面的「创建」保存这条记录，再上传照片</span>
             </div>
@@ -177,6 +177,7 @@ export function VaultPhotoGrid({
             <button
               type="button"
               className={photoFirst ? css.photoUpload + ' ' + css.photoUploadPri : css.photoUpload}
+              data-role="photo-upload"
               onClick={() => { inputRef.current?.click() }}
               disabled={uploading !== ''}
               title={photoFirst ? '证件类场景：拍一张或选一张照片存进来' : '上传照片'}
@@ -187,7 +188,7 @@ export function VaultPhotoGrid({
           )
         )}
 
-        {uploading !== '' && <div className={css.photoBusy}>{uploading}</div>}
+        {uploading !== '' && <div className={css.photoBusy} data-role="photo-busy">{uploading}</div>}
 
         <input
           ref={inputRef}
@@ -203,6 +204,7 @@ export function VaultPhotoGrid({
         (
           <div
             className={css.lightbox}
+            data-role="lightbox"
             role="dialog"
             aria-label={lightbox.photo.label}
             onClick={() => { setLightbox(null) }}

@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { rmSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, readFileSync } from 'node:fs'
 import { build } from 'esbuild'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -118,108 +118,55 @@ assert.ok(failedTamper, '篡改密文必须被 GCM 认证拦截')
 console.log('✓ 密文篡改拦截通过')
 
 
-console.log('--- 3. 动态设置（config + 关注对象）收集与还原 ---')
-const feedRoot = join(SMOKE_HOME, 'feed', 'dsh-chat-plus')
-mkdirSync(feedRoot, { recursive: true })
-
-// 云端机器的数据：config 是设置、gate/runs/xSync 是运行态（后者不该被带走）
-const cloudState = {
-  version: 1,
-  config: {
-    prompt: '云端提示词：盯住 AI 与开源',
-    model: 'auto/deepseek-v4.1-flash',
-    cron: '0 9,18 * * *',
-    xHandles: ['openai'],
-  },
-  gate: { status: 'running', runId: 'run-cloud', leaseUntil: Date.now() + 600000, queued: false, queuedTrigger: null, blockedCount: 0 },
-  runs: [{ id: 'run-cloud', trigger: 'manual', modelUsed: 'x', startedAt: 1, status: 'running' }],
-  xSync: { openai: { handle: 'openai', lastFetchedAt: 1, cooldownUntil: 0, consecutiveFailures: 0, seenTweetIds: { t1: 1 } } },
-  lastSyncAt: 1,
-  lastRunAt: 1,
-}
-writeFileSync(join(feedRoot, 'state.json'), JSON.stringify(cloudState, null, 2))
-writeFileSync(join(feedRoot, 'entities.json'), JSON.stringify({
-  version: 1,
-  entities: [
-    { id: 'fe_1', name: 'OpenAI', kind: 'company', aliases: ['开放人工智能'], createdAt: 1, xHandle: 'openai' },
-  ],
-}, null, 2))
-
-const feedPayload = await mod.gatherWorkbenchAssets({
-  includeVault: false,
+console.log('--- 3.5 档案文件附件随同步收集与还原 ---')
+/* 2026-10-29 用户要求：Clash 订阅这类文件存进档案后，必须随工作台云同步
+ * 一起上传。这里直接走真实 gather / restore，钉住「文件字节真的在包里、
+ * 真的能落回去」——只断言记录里有 files 字段是不够的，字节丢了页面照样
+ * 显示文件名，换机才发现下载 404。 */
+const syncVaultRoot = join(SMOKE_HOME, 'vault-sync-source')
+const syncStore = new mod.VaultStore(null, syncVaultRoot)
+const syncRecord = await syncStore.upsertRecord({
+  scene: 'configs',
+  title: '同步测试 · Clash 订阅',
+  fields: [{ key: 'name', label: '名称', type: 'text', value: 'RackNerd' }],
+  source: 'manual',
+})
+const syncYaml = Buffer.from('proxies:\n  - name: RackNerd-98\n    type: vless\n', 'utf8')
+const syncWithFile = await syncStore.attachFile({
+  recordId: syncRecord.id,
+  name: 'config.yaml',
+  mimeType: 'text/yaml',
+  data: syncYaml,
+})
+assert.ok(syncWithFile !== null && syncWithFile.files.length === 1, 'attachFile 必须把文件挂到记录上')
+const vaultPayload = await mod.gatherWorkbenchAssets({
+  includeVault: true,
   includeMemory: false,
   includeSkills: false,
-  includeFeed: true,
-  vaultStore: /** @type {any} */ ({}),
+  vaultStore: syncStore,
 })
-assert.ok(feedPayload.feed, 'includeFeed=true 时 payload.feed 必须存在')
-const gatheredConfig = JSON.parse(feedPayload.feed.configJson)
-assert.equal(gatheredConfig.prompt, '云端提示词：盯住 AI 与开源')
-assert.deepEqual(gatheredConfig.xHandles, ['openai'])
-// 运行态绝不能混进配置段
-assert.ok(!('gate' in gatheredConfig), 'config 段不得包含 gate')
-assert.ok(!('runs' in gatheredConfig), 'config 段不得包含 runs')
-assert.ok(!('xSync' in gatheredConfig), 'config 段不得包含 xSync')
-assert.ok(!feedPayload.feed.configJson.includes('run-cloud'), '配置段不得带上云端轮次 id')
-assert.equal(JSON.parse(feedPayload.feed.entitiesJson).entities.length, 1)
+assert.ok(vaultPayload.vault !== undefined, 'includeVault=true 时 payload.vault 必须存在')
+assert.ok(vaultPayload.vault.blobs.some((item) => item.base64 === syncYaml.toString('base64')),
+  '档案文件字节必须进入同步包（不是只带记录里的文件名）')
+const targetStore = new mod.VaultStore(null, join(SMOKE_HOME, 'vault-sync-target'))
+await mod.restoreVault(vaultPayload.vault, targetStore)
+const restoredRecord = await targetStore.getRecord(syncRecord.id)
+assert.ok(restoredRecord !== undefined && restoredRecord.files.length === 1, '还原必须带回文件记录')
+const restoredBytes = await targetStore.blobs.get(restoredRecord.files[0].sha256)
+assert.ok(restoredBytes !== null && restoredBytes.equals(syncYaml), '还原必须把文件字节原样写回 blobs')
+console.log('✓ 档案文件随同步收集 / 还原通过')
 
-const noFeedPayload = await mod.gatherWorkbenchAssets({
-  includeVault: false,
-  includeMemory: false,
-  includeSkills: false,
-  includeFeed: false,
-  vaultStore: /** @type {any} */ ({}),
-})
-assert.equal(noFeedPayload.feed, undefined, 'includeFeed=false 时不得收集动态设置')
-
-// 本机已有自己的运行态：恢复时必须保留 gate / runs / xSync，只换 config 与 entities
-const localState = {
-  version: 1,
-  config: { prompt: '本机旧提示词', model: 'default', cron: '0 12,18 * * *', xHandles: [] },
-  gate: { status: 'idle', runId: null, leaseUntil: 0, queued: false, queuedTrigger: null, blockedCount: 3 },
-  runs: [{ id: 'run-local', trigger: 'manual', modelUsed: 'y', startedAt: 2, status: 'ok' }],
-  xSync: { local: { handle: 'local', lastFetchedAt: 2, cooldownUntil: 0, consecutiveFailures: 0, seenTweetIds: {} } },
-  lastSyncAt: 2,
-  lastRunAt: 2,
-}
-writeFileSync(join(feedRoot, 'state.json'), JSON.stringify(localState, null, 2))
-writeFileSync(join(feedRoot, 'entities.json'), JSON.stringify({ version: 1, entities: [] }))
-
-const restoredFeed = await mod.restoreFeed(feedPayload.feed)
-assert.equal(restoredFeed.config, true, '配置段必须被恢复')
-assert.equal(restoredFeed.entities, 1, '关注对象数量应回传')
-
-const mergedState = JSON.parse(readFileSync(join(feedRoot, 'state.json'), 'utf8'))
-assert.equal(mergedState.config.prompt, '云端提示词：盯住 AI 与开源', 'config 必须来自云端')
-assert.equal(mergedState.gate.status, 'idle', '本机 gate 运行态必须原样保留')
-assert.equal(mergedState.gate.blockedCount, 3)
-assert.equal(mergedState.runs[0].id, 'run-local', '本机轮次历史必须原样保留')
-assert.ok(mergedState.xSync.local, '本机 X 去重状态必须原样保留')
-assert.ok(existsSync(join(feedRoot, 'state.json.bak-before-sync')), '覆盖前必须留本地快照')
-const mergedEntities = JSON.parse(readFileSync(join(feedRoot, 'entities.json'), 'utf8'))
-assert.equal(mergedEntities.entities[0].name, 'OpenAI', '关注对象必须来自云端')
-assert.ok(existsSync(join(feedRoot, 'entities.json.bak-before-sync')), '关注对象覆盖前必须留快照')
-
-const sizes = await mod.getWorkbenchSizes()
-assert.ok(sizes.feedBytes > 0, '动态设置体积必须计入统计')
-assert.ok(sizes.totalBytes >= sizes.feedBytes, '总体积不得小于动态设置体积')
-
-assert.equal(mod.DEFAULT_WORKBENCH_SYNC_SETTINGS.includeFeed, true, '默认必须包含动态设置')
-console.log('✓ 动态设置收集 / 还原 / 运行态保留通过')
-
-console.log('--- 4. 同步引擎：includeFeed 的保存与公开状态 ---')
+console.log('--- 4. 同步引擎：同步范围的保存与公开状态 ---')
 const vaultStore = new mod.VaultStore(null)
 const engine = new mod.WorkbenchSyncEngine(vaultStore, null, {})
-await engine.save({ includeFeed: false })
+await engine.save({ includeVault: false })
 const persistedFile = JSON.parse(readFileSync(engine.filePath, 'utf8'))
-assert.equal(persistedFile.settings.includeFeed, false, 'save 必须把 includeFeed 落盘')
-assert.equal(persistedFile.settings.includeVault, true, 'save 只改点名的开关，其它范围保持默认')
-assert.equal(persistedFile.settings.includeMemory, true)
+assert.equal(persistedFile.settings.includeVault, false, 'save 必须把 includeVault 落盘')
+assert.equal(persistedFile.settings.includeMemory, true, 'save 只改点名的开关，其它范围保持默认')
 assert.equal(persistedFile.settings.includeSkills, true)
 const view = await engine.publicView()
-assert.equal(view.includeFeed, false, 'publicView 必须回传 includeFeed')
-assert.ok(typeof view.localFeedBytes === 'number' && view.localFeedBytes >= 0, 'publicView 必须回传动态设置体积')
-console.log('✓ 同步引擎的 includeFeed 保存与状态视图通过')
+assert.equal(view.includeVault, false, 'publicView 必须回传 includeVault')
+console.log('✓ 同步引擎的同步范围保存与状态视图通过')
 
 console.log('--- 5. 检查安全规范（零私密硬编码） ---')
 const rawEngineCode = await (await import('node:fs/promises')).readFile(resolve(ROOT, 'src/triad/workbench-sync/engine.ts'), 'utf8')

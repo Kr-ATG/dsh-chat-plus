@@ -96,17 +96,6 @@ export { VaultReminderWindow } from './ReminderWindow.js'
 export type { VaultReminderWindowProps } from './ReminderWindow.js'
 export { VaultBackupPanel } from './BackupPanel.js'
 export type { VaultBackupPanelProps } from './BackupPanel.js'
-// 云端备份（GitHub 私库自动上传）：面板 + 数据面。整块导出是为了让将来别处
-// （例如侧栏入口直接开「云端备份」）能复用同一份实现，而不是再写一个弹窗。
-export { VaultSyncPanel } from './SyncPanel.js'
-export type { VaultSyncPanelProps } from './SyncPanel.js'
-export {
-  getVaultSync,
-  saveVaultSync,
-  syncVaultNow,
-  verifyVaultSyncRepo,
-  describeGithubRepo,
-} from './api.js'
 export { VaultTotpBox } from './TotpBox.js'
 export type { VaultTotpBoxProps } from './TotpBox.js'
 export type { VaultIconProps } from './icons.js'

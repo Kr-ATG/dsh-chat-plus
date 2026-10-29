@@ -57,6 +57,7 @@ import type { VaultConfig, VaultField, VaultRecord, VaultScene } from '../../../
 import { collectCategories, isFieldSensitive, isMaskedValue } from '../../../triad/vault/types.js'
 import { css } from './styles.js'
 import { VaultPhotoGrid } from './PhotoGrid.js'
+import { VaultFileList } from './FileList.js'
 import { VaultTotpBox } from './TotpBox.js'
 import {
   AlertIcon,
@@ -79,6 +80,8 @@ const ACTION_LABEL: Record<string, string> = {
   'field-remove': '删字段',
   'photo-add': '加照片',
   'photo-remove': '删照片',
+  'file-add': '加文件',
+  'file-remove': '删文件',
   'scene-move': '换分组',
   'title-update': '改标题',
   archive: '归档',
@@ -110,6 +113,7 @@ function draftFromScene(scene: VaultScene): VaultRecord {
       updatedAt: now,
     })),
     photos: [],
+    files: [],
     tags: [],
     createdAt: now,
     updatedAt: now,
@@ -632,6 +636,14 @@ export function VaultDetailDrawer({
       {/* data-shell 是给冒烟与调试用的：内容一样、壳不同，出问题时第一个要确认
           的就是「现在这个形态是弹窗还是原地展开」。 */}
       <div className={css.panelHead} data-shell={shell}>
+        {/* 顶部一行元信息：新建 / 编辑的身份 + 所属场景。这里只负责分组，
+            金色小字与场景 chip 的视觉由 styles.ts 的 panelEyebrow 承担。 */}
+        <div className={css.panelEyebrow} data-role="eyebrow">
+          <span>{isNew ? '新建记录' : '记录详情'}</span>
+          {scene !== null && scene.label !== '' && (
+            <span className={css.rowCategory} data-role="scene-chip">{scene.label}</span>
+          )}
+        </div>
         <input
           className={css.panelTitleInput}
           value={titleDraft ?? current.title}
@@ -674,7 +686,7 @@ export function VaultDetailDrawer({
             为什么放在字段之前：它是这条记录的「一句话身份」，用户打开详情第一件事
             就是确认「我找的是不是这一条」。分类和标题一起构成这个判断，而字段是
             内容。 */}
-        <div className={css.section}>
+        <div className={css.section} data-section="category">
           <div className={css.sectionHead}>
             <span className={css.sectionTitle}>用途分类</span>
             <span className={css.fieldKeyHint}>
@@ -722,7 +734,7 @@ export function VaultDetailDrawer({
         </div>
 
         {/* ── 字段列表 ── */}
-        <div className={css.section}>
+        <div className={css.section} data-section="fields">
           <div className={css.sectionHead}>
             <span className={css.sectionTitle}>字段</span>
             <button
@@ -744,6 +756,8 @@ export function VaultDetailDrawer({
             </div>
           )}
 
+          {/* 全部字段卡统一进两列网格（fieldGrid）；空态留在网格外，才能跨整行。 */}
+          <div className={css.fieldGrid}>
           {current.fields.map((field) => {
             const sensitive = isFieldSensitive(field)
             const shown = revealed[field.key]
@@ -884,10 +898,11 @@ export function VaultDetailDrawer({
               </div>
             </div>
           )}
+          </div>
         </div>
 
         {/* ── 照片 ── */}
-        <div className={css.section}>
+        <div className={css.section} data-section="photos">
           <div className={css.sectionHead}>
             <span className={css.sectionTitle}>照片</span>
             <span className={css.fieldKeyHint}>
@@ -903,8 +918,23 @@ export function VaultDetailDrawer({
           />
         </div>
 
+        {/* ── 文件附件 ──
+            与照片分开的一节：配置文件 / 订阅 / 证书是原样字节，不压图、不生成
+            缩略图，下载时按原文件名还原。 */}
+        <div className={css.section} data-section="files">
+          <div className={css.sectionHead}>
+            <span className={css.sectionTitle}>文件</span>
+            <span className={css.fieldKeyHint}>配置文件、订阅、证书等（原样保存，随云同步上传）</span>
+          </div>
+          <VaultFileList
+            record={current}
+            onRecord={onRecord}
+            onError={onError}
+          />
+        </div>
+
         {/* ── 变更历史 ── */}
-        <div className={css.section}>
+        <div className={css.section} data-section="changes">
           <div className={css.sectionHead}>
             <span className={css.sectionTitle}>变更历史</span>
             <span className={css.fieldKeyHint}>{changes.length === 0 ? '还没有变化' : String(changes.length) + ' 条'}</span>

@@ -152,7 +152,7 @@ export function apply(ctx) {
     // 生图/视频接口路径（相对 provider baseURL）。不同网关差异很大，做成可配。
     imagePath: z.string().default('images/generations'),
     videoPath: z.string().default('videos/generations'),
-    // 出网代理（可选）。留空=直连；填 http://127.0.0.1:10808 走本地代理。
+    // 出网代理（可选）。留空=直连；填 http://127.0.0.1:7897 走本地代理。
     proxyUrl: z.string().default(''),
   })
 

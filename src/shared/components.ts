@@ -1,7 +1,7 @@
 /**
  * dsh-chat-plus — 插件「包含的组件」目录（原生行开关的唯一真相）。
  *
- * 用户在插件页面要看到的不是 66 个细项，而是**组件级**的一行一开关：
+ * 用户在插件页面要看到的不是 64 个细项，而是**组件级**的一行一开关：
  *
  *   包含的组件  共 N 个 · N 运行中
  *   ├ 对话增强        [运行中 ●—]
@@ -14,9 +14,9 @@
  * dsh-chat-plus/packages/<id> 的 host-only 子模块），插件页面就会自动出现
  * 一行带「运行中」开关的组件。**行开关是官方原生的**，不经过本插件自绘面板。
  *
- * 细粒度功能（src/shared/features.ts 的 66 项）仍然保留，但它们只是**内部
+ * 细粒度功能（src/shared/features.ts 的 64 项）仍然保留，但它们只是**内部
  * 实现视角**：每项映射到下面某一个组件，组件行关掉时该组件的全部 UI / 宿主
- * 行为一起停。这样既满足「组件级开关」，又不用把 66 个开关塞给用户。
+ * 行为一起停。这样既满足「组件级开关」，又不用把 64 个开关塞给用户。
  *
  * ⚠ 新增组件 = 三件事：这里加一行、cordis.patch.yml 加一条 insert、
  * packages/<id>/ 下放一个空的 host-only 插件与 locale/zh.json（行标题与说明
@@ -37,7 +37,6 @@ export type ComponentId =
   | 'gallery'
   | 'vault'
   | 'prompt'
-  | 'feed'
   | 'sync'
   | 'provider'
   | 'mail'
@@ -70,7 +69,6 @@ export const COMPONENTS: ReadonlyArray<ComponentDef> = [
   { id: 'gallery', rowId: 'dsh-chat-plus-gallery', title: '画廊', description: '跨会话的图片 / 网页 / 视频 / 文档 / 表格产出物索引。', defaultEnabled: true },
   { id: 'vault', rowId: 'dsh-chat-plus-vault', title: '档案', description: '账号密码 / 支付方式 / 联系方式 / 证件的加密档案与到期提醒。', defaultEnabled: true },
   { id: 'prompt', rowId: 'dsh-chat-plus-prompt', title: '系统提示词', description: '查看本次会话真正发送给模型的系统提示词快照。', defaultEnabled: true },
-  { id: 'feed', rowId: 'dsh-chat-plus-feed', title: '动态', description: '按提示词在后台生成的个人资讯流与 X 同步。', defaultEnabled: true },
   { id: 'sync', rowId: 'dsh-chat-plus-sync', title: '同步设置', description: '工作台资产（档案 / 记忆 / 技能）的云端双向同步。', defaultEnabled: true },
   { id: 'provider', rowId: 'dsh-chat-plus-provider', title: '供应商中心', description: '官方设置里的供应商页：API Key、网络代理、模型能力、生图 / 识图 / 生视频与 AnySearch。', defaultEnabled: true },
   { id: 'mail', rowId: 'dsh-chat-plus-mail', title: 'Agent 邮箱', description: '本 Agent 的专属邮箱：收件箱 / 读信 / 附件保存与每会话首步的能力声明。', defaultEnabled: true },
@@ -139,16 +137,14 @@ export const FEATURE_COMPONENT: Readonly<Record<string, ComponentId>> = {
   'view.done-pill': 'done-pill',
   'host.done-pill-media': 'done-pill',
 
-  // ── 工作台（八个独立行）────────────────────────────────────────────
+  // ── 工作台（七个独立行）────────────────────────────────────────────
   'work.memory': 'memory',
   'work.skills': 'skills',
   'work.usage': 'usage',
   'work.gallery': 'gallery',
   'work.vault': 'vault',
   'work.prompt': 'prompt',
-  'work.feed': 'feed',
   'work.sync': 'sync',
-  'host.feed': 'feed',
   'host.system-prompt': 'prompt',
 
   // ── 供应商中心（provider）───────────────────────────────────────────

@@ -71,7 +71,7 @@ export function SyncProgressCard({ progress, running, onDismiss }: SyncProgressC
           className={syncCss.progressFill}
           style={{
             width: `${percent}%`,
-            backgroundColor: isFailed ? '#ef4444' : isCompleted ? '#10b981' : '#3b82f6',
+            backgroundColor: isFailed ? '#ef4444' : isCompleted ? '#10b981' : 'var(--wb2-accent,#C3CEDF)',
           }}
         />
       </div>

@@ -349,15 +349,16 @@ export function buildActivityGrid(
 }
 
 /**
- * 贡献格配色：DeepSeek 品牌蓝 alpha 渐变（平方根曲线，低值可见、高峰突出）。
- * 零值/占位返回微透底；高频使用格呈现富有成就感的逐级饱和蓝。
+ * 贡献格配色：冷银蓝强调色 alpha 渐变（平方根曲线，低值可见、高峰突出）。
+ * 零值/占位返回微透底；高频使用格呈现逐级加深的冷银蓝。
+ * 2026-10-29：与工作台/档案页统一，不再用品牌蓝。
  */
-const BLUE = [41, 118, 230] as const
+const ACCENT_RGB = [195, 206, 223] as const
 export function activityColor(tokens: number, max: number): string {
   if (!(tokens > 0)) return 'color-mix(in srgb, var(--dsw-alias-border-l2) 55%, transparent)'
   const ratio = max > 0 ? Math.sqrt(Math.min(1, tokens / max)) : 1
   const alpha = Math.min(1, 0.25 + 0.75 * ratio)
-  return `rgba(${BLUE[0]}, ${BLUE[1]}, ${BLUE[2]}, ${alpha.toFixed(3)})`
+  return `rgba(${ACCENT_RGB[0]}, ${ACCENT_RGB[1]}, ${ACCENT_RGB[2]}, ${alpha.toFixed(3)})`
 }
 
 /** UI 分段控件口径（与参考稿一致：每周 = 逐日着色 / 累计）。 */
@@ -654,7 +655,7 @@ export function ActivityGrid({ days, mode, onMode, selectedKey, onSelect, metric
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' }}>
         <span>少</span>
         {legendSteps.map((alpha, i) => (
-          <span key={i} style={{ width: 10, height: 10, borderRadius: 2, background: `rgba(${BLUE[0]}, ${BLUE[1]}, ${BLUE[2]}, ${alpha})` }} />
+          <span key={i} style={{ width: 10, height: 10, borderRadius: 2, background: `rgba(${ACCENT_RGB[0]}, ${ACCENT_RGB[1]}, ${ACCENT_RGB[2]}, ${alpha})` }} />
         ))}
         <span>多</span>
         <span style={{ marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>{snapshot.startKey} ~ {snapshot.endKey}</span>

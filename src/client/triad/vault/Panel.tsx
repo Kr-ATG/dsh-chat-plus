@@ -40,13 +40,11 @@ import type {
   VaultStats,
 } from '../../../triad/vault/types.js'
 import type { VaultReminderReport, VaultRestoreResult } from './api.js'
-import type { VaultSyncPublic } from '../../../triad/vault/sync-types.js'
 import {
   deleteVaultScene,
   fetchVaultReminders,
   formatVaultBytes,
-  formatVaultStamp,
-  getVaultSync,
+  formatVaultTime,
   listVault,
   maintainVault,
   readVaultScene,
@@ -62,7 +60,6 @@ import {
   AlertIcon,
   ChevronRightIcon,
   ClockIcon,
-  CloudIcon,
   CloseIcon,
   EmptyIcon,
   ExternalIcon,
@@ -76,7 +73,6 @@ import {
 import { VaultDetailDrawer } from './DetailDrawer.js'
 import { VaultReminderWindow, reminderCount, reminderTone } from './ReminderWindow.js'
 import { VaultBackupPanel } from './BackupPanel.js'
-import { VaultSyncPanel } from './SyncPanel.js'
 import { VaultModal } from './Shell.js'
 import { PopoverShell, PshBody } from '../popover-shell.js'
 
@@ -197,15 +193,6 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
   const [reminders, setReminders] = useState<VaultReminderReport | null>(null)
   const [reminderOpen, setReminderOpen] = useState<boolean>(false)
   const [backupOpen, setBackupOpen] = useState<boolean>(false)
-  /**
-   * 云端备份（GitHub 私库）那一屏。
-   *
-   * 与备份/提醒**互斥**（同一个 VaultModal 槽位），但数据流不同：这里的状态
-   * 还要驱动页面顶部那条「还没配置好」的提示，所以同步状态挂在父级而不是面板
-   * 内部——否则关掉弹窗就看不到「还没配置」这条提醒了。
-   */
-  const [syncOpen, setSyncOpen] = useState<boolean>(false)
-  const [syncState, setSyncState] = useState<VaultSyncPublic | null>(null)
 
   /** 拉全量（首屏与「刷新 / 重试」共用一条路径）。 */
   const refresh = useCallback(async (): Promise<void> => {
@@ -257,24 +244,6 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
 
   useEffect(() => { void loadReminders() }, [loadReminders])
 
-  /**
-   * 读云端备份状态（首屏与「配置变化后」共用）。
-   *
-   * 失败**静默**：旧版 host 根本没有 /sync 路由（client 刷新即生效、host 要重启
-   * DSH），那时请求会 503。让整个档案页显示一条红字「云端备份不可用」，会把
-   * 一个可选功能的问题放大成主功能故障。所以这里失败只是让提示条不出现，
-   * 用户点进「云端备份」时会在面板里看到具体原因。
-   */
-  const loadSync = useCallback(async (): Promise<void> => {
-    try {
-      setSyncState(await getVaultSync())
-    } catch {
-      setSyncState(null)
-    }
-  }, [])
-
-  useEffect(() => { void loadSync() }, [loadSync])
-
   // 侧栏场景意图：页面已挂载时原地切换（写的是同一把 localStorage 键，
   // 所以「侧栏点击 → 页面切换」与「重开页面回到上次场景」共用一条状态）。
   useEffect(() => subscribeVaultScene((sceneId) => {
@@ -288,27 +257,38 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
       if (event.key !== 'Escape') return
       // 顺序＝层叠顺序：最上面那层先关，一次 Esc 只关一层（否则「按一下
       // 全关掉」会让用户找不回刚才看的位置）。
-      if (syncOpen) {
-        setSyncOpen(false)
-        return
+      //
+      // ⚠ 必须捕获阶段 + stopImmediatePropagation：外层 PopoverShell 也监听
+      // Esc 关整个工作台。旧实现只在冒泡阶段关自己那一层，事件继续上浮，结果
+      // 「在新建弹窗里按一下 Esc」= 连工作台一起关掉，用户被弹回会话页。
+      // 只有真的有层开着才拦截；没层时仍然把 Esc 让给外层（那是关工作台的语义）。
+      const consume = (): void => {
+        event.preventDefault()
+        event.stopImmediatePropagation()
       }
       if (backupOpen) {
+        consume()
         setBackupOpen(false)
         return
       }
       if (reminderOpen) {
+        consume()
         setReminderOpen(false)
         return
       }
       if (creatingScene !== null) {
+        consume()
         setCreatingScene(null)
         return
       }
-      if (openId !== null) setOpenId(null)
+      if (openId !== null) {
+        consume()
+        setOpenId(null)
+      }
     }
-    window.addEventListener('keydown', onKey)
-    return () => { window.removeEventListener('keydown', onKey) }
-  }, [openId, creatingScene, reminderOpen, backupOpen, syncOpen])
+    window.addEventListener('keydown', onKey, true)
+    return () => { window.removeEventListener('keydown', onKey, true) }
+  }, [openId, creatingScene, reminderOpen, backupOpen])
 
   // flash 自动消失（定时器随文本变化重置）。
   useEffect(() => {
@@ -465,14 +445,27 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
     return hit.length > 0 ? hit : scenes
   }, [scenes, sceneFilter])
 
-  const filteredScene = sceneFilter === null
-    ? null
-    : scenes.find((scene) => scene.id === sceneFilter) ?? null
-
   const totalVisible = useMemo(
     () => [...grouped.values()].reduce((sum, list) => sum + list.length, 0),
     [grouped],
   )
+
+  /** 「全部」页签上的数字：跟当前「看未归档 / 看已归档」口径一致。 */
+  const scopeTotal = useMemo(
+    () => records.filter((record) => (showArchived ? record.archived === true : record.archived !== true)).length,
+    [records, showArchived],
+  )
+
+  /**
+   * 场景页签上的数字。
+   *
+   * 用全量记录算而不是用 grouped：grouped 已经被搜索词过滤过，如果页签数字也跟着
+   * 搜索跳，用户会以为记录被删了。页签回答的是「这个场景里一共有多少条」。
+   */
+  const sceneCountOf = useCallback((sceneId: string): number => {
+    return records.filter((record) => record.scene === sceneId
+      && (showArchived ? record.archived === true : record.archived !== true)).length
+  }, [records, showArchived])
 
   /* ── 提醒入口的展示值 ──
    * 条数直接给人看（「3 项要到期了」是这条入口的全部价值），颜色只表达「有没有
@@ -487,45 +480,6 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
       ? '到期提醒：90 天内没有要到期的东西'
       : '到期提醒：有 ' + String(reminderTotal) + ' 项要到期了'
 
-  /* ── 云端备份入口的展示值 ──
-   * 三态：读不到（null，旧 host / 403）/ 已就绪 / 还缺东西。缺东西时按钮上挂
-   * 一个感叹号角标，并在页面顶部出一条常显提示——用户明确要求「以后别人用这个
-   * 插件时都会提示他填 GitHub 地址」，所以这条提示不能藏在弹窗里。 */
-  const syncNeedsSetup = syncState !== null && syncState.needsSetup
-  const syncTone = syncState === null
-    ? 'low'
-    : syncState.lastStatus === 'error'
-      ? 'bad'
-      : syncNeedsSetup
-        ? 'warn'
-        : 'good'
-  const syncTitle = syncState === null
-    ? '云端备份（把加密档案包定时上传到 GitHub 私有仓库）'
-    : syncNeedsSetup
-      ? '云端备份还没配置好：点开填一个 GitHub 私有仓库地址'
-      : syncState.upToDate === true
-        ? '云端备份：已全部上传（' + (syncState.uploadedRecords > 0 ? String(syncState.uploadedRecords) + ' 条记录 · ' : '') + '上次 ' + formatVaultStamp(syncState.lastAt) + '）'
-        : syncState.upToDate === false
-          ? '云端备份：有改动尚未上传（当前 ' + String(syncState.currentRecords) + ' 条 / 云端 ' + String(syncState.uploadedRecords) + ' 条）'
-          : syncState.lastStatus === 'error'
-            ? '云端备份：上次同步失败'
-            : syncState.lastStatus === 'ok'
-              ? '云端备份：已传过备份，待确认是否最新'
-              : '云端备份：尚未上传'
-
-  /* 按钮上那枚小角标：绿点=已全部上传，黄点=有改动未传，! = 还没配置。
-     用户要求「要显示状态是否全部上传了」，所以这个状态必须出现在不打开弹窗
-     也能看到的地方——就是这枚按钮。 */
-  const syncBadge = syncState === null
-    ? null
-    : syncNeedsSetup
-      ? <span className={css.remindBadge}>!</span>
-      : syncState.upToDate === true
-        ? <span className={css.syncDot} data-state="done" />
-        : syncState.upToDate === false
-          ? <span className={css.syncDot} data-state="dirty" />
-          : null
-
   const shell = (children: JSX.Element): JSX.Element => (
     embedded
       ? <div className={css.root}>{children}</div>
@@ -538,14 +492,71 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
       )
   )
 
+  /**
+   * Hero 右侧的统计矩阵。
+   *
+   * 四个数字是「这个保险箱里现在有多少东西」的全部答案：记录 / 场景 / 照片 / 占用。
+   * 统计读的是全量 records 与 /list 下发的 stats，不受搜索与场景筛选影响——它表达的
+   * 是库的规模，不是当前视图的行数。
+   */
+  const heroStats = (
+    <div className={css.heroStats}>
+      <div className={css.heroStat}>
+        <span className={css.heroStatNum}>{String(records.length)}</span>
+        <span className={css.heroStatLabel}>记录</span>
+      </div>
+      <div className={css.heroStat}>
+        <span className={css.heroStatNum}>{String(scenes.length)}</span>
+        <span className={css.heroStatLabel}>场景</span>
+      </div>
+      <div className={css.heroStat}>
+        <span className={css.heroStatNum}>{String(stats?.photos ?? 0)}</span>
+        <span className={css.heroStatLabel}>照片</span>
+      </div>
+      <div className={css.heroStat}>
+        <span className={css.heroStatNum}>{formatVaultBytes(stats?.blobBytes ?? 0)}</span>
+        <span className={css.heroStatLabel}>占用</span>
+      </div>
+    </div>
+  )
+
   const head = (
-    <header className={css.head}>
-      <div className={css.headMain}>
-        <h1 className={css.title}>档案</h1>
-        <p className={css.hint}>
-          这些内容每次会话都会自动读取；密码等敏感值只保存在本机、不会发送给模型。
-          列表里默认显示成圆点，点开记录再点眼睛才看得到明文，30 秒后自动隐藏。
-        </p>
+    <>
+      {/* ── Hero：身份（这是什么页面）+ 规模（里面有多少东西）── */}
+      <header className={css.hero}>
+        <div className={css.heroMain}>
+          <span className={css.heroEyebrow}>Personal Vault · 个人保险箱</span>
+          <h1 className={css.title}>档案</h1>
+          <p className={css.hint}>
+            这些内容每次会话都会自动读取；密码等敏感值只保存在本机、不会发送给模型。
+            列表里默认显示成圆点，点开记录再点眼睛才看得到明文，30 秒后自动隐藏。
+          </p>
+        </div>
+        {heroStats}
+      </header>
+
+      {/* ── 工具条：搜索占主位，低频动作收到右侧 ── */}
+      <div className={css.toolbar}>
+        <div className={css.searchWrap}>
+          <span className={css.searchIcon}><SearchIcon size={14} /></span>
+          <input
+            className={css.searchInput}
+            value={query}
+            placeholder="搜索记录、字段名或标签（密码不进索引）"
+            aria-label="搜索档案"
+            onChange={(event) => { setQuery(event.target.value) }}
+          />
+          {query !== '' && (
+            <button
+              type="button"
+              className={css.searchClear}
+              aria-label="清空搜索"
+              onClick={() => { setQuery('') }}
+            >
+              <CloseIcon size={10} />
+            </button>
+          )}
+        </div>
         <div className={css.headActions}>
           <button
             type="button"
@@ -553,7 +564,7 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
             data-tone={reminderToneValue}
             title={reminderTitle}
             aria-label={reminderTitle}
-            onClick={() => { setBackupOpen(false); setSyncOpen(false); setReminderOpen(true) }}
+            onClick={() => { setBackupOpen(false); setReminderOpen(true) }}
           >
             <ClockIcon size={13} />
             {reminderLabel}
@@ -564,18 +575,8 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
           <button
             type="button"
             className={css.ghostBtn}
-            title={syncTitle}
-            data-tone={syncTone}
-            onClick={() => { setReminderOpen(false); setBackupOpen(false); setSyncOpen(true); void loadSync() }}
-          >
-            <CloudIcon size={13} /> 云端
-            {syncBadge}
-          </button>
-          <button
-            type="button"
-            className={css.ghostBtn}
             title="备份密钥与恢复（换机器时用）"
-            onClick={() => { setReminderOpen(false); setSyncOpen(false); setBackupOpen(true) }}
+            onClick={() => { setReminderOpen(false); setBackupOpen(true) }}
           >
             <KeyIcon size={13} /> 备份
           </button>
@@ -590,27 +591,41 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
           </button>
         </div>
       </div>
-      <div className={css.searchWrap}>
-        <span className={css.searchIcon}><SearchIcon size={14} /></span>
-        <input
-          className={css.searchInput}
-          value={query}
-          placeholder="搜索记录、字段名或标签（密码不进索引）"
-          aria-label="搜索档案"
-          onChange={(event) => { setQuery(event.target.value) }}
-        />
-        {query !== '' && (
-          <button
-            type="button"
-            className={css.searchClear}
-            aria-label="清空搜索"
-            onClick={() => { setQuery('') }}
-          >
-            <CloseIcon size={10} />
-          </button>
-        )}
-      </div>
-    </header>
+
+      {/* ── 场景切换条：与侧栏二级菜单共用同一把 sceneFilter 状态 ── */}
+      <nav className={css.sceneTabs} aria-label="档案场景">
+        <button
+          type="button"
+          className={css.sceneTab}
+          data-on={sceneFilter === null ? '1' : '0'}
+          title="显示全部分组"
+          onClick={() => { setSceneFilter(null); requestVaultScene('') }}
+        >
+          全部
+          <span className={css.sceneTabCount}>{String(scopeTotal)}</span>
+        </button>
+        {scenes.map((scene) => {
+          const on = sceneFilter === scene.id
+          return (
+            <button
+              key={scene.id}
+              type="button"
+              className={css.sceneTab}
+              data-on={on ? '1' : '0'}
+              title={on ? '取消筛选，显示全部分组' : '只看「' + scene.label + '」'}
+              onClick={() => {
+                const next = on ? null : scene.id
+                setSceneFilter(next)
+                requestVaultScene(next ?? '')
+              }}
+            >
+              {scene.label}
+              <span className={css.sceneTabCount}>{String(sceneCountOf(scene.id))}</span>
+            </button>
+          )
+        })}
+      </nav>
+    </>
   )
 
   if (phase === 'loading') {
@@ -670,44 +685,6 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
 
       {flash !== '' && <div className={css.notice}>{flash}</div>}
 
-      {/*
-        「还没配 GitHub 私库」的常显提示条。
-        用户明确要求：以后别人用这个插件时都要提示他填这个地址。所以它不是弹窗、
-        不是一次性 toast，而是配好之前一直在的一条。点「去配置」直接开那一屏。
-        配好之后立刻消失（判据是 host 回算的 needsSetup，前端不自己再推一遍）。
-      */}
-      {syncNeedsSetup && (
-        <div className={css.notice} data-tone="warn">
-          <span style={{ display: 'inline-flex', flex: 'none', marginTop: 1 }}><CloudIcon size={13} /></span>
-          <span style={{ flex: 1, minWidth: 0 }}>
-            档案还没有云端备份：填一个<b>你自己的</b> GitHub <b>私有</b>仓库地址，之后每
-            {' '}{String(syncState?.everyHours ?? 5)} 小时自动传一份加密备份上去（换机器、重装系统后靠它恢复）。
-          </span>
-          <button
-            type="button"
-            className={css.ghostBtn}
-            style={{ height: 24, flex: 'none' }}
-            onClick={() => { void loadSync(); setSyncOpen(true) }}
-          >
-            去配置
-          </button>
-        </div>
-      )}
-
-      {filteredScene !== null && (
-        <div className={css.notice}>
-          <span>只看「{filteredScene.label}」</span>
-          <button
-            type="button"
-            className={css.ghostBtn}
-            style={{ height: 24 }}
-            onClick={() => { setSceneFilter(null); requestVaultScene('') }}
-          >
-            显示全部分组
-          </button>
-        </div>
-      )}
-
       <div className={css.scroll}>
         {visibleScenes.map((scene, index) => {
           const all = grouped.get(scene.id) ?? []
@@ -763,11 +740,12 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
                 <button
                   type="button"
                   className={css.groupAdd}
+                  data-primary="1"
                   title="在这个分组里加一条记录"
                   aria-label={'在' + scene.label + '里加一条记录'}
                   onClick={() => { setCreatingScene(scene); setOpenId(null) }}
                 >
-                  <PlusIcon size={14} />
+                  <PlusIcon size={14} /> 新建
                 </button>
                 <button
                   type="button"
@@ -871,6 +849,16 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
                                 {record.title === '' ? '（未命名）' : record.title}
                               </span>
                               <span className={css.rowSub}>{vaultRowSummary(record)}</span>
+                              <span className={css.rowMeta}>
+                                <span className={css.rowMetaItem}>{String(record.fields.length)} 个字段</span>
+                                {record.photos.length > 0 && (
+                                  <span className={css.rowMetaItem}>{String(record.photos.length)} 张照片</span>
+                                )}
+                                {record.files.length > 0 && (
+                                  <span className={css.rowMetaItem}>{String(record.files.length)} 个文件</span>
+                                )}
+                                <span className={css.rowMetaItem}>{formatVaultTime(record.updatedAt)}</span>
+                              </span>
                             </span>
                             <span className={css.rowTail}>
                               {record.archived === true && <span className={css.badgeArchived}>已归档</span>}
@@ -921,7 +909,7 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
             搜索与刷新（与参考图一致：顶上是搜索，动作贴着内容）。 */}
         <footer className={css.foot}>
           <span>
-            {String(records.length)} 条记录 · {String(stats?.photos ?? 0)} 张照片 · 占用{' '}
+            {String(records.length)} 条记录 · {String(stats?.photos ?? 0)} 张照片 · {String(stats?.files ?? 0)} 个文件 · 占用{' '}
             {formatVaultBytes(stats?.blobBytes ?? 0)}
             {query.trim() !== '' ? ' · 当前筛出 ' + String(totalVisible) + ' 条' : ''}
           </span>
@@ -957,44 +945,17 @@ export function VaultPanel({ onClose, embedded = false }: VaultPanelProps): JSX.
         </footer>
       </div>
 
-      {/* ── 三块浮层，形态按语义分两种 ───────────────────────────────
+      {/* ── 这些浮层，形态按语义分两种 ───────────────────────────────
 
-           · 新建记录 / 健康检查 / 备份恢复 → 居中弹窗。
+           · 新建记录 / 备份恢复 → 居中弹窗。
              它们都是「一次性的整块任务」，背后没有「对应的那一行」可以展开：
-             新建时记录还不存在，健康与备份是整库报告。
+             新建时记录还不存在，备份是整库报告。
 
            · 查看 / 编辑一条已有记录 → 不在这里，而是**原地展开**在那一行下面
              （见上面 list.map 里的 VaultDetailDrawer）。用户要的就是这个：点开
              一条记录不该把整页压暗，也不该从右边滑出来。
 
-           三块互斥（同一时刻只开一个），所以各自一段条件渲染、不共用状态。 */}
-      {syncOpen && (
-        <VaultModal label="云端备份" onClose={() => { setSyncOpen(false) }}>
-          <div className={css.panelHead}>
-            <span style={{ display: 'inline-flex', color: 'var(--v-text-2)' }}><CloudIcon size={16} /></span>
-            <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, lineHeight: '22px' }}>
-              云端备份（GitHub 私库）
-            </div>
-            <button
-              type="button"
-              className={css.panelClose}
-              aria-label="关闭云端备份"
-              title="关闭（Esc）"
-              onClick={() => { setSyncOpen(false) }}
-            >
-              <CloseIcon size={15} />
-            </button>
-          </div>
-          <div className={css.panelBody}>
-            <VaultSyncPanel
-              onError={(message) => { setActionError(message) }}
-              onFlash={(message) => { setFlash(message) }}
-              onSynced={() => { void loadSync(); void refresh() }}
-            />
-          </div>
-        </VaultModal>
-      )}
-
+           它们互斥（同一时刻只开一个），所以各自一段条件渲染、不共用状态。 */}
       {reminderOpen && (
         <VaultModal label="到期提醒" onClose={() => { setReminderOpen(false) }}>
           <VaultReminderWindow

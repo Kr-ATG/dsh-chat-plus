@@ -63,11 +63,6 @@ import { applySfxRoutes } from './host/done-pill/sfx.ts'
 // 「系统提示词」观测（2026-10-27）：assemble 出口抓最终快照 + 只读路由，
 // 供操作间「系统提示词」页查看「这次发送会话会带上的提示词」。
 import { applySystemPromptInspector } from './system-prompt/index.ts'
-// 个人动态（Feed，2026-10-27）：/api/dsh-feed/* 路由 + 生成闸门与 X 同步。
-// 内容由后台按用户提示词生成（不是用户发帖、不是订阅流），见
-// docs/2026-10-25-personal-feed-design.md。写作走可注入的 writer：
-// 默认产占位内容，所以没有真实 LLM 时整条链路（排序/删除/单飞锁）照样可验。
-import { applyFeedHost } from './feed/index.ts'
 import { applyGitStatusRoutes, GIT_STATUS_ROUTE, collectGitStatus, handleGitStatusRoute } from './git-status/index.ts'
 import { applyFeatureRoutes, hostFeatureEnabled, initializeFeatures } from './features/store.ts'
 export { applyDownloadRoutes, downloadTool, readDownloadState, watchShellDownload } from './download/index.ts'
@@ -203,80 +198,6 @@ export {
   handleGitStatusRoute,
   formatRelativeTime,
 } from './git-status/index.ts'
-// 个人动态（Feed）的可测面：装配入口 + 路由前缀 + 排序/来源判定/X 解析的纯函数。
-// 这几块判错了**都不会抛错** —— 排序错只是「今天/昨天穿插」，X 解析错只是
-// 「少几条」，删除错只是「删了还在」。所以必须能被冒烟直接对拍。
-export { applyFeedHost, parseCronIntervalMs } from './feed/index.ts'
-export type { FeedHostConfig, FeedHostHandle } from './feed/index.ts'
-export { FEED_ROUTE_PREFIX, DEFAULT_FEED_CONFIG, FEED_FRESH_WINDOW_MS, MAX_SEEN_TWEET_IDS, FEED_FRESH_WINDOW_MS as FEED_FRESH_MS } from './feed/types.ts'
-export type { FeedPost, FeedSource, FeedComment, FeedConfig, FeedRun, XSyncState, XTweet } from './feed/types.ts'
-// 关注对象（2026-10-27「右侧悬浮球」）：类型、存储、归属判定。
-// 归属判定是**纯逻辑**，判错不会抛错、只会让某个人名下空空的 —— 必须能被冒烟对拍。
-export type { FollowedEntity, FeedEntitiesFile } from './feed/types.ts'
-export { ENTITIES_SCHEMA_VERSION, MAX_ENTITIES, MAX_ENTITY_ALIASES, newEntityId } from './feed/types.ts'
-export {
-  EntityStore,
-  createEntityMatcher,
-  initialOf,
-  matchKeywordsOf,
-  normalizeAliases,
-  normalizeEntity,
-  normalizeUrl,
-  normalizeXHandle,
-  sharedEntityStore,
-  withResolvedEntities,
-  writerEntitiesOf,
-  xHandlesOf,
-} from './feed/entities.ts'
-export type { EntityMatcher, EntityMatchKind, EntityPatch, EntityInput, EntityWriteResult, WriterEntity } from './feed/entities.ts'
-export { toEntityView, syncXHandles } from './feed/api.ts'
-export type { EntityView } from './feed/api.ts'
-export {
-  sortFeedPosts,
-  groupFeedPosts,
-  queryFeedPosts,
-  isUnread,
-  isExpired,
-  priorityKey,
-  dayKeyOf,
-} from './feed/rank.ts'
-export type { FeedDayKey, FeedFilterKey, FeedDayGroup } from './feed/rank.ts'
-export {
-  classifySource,
-  extractNextData,
-  parseTweetsFromNextData,
-  parseTweetTime,
-  tweetUrlOf,
-  selectNewTweets,
-  mergeSeenTweets,
-  splitTweetsByFreshness,
-  pickHandlesForRound,
-  runXSyncRound,
-  tweetToSource,
-  describeOutcome,
-  normalizeHost,
-  X_HANDLE_GAP_MS,
-  X_MAX_ATTEMPTS,
-  X_MAX_HANDLES_PER_ROUND,
-  X_COOLDOWN_MS,
-  X_RETRY_DELAY_MS,
-  X_FETCH_TIMEOUT_MS,
-  fetchXProfile,
-} from './feed/sources.ts'
-export {
-  requestRun,
-  promptChanged,
-  normalizePrompt,
-  promptHashOf,
-  createPlaceholderWriter,
-  createFeedRunner,
-  sanitizeDraft,
-  LEASE_MS,
-  LEASE_RENEW_MS,
-} from './feed/trigger.ts'
-export { FeedStore, feedDataDir } from './feed/store.ts'
-export { toDayViews, toPostView, loopbackAllowed } from './feed/api.ts'
-
 /** Stable Cordis plugin name. */
 export const name = 'dsh-chat-plus'
 
@@ -425,27 +346,6 @@ export function apply(ctx: Record<string, any>, config?: { mail?: Record<string,
     if (hostFeatureEnabled('host.motion')) applyMotionRoutes(webCtx)
     // 当前工作区 Git 状态与一键提交流路由
     if (hostFeatureEnabled('host.git-status')) applyGitStatusRoutes(webCtx, ctx)
-    /*
-     * 个人动态（Feed）：/api/dsh-feed/*（prefix）。
-     *
-     * 只依赖 webServer，所以挂在这一层；内部各子模块（X 同步 / 写作 /
-     * 定时）各自 try/catch —— X 抓不到只是「本轮没有 X 线索」，绝不影响
-     * 其它部分与插件其它能力（docs/2026-10-27-x-feed-availability.md 的
-     * 硬要求：抓取必须可失败、可降级）。
-     *
-     * 装配是异步的（store 要先 load），失败不能从延迟注入回调冒出去 ——
-     * 那会中断本插件后面所有 ctx.inject（triad / provider / mail 全不挂）。
-     */
-    try {
-      // 同步装配：路由与 effect 必须在**本次回调内**注册完（见 applyFeedHost 的说明）。
-      if (hostFeatureEnabled('host.feed')) applyFeedHost(webCtx as never)
-    } catch (error) {
-      try {
-        webCtx.logger?.warn?.(
-          `[dsh-chat-plus] feed workbench failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
-        )
-      } catch { /* 拿不到 logger 时静默：不为了记日志再抛一次 */ }
-    }
     // Office / PDF 页图与 PDF 渲染（/api/chat-flow/office/*）：画廊 ppt/word 缩略图、
     // 产出物弹窗内联预览、官方侧边栏 ppt/word 接管三处共用。挂载时顺带校正
     // process.env.TEMP —— 官方 office-to-pdf 的 LibreOffice 转换要求 scratch 落在

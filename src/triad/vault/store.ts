@@ -5,7 +5,7 @@
  *   <root>/vault.json          记录 + 场景（纯文本，几 KB 到几百 KB）
  *   <root>/store/config.json   运行时配置覆盖（面板改的配置写这里）
  *   <root>/key                 AES-256 密钥（0600）
- *   <root>/blobs/<2位>/<sha>   图片字节（见 blobs.ts）
+ *   <root>/blobs/<2位>/<sha>   图片与文件字节（见 blobs.ts）
  *   <root>/blobs/index.json    blob 索引与引用计数
  *   <root>/revisions/<日期>.json 变更快照（换证、改密码的前后值）
  *   <root>/audit.jsonl         敏感字段明文查看审计
@@ -23,8 +23,8 @@
  *  1. **敏感字段落盘必加密**：写入路径统一过 encodeFieldValue，读出路径统一
  *     过 decodeFieldValue。任何绕过这两处的写入都会让明文躺到磁盘上。
  *  2. **变更历史里不出现敏感明文**：before/after 一律过 redactForHistory。
- *  3. **删除记录必须释放图片引用**：removeRecord 先摘 blob 引用再删记录，
- *     否则那张照片会永远占着磁盘（引用计数永远不归零）。
+ *  3. **删除记录必须释放附件引用**：removeRecord 先摘照片与文件的 blob 引用再删记录，
+ *     否则那张照片 / 那个文件会永远占着磁盘（引用计数永远不归零）。
  */
 
 import { randomBytes } from 'node:crypto'
@@ -37,6 +37,7 @@ import {
   DEFAULT_SCENES,
   DEFAULT_VAULT_CONFIG,
   MAX_CHANGES_PER_RECORD,
+  MAX_FILES_PER_RECORD,
   VAULT_HOME_DIR,
   normalizeCategory,
   VAULT_MASK,
@@ -48,6 +49,7 @@ import {
   type VaultConfig,
   type VaultData,
   type VaultField,
+  type VaultFile,
   type VaultPhoto,
   type VaultRecord,
   type VaultScene,
@@ -81,6 +83,11 @@ export function newRecordId(): string {
 /** 新照片 id。 */
 export function newPhotoId(): string {
   return 'photo_' + randomBytes(8).toString('hex')
+}
+
+/** 新文件附件 id。 */
+export function newFileId(): string {
+  return 'file_' + randomBytes(8).toString('hex')
 }
 
 /**
@@ -368,6 +375,7 @@ export class VaultStore {
         value: isFieldSensitive(field) ? VAULT_MASK : this.decodeFieldValue(field, field.value),
       })),
       photos: record.photos.map((photo) => ({ ...photo })),
+      files: (record.files ?? []).map((file) => ({ ...file })),
       changes: record.changes.map((change) => ({ ...change })),
       tags: [...record.tags],
     }
@@ -445,6 +453,7 @@ export class VaultStore {
         value: this.decodeFieldValue(field, field.value),
       })),
       photos: record.photos.map((photo) => ({ ...photo })),
+      files: (record.files ?? []).map((file) => ({ ...file })),
       changes: record.changes.map((change) => ({ ...change })),
       tags: [...record.tags],
     }
@@ -496,6 +505,7 @@ export class VaultStore {
         ...(normalizeCategory(input.category) !== '' ? { category: normalizeCategory(input.category) } : {}),
         fields: input.fields.map((field) => this.prepareField(field, now, true)),
         photos: [],
+        files: [],
         tags: input.tags ?? [],
         note: input.note,
         createdAt: now,
@@ -686,6 +696,9 @@ export class VaultStore {
     for (const photo of record.photos) {
       await this.releasePhotoBlobs(photo)
     }
+    for (const file of record.files ?? []) {
+      await this.blobs.release(file.sha256, file.id).catch(() => false)
+    }
     data.records.splice(index, 1)
     this.touch()
     await this.persistNow()
@@ -842,6 +855,83 @@ export class VaultStore {
     }
   }
 
+  /* ────────────────── 文件附件 ────────────────── */
+
+  /**
+   * 挂一个文件附件到记录上（**路由层唯一该调的方法**）。
+   *
+   * 与照片一样是「一步式」：先按 sha 存字节，再用同一个 fileId 登记引用。
+   * 分两步会让 put 里的 refId 与最终 file.id 不一致，删文件时引用永远清不掉。
+   * @returns 更新后的记录；文件为空 / 超限 / 记录不存在时返回 null。
+   */
+  async attachFile(input: {
+    recordId: string
+    name: string
+    mimeType: string
+    data: Buffer
+    label?: string
+    source?: VaultChangeSource
+  }): Promise<VaultRecord | null> {
+    const data = await this.ensureLoaded()
+    const record = data.records.find((item) => item.id === input.recordId)
+    if (record === undefined) return null
+    if (!Array.isArray(record.files)) record.files = []
+    if (record.files.length >= MAX_FILES_PER_RECORD) return null
+    const fileId = newFileId()
+    const ref = await this.blobs.putRaw(input.data, {
+      mediaType: input.mimeType,
+      name: input.name,
+      refId: fileId,
+    })
+    if (ref === null) return null
+    const now = nowIso()
+    const file: VaultFile = {
+      id: fileId,
+      name: input.name,
+      mimeType: ref.mediaType,
+      bytes: ref.bytes,
+      sha256: ref.sha256,
+      createdAt: now,
+      ...(input.label !== undefined && input.label.trim() !== '' ? { label: input.label.trim() } : {}),
+    }
+    record.files.push(file)
+    record.updatedAt = now
+    record.version += 1
+    record.changes = appendChanges(record.changes, [{
+      at: now,
+      action: 'file-add',
+      source: input.source ?? 'manual',
+      after: file.name,
+    }])
+    this.touch()
+    await this.persistNow()
+    return this.toPlainRecord(record)
+  }
+
+  /** 删除一个文件附件并释放 blob 引用。 */
+  async removeFile(id: string, fileId: string): Promise<VaultRecord | undefined> {
+    const data = await this.ensureLoaded()
+    const record = data.records.find((item) => item.id === id)
+    if (record === undefined) return undefined
+    if (!Array.isArray(record.files)) record.files = []
+    const index = record.files.findIndex((file) => file.id === fileId)
+    if (index === -1) return undefined
+    const file = record.files[index]
+    await this.blobs.release(file.sha256, file.id).catch(() => false)
+    record.files.splice(index, 1)
+    record.updatedAt = nowIso()
+    record.version += 1
+    record.changes = appendChanges(record.changes, [{
+      at: record.updatedAt,
+      action: 'file-remove',
+      source: 'manual',
+      before: file.name,
+    }])
+    this.touch()
+    await this.persistNow()
+    return this.toPlainRecord(record)
+  }
+
   /* ────────────────── 统计与配额 ────────────────── */
 
   /** 占用统计。 */
@@ -854,7 +944,10 @@ export class VaultStore {
       original: { count: 0, bytes: 0 },
     }
     let photos = 0
+    let files = 0
+    let fileBytes = 0
     const seenSha = new Set<string>()
+    const seenFileSha = new Set<string>()
     for (const record of data.records) {
       for (const photo of record.photos) {
         photos += 1
@@ -871,11 +964,19 @@ export class VaultStore {
           byVariant[variant].bytes += ref.bytes
         }
       }
+      for (const file of record.files ?? []) {
+        files += 1
+        if (seenFileSha.has(file.sha256)) continue
+        seenFileSha.add(file.sha256)
+        fileBytes += file.bytes
+      }
     }
     return {
       records: data.records.length,
       photos,
+      files,
       blobBytes: snapshot.reduce((sum, item) => sum + item.bytes, 0),
+      fileBytes,
       byVariant,
       computedAt: nowIso(),
     }
@@ -1088,9 +1189,14 @@ export class VaultStore {
   async replaceAll(input: { records: VaultRecord[]; scenes?: VaultScene[] }): Promise<{ records: number; scenes: number }> {
     if (this.readOnly) throw new Error('当前为只读模式（数据结构版本过新），无法导入')
     const data = await this.ensureLoaded()
-    // 备份可能来自 v1 时代（记录上带着 pending）。先清标记再落盘：这里之后
-    // schemaVersion 会被直接写成当前版本，migrate 不会再有机会清理它。
-    const records = input.records.map((record) => this.toStoredRecord(record))
+    // 备份可能来自 v1 时代（记录上带着 pending、也没有 files）。先清标记、补
+    // 文件数组再落盘：这里之后 schemaVersion 会被直接写成当前版本，migrate
+    // 不会再有机会补默认值。
+    const records = input.records.map((record) => {
+      const stored = this.toStoredRecord(record)
+      if (!Array.isArray(stored.files)) stored.files = []
+      return stored
+    })
     stripPendingFlag(records)
     const scenes = Array.isArray(input.scenes) && input.scenes.length > 0
       ? input.scenes.map((scene) => ({ ...scene }))
@@ -1208,10 +1314,20 @@ export function migrate(data: VaultData): VaultData {
     }
     next.schemaVersion = 3
   }
+  //
+  // v3 → v4（2026-10-29）：记录新增 files（任意文件附件）。
+  // 只补空数组：文件字节在 blobs 树里，记录只引用；老记录没有附件，不做猜测。
+  if (from < 4) {
+    for (const record of next.records) {
+      if (!Array.isArray(record.files)) record.files = []
+    }
+    next.schemaVersion = 4
+  }
   for (const record of next.records) {
     // 防御性补齐老数据可能缺的字段（不会丢内容，只是补默认）。
     if (!Array.isArray(record.fields)) record.fields = []
     if (!Array.isArray(record.photos)) record.photos = []
+    if (!Array.isArray(record.files)) record.files = []
     if (!Array.isArray(record.tags)) record.tags = []
     if (!Array.isArray(record.changes)) record.changes = []
     if (typeof record.version !== 'number') record.version = 1

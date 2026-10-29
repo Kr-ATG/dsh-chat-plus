@@ -11,10 +11,11 @@
  *
  * ── 主题同步（用户点名要求）──────────────────────────────────────────
  * 不写死任何绝对色。所有色值都是「官方 token → 深空表达」的映射：
- *  - 暗色：body[data-ds-dark-theme] 命中时走 OLED 深底 + 白字阶；
- *  - 亮色：缺省分支走纸白底 + 墨字阶，同一套 --wb2-* 短名；
+ *  - 暗色：body[data-ds-dark-theme] 命中时走石墨底 #151517 + 白字阶；
+ *  - 亮色：缺省分支走米白底 #F6F6F4 + 墨字阶，同一套 --wb2-* 短名；
  *  - 官方切主题只改 body 属性，本表两套分支自动换，零 JS 监听。
- * 强调色两态都取官方 business-primary（暗 #5B8CF0 / 亮 #4176E6），
+ * 强调色统一为冷银蓝（暗 #B1B1B3 / 亮 #6F6F76）——与「档案」页同一套配色，
+ * 用户 2026-10-29 要求操作间各功能页统一：不要米金/蓝，只留中性强调。
  * 语义色（成功/警告/危险）原样透传官方 token，不做装饰。
  *
  * ── 单色纪律 ─────────────────────────────────────────────────────────
@@ -33,13 +34,18 @@ const SHEET = `
 /* ══════════ 1 · token 重映射：官方 alias → 深空表达 ══════════ */
 .wb-root {
   /* 强调色阶：装饰只用这五档明度，不引入第二色相 */
-  --wb2-a1: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176E6) 14%, transparent);
-  --wb2-a2: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176E6) 30%, transparent);
-  --wb2-a3: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176E6) 52%, transparent);
-  --wb2-a4: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176E6) 76%, transparent);
-  --wb2-a5: var(--dsw-alias-state-business-primary, #4176E6);
-  --wb2-accent: var(--dsw-alias-state-business-primary, #4176E6);
-  --wb2-accent-hi: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4176E6) 82%, #fff);
+  --wb2-a1: color-mix(in srgb, var(--dsw-alias-state-business-primary, #56637A) 14%, transparent);
+  --wb2-a2: color-mix(in srgb, var(--dsw-alias-state-business-primary, #56637A) 30%, transparent);
+  --wb2-a3: color-mix(in srgb, var(--dsw-alias-state-business-primary, #56637A) 52%, transparent);
+  --wb2-a4: color-mix(in srgb, var(--dsw-alias-state-business-primary, #56637A) 76%, transparent);
+  --wb2-a5: var(--dsw-alias-state-business-primary, #56637A);
+  --wb2-accent: var(--dsw-alias-state-business-primary, #56637A);
+  /* 浅色下 accent-hi 比 accent 更深（按钮渐变亮→暗，白字才够对比度） */
+  --wb2-accent-hi: color-mix(in srgb, var(--dsw-alias-state-business-primary, #56637A) 78%, #000);
+  /* 强调底上的文字色：亮银蓝底配深字、浅色强调底配白字 */
+  --wb2-on-accent: #FFFFFF;
+  --dsw-alias-label-on-primary: #FFFFFF;
+  --dsw-focus-ring-color: var(--wb2-accent, #56637A);
 
   /* 表面三阶 + 发丝线三阶（亮色纸白 / 暗色 OLED，各取官方底） */
   --wb2-bg: var(--dsw-alias-bg-base, #fff);
@@ -72,48 +78,54 @@ const SHEET = `
   --dsw-alias-border-l3: color-mix(in srgb, var(--dsw-alias-label-primary, #111) 24%, transparent);
   --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--dsw-alias-label-primary, #111) 7%, transparent);
   --dsw-alias-fill-l2: color-mix(in srgb, var(--dsw-alias-label-primary, #111) 6%, transparent);
-  --dsw-alias-state-business-primary: #4176E6;
-  --dsw-alias-state-info-primary: #4176E6;
-  --dsw-alias-state-violet-primary: color-mix(in srgb, #4176E6 70%, #fff);
+  --dsw-alias-state-business-primary: #56637A;
+  --dsw-alias-state-info-primary: #56637A;
+  --dsw-alias-state-violet-primary: color-mix(in srgb, #56637A 70%, #fff);
+  /* 浅色底也从官方纸白换成与档案页一致的米白（用户要求统一背景色） */
+  --dsw-alias-bg-base: #F6F6F4;
   --dsw-shadow-lv1: 0 2px 10px color-mix(in srgb, var(--dsw-alias-label-primary, #111) 10%, transparent);
   --dsw-shadow-lv2: 0 8px 26px color-mix(in srgb, var(--dsw-alias-label-primary, #111) 14%, transparent);
   --dsw-shadow-lv3: 0 14px 44px color-mix(in srgb, var(--dsw-alias-label-primary, #111) 20%, transparent);
 }
-/* 暗色态：OLED 深底 + 提亮强调色 + 白字阶（官方切主题只改 body 属性） */
+/* 暗色态：石墨底 #151517（与档案页一致）+ 冷银蓝强调 + 白字阶
+   （官方切主题只改 body 属性）。 */
 body[data-ds-dark-theme] .wb-root {
-  --wb2-bg: #07080B;
-  --wb2-s1: #10131A;
-  --wb2-s2: #161A23;
-  --wb2-s3: #1C212C;
-  --wb2-line: rgba(255,255,255,.065);
-  --wb2-line2: rgba(255,255,255,.11);
-  --wb2-line3: rgba(255,255,255,.18);
-  --wb2-t1: #E9EBF1; --wb2-t2: #9AA1B1; --wb2-t3: #5F6675; --wb2-t4: #454B58;
+  --wb2-bg: #151517;
+  --wb2-s1: #1B1B20;
+  --wb2-s2: #202026;
+  --wb2-s3: #26262D;
+  --wb2-line: rgba(255,255,255,.075);
+  --wb2-line2: rgba(255,255,255,.14);
+  --wb2-line3: rgba(255,255,255,.22);
+  --wb2-t1: #F2F2F4; --wb2-t2: #A3A3AE; --wb2-t3: #8A8A94; --wb2-t4: #6E6E79;
   --wb2-inset: inset 0 1px 0 rgba(255,255,255,.05);
   --wb2-drop: 0 12px 34px rgba(0,0,0,.34);
-  --wb2-accent: #5B8CF0;
-  --wb2-accent-hi: #7EA6F4;
+  --wb2-accent: #C3CEDF;
+  --wb2-accent-hi: #E0E8F4;
+  --wb2-on-accent: #0F1420;
+  --dsw-alias-label-on-primary: #0F1420;
+  --dsw-focus-ring-color: var(--wb2-accent, #C3CEDF);
 
-  --dsw-alias-bg-base: #07080B;
+  --dsw-alias-bg-base: #151517;
   --dsw-alias-bg-layer-1: rgba(255,255,255,.045);
   --dsw-alias-bg-layer-2: rgba(255,255,255,.03);
   --dsw-alias-bg-layer-3: rgba(255,255,255,.07);
-  --dsw-alias-bg-module-platform: #0B0D12;
-  --dsw-alias-border-l1: rgba(255,255,255,.065);
-  --dsw-alias-border-l2: rgba(255,255,255,.11);
-  --dsw-alias-border-l3: rgba(255,255,255,.18);
-  --dsw-alias-interactive-bg-hover: rgba(255,255,255,.06);
+  --dsw-alias-bg-module-platform: #1A1A1E;
+  --dsw-alias-border-l1: rgba(255,255,255,.075);
+  --dsw-alias-border-l2: rgba(255,255,255,.14);
+  --dsw-alias-border-l3: rgba(255,255,255,.22);
+  --dsw-alias-interactive-bg-hover: rgba(255,255,255,.07);
   --dsw-alias-fill-l2: rgba(255,255,255,.05);
-  --dsw-alias-label-primary: #E9EBF1;
-  --dsw-alias-label-secondary: #9AA1B1;
-  --dsw-alias-label-tertiary: #5F6675;
-  --dsw-alias-label-quaternary: #454B58;
-  --dsw-alias-label-caption: #5F6675;
-  --dsw-alias-state-business-primary: #5B8CF0;
-  --dsw-alias-state-info-primary: #5B8CF0;
-  --dsw-alias-state-violet-primary: #7EA6F4;
-  --dsw-alias-markdown-code-block: #10131A;
-  --dsw-alias-markdown-code-block-banner: #161A23;
+  --dsw-alias-label-primary: #F2F2F4;
+  --dsw-alias-label-secondary: #A3A3AE;
+  --dsw-alias-label-tertiary: #8A8A94;
+  --dsw-alias-label-quaternary: #6E6E79;
+  --dsw-alias-label-caption: #8A8A94;
+  --dsw-alias-state-business-primary: #C3CEDF;
+  --dsw-alias-state-info-primary: #C3CEDF;
+  --dsw-alias-state-violet-primary: #E0E8F4;
+  --dsw-alias-markdown-code-block: #1B1B20;
+  --dsw-alias-markdown-code-block-banner: #202026;
   --dsw-alias-scrollbar-bg-l2: rgba(255,255,255,.1);
   --dsw-alias-scrollbar-hover-l2: rgba(255,255,255,.2);
   --dsw-shadow-lv1: 0 2px 10px rgba(0,0,0,.4);
@@ -126,7 +138,7 @@ body[data-ds-dark-theme] .wb-root {
 
 /* ── 全局细节（v4 打磨）：选区 / 焦点环 / 滚动条 ─────────────────────
    三条都限定在 .wb-root 内，不改官方会话区与侧栏的观感。 */
-.wb-root ::selection { background: var(--wb2-a3); color: #fff; }
+.wb-root ::selection { background: var(--wb2-a3); color: var(--wb2-on-accent); }
 /* 键盘可达性：焦点环只在键盘导航时出现（:focus-visible），鼠标点击不画环 */
 .wb-root :focus-visible { outline: 2px solid var(--wb2-accent); outline-offset: 2px; border-radius: 6px; }
 /* 滚动条：细、圆、hover 才亮；与官方深空底同族 */
@@ -215,7 +227,7 @@ body[data-ds-dark-theme] .wb-root {
 .wb2-btn:active { transform: scale(.97); }
 .wb2-btn svg { width: 13px; height: 13px; }
 .wb2-btn-pri { background: linear-gradient(180deg, var(--wb2-accent-hi), var(--wb2-accent)); border-color: transparent;
-  color: #fff; box-shadow: 0 4px 16px var(--wb2-a3), inset 0 1px 0 rgba(255,255,255,.24); padding-right: 6px; }
+  color: var(--wb2-on-accent); box-shadow: 0 4px 16px var(--wb2-a3), inset 0 1px 0 rgba(255,255,255,.24); padding-right: 6px; }
 .wb2-btn-pri:hover { background: linear-gradient(180deg, var(--wb2-accent-hi), var(--wb2-accent)); filter: brightness(1.08);
   box-shadow: 0 7px 24px var(--wb2-a4); }
 .wb2-btn-pri .wb2-nest { width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,.19);
@@ -274,7 +286,7 @@ body[data-ds-dark-theme] .wb-root {
   background: var(--wb2-t3); transition: all 340ms var(--wb2-ease); }
 .wb2-sw[data-on] { background: linear-gradient(180deg, var(--wb2-accent-hi), var(--wb2-accent)); border-color: transparent;
   box-shadow: 0 0 12px var(--wb2-a3); }
-.wb2-sw[data-on]::after { left: 16px; background: #fff; transform: scale(1.06); }
+.wb2-sw[data-on]::after { left: 16px; background: var(--wb2-on-accent); transform: scale(1.06); }
 
 /* 小标签 / 分区头 / 数字 */
 .wb2-tag { padding: 1px 6px; border-radius: 5px; background: color-mix(in srgb, var(--wb2-t1) 6%, transparent);

@@ -321,8 +321,8 @@ else pass('deferred webServer callback executed')
 //   + 1 条提示音 prefix。
 // 这些路由漏注册的表现全是静默的：胶囊不出现、通知不弹、录屏面板只剩整屏 ——
 // 只有计数与路径断言能钉住它们。
-if (registered.length !== 27) {
-  fail(`expected exactly 27 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
+if (registered.length !== 26) {
+  fail(`expected exactly 26 route registrations, got ${registered.length}: ${JSON.stringify(registered)}`)
 } else {
   const exacts = registered.filter(spec => spec?.kind === 'exact')
   const prefix = registered.filter(spec => spec?.kind === 'prefix')
@@ -401,14 +401,6 @@ if (registered.length !== 27) {
     fail(`missing motion asset route (prefix /api/chat-flow/motion): ${JSON.stringify(prefix)}`)
   } else {
     pass('registered /api/chat-flow/motion (kind=prefix, 9 webm + 9 poster)')
-  }
-  // 个人动态（Feed）：操作间「动态」页的全部数据面都在这个前缀下。
-  // 漏注册的表现是「页面一直空态」，界面上不报错 —— 只能靠断言钉住。
-  const feed = prefix.find(spec => spec?.path === '/api/dsh-feed')
-  if (feed === undefined) {
-    fail(`missing feed route (prefix /api/dsh-feed): ${JSON.stringify(prefix.map(spec => spec?.path))}`)
-  } else {
-    pass('registered /api/dsh-feed (kind=prefix, posts/config/run/status/runs)')
   }
   /*
    * 对话完成胶囊（2026-10-28 自 dsh-companion 移植）：4 条私有路由。

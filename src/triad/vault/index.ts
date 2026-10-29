@@ -27,7 +27,6 @@ import { VaultCipher } from './crypto.js'
 import { applyVaultOps, extractVaultOps, transcriptOfEventsVault, type VaultLlmContext } from './extract.js'
 import { VaultInjector } from './inject.js'
 import { VaultStore, resolveVaultConfig } from './store.js'
-import { VaultSync } from './sync.js'
 import { registerVaultTools } from './tools.js'
 import type { VaultConfig } from './types.js'
 
@@ -111,26 +110,9 @@ export async function applyVault(ctx: VaultHostContext, input?: Partial<VaultCon
     log('tools mount', error)
   }
 
-  // ── 云端同步（每 N 小时把加密包推到 GitHub 私库）──────────────────────
-  //
-  // 没有 cipher 时**不建** sync：它要加密保存访问令牌与口令，而「没有密钥就
-  // 落明文」这条捷径在这里绝对不能走。此时路由回 503，页面显示不可用。
-  let sync: VaultSync | null = null
-  try {
-    if (cipher !== null) {
-      sync = new VaultSync(store, cipher, ctx.logger ?? {})
-      sync.start()
-      ctx.effect(() => () => { sync?.stop() }, 'dsh-vault: sync timer')
-    } else {
-      ctx.logger?.warn?.('[dsh-vault] 无加密密钥，云端同步不可用')
-    }
-  } catch (error) {
-    log('sync mount', error)
-  }
-
   // ── HTTP 路由 ────────────────────────────────────────────────────────
   try {
-    const routesDispose = mountVaultRoutes(ctx as never, store, config, sync)
+    const routesDispose = mountVaultRoutes(ctx as never, store, config)
     ctx.effect(() => routesDispose, 'dsh-vault: routes')
   } catch (error) {
     log('routes mount', error)

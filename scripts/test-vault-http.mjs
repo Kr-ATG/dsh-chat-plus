@@ -35,10 +35,6 @@ const ENGINE_SOURCES = [
   ['store', 'store.ts'],
   ['crypto', 'crypto.ts'],
   ['types', 'types.ts'],
-  /* sync.ts 一起打：路由层要测 /sync*，而它要一个真的 VaultSync 实例。
-   * 用假的会让「保存设置时加密落盘」这条最关键的纪律逃出测试范围。 */
-  ['sync', 'sync.ts'],
-  ['sync-types', 'sync-types.ts'],
 ]
 await build({
   entryPoints: ENGINE_SOURCES.map(([, file]) => resolve(ROOT, 'src/triad/vault', file)),
@@ -54,9 +50,7 @@ const api = await import(pathToFileURL(join(OUT_DIR, 'api.mjs')).href)
 const storeModule = await import(pathToFileURL(join(OUT_DIR, 'store.mjs')).href)
 const types = await import(pathToFileURL(join(OUT_DIR, 'types.mjs')).href)
 const VaultCipher = (await import(pathToFileURL(join(OUT_DIR, 'crypto.mjs')).href)).VaultCipher
-const syncModule = await import(pathToFileURL(join(OUT_DIR, 'sync.mjs')).href)
 const VaultStore = storeModule.VaultStore
-const VaultSync = syncModule.VaultSync
 const DEFAULT_VAULT_CONFIG = types.DEFAULT_VAULT_CONFIG
 const { mountVaultRoutes } = api
 
@@ -75,8 +69,7 @@ const fakeCtx = {
   logger: { warn: () => {}, info: () => {}, debug: () => {} },
 }
 const config = { ...DEFAULT_VAULT_CONFIG }
-const vaultSync = new VaultSync(store, cipher, { info: () => {}, warn: () => {}, debug: () => {} })
-mountVaultRoutes(fakeCtx, store, config, vaultSync)
+mountVaultRoutes(fakeCtx, store, config)
 assert(typeof handler === 'function', 'mountVaultRoutes registers a handler')
 
 const server = createServer((req, res) => handler(req, res))
@@ -205,10 +198,80 @@ assert(afterRestore.status === 200 && afterRestore.json.value === '123456',
   'after a restore the password still decrypts (the key travelled with the backup)')
 assert((afterRestore.headers.get('cache-control') ?? '') === 'no-store', 'a revealed value is never cached')
 
+// ── 5.5 文件附件（配置文件 / 订阅）────────────────────────────────────
+/* 用户 2026-10-29 要求把 Clash 订阅配置这类**文件**存进档案，并且随工作台云
+ * 同步上传。这一组断言钉住：任意字节能上传、能按原文件名下载、能删除且引用
+ * 归零后 blob 真的消失。 */
+const configsRecord = await call('/record', { method: 'POST', body: {
+  scene: 'configs',
+  title: '路由测试 · Clash 订阅',
+  fields: [
+    { key: 'name', label: '名称', type: 'text', value: 'RackNerd VLESS' },
+    { key: 'usage', label: '用途', type: 'text', value: '代理节点' },
+  ],
+} })
+assert(configsRecord.status === 200 && configsRecord.json.ok === true, 'a configs record can be created')
+const configsId = configsRecord.json.record.id
+const yamlText = 'mixed-port: 1082\nproxies:\n  - name: RackNerd-98-REALITY-443\n    type: vless\n'
+const yamlB64 = Buffer.from(yamlText, 'utf8').toString('base64')
+const fileUpload = await call('/file', { method: 'POST', body: {
+  id: configsId,
+  name: 'RackNerd-VLESS.yaml',
+  mimeType: 'text/yaml',
+  data: yamlB64,
+} })
+assert(fileUpload.status === 200 && fileUpload.json.ok === true, 'POST /file uploads a text config file')
+const uploadedFile = fileUpload.json.file
+assert(uploadedFile.name === 'RackNerd-VLESS.yaml' && uploadedFile.bytes === Buffer.byteLength(yamlText),
+  'the uploaded file keeps its name and byte length')
+assert(fileUpload.json.record.files.length === 1, 'the record carries the new file')
+assert(fileUpload.json.record.changes.some((change) => change.action === 'file-add'),
+  'uploading a file writes a file-add history entry')
+
+const fileDownload = await call('/file?sha=' + encodeURIComponent(uploadedFile.sha256) + '&name=' + encodeURIComponent(uploadedFile.name))
+assert(fileDownload.status === 200 && fileDownload.text === yamlText,
+  'GET /file returns the exact original bytes')
+assert((fileDownload.headers.get('content-type') ?? '').includes('text/yaml'),
+  'the download carries the declared MIME type')
+assert((fileDownload.headers.get('content-disposition') ?? '').includes('attachment;'),
+  'the download is served as an attachment')
+assert((fileDownload.headers.get('cache-control') ?? '').includes('immutable'),
+  'content-addressed file bytes can be cached forever')
+
+const badSha = await call('/file?sha=' + 'f'.repeat(64))
+assert(badSha.status === 404, 'an unknown file sha is 404')
+const badNameSha = await call('/file?sha=../../key')
+assert(badNameSha.status === 400, 'a path-shaped sha is refused (no arbitrary file read)')
+
+// 中文文件名 + 二进制字节：Content-Disposition 不炸、字节不丢。
+const binBytes = Buffer.from([0x00, 0x01, 0x02, 0xff, 0xfe, 0x0a])
+const binUpload = await call('/file', { method: 'POST', body: {
+  id: configsId,
+  name: '配置文件 · 备份.bin',
+  mimeType: 'application/octet-stream',
+  data: binBytes.toString('base64'),
+} })
+assert(binUpload.status === 200, 'POST /file accepts a non-UTF8 binary file')
+const binResponse = await fetch(base + '/file?sha=' + encodeURIComponent(binUpload.json.file.sha256) + '&name=' + encodeURIComponent(binUpload.json.file.name))
+const binBody = Buffer.from(await binResponse.arrayBuffer())
+assert(binResponse.status === 200 && binBody.equals(binBytes),
+  'binary file download returns the exact original bytes')
+
+const fileDelete = await call('/file-delete', { method: 'POST', body: { id: configsId, fileId: uploadedFile.id } })
+assert(fileDelete.status === 200 && fileDelete.json.ok === true, 'POST /file-delete removes the file from the record')
+assert(fileDelete.json.record.files.length === 1 && fileDelete.json.record.files[0].id === binUpload.json.file.id,
+  'only the requested file is removed')
+const goneFile = await call('/file?sha=' + encodeURIComponent(uploadedFile.sha256))
+assert(goneFile.status === 404, 'the removed file blob is really gone (reference counted)')
+assert(fileDelete.json.record.changes.some((change) => change.action === 'file-remove'),
+  'deleting a file writes a file-remove history entry')
+
 // ── 6. TOTP 路由 ───────────────────────────────────────────────────────
 const SEED = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
 const listNow = await call('/list')
-const totpRecord = listNow.json.records.find((r) => r.title.includes('路由测试'))
+// 找带 password 字段的那条：2026-10-29 起还会有「路由测试 · Clash 订阅」等
+// 没有 password 的记录，按标题 find 会拿到一条不适用 /password 的记录。
+const totpRecord = listNow.json.records.find((r) => Array.isArray(r.fields) && r.fields.some((field) => field.key === 'password'))
 
 // 先给那条记录加一个 totp 字段（走真实的 /field 路由）。
 const addTotp = await call('/field', { method: 'POST', body: { id: totpRecord.id, key: 'totp', label: '二次验证', type: 'secret', value: SEED } })
@@ -268,84 +331,17 @@ assert(pwd1.json.generated.entropyBits > 80, 'the reported entropy is high enoug
  */
 const rotGone = await call('/rotate', { method: 'POST', body: { ids: ['x'] } })
 assert(rotGone.status === 404, 'POST /rotate is gone with the health audit it served')
-// ── 云端同步路由（/sync 系列）───────────────────────────────────────────
-/* 这一组路由是**唯一会主动向插件外部发请求**的地方，所以除了「通不通」，还要
- * 验三件在真实使用里会出事的东西：
- *   1. 响应里绝不能出现令牌 / 口令明文（它是页面能拿到的东西）；
- *   2. 地址解析失败要回 400（用户输入问题），而不是 500（看起来像插件坏了）；
- *   3. 同步失败要以 200 + run.status='error' 回，页面才拿得到中文原因。 */
-const emptySync = await call('/sync')
-assert(emptySync.status === 200 && emptySync.json.ok === true, 'GET /sync answers ok')
-assert(emptySync.json.sync.needsSetup === true, 'a fresh install reports needsSetup=true (so the UI can prompt)')
-assert((emptySync.headers.get('cache-control') ?? '') === 'no-store', 'the sync status is never cached')
-
-const SYNC_TOKEN = 'ghp_' + 'Zz9Yy8Xx7Ww6Vv5Uu4Tt3Ss2Rr1Qq0Pp9Oo8'
-const SYNC_PASS = ['route', 'smoke', 'B2'].join('-')
-const savedSync = await call('/sync', {
-  method: 'POST',
-  body: { repo: 'https://github.com/kr-route-test/vault-db', token: SYNC_TOKEN, passphrase: SYNC_PASS },
-})
-assert(savedSync.status === 200 && savedSync.json.ok === true, 'POST /sync saves the settings')
-assert(savedSync.json.sync.repo === 'kr-route-test/vault-db', 'the repo is normalized to owner/repo')
-assert(savedSync.json.sync.needsSetup === false, 'fully configured => needsSetup=false')
-const syncText = JSON.stringify(savedSync.json)
-assert(!syncText.includes(SYNC_TOKEN), 'the save response never carries the token')
-assert(!syncText.includes(SYNC_PASS), 'the save response never carries the passphrase')
-assert(savedSync.json.sync.tokenTail === SYNC_TOKEN.slice(-4), 'only the token tail is exposed')
-
-const badRepo = await call('/sync', { method: 'POST', body: { repo: 'https://gitlab.com/a/b' } })
-assert(badRepo.status === 400 && badRepo.json.ok === false, 'a non-github repo is refused with 400 (user input, not a server bug)')
-assert(typeof badRepo.json.error === 'string' && badRepo.json.error.includes('GitHub'), 'the 400 carries a readable reason')
-
-const badPass = await call('/sync', { method: 'POST', body: { passphrase: 'short' } })
-assert(badPass.status === 400, 'a too-short passphrase is refused with 400')
-
-/* 同步到不可达的仓库：请求本身成功（200），失败写在 run 里。
- * 这样页面能显示 host 给的中文原因，而不必解析 5xx 的响应体。 */
-const failedRun = await call('/sync-now', { method: 'POST', body: {} })
-assert(failedRun.status === 200 && failedRun.json.ok === true, '/sync-now answers 200 even when the sync fails')
-assert(failedRun.json.run.status === 'error', 'the failed run is reported in run.status')
-assert(typeof failedRun.json.run.error === 'string' && failedRun.json.run.error.length > 0, 'the failed run carries a reason')
-assert((failedRun.headers.get('cache-control') ?? '') === 'no-store', 'the sync result is never cached')
-const afterFailed = await call('/sync')
-assert(afterFailed.json.sync.lastStatus === 'error', 'the failure is persisted for the next page load')
-
-const badVerify = await call('/sync-verify', { method: 'POST', body: {} })
-assert(badVerify.status === 400 && badVerify.json.ok === false, '/sync-verify reports an unreachable repo as 400')
-
+// ── 11. 档案云端备份路由已随功能退役 ──────────────────────────────────
 /*
- * 清除令牌：存着的令牌必须消失。
- *
- * ⚠ 这里**不能断言 tokenSource==='none'**：清掉用户填的令牌后，引擎会按设计
- * 回退到本机 gh 登录态（这台机器装了 gh 且已登录，所以会变成 'gh'）。那正是
- * 「少一步配置」的预期行为，不是 bug——写死 'none' 的断言在开发机上必挂，
- * 在没装 gh 的 CI 上才会过，属于那种"换台机器就翻"的假测试。
- * 要验的是「存的那一份没了」，所以断言 tokenSource 不再是 'stored'。
+ * 旧「云端备份」（档案单独的 GitHub 加密包上传，/sync 系列）已整块删除：
+ * 档案现已纳入工作台「同步设置」的云端双向同步（档案 / 记忆 / 技能），
+ * 同一件事不再保留第二套入口与第二份凭据。这里反过来断言路由不存在，
+ * 防止将来照着旧文档把它加回来。
  */
-const cleared = await call('/sync', { method: 'POST', body: { token: '' } })
-assert(cleared.status === 200, 'clearing the token succeeds')
-assert(cleared.json.sync.tokenSource !== 'stored', 'the stored token is really gone (falls back to gh or none)')
-
-// 没有 sync 实例时（降级环境：cipher 不可用）必须 503 而不是崩。
-const degradedHandler = (() => {
-  let captured = null
-  mountVaultRoutes({
-    webServer: { register: (route) => { captured = route.handler; return () => { captured = null } } },
-    logger: { warn: () => {}, info: () => {}, debug: () => {} },
-  }, store, config, null)
-  return captured
-})()
-const degraded = await new Promise((ok) => {
-  const server2 = createServer((req, res) => degradedHandler(req, res))
-  server2.listen(0, '127.0.0.1', () => {
-    fetch('http://127.0.0.1:' + String(server2.address().port) + '/api/dsh-vault/sync')
-      .then(async (response) => ok({ status: response.status, json: await response.json() }))
-      .catch(() => ok({ status: 0, json: null }))
-      .finally(() => server2.close())
-  })
-})
-assert(degraded.status === 503, 'without a sync engine the route answers 503 (not a crash)')
-assert(degraded.json !== null && degraded.json.ok === false, 'the 503 body is a normal { ok:false, error }')
+for (const [method, path] of [['GET', '/sync'], ['POST', '/sync'], ['POST', '/sync-now'], ['POST', '/sync-verify']]) {
+  const gone = await call(path, { method })
+  assert(gone.status === 404, method + ' ' + path + ' is gone with the retired vault cloud backup')
+}
 
 // ── 收尾 ────────────────────────────────────────────────────────────────
 await store.flush()

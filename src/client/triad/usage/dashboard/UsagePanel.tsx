@@ -350,8 +350,8 @@ function Body({ days, range, rangeLabel, preset, custom, onChangePreset, onChang
           已随大盘迁到 ObservePanel，本文件不再有 embedded 分支）。 */}
       <div className="usm-uc-stats" role="group" aria-label={`${rangeLabel} token 消耗`} style={isMobile ? { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' } : undefined}>
         <Stat icon={tokensIcon(14)} label="合计用量" value={formatUnits(sum.total)} sub={`≈ ${formatExact(sum.total)}`} tone="var(--dsw-alias-state-business-primary, #4176e6)" />
-        <Stat icon={inputIcon(14)} label="输入 Tokens" value={formatUnits(sum.input)} sub={`占 ${share(sum.input)}`} tone="#0ea5e9" />
-        <Stat icon={outputIcon(14)} label="输出 Tokens" value={formatUnits(sum.output)} sub={`占 ${share(sum.output)}`} tone="#f59e0b" />
+        <Stat icon={inputIcon(14)} label="输入 Tokens" value={formatUnits(sum.input)} sub={`占 ${share(sum.input)}`} tone="var(--dsw-alias-label-secondary, #A3A3AE)" />
+        <Stat icon={outputIcon(14)} label="输出 Tokens" value={formatUnits(sum.output)} sub={`占 ${share(sum.output)}`} tone="var(--dsw-alias-label-tertiary, #8A8A94)" />
         <Stat icon={hitIcon(14)} label="缓存命中" value={formatUnits(sum.cache)} sub={`命中率 ${formatHitRate(hitRate)}`} tone="#10b981" />
       </div>
       <div className="usm-uc-card">

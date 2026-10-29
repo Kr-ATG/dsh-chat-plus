@@ -739,7 +739,7 @@ const SHEET = `.skm-modal-body{overflow:hidden;display:flex;flex-direction:colum
 .skm-bar-add{flex:none;display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px;white-space:nowrap;border:1px solid var(--dsw-alias-state-business-primary,#3d6be5);
   border-radius:4px;background:transparent;color:var(--dsw-alias-state-business-primary,#3d6be5);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;
   transition:background .16s ease,color .16s ease,transform .12s ease}
-.skm-bar-add:hover{background:var(--dsw-alias-state-business-primary,#3d6be5);color:#fff}
+.skm-bar-add:hover{background:var(--dsw-alias-state-business-primary,#3d6be5);color:var(--dsw-alias-label-on-primary,#fff)}
 .skm-bar-add:active{transform:scale(.97)}
 @keyframes skm-spin{to{transform:rotate(360deg)}}
 /* 状态筛选已并入工具条（分类右侧一条细分隔后），不再单独占一行 */
@@ -907,7 +907,7 @@ body[data-ds-dark-theme] .skm-toast-err{color:#ff8a7a}
 .skm-bundle-empty-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#333)}
 .skm-bundle-empty-hint{flex:1 1 200px;min-width:160px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#8b9099)}
 .skm-bundle-empty-btn{flex:none;display:inline-flex;align-items:center;gap:6px;appearance:none;border:1px solid var(--dsw-alias-state-business-primary,#4176e6);border-radius:9px;padding:5px 12px;font-size:12px;line-height:18px;font-family:inherit;cursor:pointer;color:var(--dsw-alias-state-business-primary,#4176e6);background:transparent;transition:background 160ms ease,color 160ms ease,transform 160ms ease,box-shadow 160ms ease}
-.skm-bundle-empty-btn:hover{background:var(--dsw-alias-state-business-primary,#4176e6);color:#fff;transform:translateY(-1px);box-shadow:0 4px 14px color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent)}
+.skm-bundle-empty-btn:hover{background:var(--dsw-alias-state-business-primary,#4176e6);color:var(--dsw-alias-label-on-primary,#fff);transform:translateY(-1px);box-shadow:0 4px 14px color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent)}
 .skm-bundle-empty-btn:active{transform:translateY(0)}
 @keyframes skm-fade-up{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
@@ -2162,8 +2162,8 @@ export function SkillsPanel({ onClose, embedded = false }: { onClose: () => void
                 padding: '0 13px',
                 borderRadius: '8px',
                 border: 'none',
-                background: 'linear-gradient(180deg,#2563eb,#1d4ed8)',
-                color: '#fff',
+                background: 'linear-gradient(180deg,var(--wb2-accent-hi,#E0E8F4),var(--wb2-accent,#C3CEDF))',
+                color: 'var(--wb2-on-accent, #141414)',
                 fontSize: '12.5px',
                 fontWeight: 550,
                 cursor: 'pointer',

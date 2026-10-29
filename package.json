@@ -1,6 +1,6 @@
 {
   "name": "dsh-chat-plus",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "DeepSeek Harness 对话体验增强套件（零源码改动、纯插件注入）。Seeker 双栏执行大盘：右栏任务 / 操作面板（卡头是 9 段按状态切换的任务动画）/ 子智能体 / 产出物四张卡 + 记忆钉底，左栏只留一行状态卡与贴进对话流的思考卡、问答卡（字号跟随官方「设置 → 字号」）。正文可出卡片：html 沙箱（跑真 HTML/JS）、diagram 流程图、iu 原生交互卡、proto-tabs。另有「@ 运行中的程序」候选（把此刻开着的窗口带进对话）、对话截图、download 下载工具、裸路径转链接、对话完成胶囊（左下角小横条 / 顶部悬浮可切换，回合完成提醒 + 点击跳会话 + 悬停看全文 + 录屏成 GIF），供应商中心（API Key / 网络代理 / 生图识图生视频 / AnySearch，入口在官方设置「供应商」页），以及记忆 / SKILL / 用量 / 画廊 / 档案五个工作台（档案 = 结构化账号密码 / 支付方式 / 联系方式 / 证件，敏感值加密落盘且绝不进上下文）。",
   "keywords": [
     "dsh",
@@ -102,12 +102,11 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "smoke": "node scripts/smoke-client.mjs && node scripts/smoke-host.mjs && node scripts/smoke-triad-client.mjs && node scripts/smoke-triad-host.mjs && node scripts/test-session-isolation.mjs && node scripts/test-browser-on-demand.mjs && node scripts/test-mail-two-phase.mjs && node scripts/test-mail-channel.mjs && node scripts/test-html-card-width.mjs && node scripts/test-mail-drawer.mjs && node scripts/test-settings-card.mjs && node scripts/test-running-apps.mjs && node scripts/test-at-guard.mjs && node scripts/test-turn-input-images.mjs && node scripts/test-prompt-optimize-clean.mjs && node scripts/test-vault.mjs && node scripts/test-vault-http.mjs && node scripts/test-vault-sync.mjs && node scripts/test-system-prompt.mjs && node scripts/test-feature-switches.mjs",
+    "smoke": "node scripts/smoke-client.mjs && node scripts/smoke-host.mjs && node scripts/smoke-triad-client.mjs && node scripts/smoke-triad-host.mjs && node scripts/test-session-isolation.mjs && node scripts/test-browser-on-demand.mjs && node scripts/test-mail-two-phase.mjs && node scripts/test-mail-channel.mjs && node scripts/test-html-card-width.mjs && node scripts/test-mail-drawer.mjs && node scripts/test-settings-card.mjs && node scripts/test-running-apps.mjs && node scripts/test-at-guard.mjs && node scripts/test-turn-input-images.mjs && node scripts/test-prompt-optimize-clean.mjs && node scripts/test-vault.mjs && node scripts/test-vault-http.mjs && node scripts/test-system-prompt.mjs && node scripts/test-feature-switches.mjs",
     "smoke:client": "node scripts/smoke-client.mjs",
     "smoke:host": "node scripts/smoke-host.mjs",
     "smoke:triad-client": "node scripts/smoke-triad-client.mjs",
     "smoke:triad-host": "node scripts/smoke-triad-host.mjs",
-    "smoke:feed-live": "node --experimental-strip-types scripts/smoke-feed-live.mjs",
     "test": "node scripts/test-skill-manager.mjs && node scripts/test-skill-preview.mjs && node scripts/test-skill-toggles.mjs && node scripts/test-subagent-catalog.mjs",
     "test:mail": "node scripts/test-mail-two-phase.mjs",
     "test:mail-channel": "node scripts/test-mail-channel.mjs",
@@ -124,7 +123,6 @@
     "test:prompt-optimize": "node scripts/test-prompt-optimize-clean.mjs",
     "test:vault": "node scripts/test-vault.mjs",
     "test:vault-http": "node scripts/test-vault-http.mjs",
-    "test:vault-sync": "node scripts/test-vault-sync.mjs",
     "test:system-prompt": "node scripts/test-system-prompt.mjs",
     "test:feature-switches": "node scripts/test-feature-switches.mjs"
   },

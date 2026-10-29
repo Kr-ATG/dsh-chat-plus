@@ -305,7 +305,7 @@ export function ProxyPanel(): JSX.Element {
             <input
               type="text"
               style={inputStyle}
-              placeholder="http://127.0.0.1:10808"
+              placeholder="http://127.0.0.1:7897"
               value={urlInput}
               onChange={(e) => { setUrlInput(e.target.value) }}
             />

@@ -93,14 +93,14 @@ const SHEET = [
   '.dsh-sync-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.12));',
   '  color:var(--dsw-alias-label-primary,#e8e8e8);border-color:var(--dsw-alias-border-l3,rgba(127,127,127,.36))}',
   '.dsh-sync-btn:active:not(:disabled){transform:translateY(1px)}',
-  '.dsh-sync-btn:focus-visible{outline:2px solid var(--dsw-focus-ring-color,#4d6bfe);outline-offset:1px}',
+  '.dsh-sync-btn:focus-visible{outline:2px solid var(--wb2-accent,#C3CEDF);outline-offset:1px}',
   '.dsh-sync-btn:disabled{opacity:.45;cursor:not-allowed}',
 
-  /* 主行动按钮：深蓝强调色发光微渐变，不破坏整体雅致质感 */
-  '.dsh-sync-btn-primary{background:linear-gradient(180deg,#2563eb,#1d4ed8);border-color:#1e40af;',
-  '  color:#ffffff!important;font-weight:550;box-shadow:0 1px 3px rgba(37,99,235,.25)}',
-  '.dsh-sync-btn-primary:hover:not(:disabled){background:linear-gradient(180deg,#3b82f6,#2563eb);',
-  '  border-color:#2563eb;box-shadow:0 2px 8px rgba(37,99,235,.35)}',
+  /* 主行动按钮：冷银蓝强调微渐变（与工作台主题/档案页同一套强调色） */
+  '.dsh-sync-btn-primary{background:linear-gradient(180deg,var(--wb2-accent-hi,#E0E8F4),var(--wb2-accent,#C3CEDF));border-color:transparent;',
+  '  color:var(--wb2-on-accent,#0F1420)!important;font-weight:550;box-shadow:0 1px 3px color-mix(in srgb,var(--wb2-accent,#C3CEDF) 25%,transparent)}',
+  '.dsh-sync-btn-primary:hover:not(:disabled){filter:brightness(1.06);',
+  '  border-color:transparent;box-shadow:0 2px 8px color-mix(in srgb,var(--wb2-accent,#C3CEDF) 35%,transparent)}',
 
   /* 次级主按钮 */
   '.dsh-sync-btn-success{border-color:var(--dsw-alias-border-l3,rgba(127,127,127,.36));',
@@ -163,7 +163,7 @@ const SHEET = [
 
   /* 进度指示图标 */
   '.dsh-sync-spin{width:11px;height:11px;border:1.8px solid var(--dsw-alias-border-l3,rgba(127,127,127,.4));',
-  '  border-top-color:#3b82f6;border-radius:50%;display:inline-block;animation:dshSyncSpinner .7s linear infinite}',
+  '  border-top-color:var(--wb2-accent,#C3CEDF);border-radius:50%;display:inline-block;animation:dshSyncSpinner .7s linear infinite}',
   '@keyframes dshSyncSpinner{to{transform:rotate(360deg)}}',
   '.dsh-sync-check{color:#10b981;font-weight:bold;font-size:12px}',
   '.dsh-sync-fail{color:#ef4444;font-weight:bold;font-size:12px}',
@@ -198,11 +198,11 @@ const SHEET = [
   '  cursor:pointer;appearance:none;-webkit-appearance:none;',
   '  background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);',
   '  background-position:calc(100% - 14px) 14px,calc(100% - 9px) 14px;background-size:5px 5px,5px 5px;background-repeat:no-repeat}',
-  '.dsh-sync-select:focus-visible{outline:2px solid var(--dsw-focus-ring-color,#4d6bfe);outline-offset:1px}',
+  '.dsh-sync-select:focus-visible{outline:2px solid var(--wb2-accent,#C3CEDF);outline-offset:1px}',
 
   '.dsh-sync-checkbox-row{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;',
   '  color:var(--dsw-alias-label-secondary,#cfcfcf);cursor:pointer;user-select:none}',
-  '.dsh-sync-checkbox-row input{cursor:pointer;accent-color:#2563eb}',
+  '.dsh-sync-checkbox-row input{cursor:pointer;accent-color:var(--wb2-accent,#C3CEDF)}',
 
   /* ── 主次模式滑块与分段控制器 ── */
   '.dsh-sync-slider-box{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-radius:10px;',

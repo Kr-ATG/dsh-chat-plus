@@ -436,44 +436,6 @@ export { buildActivityGrid, activityColor, ACTIVITY_COLUMNS }
  * 所以从 triad 半身一路转发到 client 入口。
  */
 export { collectModels, collectProviders, filterDaysByScope, providerOfModel } from './triad/usage/dashboard/aggregate.ts'
-/**
- * 纯逻辑再导出：动态页「模型」这一格的判定口径（供 smoke 直接断言）。
- *
- * 这三条判错都**不会报错**，只会让界面显示一个看起来正常的错值：
- *  · followDefaultLabel —— 往括号里塞一个假的模型名，用户以为在用它；
- *  · effectiveModelOf  —— 配置是 default 时显示「跟随系统默认」四个字而不显示
- *    真正在跑的模型，用户无从验证「换的生效了没有」；
- *  · modelLabel        —— 未知 id 被换成别的名字，等于替用户改了设置。
- */
-export { FOLLOW_DEFAULT, followDefaultLabel, normalizeRun as normalizeFeedRun } from './triad/feed/api.ts'
-export { effectiveModelOf, modelLabel } from './triad/feed/FeedPanel.tsx'
-/**
- * 纯逻辑再导出：动态页「日期格式 / 进度估算 / 来源名」三组判据（供 smoke 直接断言）。
- *
- * 这几条判错都**不会报错**，只会让界面安静地显示一个看起来正常的错值：
- *  · fullDateText / dayHeadingText —— 年月日错成别的日期，用户拿它当"什么时候发的"依据；
- *  · medianOf / runDurationsOf   —— ETA 估错，用户看着"预计 10 秒"等了三分钟；
- *  · sourceLabelOf / prettySiteName —— 域名映射错，卡片上挂一个不是那家媒体的名字。
- * 塞在组件里会被 esbuild 内联，只能正则读源码，挡不住逻辑错，所以必须从这里真导出。
- */
-export {
-  agoText,
-  clockText,
-  dateKeyOf,
-  dayHeadingText,
-  elapsedText,
-  fullDateText,
-  medianOf,
-  outcomeLabelOf,
-  prettySiteName,
-  runDurationsOf,
-  runProgressOf,
-  runToneOf,
-  sourceLabelOf,
-  splitSkipNotes,
-  statusLabelOf,
-  MAX_SKIP_NOTES_SHOWN,
-} from './triad/feed/progress.ts'
 export { toPlainStep, plainToolName, siteOf, isMetaTool, spawnsSubagents, humanIssue } from './kr-chat/plain-language.ts'
 export { buildPlainTimeline, condenseSteps } from './kr-chat/plain-timeline.ts'
 /**

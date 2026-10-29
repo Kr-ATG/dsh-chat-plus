@@ -39,19 +39,13 @@ import {
   type VaultConfig,
   type VaultField,
   type VaultFieldType,
+  type VaultFile,
   type VaultImageVariant,
   type VaultPhoto,
   type VaultRecord,
   type VaultScene,
   type VaultStats,
 } from '../../../triad/vault/types.js'
-import {
-  DEFAULT_VAULT_SYNC,
-  parseGithubRepo,
-  type VaultSyncPatch,
-  type VaultSyncPublic,
-  type VaultSyncRun,
-} from '../../../triad/vault/sync-types.js'
 
 /** 路由前缀（宿主半身按此前缀挂路由）。 */
 export const VAULT_API_BASE = '/api/dsh-vault'
@@ -221,6 +215,7 @@ function normalizeRecord(record: VaultRecord): VaultRecord {
     category: typeof record.category === 'string' ? record.category : '',
     fields: Array.isArray(record.fields) ? record.fields : [],
     photos: Array.isArray(record.photos) ? record.photos : [],
+    files: Array.isArray(record.files) ? record.files : [],
     tags: Array.isArray(record.tags) ? record.tags : [],
     changes: Array.isArray(record.changes) ? record.changes : [],
     version: Number.isFinite(record.version) ? record.version : 1,
@@ -396,6 +391,34 @@ export async function uploadVaultPhoto(input: {
 /** 删除一张照片（回整条记录：照片引用挂在记录上）。 */
 export async function deleteVaultPhoto(id: string, photoId: string): Promise<VaultRecord> {
   const response = await request<VaultRecordResponse>('/photo-delete', { id, photoId })
+  if (response.record === undefined) throw new Error('服务端没有返回更新后的记录')
+  return normalizeRecord(response.record)
+}
+
+/**
+ * 上传一个文件附件（配置文件 / 订阅 / 证书等）。
+ *
+ * 与照片一样回**整条记录**：文件列表挂在记录上，变更历史也由宿主算；
+ * 本地只拼 files 数组会让历史少一条 file-add。
+ */
+export async function uploadVaultFileDetailed(input: {
+  id: string
+  name: string
+  mimeType: string
+  data: string
+  label?: string
+}): Promise<{ file: VaultFile; record: VaultRecord | null }> {
+  const response = await request<{ ok: boolean; file: VaultFile; record?: VaultRecord }>('/file', input)
+  if (response.file === undefined) throw new Error('服务端没有返回上传后的文件')
+  return {
+    file: response.file,
+    record: response.record === undefined ? null : normalizeRecord(response.record),
+  }
+}
+
+/** 删除一个文件附件（回整条记录）。 */
+export async function deleteVaultFile(id: string, fileId: string): Promise<VaultRecord> {
+  const response = await request<VaultRecordResponse>('/file-delete', { id, fileId })
   if (response.record === undefined) throw new Error('服务端没有返回更新后的记录')
   return normalizeRecord(response.record)
 }
@@ -642,117 +665,6 @@ export async function restoreVaultBackup(password: string, packageText: string):
   }
 }
 
-/* ───────────────────────── 云端同步（GitHub 私库）───────────────────────── */
-
-/**
- * 读同步状态。
- *
- * 返回的 VaultSyncPublic 里**没有令牌与口令明文**（宿主只回后四位与「有没有」）。
- * 这条纪律在类型上就写死了：前端拿不到能直接用的凭据，也就没有「顺手把它渲染
- * 出来」的机会。
- */
-export async function getVaultSync(): Promise<VaultSyncPublic> {
-  const response = await request<{ ok: boolean; sync: VaultSyncPublic }>('/sync')
-  return normalizeSync(response.sync)
-}
-
-/** 保存同步设置（仓库地址 / 令牌 / 口令 / 开关 / 间隔）。 */
-export async function saveVaultSync(patch: VaultSyncPatch): Promise<VaultSyncPublic> {
-  const response = await request<{ ok: boolean; sync: VaultSyncPublic }>('/sync', patch)
-  return normalizeSync(response.sync)
-}
-
-/**
- * 立即同步一次。
- *
- * **同步失败不是抛错**：宿主把失败原因放在 run.error 里（中文一句话），页面
- * 据此显示在状态行上。抛错只用于「请求本身没送达」——那两种情况的处置完全
- * 不同（一个去改仓库配置，一个去重启 DSH）。
- */
-export async function syncVaultNow(): Promise<{ run: VaultSyncRun; sync: VaultSyncPublic }> {
-  const response = await request<{ ok: boolean; run: VaultSyncRun; sync: VaultSyncPublic }>('/sync-now')
-  if (response.run === undefined || response.run === null) throw new Error('档案服务没有返回同步结果')
-  return { run: response.run, sync: normalizeSync(response.sync) }
-}
-
-/** 只校验仓库（是否可达、是否私有），不上传。 */
-export async function verifyVaultSyncRepo(): Promise<{
-  probe: { private: boolean; branch: string; repo: string; tokenSource: string }
-  sync: VaultSyncPublic
-}> {
-  const response = await request<{
-    ok: boolean
-    probe: { private: boolean; branch: string; repo: string; tokenSource: string }
-    sync: VaultSyncPublic
-  }>('/sync-verify')
-  if (response.probe === undefined || response.probe === null) throw new Error('档案服务没有返回仓库校验结果')
-  return { probe: response.probe, sync: normalizeSync(response.sync) }
-}
-
-/**
- * 规范化同步状态（版本错位窗口的防御）。
- *
- * 与 normalizeRecord 同一个理由：client 刷新即生效、host 要重启 DSH 才换，
- * 这段窗口里旧 host 可能根本没有 /sync 路由（请求会以 503 + 中文错误失败），
- * 也可能回了缺字段的对象。缺什么补什么，页面就不会在 undefined 上崩。
- */
-function normalizeSync(raw: VaultSyncPublic | undefined): VaultSyncPublic {
-  const fallback = DEFAULT_VAULT_SYNC
-  if (raw === undefined || raw === null) {
-    throw new Error('档案服务没有返回同步状态')
-  }
-  return {
-    repo: typeof raw.repo === 'string' ? raw.repo : '',
-    repoInput: typeof raw.repoInput === 'string' ? raw.repoInput : '',
-    repoValid: raw.repoValid === true,
-    repoUrl: typeof raw.repoUrl === 'string' ? raw.repoUrl : '',
-    tokenSet: raw.tokenSet === true,
-    tokenTail: typeof raw.tokenTail === 'string' ? raw.tokenTail : '',
-    tokenSource: raw.tokenSource === 'gh' || raw.tokenSource === 'stored' ? raw.tokenSource : 'none',
-    passphraseSet: raw.passphraseSet === true,
-    enabled: raw.enabled !== false,
-    everyHours: Number.isFinite(raw.everyHours) ? raw.everyHours : fallback.everyHours,
-    includePhotos: raw.includePhotos === true,
-    lastAt: typeof raw.lastAt === 'string' ? raw.lastAt : '',
-    lastStatus: raw.lastStatus === 'ok' || raw.lastStatus === 'error' ? raw.lastStatus : 'never',
-    lastError: typeof raw.lastError === 'string' ? raw.lastError : '',
-    lastBytes: Number.isFinite(raw.lastBytes) ? raw.lastBytes : 0,
-    lastSha: typeof raw.lastSha === 'string' ? raw.lastSha : '',
-    lastCommit: typeof raw.lastCommit === 'string' ? raw.lastCommit : '',
-    running: raw.running === true,
-    nextAt: typeof raw.nextAt === 'string' ? raw.nextAt : '',
-    repoPrivate: raw.repoPrivate === true ? true : raw.repoPrivate === false ? false : 'unknown',
-    repoReachable: raw.repoReachable === true ? true : raw.repoReachable === false ? false : 'unknown',
-    /*
-      这三个字段（上传完整性）是 1.8.1 新增的。缺了它们的旧 host 必须降级成
-      'unknown' 而不是 undefined —— 页面用 === true / === false / === 'unknown'
-      三分支渲染文案，undefined 一条都不命中，状态条会渲染成一条**空白的**
-      灰条（实测就是这个 bug：看着像样式坏了，其实是数据缺字段）。
-    */
-    upToDate: raw.upToDate === true ? true : raw.upToDate === false ? false : 'unknown',
-    uploadedRecords: typeof raw.uploadedRecords === 'number' && Number.isFinite(raw.uploadedRecords) ? raw.uploadedRecords : 0,
-    currentRecords: typeof raw.currentRecords === 'number' && Number.isFinite(raw.currentRecords) ? raw.currentRecords : 0,
-    needsSetup: raw.needsSetup === true,
-    suggestedRepo: typeof raw.suggestedRepo === 'string' ? raw.suggestedRepo : '',
-    history: (Array.isArray(raw.history) ? raw.history : [])
-      .filter((item) => item !== null && typeof item === 'object'),
-  }
-}
-
-/** 前端预校验：地址能不能解析成 owner/repo（与宿主同一个函数，口径不会漂）。 */
-export function describeGithubRepo(input: string): { valid: boolean; fullName: string; url: string; hint: string } {
-  const parsed = parseGithubRepo(input)
-  if (parsed === null) {
-    return {
-      valid: false,
-      fullName: '',
-      url: '',
-      hint: input.trim() === '' ? '' : '看不懂这个地址：形如 https://github.com/用户名/仓库名，或直接写 用户名/仓库名',
-    }
-  }
-  return { valid: true, fullName: parsed.fullName, url: parsed.htmlUrl, hint: '' }
-}
-
 /* ═════════════════ TOTP 动态验证码 ═════════════════ */
 
 /**
@@ -918,6 +830,16 @@ export function vaultImageUrl(sha256: string): string {
   return VAULT_API_BASE + '/image?sha=' + encodeURIComponent(sha256)
 }
 
+/**
+ * 文件附件下载直链。
+ *
+ * name 只用于 Content-Disposition（下载后的文件名），不参与读盘；sha 仍是
+ * 唯一的寻址键，所以改 URL 里的 name 不会读到别的文件。
+ */
+export function vaultFileUrl(sha256: string, name: string): string {
+  return VAULT_API_BASE + '/file?sha=' + encodeURIComponent(sha256) + '&name=' + encodeURIComponent(name)
+}
+
 /** 导出文件的下载直链（敏感值仍是密文，换机器导入要靠同一把密钥）。 */
 export function vaultExportUrl(): string {
   return VAULT_API_BASE + '/export'
@@ -1011,8 +933,8 @@ function drawVariant(
   return { data: dataUrl.slice(comma + 1), width, height }
 }
 
-/** 原始字节转纯 base64（分块，避免一次性展开几 MB 触发参数个数上限）。 */
-async function readOriginalBase64(file: File): Promise<string> {
+/** 文件字节转纯 base64（分块，避免一次性展开几 MB 触发参数个数上限）。 */
+export async function fileToBase64(file: File): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer())
   const CHUNK = 0x8000
   let binary = ''
@@ -1020,6 +942,11 @@ async function readOriginalBase64(file: File): Promise<string> {
     binary += String.fromCharCode(...bytes.subarray(offset, offset + CHUNK))
   }
   return btoa(binary)
+}
+
+/** 原始字节转纯 base64（照片原图档用）。 */
+async function readOriginalBase64(file: File): Promise<string> {
+  return fileToBase64(file)
 }
 
 /**
@@ -1081,6 +1008,8 @@ export function vaultRowSummary(record: VaultRecord, budget = 110): string {
     if (value === '') continue
     parts.push(field.label + '：' + (value.length > 32 ? value.slice(0, 32) + '…' : value))
   }
+  const fileCount = Array.isArray(record.files) ? record.files.length : 0
+  if (fileCount > 0) parts.push(fileCount + ' 个文件')
   if (parts.length === 0 && typeof record.subtitle === 'string' && record.subtitle !== '') {
     return record.subtitle
   }

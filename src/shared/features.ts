@@ -3,7 +3,7 @@
  *
  * 每一个用户可见的细粒度能力，都必须先在这里登记一行；它是内部实现视角，
  * 不是用户看到的开关粒度 —— 用户在插件页面看到的是 src/shared/components.ts
- * 里的 16 个「包含的组件」行，每项功能通过 FEATURE_COMPONENT 归到某一行。
+ * 里的 15 个「包含的组件」行，每项功能通过 FEATURE_COMPONENT 归到某一行。
  * 三处消费同一份表，不允许各自另写一张：
  *
  *   1. host 半身：src/features/host.ts 用它生成默认值与 /api/chat-flow/features 回包；
@@ -59,7 +59,7 @@ export const FEATURE_GROUPS: ReadonlyArray<{
   { id: 'view', label: '对话视图与右栏', desc: 'Seeker 双栏大盘、右栏卡片与对话流里的常驻卡' },
   { id: 'cards', label: '正文卡片', desc: '围栏渲染器与消息操作行' },
   { id: 'input', label: '输入区与工具栏', desc: '输入框上方的座位、工具闸门与模型可见工具' },
-  { id: 'workbench', label: '操作间工作台', desc: '侧栏「操作间」里的八个页面' },
+  { id: 'workbench', label: '操作间工作台', desc: '侧栏「操作间」里的七个页面' },
   { id: 'prompt', label: '提示词通道', desc: '每会话首步注入一次；与 Seeker 大盘设置里的同名开关叠加，任一关闭即关闭' },
   { id: 'host', label: '宿主支撑能力', desc: '路由、采集器与渲染引擎；拨完需要重启 DSH 才生效' },
 ]
@@ -120,7 +120,6 @@ export const FEATURES: ReadonlyArray<FeatureDef> = [
   { id: 'work.gallery', group: 'workbench', label: '画廊', desc: '跨会话的图片 / 网页 / 视频 / 文档产出物索引。', default: true, apply: 'live' },
   { id: 'work.vault', group: 'workbench', label: '档案', desc: '账号密码 / 支付方式 / 联系方式 / 证件的加密档案。', default: true, apply: 'live' },
   { id: 'work.prompt', group: 'workbench', label: '系统提示词', desc: '查看本次会话真正发送给模型的系统提示词快照。', default: true, apply: 'live' },
-  { id: 'work.feed', group: 'workbench', label: '动态', desc: '个人动态（Feed）页面与后台生成。', default: true, apply: 'live' },
   { id: 'work.sync', group: 'workbench', label: '同步设置', desc: '工作台配置的导入导出 / 同步页面。', default: true, apply: 'live' },
 
   // ── 提示词通道（与 Seeker 大盘设置叠加）──────────────────────────────
@@ -145,7 +144,6 @@ export const FEATURES: ReadonlyArray<FeatureDef> = [
   { id: 'host.browser-activity', group: 'host', label: '浏览器活动观测', desc: '包装 tools/execute 记录哪些会话正在跑浏览器操作。', default: true, apply: 'host' },
   { id: 'host.browser-on-demand', group: 'host', label: '浏览器按需拉起', desc: '命中浏览器工具时才拉起 9222 的 Chrome，空闲 5 分钟关掉。', default: true, apply: 'host' },
   { id: 'host.mail', group: 'host', label: 'Agent Mail 宿主', desc: '/api/dsh-mail/* 与 mail_* 工具。', default: true, apply: 'host' },
-  { id: 'host.feed', group: 'host', label: '个人动态宿主', desc: '/api/dsh-feed/*、生成闸门与 X 同步。', default: true, apply: 'host' },
   { id: 'host.git-status', group: 'host', label: 'Git 状态路由', desc: '/api/chat-flow/git-status 与 Git 大盘数据。', default: true, apply: 'host' },
   { id: 'host.system-prompt', group: 'host', label: '系统提示词观测', desc: '抓每步真正组装出来的系统提示词快照。', default: true, apply: 'host' },
   { id: 'host.provider-hub', group: 'host', label: '供应商中心', desc: '网络代理、模型能力、生图 / 识图 / 生视频、AnySearch 与凭据密钥环。', default: true, apply: 'host' },

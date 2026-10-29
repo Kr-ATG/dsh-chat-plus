@@ -132,10 +132,18 @@ export interface NavChildDef {
   readonly order?: number
   /** 行尾的小数字（工作区条目数 / 类别项数；缺省不显示，0 也不显示）。 */
   readonly count?: number
-  /** 点击动作：切到这一项。 */
+  /** 点击动作：切到这一项（分组行可为空操作，见 children）。 */
   readonly run: () => void
   /** 悬停提示（工作区路径这类长文本走这里，不上屏）。 */
   readonly hint?: string
+  /**
+   * 该子项自己的下一级（三级菜单；目前档案场景分组使用）。
+   *
+   * 省略 = 普通叶子项；给出数组 = 分组行，点行只展开/收起，不执行 run。
+   * 之所以不另造一套 Group 类型：分组与叶子在侧栏里是同一列行，只是有无下级，
+   * 复用同一个数组最省渲染分支，也不会让「全部工作区」这类固定项被迫升级成组。
+   */
+  readonly children?: readonly NavChildDef[]
 }
 
 /** 侧栏区域定义。 */

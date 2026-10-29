@@ -433,8 +433,8 @@ need(missing.length === 0, '契约导出齐全' + (missing.length === 0 ? '' : '
 
 need(mod.BROWSER_ACTIVITY_ROUTE === '/api/chat-flow/browser-activity',
   'BROWSER_ACTIVITY_ROUTE = /api/chat-flow/browser-activity（与 host 半身逐字一致）')
-need(mod.FAST_POLL_MS === 1000 && mod.SLOW_POLL_MS === 5000 && mod.IDLE_ROUNDS_BEFORE_SLOW === 3,
-  '轮询节奏 1000ms / 5000ms / 连续 3 次无活动降速')
+need(mod.FAST_POLL_MS === 1000 && mod.SLOW_POLL_MS === 1500 && mod.IDLE_ROUNDS_BEFORE_SLOW === 3,
+  '轮询节奏 1000ms / 1500ms / 连续 3 次无活动降速')
 
 // ── 1. 纯函数：响应解析 ──────────────────────────────────────────────────
 {
@@ -729,7 +729,7 @@ need(mod.FAST_POLL_MS === 1000 && mod.SLOW_POLL_MS === 5000 && mod.IDLE_ROUNDS_B
   const d2 = [...timers.values()][0]?.delay
   await step()
   const d3 = [...timers.values()][0]?.delay
-  need(d2 === 1000 && d3 === 5000, '轮询：连续 3 次无活动 → 降速到 5000ms 保活')
+  need(d2 === 1000 && d3 === 1500, '轮询：连续 3 次无活动 → 降速到 1500ms 保活')
 
   // 有活动 → 立刻回到快速档，且快照里有数据。
   payload = { ok: true, now: 2, sessions: [{ sessionId: 'live', active: 1, service: 'playwright-mcp', tool: 'browser_click', since: 1, lastAt: 2, lingering: false }] }

@@ -1,25 +1,45 @@
 /**
  * dsh-vault — 整页档案面板样式（运行时注入 style 标签，卸载时由 loader 清理）。
  *
- * ── 视觉取向：照用户给的参考图（Chrome 密码管理器的分组卡）────────────
- * 参考图是深色、卡片化的：每张卡 = 一个场景，卡头一行「场景名 + 右侧动作」，
- * 卡内是记录行（左图标 + 名称 + 右侧次要信息）。所以这里的骨架就是
- * 「搜索条 → 分组卡列表 → 点行开右侧抽屉」，不做左右两栏的管理后台。
+ * ── 视觉：Vault Deck（2026-10-29 全量改版）────────────────────────────
+ * 用户要求「UI 样式与布局全部改版换一套，深色模式下背景色换 #151517」。
+ * 旧版是 Chrome 密码管理器式的纵向分组卡流；新版换成：
  *
- * 颜色只用一个中性强调色（DSH 主题的 business-primary）+ 现有 --dsw-alias-*
- * token，不引入第二套配色：这个页面里没有需要靠色相区分的信息层级，「哪个是
- * 场景 / 哪个是记录 / 哪个能点」靠结构与字号说清楚就够了。
+ *   Hero 概览区（eyebrow + 大标题 + 统计矩阵）
+ *     → 工具条（搜索 + 提醒/备份/刷新）
+ *     → 场景切换条（全部 / 各场景计数）
+ *     → 场景分节 + 记录卡片网格（记录详情在卡片下方跨行展开）
+ *     → 底部统计条
  *
- * 深色 / 浅色都靠 token 自动跟随；只有少数必须手写颜色的地方（图片占位底色、
- * 抽屉投影）才额外写一条 body[data-ds-dark-theme] 覆盖。
+ * 配色语言：石墨底 + 冷银蓝强调（#B1B1B3）。强调色只用于「身份 / 选中 / 主操作」
+ * 三处，语义色（红黄绿）只出现在真正的状态上，不做装饰。
  *
- * ⚠ 本文件的整张样式表是一个模板字面量：**注释里绝对不能出现反引号**，
+ * 深色页面底色固定 #151517（用户点名）。浅色走暖纸白 #F6F6F4。
+ * 其余 token 全部由这两个底色派生，明暗两套在手写变量里各给一份。
+ *
+ * ⚠ 本文件的整张样式表是一个模板字面量：注释里绝对不能出现反引号，
  * 否则模板提前闭合、构建报一个与根因无关的错（build.mjs 有源码级守卫）。
+ * 同时避免出现美元符加花括号的插值写法。
  */
 
 /** 类名表（组件侧统一从这里取，避免字符串散落两处各写一遍）。 */
 export const css = {
   root: 'dsh-vault',
+  // ── Hero / 工具条 / 场景切换（2026-10-29 新版布局）──
+  hero: 'dsh-vault-hero',
+  heroMain: 'dsh-vault-hero-main',
+  heroEyebrow: 'dsh-vault-hero-eyebrow',
+  heroStats: 'dsh-vault-hero-stats',
+  heroStat: 'dsh-vault-hero-stat',
+  heroStatNum: 'dsh-vault-hero-stat-num',
+  heroStatLabel: 'dsh-vault-hero-stat-label',
+  toolbar: 'dsh-vault-toolbar',
+  sceneTabs: 'dsh-vault-scene-tabs',
+  sceneTab: 'dsh-vault-scene-tab',
+  sceneTabCount: 'dsh-vault-scene-tab-count',
+  rowMeta: 'dsh-vault-row-meta',
+  rowMetaItem: 'dsh-vault-row-meta-item',
+  // ── 旧页头键（保留给兼容与渐进迁移）──
   head: 'dsh-vault-head',
   headMain: 'dsh-vault-head-main',
   title: 'dsh-vault-title',
@@ -70,6 +90,7 @@ export const css = {
   modal: 'dsh-vault-modal',
   expand: 'dsh-vault-expand',
   panelHead: 'dsh-vault-panel-head',
+  panelEyebrow: 'dsh-vault-panel-eyebrow',
   panelTitleInput: 'dsh-vault-panel-title-input',
   panelClose: 'dsh-vault-panel-close',
   panelBody: 'dsh-vault-panel-body',
@@ -79,6 +100,7 @@ export const css = {
   sectionTitle: 'dsh-vault-section-title',
   sectionAdd: 'dsh-vault-section-add',
   // ── 字段行 ──
+  fieldGrid: 'dsh-vault-field-grid',
   field: 'dsh-vault-field',
   fieldLabel: 'dsh-vault-field-label',
   fieldValueRow: 'dsh-vault-field-value-row',
@@ -98,6 +120,17 @@ export const css = {
   photoUpload: 'dsh-vault-photo-upload',
   photoUploadPri: 'dsh-vault-photo-upload-pri',
   photoBusy: 'dsh-vault-photo-busy',
+  // ── 文件附件 ──
+  fileList: 'dsh-vault-file-list',
+  fileHint: 'dsh-vault-file-hint',
+  fileRow: 'dsh-vault-file-row',
+  fileIcon: 'dsh-vault-file-icon',
+  fileMain: 'dsh-vault-file-main',
+  fileName: 'dsh-vault-file-name',
+  fileMeta: 'dsh-vault-file-meta',
+  fileAction: 'dsh-vault-file-action',
+  fileDelete: 'dsh-vault-file-delete',
+  fileUpload: 'dsh-vault-file-upload',
   // ── 变更历史 ──
   changeList: 'dsh-vault-change-list',
   changeRow: 'dsh-vault-change-row',
@@ -141,12 +174,6 @@ export const css = {
   backupFingerprint: 'dsh-vault-backup-fingerprint',
   backupWarn: 'dsh-vault-backup-warn',
   backupRow: 'dsh-vault-backup-row',
-  // ── 上传完整性状态条 ──
-  syncDot: 'dsh-vault-sync-dot',
-  uploadState: 'dsh-vault-upload-state',
-  uploadStateIcon: 'dsh-vault-upload-state-icon',
-  uploadStateText: 'dsh-vault-upload-state-text',
-  uploadStateMeta: 'dsh-vault-upload-state-meta',
   // ── 强口令生成（详情页密码字段右侧那枚按钮）──
   genBtn: 'dsh-vault-gen-btn',
   genHint: 'dsh-vault-gen-hint',
@@ -166,87 +193,142 @@ export const css = {
 const STYLE_ID = 'dsh-triad-vault-styles'
 
 const SHEET = `
-/* ── 主题变量：全部派生自 DSH token，明暗自动跟随 ────────────────────
-   只有一个强调色（--v-accent），其余是中性灰阶。 */
+/* ═══════════════════════════════════════════════════════════════════
+   1 · 主题变量（Vault Deck）
+   ───────────────────────────────────────────────────────────────────
+   底色：深色 #151517（用户点名）/ 浅色 #F6F6F4。
+   表面三阶、发丝线两阶、冷银蓝强调三档；语义色只用于状态。
+   ═══════════════════════════════════════════════════════════════════ */
 .dsh-vault{
-  --v-accent:var(--dsw-alias-state-business-primary,#3b82f6);
-  --v-accent-soft:color-mix(in srgb,var(--v-accent) 10%,transparent);
-  --v-accent-line:color-mix(in srgb,var(--v-accent) 36%,transparent);
-  --v-text:var(--dsw-alias-label-primary,#111827);
-  --v-text-2:var(--dsw-alias-label-secondary,#5b6068);
-  --v-text-3:var(--dsw-alias-label-tertiary,#8b9098);
-  --v-border:var(--dsw-alias-border-l1,rgba(127,127,127,.16));
-  --v-border-2:var(--dsw-alias-border-l2,rgba(127,127,127,.26));
-  --v-card:var(--dsw-alias-bg-layer-1,transparent);
-  /* 浮层实底：--v-card 可能是 transparent（贴底色），弹窗与原地展开卡必须是不
-     透明的一层，否则会透出后面的列表看起来像蒙了灰。 */
-  /* ⚠ 深色主题下 --dsw-alias-bg-layer-1/2 都是**半透明白**（.045 / .03），
-     所以 --v-raise 本身是透的，不能拿它当"实底色"。要实底一律用
-     --dsw-alias-bg-base（深色 #151517、浅色 #fff）。这里只用于叠在实底之上的
-     层级差（悬停、输入框、浮层叠色）。 */
-  --v-raise:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1,#16181d));
-  --v-hover:color-mix(in srgb,var(--v-text-3) 10%,transparent);
-  --v-soft:color-mix(in srgb,var(--v-text-3) 6%,transparent);
-  --v-sunk:color-mix(in srgb,var(--v-text-3) 4%,transparent);
-  --v-ok:var(--dsw-alias-state-success-primary,#1e7d43);
-  --v-warn:var(--dsw-alias-state-warn-primary,#c2740a);
-  --v-err:var(--dsw-alias-state-error-primary,#c0392b);
-  --v-r-ctrl:9px;
-  --v-r-card:14px;
+  --v-bg:#F6F6F4;
+  --v-surface:#FFFFFF;
+  --v-surface-2:#FBFBF9;
+  --v-surface-3:#F0F0ED;
+  --v-text:#17171A;
+  --v-text-2:#5D5D66;
+  --v-text-3:#74747D;
+  --v-line:rgba(20,20,24,.09);
+  --v-line-2:rgba(20,20,24,.16);
+  /* 强调色（变量名沿用 --v-gold 以免大范围改名）：冷银蓝。
+     浅色下用同色系加深版（浅底上的亮银蓝对比度不够）。 */
+  --v-gold:#56637A;
+  --v-gold-hi:#3C4A60;
+  --v-gold-soft:rgba(86,99,122,.08);
+  --v-gold-line:rgba(86,99,122,.28);
+  --v-on-gold:#FFFFFF;
+  --v-ok:#2F7A4E;
+  --v-warn:#9A6320;
+  --v-err:#B4433F;
+  --v-shadow:0 14px 34px rgba(20,20,24,.12);
+  --v-shadow-sm:0 4px 14px rgba(20,20,24,.07);
+  --v-r-card:16px;
+  --v-r-ctrl:10px;
   --v-r-pill:999px;
-  /* 投影必须用**中性黑**而不是 --v-text 派生：深色主题下 --v-text 是近白色
-     (#f9fafb)，混出来就是一层白光，看着像糊了雾。 */
-  --v-shadow:0 10px 30px rgba(0,0,0,.14);
+  --v-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --v-ease:cubic-bezier(.22,.68,.24,1);
   position:relative;
   flex:1;min-width:0;min-height:0;
   display:flex;flex-direction:column;overflow:hidden;
   color:var(--v-text);
+  background:var(--v-bg);
   font-size:13px;
   box-sizing:border-box;
 }
+body[data-ds-dark-theme] .dsh-vault{
+  --v-bg:#151517;
+  --v-surface:#1C1C21;
+  --v-surface-2:#202026;
+  --v-surface-3:#26262D;
+  --v-text:#F2F2F4;
+  --v-text-2:#A3A3AE;
+  --v-text-3:#8A8A94;
+  --v-line:rgba(255,255,255,.075);
+  --v-line-2:rgba(255,255,255,.14);
+  /* 强调色：冷银蓝（用户反馈纯灰太沉闷，换成更亮、带一点冷蓝的银）。 */
+  --v-gold:#C3CEDF;
+  --v-gold-hi:#E0E8F4;
+  --v-gold-soft:rgba(195,206,223,.10);
+  --v-gold-line:rgba(195,206,223,.34);
+  --v-on-gold:#0F1420;
+  --v-ok:#7FBF95;
+  --v-warn:#D9A05B;
+  --v-err:#E06C6C;
+  --v-shadow:0 20px 44px rgba(0,0,0,.50);
+  --v-shadow-sm:0 6px 18px rgba(0,0,0,.32);
+}
 
-/* ── 顶部：说明句独占一行，搜索框在它下面 ──────────────────────────
-   说明句是**信任声明**（「密码只保存在本机、不会发送给模型」），它必须能被
-   读一遍而不是被挤成一行小字贴在按钮边上——用户对这个页面最不放心的就是这
-   件事，所以给它独立一行、正常字号、二级字色。 */
-.dsh-vault-head{
-  flex:none;display:flex;flex-direction:column;gap:10px;
-  padding:14px 20px 12px;
-  border-bottom:1px solid var(--v-border);
+/* ═══════════════════════════════════════════════════════════════════
+   2 · Hero 概览区
+   ═══════════════════════════════════════════════════════════════════ */
+.dsh-vault-hero{
+  flex:none;
+  display:flex;align-items:flex-end;gap:28px;flex-wrap:wrap;
+  padding:24px 30px 20px;
+  border-bottom:1px solid var(--v-line);
+  background:
+    radial-gradient(120% 150% at 100% 0%, color-mix(in srgb,var(--v-gold) 6%,transparent) 0%, transparent 58%),
+    linear-gradient(180deg, color-mix(in srgb,var(--v-surface) 55%,transparent), transparent);
   box-sizing:border-box;
 }
-.dsh-vault-head-main{display:flex;align-items:flex-start;gap:12px;min-width:0}
-.dsh-vault-title{margin:0;font-size:16px;font-weight:600;line-height:22px;letter-spacing:.01em;flex:none}
+.dsh-vault-hero-main{flex:1 1 460px;min-width:0;display:flex;flex-direction:column;gap:7px}
+.dsh-vault-hero-eyebrow{
+  display:inline-flex;align-items:center;gap:8px;
+  font-size:10px;font-weight:700;letter-spacing:.18em;line-height:16px;
+  color:var(--v-gold);text-transform:uppercase;
+}
+.dsh-vault-hero-eyebrow::before{
+  content:"";width:16px;height:1px;background:currentColor;flex:none;
+}
+.dsh-vault-title{
+  margin:0;font-size:32px;font-weight:650;line-height:1.12;
+  letter-spacing:-.025em;color:var(--v-text);
+}
 .dsh-vault-hint{
-  flex:1;min-width:0;margin:0;
-  font-size:12px;line-height:18px;color:var(--v-text-2);
-  /* 说明句里带一句「点眼睛才显示」，允许折两行，但不许撑高到挤压卡片区 */
-  display:block;
+  margin:0;font-size:12px;line-height:19px;color:var(--v-text-2);
+  max-width:72ch;
 }
-.dsh-vault-head-actions{flex:none;display:flex;align-items:center;gap:6px;margin-left:auto}
-
-.dsh-vault-ghost-btn{
-  display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;
-  border:1px solid var(--v-border);border-radius:var(--v-r-ctrl);
-  background:transparent;color:var(--v-text-2);
-  font-family:inherit;font-size:12px;font-weight:500;line-height:16px;
-  cursor:pointer;white-space:nowrap;
-  transition:border-color .15s ease,color .15s ease,background .15s ease;
+.dsh-vault-hero-stats{
+  flex:none;display:flex;align-items:stretch;
+  border:1px solid var(--v-line);border-radius:14px;
+  background:transparent;
+  overflow:hidden;
 }
-.dsh-vault-ghost-btn:hover{border-color:var(--v-border-2);color:var(--v-text);background:var(--v-soft)}
-.dsh-vault-ghost-btn:active{transform:scale(.98)}
-.dsh-vault-ghost-btn:disabled{opacity:.45;cursor:default}
+.dsh-vault-hero-stat{
+  position:relative;min-width:88px;
+  display:flex;flex-direction:column;gap:2px;
+  padding:12px 18px 11px;
+}
+.dsh-vault-hero-stat + .dsh-vault-hero-stat::before{
+  content:"";position:absolute;left:0;top:11px;bottom:11px;width:1px;
+  background:var(--v-line);
+}
+.dsh-vault-hero-stat-num{
+  font-size:22px;font-weight:650;line-height:1.15;color:var(--v-gold);
+  font-variant-numeric:tabular-nums;
+}
+.dsh-vault-hero-stat-label{
+  font-size:10.5px;letter-spacing:.08em;line-height:14px;color:var(--v-text-3);
+}
 
+/* ═══════════════════════════════════════════════════════════════════
+   3 · 工具条（搜索 + 动作按钮）
+   ═══════════════════════════════════════════════════════════════════ */
+.dsh-vault-toolbar{
+  flex:none;display:flex;align-items:center;gap:10px;
+  padding:16px 30px 0;box-sizing:border-box;
+}
 .dsh-vault-search-wrap{
-  display:flex;align-items:center;gap:8px;
-  height:34px;box-sizing:border-box;padding:0 12px;
-  border:1px solid var(--v-border);border-radius:var(--v-r-pill);
-  background:var(--v-sunk);
-  transition:border-color .16s ease,box-shadow .16s ease,background .16s ease;
+  flex:1;min-width:0;
+  display:flex;align-items:center;gap:9px;
+  height:38px;box-sizing:border-box;padding:0 14px;
+  border:1px solid var(--v-line);border-radius:12px;
+  background:var(--v-surface);
+  box-shadow:var(--v-shadow-sm);
+  transition:border-color .16s var(--v-ease),box-shadow .16s var(--v-ease);
 }
 .dsh-vault-search-wrap:focus-within{
-  border-color:var(--v-accent);background:var(--v-card);
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--v-accent) 12%,transparent);
+  border-color:var(--v-gold-line);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--v-gold) 12%,transparent);
 }
 .dsh-vault-search-icon{display:inline-flex;flex:none;color:var(--v-text-3)}
 .dsh-vault-search-input{
@@ -257,54 +339,96 @@ const SHEET = `
 .dsh-vault-search-clear{
   flex:none;display:inline-flex;align-items:center;justify-content:center;
   width:18px;height:18px;padding:0;border:none;border-radius:50%;
-  background:color-mix(in srgb,var(--v-text-3) 22%,transparent);
-  color:var(--v-card);font-size:11px;line-height:1;cursor:pointer;
+  background:var(--v-surface-3);color:var(--v-text-3);
+  font-size:11px;line-height:1;cursor:pointer;
 }
-.dsh-vault-search-clear:hover{background:color-mix(in srgb,var(--v-text-3) 42%,transparent)}
+.dsh-vault-search-clear:hover{background:var(--v-line-2);color:var(--v-text)}
+.dsh-vault-head-actions{flex:none;display:flex;align-items:center;gap:6px;margin-left:auto}
+.dsh-vault-ghost-btn{
+  display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;
+  border:1px solid var(--v-line);border-radius:10px;
+  background:var(--v-surface);color:var(--v-text-2);
+  font-family:inherit;font-size:12px;font-weight:500;line-height:16px;
+  cursor:pointer;white-space:nowrap;
+  transition:border-color .15s var(--v-ease),color .15s var(--v-ease),background .15s var(--v-ease),transform .12s var(--v-ease);
+}
+.dsh-vault-ghost-btn:hover{border-color:var(--v-gold-line);color:var(--v-gold);background:var(--v-gold-soft)}
+.dsh-vault-ghost-btn:active{transform:scale(.98)}
+.dsh-vault-ghost-btn:disabled{opacity:.45;cursor:default}
 
-/* ── 滚动区：分组卡一列排开 ────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════
+   4 · 场景切换条
+   ═══════════════════════════════════════════════════════════════════ */
+.dsh-vault-scene-tabs{
+  flex:none;display:flex;align-items:center;gap:6px;
+  padding:14px 30px 16px;box-sizing:border-box;
+  overflow-x:auto;scrollbar-width:none;
+}
+.dsh-vault-scene-tabs::-webkit-scrollbar{display:none}
+.dsh-vault-scene-tab{
+  display:inline-flex;align-items:center;gap:7px;flex:none;
+  height:32px;padding:0 13px;box-sizing:border-box;
+  border:1px solid var(--v-line);border-radius:var(--v-r-pill);
+  background:transparent;color:var(--v-text-2);
+  font-family:inherit;font-size:12px;font-weight:500;line-height:16px;
+  white-space:nowrap;cursor:pointer;
+  transition:border-color .15s var(--v-ease),color .15s var(--v-ease),background .15s var(--v-ease);
+}
+.dsh-vault-scene-tab:hover{border-color:var(--v-gold-line);color:var(--v-text)}
+.dsh-vault-scene-tab[data-on="1"]{
+  border-color:var(--v-gold-line);background:var(--v-gold-soft);
+  color:var(--v-gold);font-weight:600;
+}
+.dsh-vault-scene-tab-count{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:17px;height:16px;box-sizing:border-box;padding:0 5px;
+  border-radius:var(--v-r-pill);background:var(--v-surface-3);
+  color:var(--v-text-3);font-size:10px;font-weight:600;line-height:16px;
+  font-variant-numeric:tabular-nums;
+}
+.dsh-vault-scene-tab[data-on="1"] .dsh-vault-scene-tab-count{
+  background:color-mix(in srgb,var(--v-gold) 16%,transparent);color:var(--v-gold);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   5 · 滚动区 / 场景分节
+   ═══════════════════════════════════════════════════════════════════ */
 .dsh-vault-scroll{
   flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
-  padding:16px 20px 40px;box-sizing:border-box;
-  display:flex;flex-direction:column;gap:14px;
+  padding:4px 30px 40px;box-sizing:border-box;
+  display:flex;flex-direction:column;gap:28px;
   scrollbar-gutter:stable;
 }
-.dsh-vault-scroll::-webkit-scrollbar{width:8px}
+.dsh-vault-scroll::-webkit-scrollbar{width:9px}
 .dsh-vault-scroll::-webkit-scrollbar-thumb{
-  background:var(--v-border-2);border-radius:4px;
+  background:var(--v-line-2);border-radius:5px;border:2px solid transparent;background-clip:content-box;
 }
+.dsh-vault-scroll::-webkit-scrollbar-track{background:transparent}
 
-/* ── 场景分组卡 ────────────────────────────────────────────────── */
 .dsh-vault-group{
-  flex:none;
-  border:1px solid var(--v-border);
-  border-radius:var(--v-r-card);
-  background:var(--v-card);
-  overflow:hidden;
-  animation:dsh-vault-rise .26s cubic-bezier(.2,.8,.2,1) backwards;
-  animation-delay:calc(var(--v-i,0) * 26ms);
+  flex:none;display:flex;flex-direction:column;gap:12px;
+  animation:dsh-vault-rise .32s var(--v-ease) backwards;
+  animation-delay:calc(var(--v-i,0) * 40ms);
 }
 .dsh-vault-group-head{
-  display:flex;align-items:center;gap:9px;
-  padding:11px 14px;box-sizing:border-box;
-  min-width:0;
+  display:flex;align-items:center;gap:10px;min-width:0;
+  padding:0 2px;
 }
 .dsh-vault-group-icon{
   flex:none;display:inline-flex;align-items:center;justify-content:center;
-  width:26px;height:26px;border-radius:8px;
-  background:var(--v-soft);color:var(--v-text-2);
+  width:34px;height:34px;border-radius:11px;
+  background:var(--v-gold-soft);border:1px solid var(--v-gold-line);
+  color:var(--v-gold);
 }
-/* 场景名本身就是「改名」的按钮：低频动作藏在零成本的点按里，卡头不加编辑图标
-   （参考图里卡头只有名字与动作，多一枚铅笔图标就多一份噪声）。 */
 .dsh-vault-group-name{
-  flex:none;
-  border:none;background:transparent;padding:0;
-  font-family:inherit;font-size:13.5px;font-weight:600;line-height:18px;
-  color:var(--v-text);white-space:nowrap;cursor:pointer;
-  transition:color .14s ease;
+  flex:none;border:none;background:transparent;padding:0;
+  font-family:inherit;font-size:17px;font-weight:650;line-height:24px;
+  letter-spacing:-.01em;color:var(--v-text);
+  white-space:nowrap;cursor:pointer;
+  transition:color .14s var(--v-ease);
 }
-.dsh-vault-group-name:hover{color:var(--v-accent)}
-.dsh-vault-group-name:focus-visible{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--v-accent) 40%,transparent);border-radius:5px}
+.dsh-vault-group-name:hover{color:var(--v-gold)}
+.dsh-vault-group-name:focus-visible{outline:none;box-shadow:0 0 0 2px var(--v-gold-line);border-radius:6px}
 .dsh-vault-group-desc{
   flex:1;min-width:0;
   font-size:11.5px;line-height:16px;color:var(--v-text-3);
@@ -312,513 +436,539 @@ const SHEET = `
 }
 .dsh-vault-group-count{
   flex:none;display:inline-flex;align-items:center;justify-content:center;
-  min-width:20px;height:18px;box-sizing:border-box;padding:0 6px;
+  min-width:22px;height:20px;box-sizing:border-box;padding:0 7px;
   border-radius:var(--v-r-pill);
-  background:color-mix(in srgb,var(--v-text-3) 15%,transparent);
-  color:var(--v-text-3);
-  font-size:11px;font-weight:600;line-height:18px;
+  background:var(--v-surface-3);color:var(--v-text-3);
+  font-size:11px;font-weight:600;line-height:20px;
   font-variant-numeric:tabular-nums;
 }
-/* 「加一条」：这是分组卡头上唯一的动作。做成常显而不是 hover 才出现——
-   参考图里那个箭头也是常显的，且这个页面的主要动作就是「补一条记录」。 */
 .dsh-vault-group-add{
   flex:none;display:inline-flex;align-items:center;justify-content:center;
-  width:26px;height:26px;padding:0;
-  border:1px solid var(--v-border);border-radius:8px;
-  background:transparent;color:var(--v-text-2);cursor:pointer;
-  transition:border-color .15s ease,color .15s ease,background .15s ease,transform .12s ease;
+  width:30px;height:30px;padding:0;box-sizing:border-box;
+  border:1px solid var(--v-line);border-radius:10px;
+  background:var(--v-surface);color:var(--v-text-2);cursor:pointer;
+  transition:border-color .15s var(--v-ease),color .15s var(--v-ease),background .15s var(--v-ease),transform .12s var(--v-ease);
 }
-.dsh-vault-group-add:hover{
-  border-color:var(--v-accent-line);color:var(--v-accent);background:var(--v-accent-soft);
-}
+.dsh-vault-group-add:hover{border-color:var(--v-gold-line);color:var(--v-gold);background:var(--v-gold-soft)}
 .dsh-vault-group-add:active{transform:scale(.94)}
-.dsh-vault-group-body{display:flex;flex-direction:column;padding:0 8px 8px}
+.dsh-vault-group-add[data-primary="1"]{
+  width:auto;padding:0 12px;gap:6px;
+  border-color:transparent;background:var(--v-gold);color:var(--v-on-gold);
+  font-family:inherit;font-size:12px;font-weight:600;line-height:30px;
+}
+.dsh-vault-group-add[data-primary="1"]:hover{
+  background:var(--v-gold-hi);border-color:transparent;color:var(--v-on-gold);
+}
+.dsh-vault-group-body{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+  gap:12px;
+  align-items:start;
+}
 
-/* ── 记录行：左图标 + 标题/摘要 + 行尾箭头 ────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════
+   6 · 记录卡
+   ═══════════════════════════════════════════════════════════════════ */
 .dsh-vault-row{
-  display:flex;align-items:center;gap:10px;
+  position:relative;display:grid;
+  grid-template-columns:38px minmax(0,1fr) auto;
+  align-items:start;gap:12px;
   width:100%;box-sizing:border-box;
-  padding:9px 8px;
-  border:none;border-radius:10px;
-  background:transparent;color:inherit;text-align:left;
-  font-family:inherit;cursor:pointer;
-  transition:background .14s ease;
+  padding:15px 14px 13px 15px;
+  border:1px solid var(--v-line);border-radius:var(--v-r-card);
+  /* 用户要求：卡片不要背景色。卡片与页面同底，只靠发丝边框与圆角分隔；
+     hover 时才浮出一层极淡的反馈色。 */
+  background:transparent;
+  box-shadow:none;
+  color:inherit;text-align:left;font-family:inherit;cursor:pointer;
+  transition:transform .18s var(--v-ease),border-color .18s var(--v-ease),box-shadow .18s var(--v-ease),background .18s var(--v-ease);
 }
-.dsh-vault-row:hover{background:var(--v-hover)}
+.dsh-vault-row:hover{
+  transform:translateY(-2px);
+  border-color:var(--v-gold-line);
+  background:color-mix(in srgb,var(--v-text) 3%,transparent);
+  box-shadow:var(--v-shadow);
+}
 .dsh-vault-row:focus-visible{
-  outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--v-accent) 40%,transparent);
+  outline:none;box-shadow:0 0 0 2px var(--v-gold-line),var(--v-shadow);
 }
-.dsh-vault-row-sel,.dsh-vault-row-sel:hover{background:var(--v-accent-soft)}
+.dsh-vault-row-sel,.dsh-vault-row-sel:hover{
+  grid-column:1/-1;
+  border-color:var(--v-gold-line);
+  background:transparent;
+}
 .dsh-vault-row-icon{
   flex:none;display:inline-flex;align-items:center;justify-content:center;
-  width:30px;height:30px;border-radius:9px;
-  background:var(--v-soft);color:var(--v-text-2);
+  width:36px;height:36px;border-radius:11px;
+  background:var(--v-gold-soft);border:1px solid var(--v-gold-line);
+  color:var(--v-gold);
 }
-.dsh-vault-row-sel .dsh-vault-row-icon{color:var(--v-accent)}
-.dsh-vault-row-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.dsh-vault-row-sel .dsh-vault-row-icon{background:var(--v-gold);border-color:transparent;color:var(--v-on-gold)}
+.dsh-vault-row-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;padding-top:1px}
 .dsh-vault-row-title{
-  font-size:13px;font-weight:500;line-height:18px;color:var(--v-text);
+  font-size:14px;font-weight:600;line-height:20px;color:var(--v-text);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 .dsh-vault-row-sub{
-  font-size:11.5px;line-height:16px;color:var(--v-text-3);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  /* 摘要里会混排「用户名：xxx · 密码：●●●●●●」，用等宽数字让圆点不跳 */
+  font-size:11.5px;line-height:17px;color:var(--v-text-3);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;
   font-variant-numeric:tabular-nums;
 }
-.dsh-vault-row-tail{flex:none;display:flex;align-items:center;gap:6px}
-.dsh-vault-row-arrow{display:inline-flex;color:var(--v-text-3);opacity:0;transition:opacity .14s ease,transform .14s ease}
-.dsh-vault-row:hover .dsh-vault-row-arrow{opacity:1;transform:translateX(1px)}
+.dsh-vault-row-meta{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  margin-top:1px;
+  font-size:10.5px;line-height:14px;color:var(--v-text-3);
+  font-variant-numeric:tabular-nums;
+}
+.dsh-vault-row-meta-item{display:inline-flex;align-items:center;gap:4px}
+.dsh-vault-row-meta-item + .dsh-vault-row-meta-item::before{
+  content:"·";margin-right:1px;color:var(--v-text-3);opacity:.7;
+}
+.dsh-vault-row-tail{display:flex;align-items:center;gap:6px;padding-top:2px}
+.dsh-vault-row-arrow{display:inline-flex;color:var(--v-gold);opacity:0;transition:opacity .15s var(--v-ease),transform .15s var(--v-ease)}
+.dsh-vault-row:hover .dsh-vault-row-arrow{opacity:1;transform:translateX(2px)}
 .dsh-vault-row:focus-visible .dsh-vault-row-arrow{opacity:1}
-
-/* 已归档徽标：唯一一种「这条记录现在不太一样」的行内标记，用中性色而不是强调色
-   ——一页里铺满彩色徽标会把强调色稀释掉。（原来的「待确认」徽标已随待确认机制
-   一起退役：档案现在没有待确认态，行尾只剩这一枚。） */
 .dsh-vault-badge-archived{
   display:inline-flex;align-items:center;gap:4px;
-  height:17px;padding:0 6px;border-radius:var(--v-r-pill);
-  font-size:10.5px;font-weight:600;line-height:17px;white-space:nowrap;
-  color:var(--v-text-3);background:color-mix(in srgb,var(--v-text-3) 14%,transparent);
+  height:18px;padding:0 7px;border-radius:var(--v-r-pill);
+  font-size:10px;font-weight:600;line-height:18px;white-space:nowrap;
+  color:var(--v-text-3);background:var(--v-surface-3);
+  border:1px solid var(--v-line);
 }
-
-/* ── 用途分类（2026-10-27 用户要求「区分什么用途一目了然」）───────────
-   一行里只能有一个视觉重点，所以分类用「浅色底 + 强调色文字」的小胶囊，而
-   不是再画一枚和「已归档」同款的灰色徽标：灰色徽标说的是状态（这条不太一样），
-   彩色胶囊说的是属性（这条干什么用），两者混用会让用户分不清哪个要紧。
-   位置在标题左边、紧跟图标，读的顺序就是「类型 → 用途 → 名字」。 */
 .dsh-vault-row-category{
   display:inline-flex;align-items:center;flex:none;
-  height:16px;padding:0 6px;margin-right:2px;border-radius:var(--v-r-pill);
-  font-size:10.5px;font-weight:600;line-height:16px;white-space:nowrap;
-  max-width:96px;overflow:hidden;text-overflow:ellipsis;
-  color:var(--v-accent);background:color-mix(in srgb,var(--v-accent) 12%,transparent);
+  height:17px;padding:0 7px;margin-right:6px;border-radius:var(--v-r-pill);
+  font-size:10px;font-weight:600;line-height:17px;white-space:nowrap;
+  max-width:110px;overflow:hidden;text-overflow:ellipsis;
+  color:var(--v-gold);background:var(--v-gold-soft);border:1px solid var(--v-gold-line);
   vertical-align:1px;
 }
-/* 未分类不画胶囊：一排「未分类」占地方又没有信息量，空着反而看得见「这里没填」。 */
 
-/* 详情里的分类行（标签 + 输入 + 候选胶囊） */
-.dsh-vault-category-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
-.dsh-vault-category-label{
-  font-size:11.5px;color:var(--v-text-3);flex:none;
+/* 分类筛选条 */
+.dsh-vault-category-filter{
+  display:flex;flex-wrap:wrap;gap:6px;min-width:0;padding:0 2px 2px;
 }
+.dsh-vault-category-chip{
+  display:inline-flex;align-items:center;
+  height:24px;padding:0 10px;box-sizing:border-box;border-radius:var(--v-r-pill);
+  border:1px solid var(--v-line);background:transparent;
+  color:var(--v-text-2);font-size:11px;font-family:inherit;
+  cursor:pointer;transition:border-color .15s var(--v-ease),color .15s var(--v-ease),background .15s var(--v-ease);
+}
+.dsh-vault-category-chip:hover{border-color:var(--v-gold-line);color:var(--v-gold)}
+.dsh-vault-category-chip[data-on="1"]{
+  border-color:var(--v-gold-line);color:var(--v-gold);
+  background:var(--v-gold-soft);font-weight:600;
+}
+
+/* 详情里的分类行 */
+.dsh-vault-category-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.dsh-vault-category-label{font-size:11.5px;color:var(--v-text-3);flex:none}
 .dsh-vault-category-input{
-  flex:1;min-width:120px;height:28px;padding:0 9px;box-sizing:border-box;
-  border:1px solid var(--v-border);border-radius:var(--v-r-sm);
-  background:var(--v-card);color:var(--v-text);
+  flex:1;min-width:140px;height:32px;padding:0 10px;box-sizing:border-box;
+  border:1px solid var(--v-line-2);border-radius:var(--v-r-ctrl);
+  background:var(--v-surface-2);color:var(--v-text);
   font-size:12.5px;font-family:inherit;outline:none;
 }
 .dsh-vault-category-input:focus{
-  border-color:var(--v-accent);
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--v-accent) 12%,transparent);
+  border-color:var(--v-gold);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--v-gold) 14%,transparent);
 }
-.dsh-vault-category-chips{display:flex;flex-wrap:wrap;gap:5px;min-width:0}
-.dsh-vault-category-chip{
-  display:inline-flex;align-items:center;
-  height:22px;padding:0 9px;box-sizing:border-box;border-radius:var(--v-r-pill);
-  border:1px solid var(--v-border);background:transparent;
-  color:var(--v-text-2);font-size:11.5px;font-family:inherit;
-  cursor:pointer;transition:border-color .15s ease,color .15s ease,background .15s ease;
-}
-.dsh-vault-category-chip:hover{border-color:var(--v-accent);color:var(--v-accent)}
-.dsh-vault-category-chip[data-on="1"]{
-  border-color:transparent;color:var(--v-accent);
-  background:color-mix(in srgb,var(--v-accent) 14%,transparent);
-  font-weight:600;
-}
-/* 分类筛选条（分组头上的一行胶囊，只在组内确实有多种分类时出现） */
-.dsh-vault-category-filter{
-  display:flex;flex-wrap:wrap;gap:5px;
-  padding:2px 12px 8px;min-width:0;
-}
+.dsh-vault-category-chips{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
 
-/* ── 空态：一句话中文引导（用户明确要求每个场景都给）─────────────── */
+/* ═══════════════════════════════════════════════════════════════════
+   7 · 空态 / 骨架 / 错误 / 提示
+   ═══════════════════════════════════════════════════════════════════ */
 .dsh-vault-empty{
-  display:flex;align-items:flex-start;gap:9px;
-  padding:14px 12px 15px;box-sizing:border-box;
-  border-radius:10px;background:var(--v-sunk);
-  margin:0 0 4px;
+  display:flex;align-items:flex-start;gap:10px;
+  padding:18px 16px;box-sizing:border-box;
+  border:1px dashed var(--v-line-2);border-radius:14px;
+  background:transparent;
+  grid-column:1/-1;
 }
-.dsh-vault-empty-icon{flex:none;display:inline-flex;color:var(--v-text-3);margin-top:1px}
+.dsh-vault-empty-icon{flex:none;display:inline-flex;color:var(--v-gold);opacity:.8;margin-top:1px}
 .dsh-vault-empty-text{font-size:12.5px;line-height:19px;color:var(--v-text-2)}
-.dsh-vault-empty-hint{display:block;margin-top:2px;font-size:11.5px;line-height:17px;color:var(--v-text-3)}
-
-/* ── 加载态（骨架）：不做全屏 spinner，骨架与真实行同高，切换时不跳 ── */
+.dsh-vault-empty-hint{display:block;margin-top:3px;font-size:11.5px;line-height:17px;color:var(--v-text-3)}
 .dsh-vault-skeleton{
-  border:1px solid var(--v-border);border-radius:var(--v-r-card);
-  padding:12px;display:flex;flex-direction:column;gap:10px;
-  box-sizing:border-box;
+  border:1px solid var(--v-line);border-radius:var(--v-r-card);
+  padding:14px;display:flex;flex-direction:column;gap:10px;
+  box-sizing:border-box;background:transparent;
 }
 .dsh-vault-skeleton-row{
-  height:36px;border-radius:10px;
-  background:linear-gradient(90deg,var(--v-soft) 25%,var(--v-hover) 50%,var(--v-soft) 75%);
+  height:38px;border-radius:10px;
+  background:linear-gradient(90deg,var(--v-surface-2) 25%,var(--v-surface-3) 50%,var(--v-surface-2) 75%);
   background-size:200% 100%;
   animation:dsh-vault-shimmer 1.1s linear infinite;
 }
-/* ── 错误态：一行可读中文 + 重试按钮（绝不白屏）─────────────────── */
 .dsh-vault-error{
   display:flex;align-items:center;gap:10px;
   padding:12px 14px;box-sizing:border-box;
-  border:1px solid color-mix(in srgb,var(--v-err) 34%,transparent);
-  border-radius:var(--v-r-card);
+  border:1px solid color-mix(in srgb,var(--v-err) 36%,transparent);
+  border-radius:14px;
   background:color-mix(in srgb,var(--v-err) 8%,transparent);
   color:var(--v-err);
 }
 .dsh-vault-error-text{flex:1;min-width:0;font-size:12.5px;line-height:19px;word-break:break-word}
 .dsh-vault-error-retry{
-  flex:none;height:26px;padding:0 12px;
-  border:1px solid color-mix(in srgb,var(--v-err) 46%,transparent);
+  flex:none;height:28px;padding:0 12px;
+  border:1px solid color-mix(in srgb,var(--v-err) 48%,transparent);
   border-radius:var(--v-r-ctrl);background:transparent;color:var(--v-err);
   font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;
 }
 .dsh-vault-error-retry:hover{background:color-mix(in srgb,var(--v-err) 12%,transparent)}
-/* 顶部提示条（「已保存」「只看某分组」）。
-   默认中性二级字色：红色留给真正的错误（.dsh-vault-error）——把「已保存」
-   也涂成红的话，红色就不再表示「出事了」。 */
 .dsh-vault-notice{
   flex:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
-  padding:9px 20px 0;
+  margin:10px 30px 0;padding:9px 12px;
   font-size:11.5px;line-height:17px;color:var(--v-text-2);
+  border:1px solid var(--v-line);border-radius:10px;background:transparent;
 }
-/* 需要用户动手的提示（目前只有一条：还没配 GitHub 私库）。
-   暖色而不是红色：它不是错误，是一件待办；红色留给 .dsh-vault-error。
-   用左侧竖线 + 淡底而不是整块填色卡片——这条提示会长期挂在列表上方，
-   填满底色会压住下面所有分组卡（用户第一版反馈里那种「灰蒙蒙」的翻版）。 */
 .dsh-vault-notice[data-tone="warn"]{
-  margin:8px 20px 0;padding:8px 10px;
   border-left:2px solid var(--v-warn);
-  border-radius:var(--v-r-ctrl);
   background:color-mix(in srgb,var(--v-warn) 7%,transparent);
-  color:var(--v-text-2);
 }
 .dsh-vault-notice[data-tone="warn"] b{color:var(--v-text);font-weight:600}
 
-/* ══ 详情面板：内容本体 + 两种外壳 ══════════════════════════════════
-   同一条记录有两种呈现方式，壳不同、内容完全一样（Panel 与 DetailDrawer 共用
-   同一份组件）：
-
-   · .dsh-vault-expand —— **列表里原地展开**（查看 / 编辑已有记录）。
-     它就长在被点开的那一行下面，是页面内容的一部分，所以没有遮罩、没有浮层
-     投影，只有一圈描边把「这是展开出来的」和「这是列表行」分开。
-     这是用户明确要的形态：点开一条记录不该把整页压暗、也不该从右边滑出来。
-
-   · .dsh-vault-modal —— **居中弹窗**（新建记录 / 健康检查 / 备份恢复）。
-     这三个都是「一次性的整块任务」：新建时列表里根本没有对应那一行可展开，
-     健康与备份是巡检报表、不属于任何一条记录，所以给弹窗。
-     ⚠ 外壳必须是 position:absolute 而不是 fixed：这个页面在官方 main 槽位里，
-     fixed 会连侧栏与顶栏一起盖住。absolute 只覆盖 .dsh-vault 这一屏，
-     语义是「在这块区域里居中」，用户仍然看得见侧栏、能随时切走。 */
+/* ═══════════════════════════════════════════════════════════════════
+   8 · 详情面板：外壳（原地展开 / 弹窗）
+   ═══════════════════════════════════════════════════════════════════ */
 .dsh-vault-backdrop{
   position:absolute;inset:0;z-index:20;
   display:flex;align-items:center;justify-content:center;
   padding:32px 24px;box-sizing:border-box;
-  /* 遮罩只负责吃掉点击与一点点聚焦感，不再把整页压暗。
-     ⚠ 底色必须用中性黑，**不能**由 --v-text 派生：深色主题下 --v-text 是近白色，
-     color-mix 出来是一层白光，整个弹窗区就像蒙了灰雾（用户报的「灰蒙蒙」根因）。
-     深色下加重到 46%，浅色下保持很轻——浅色本来就是亮底，压太狠会脏。 */
-  background:rgba(0,0,0,.08);
+  background:rgba(0,0,0,.18);
   animation:dsh-vault-fade .16s ease;
 }
+body[data-ds-dark-theme] .dsh-vault .dsh-vault-backdrop{background:rgba(0,0,0,.58)}
 .dsh-vault-modal{
-  position:relative;
-  display:flex;flex-direction:column;
-  width:min(560px,100%);
-  max-height:100%;min-height:0;
-  /* ⚠ 弹窗底必须是**实色**，这里是最容易踩的坑，写清楚免得被"优化"掉：
-     官方 --dsw-alias-bg-layer-1 在深色主题下是 rgba(255,255,255,.045) ——
-     一层 4.5% 的**半透明白**，设计上是让人叠在 bg-base 之上用的。直接把它当
-     底色，弹窗就成了「几乎全透明 + 一层薄雾」，后面的列表整片透出来，这就是
-     用户说的「深色主题下弹窗灰蒙蒙」。
-     正确画法是「实底 bg-base + 那层半透明当背景图叠上去」：
-       background-color 给不透明的 bg-base；
-       background-image 用 linear-gradient(层,层) 把半透明层压在上面。
-     这样既跟官方观感一致（比用纯色 layer 更接近其它面板），又绝不会透底。
-     浅色主题下 layer-1 是纯白实色，这一套同样成立。 */
-  background-color:var(--dsw-alias-bg-base,var(--v-raise));
-  background-image:linear-gradient(var(--dsw-alias-bg-layer-1,transparent),var(--dsw-alias-bg-layer-1,transparent));
-  border:1px solid var(--v-border-2);
-  border-radius:var(--v-r-card);
+  position:relative;display:flex;flex-direction:column;
+  width:min(640px,100%);max-height:100%;min-height:0;
+  background:var(--v-bg);
+  border:1px solid var(--v-line-2);
+  border-radius:20px;
   box-shadow:var(--v-shadow);
+  overflow:hidden;
   box-sizing:border-box;
-  animation:dsh-vault-pop .22s cubic-bezier(.2,.8,.2,1);
+  animation:dsh-vault-pop .24s var(--v-ease);
 }
 .dsh-vault-expand{
-  position:relative;
-  display:flex;flex-direction:column;
-  margin:2px 8px 10px;
-  /* 与 .dsh-vault-modal 同一套实底画法（原因见那里的注释）。 */
-  background-color:var(--dsw-alias-bg-base,var(--v-raise));
-  background-image:linear-gradient(var(--dsw-alias-bg-layer-1,transparent),var(--dsw-alias-bg-layer-1,transparent));
-  border:1px solid var(--v-border-2);
-  border-radius:var(--v-r-card);
-  box-sizing:border-box;
+  position:relative;display:flex;flex-direction:column;
+  grid-column:1/-1;
+  margin:2px 0 4px;
+  background:var(--v-bg);
+  border:1px solid var(--v-gold-line);
+  border-radius:18px;
+  box-shadow:var(--v-shadow-sm);
   overflow:hidden;
-  animation:dsh-vault-rise .2s cubic-bezier(.2,.8,.2,1);
+  animation:dsh-vault-rise .24s var(--v-ease);
 }
 .dsh-vault-panel-head{
-  flex:none;display:flex;align-items:center;gap:8px;
-  padding:14px 12px 12px 18px;
-  border-bottom:1px solid var(--v-border);
+  flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:10px 8px;
+  padding:18px 20px 14px;
+  border-bottom:1px solid var(--v-line);
+  background:transparent;
   box-sizing:border-box;
 }
-.dsh-vault-panel-title-input{
-  flex:1;min-width:0;
-  border:1px solid transparent;border-radius:var(--v-r-ctrl);
-  background:transparent;padding:4px 8px;margin:0 -8px;
-  font-family:inherit;font-size:15px;font-weight:600;line-height:22px;color:var(--v-text);
-  transition:border-color .15s ease,background .15s ease;
+.dsh-vault-panel-eyebrow{
+  flex:1 1 100%;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  font-size:10px;font-weight:700;letter-spacing:.16em;line-height:15px;
+  color:var(--v-gold);text-transform:uppercase;
 }
-.dsh-vault-panel-title-input:hover{border-color:var(--v-border)}
+.dsh-vault-panel-eyebrow::before{
+  content:"";width:14px;height:1px;background:currentColor;flex:none;
+}
+/* 第一枚 span 是「记录详情 / 新建记录」这句文案，保持纯文字；
+   场景 chip 走 .dsh-vault-row-category，这里只放开它的宽度限制。 */
+.dsh-vault-panel-eyebrow > span{
+  letter-spacing:.02em;text-transform:none;font-weight:600;
+  color:var(--v-text-3);font-size:10.5px;
+}
+.dsh-vault-panel-eyebrow .dsh-vault-row-category{
+  max-width:none;height:20px;padding:0 8px;line-height:18px;
+  font-size:10.5px;letter-spacing:.02em;
+}
+.dsh-vault-panel-title-input{
+  flex:1;min-width:0;order:1;
+  border:1px solid transparent;border-radius:var(--v-r-ctrl);
+  background:transparent;padding:5px 8px;margin:0 -8px;
+  font-family:inherit;font-size:18px;font-weight:650;line-height:26px;color:var(--v-text);
+  letter-spacing:-.01em;
+  transition:border-color .15s var(--v-ease),background .15s var(--v-ease);
+}
+.dsh-vault-panel-title-input:hover{border-color:var(--v-line)}
 .dsh-vault-panel-title-input:focus{
-  outline:none;border-color:var(--v-accent);background:var(--v-raise);
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--v-accent) 12%,transparent);
+  outline:none;border-color:var(--v-gold-line);background:var(--v-surface-2);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--v-gold) 12%,transparent);
 }
 .dsh-vault-panel-close{
-  flex:none;display:inline-flex;align-items:center;justify-content:center;
-  width:28px;height:28px;padding:0;border:none;border-radius:8px;
+  flex:none;order:2;
+  display:inline-flex;align-items:center;justify-content:center;
+  width:30px;height:30px;padding:0;border:1px solid var(--v-line);border-radius:9px;
   background:transparent;color:var(--v-text-2);cursor:pointer;
-  transition:background .14s ease,color .14s ease;
+  transition:background .14s var(--v-ease),color .14s var(--v-ease),border-color .14s var(--v-ease);
 }
-.dsh-vault-panel-close:hover{background:var(--v-hover);color:var(--v-text)}
+.dsh-vault-panel-close:hover{background:var(--v-surface-3);color:var(--v-text);border-color:var(--v-line-2)}
 .dsh-vault-panel-body{
   flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
-  padding:14px 18px 18px;box-sizing:border-box;
-  display:flex;flex-direction:column;gap:18px;
+  padding:16px 20px 20px;box-sizing:border-box;
+  display:flex;flex-direction:column;gap:14px;
+  background:var(--v-bg);
 }
-.dsh-vault-panel-body::-webkit-scrollbar{width:8px}
-.dsh-vault-panel-body::-webkit-scrollbar-thumb{background:var(--v-border-2);border-radius:4px}
+.dsh-vault-panel-body::-webkit-scrollbar{width:9px}
+.dsh-vault-panel-body::-webkit-scrollbar-thumb{
+  background:var(--v-line-2);border-radius:5px;border:2px solid transparent;background-clip:content-box;
+}
 .dsh-vault-panel-foot{
   flex:none;display:flex;align-items:center;gap:8px;
-  padding:12px 18px;box-sizing:border-box;
-  border-top:1px solid var(--v-border);
+  padding:14px 20px;box-sizing:border-box;
+  border-top:1px solid var(--v-line);
+  background:transparent;
 }
 
-/* ── 抽屉内小节 ─────────────────────────────────────────────────── */
-.dsh-vault-section{display:flex;flex-direction:column;gap:8px}
+/* ═══════════════════════════════════════════════════════════════════
+   9 · 详情小节 / 字段
+   ═══════════════════════════════════════════════════════════════════ */
+.dsh-vault-section{
+  display:flex;flex-direction:column;gap:10px;
+  padding:14px 16px 16px;box-sizing:border-box;
+  border:1px solid var(--v-line);border-radius:var(--v-r-card);
+  background:transparent;
+}
 .dsh-vault-section-head{display:flex;align-items:center;gap:8px;min-width:0}
 .dsh-vault-section-title{
-  flex:none;font-size:11.5px;font-weight:600;line-height:16px;
-  color:var(--v-text-3);letter-spacing:.06em;
+  flex:none;font-size:10.5px;font-weight:700;line-height:16px;
+  color:var(--v-gold);letter-spacing:.14em;text-transform:uppercase;
 }
 .dsh-vault-section-add{
   flex:none;display:inline-flex;align-items:center;gap:4px;
-  height:22px;padding:0 8px;margin-left:auto;
-  border:1px solid var(--v-border);border-radius:var(--v-r-pill);
-  background:transparent;color:var(--v-text-2);
-  font-family:inherit;font-size:11.5px;cursor:pointer;
+  height:24px;padding:0 9px;margin-left:auto;
+  border:1px solid var(--v-gold-line);border-radius:var(--v-r-pill);
+  background:var(--v-gold-soft);color:var(--v-gold);
+  font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;
 }
-.dsh-vault-section-add:hover{border-color:var(--v-accent-line);color:var(--v-accent)}
-
-/* ── 字段行 ─────────────────────────────────────────────────────── */
+.dsh-vault-section-add:hover{background:color-mix(in srgb,var(--v-gold) 15%,transparent)}
+.dsh-vault-field-grid{
+  /* 固定两列：字段值（URL / 密码 / 备注）比标题长得多，列再窄就只剩折行。
+     窄屏在下面的媒体查询里退成一列。 */
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;
+}
 .dsh-vault-field{
-  display:flex;flex-direction:column;gap:3px;
-  padding:8px 10px;box-sizing:border-box;
-  border:1px solid var(--v-border);border-radius:10px;
-  background:var(--v-sunk);
+  display:flex;flex-direction:column;gap:4px;
+  padding:10px 12px;box-sizing:border-box;
+  border:1px solid var(--v-line);border-radius:12px;
+  background:transparent;
+  transition:border-color .15s var(--v-ease);
 }
+.dsh-vault-field:hover{border-color:var(--v-line-2)}
 .dsh-vault-field-label{
   display:flex;align-items:center;gap:6px;
-  font-size:11.5px;line-height:16px;color:var(--v-text-3);font-weight:500;
+  font-size:10.5px;line-height:15px;color:var(--v-text-3);font-weight:600;
+  letter-spacing:.04em;
 }
 .dsh-vault-field-key-hint{
-  font-size:10.5px;color:var(--v-text-3);opacity:.7;
-  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:10px;color:var(--v-text-3);opacity:.75;
+  font-family:var(--v-mono);
 }
-/* wrap 是为了验证码那块：按钮排在眼睛旁边，展开后的 6 位码自己换到下一行
-   （不换行的话它会把这一行撑宽，值本身被挤成一列竖排文字）。 */
 .dsh-vault-field-value-row{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
 .dsh-vault-field-value{
   flex:1;min-width:0;
   font-size:13px;line-height:19px;color:var(--v-text);
   word-break:break-all;
-  border:1px solid transparent;border-radius:7px;
-  background:transparent;padding:3px 6px;margin:0 -6px;
-  font-family:inherit;
-  /* 这个元素是 button（点一下进入编辑）：必须显式左对齐并把光标改成文本光标，
-     否则浏览器默认居中 + 手型，看起来像一个按钮而不是一个值。 */
-  text-align:left;cursor:text;
-  transition:border-color .15s ease,background .15s ease;
+  border:1px solid transparent;border-radius:8px;
+  background:transparent;padding:2px 6px;margin:0 -6px;
+  font-family:inherit;text-align:left;cursor:text;
+  transition:border-color .15s var(--v-ease),background .15s var(--v-ease);
 }
-.dsh-vault-field-value:hover{border-color:var(--v-border)}
+.dsh-vault-field-value:hover{border-color:var(--v-line)}
 .dsh-vault-field-value:focus{
-  outline:none;border-color:var(--v-accent);background:var(--v-card);
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--v-accent) 12%,transparent);
+  outline:none;border-color:var(--v-gold-line);background:var(--v-surface);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--v-gold) 12%,transparent);
 }
-.dsh-vault-field-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.02em}
-/* 敏感值的圆点：比正文小一号、字距拉开，一眼看出「这里有个值但看不见」 */
+.dsh-vault-field-mono{font-family:var(--v-mono);letter-spacing:.02em}
 .dsh-vault-field-secret{
   flex:1;min-width:0;
   font-size:11px;line-height:19px;letter-spacing:2.5px;color:var(--v-text-3);
-  padding:3px 6px;margin:0 -6px;
-  user-select:none;
+  padding:2px 6px;margin:0 -6px;user-select:none;
 }
 .dsh-vault-field-eye{
   flex:none;display:inline-flex;align-items:center;justify-content:center;
   width:26px;height:26px;padding:0;
-  border:1px solid transparent;border-radius:7px;
+  border:1px solid transparent;border-radius:8px;
   background:transparent;color:var(--v-text-3);cursor:pointer;
-  transition:color .14s ease,background .14s ease,border-color .14s ease;
+  transition:color .14s var(--v-ease),background .14s var(--v-ease),border-color .14s var(--v-ease);
 }
-.dsh-vault-field-eye:hover{color:var(--v-text);background:var(--v-hover)}
-.dsh-vault-field-eye-on{color:var(--v-accent);border-color:var(--v-accent-line);background:var(--v-accent-soft)}
+.dsh-vault-field-eye:hover{color:var(--v-text);background:var(--v-surface-3)}
+.dsh-vault-field-eye-on{color:var(--v-gold);border-color:var(--v-gold-line);background:var(--v-gold-soft)}
 .dsh-vault-field-input{
   flex:1;min-width:0;
-  border:1px solid var(--v-accent);border-radius:7px;
-  background:var(--v-card);padding:3px 7px;
+  border:1px solid var(--v-gold-line);border-radius:8px;
+  background:var(--v-surface);padding:3px 8px;
   font-family:inherit;font-size:13px;line-height:19px;color:var(--v-text);
   outline:none;
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--v-accent) 12%,transparent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--v-gold) 10%,transparent);
 }
 
-/* ── 照片网格 ───────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════
+   10 · 照片 / 文件 / 变更历史
+   ═══════════════════════════════════════════════════════════════════ */
 .dsh-vault-photo-grid{
-  display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:9px;
 }
 .dsh-vault-photo-card{
   position:relative;display:flex;flex-direction:column;gap:4px;
-  border:1px solid var(--v-border);border-radius:10px;overflow:hidden;
-  background:var(--v-sunk);
+  border:1px solid var(--v-line);border-radius:12px;overflow:hidden;
+  background:transparent;
 }
 .dsh-vault-photo-thumb{
   width:100%;aspect-ratio:4/3;object-fit:cover;display:block;
-  cursor:zoom-in;background:var(--v-soft);
-  /* 图片是从 /image?sha= 直出的字节流：加载完成前这里是纯色块，
-     不会出现破图标（alt 空字符串 + 底色） */
+  cursor:zoom-in;background:var(--v-surface-3);
 }
 .dsh-vault-photo-label{
-  padding:0 6px 5px;
+  padding:0 7px 6px;
   font-size:10.5px;line-height:14px;color:var(--v-text-3);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 .dsh-vault-photo-del{
-  position:absolute;top:4px;right:4px;
+  position:absolute;top:5px;right:5px;
   display:inline-flex;align-items:center;justify-content:center;
-  width:20px;height:20px;padding:0;
-  border:1px solid rgba(255,255,255,.24);border-radius:6px;
+  width:21px;height:21px;padding:0;
+  border:1px solid rgba(255,255,255,.24);border-radius:7px;
   background:rgba(15,17,23,.66);color:#fff;cursor:pointer;
   opacity:0;transition:opacity .14s ease,background .14s ease;
 }
 .dsh-vault-photo-card:hover .dsh-vault-photo-del{opacity:1}
 .dsh-vault-photo-del:hover{background:rgba(15,17,23,.88)}
-/* 上传按钮：普通场景是虚线占位块；证件类场景（scene.photoFirst）给主色实心，
-   因为那些场景的主内容就是照片，不给醒目入口用户根本找不到。 */
 .dsh-vault-photo-upload{
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
-  min-height:88px;box-sizing:border-box;padding:8px;
-  border:1px dashed var(--v-border-2);border-radius:10px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  min-height:96px;box-sizing:border-box;padding:9px;
+  border:1px dashed var(--v-line-2);border-radius:12px;
   background:transparent;color:var(--v-text-3);
   font-family:inherit;font-size:11.5px;line-height:16px;
-  cursor:pointer;transition:border-color .15s ease,color .15s ease,background .15s ease;
+  cursor:pointer;transition:border-color .15s var(--v-ease),color .15s var(--v-ease),background .15s var(--v-ease);
 }
-.dsh-vault-photo-upload:hover{border-color:var(--v-accent-line);color:var(--v-accent);background:var(--v-accent-soft)}
+.dsh-vault-photo-upload:hover{border-color:var(--v-gold-line);color:var(--v-gold);background:var(--v-gold-soft)}
 .dsh-vault-photo-upload-pri{
-  border-style:solid;border-color:var(--v-accent-line);
-  background:var(--v-accent-soft);color:var(--v-accent);font-weight:600;
+  border-style:solid;border-color:var(--v-gold-line);
+  background:var(--v-gold-soft);color:var(--v-gold);font-weight:600;
 }
-.dsh-vault-photo-upload-pri:hover{border-color:var(--v-accent)}
-.dsh-vault-photo-busy{
-  grid-column:1/-1;
-  font-size:11.5px;line-height:17px;color:var(--v-text-2);
+.dsh-vault-photo-upload-pri:hover{border-color:var(--v-gold)}
+.dsh-vault-photo-busy{grid-column:1/-1;font-size:11.5px;line-height:17px;color:var(--v-text-2)}
+.dsh-vault-file-list{display:flex;flex-direction:column;gap:6px}
+.dsh-vault-file-row{
+  display:flex;align-items:center;gap:9px;
+  padding:8px 10px;box-sizing:border-box;
+  border:1px solid var(--v-line);border-radius:10px;
+  background:transparent;min-width:0;
 }
-
-/* ── 变更历史：时间 · 字段 · 旧 → 新 ─────────────────────────────── */
-.dsh-vault-change-list{display:flex;flex-direction:column;gap:1px}
+.dsh-vault-file-icon{flex:none;display:inline-flex;color:var(--v-gold);opacity:.85}
+.dsh-vault-file-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.dsh-vault-file-name{
+  font-size:12.5px;font-weight:500;line-height:17px;color:var(--v-text);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.dsh-vault-file-meta{
+  font-size:11px;line-height:15px;color:var(--v-text-3);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
+.dsh-vault-file-action,.dsh-vault-file-delete{
+  flex:none;display:inline-flex;align-items:center;justify-content:center;
+  width:26px;height:26px;padding:0;box-sizing:border-box;
+  border:1px solid transparent;border-radius:8px;
+  background:transparent;color:var(--v-text-3);cursor:pointer;
+  font-family:inherit;text-decoration:none;
+  transition:color .14s var(--v-ease),background .14s var(--v-ease),border-color .14s var(--v-ease);
+}
+.dsh-vault-file-action:hover{color:var(--v-gold);background:var(--v-gold-soft);border-color:var(--v-gold-line)}
+.dsh-vault-file-delete:hover{color:var(--v-err);background:color-mix(in srgb,var(--v-err) 9%,transparent);border-color:color-mix(in srgb,var(--v-err) 34%,transparent)}
+.dsh-vault-file-delete:disabled{opacity:.45;cursor:default}
+.dsh-vault-file-hint{font-size:11.5px;line-height:17px;color:var(--v-text-3)}
+.dsh-vault-file-upload{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  align-self:flex-start;height:30px;padding:0 12px;box-sizing:border-box;
+  border:1px dashed var(--v-line-2);border-radius:10px;
+  background:transparent;color:var(--v-text-2);
+  font-family:inherit;font-size:11.5px;line-height:16px;cursor:pointer;
+  transition:border-color .15s var(--v-ease),color .15s var(--v-ease),background .15s var(--v-ease);
+}
+.dsh-vault-file-upload:hover:not(:disabled){border-color:var(--v-gold-line);color:var(--v-gold);background:var(--v-gold-soft)}
+.dsh-vault-file-upload:disabled{opacity:.55;cursor:default}
+.dsh-vault-change-list{display:flex;flex-direction:column;gap:2px}
 .dsh-vault-change-row{
-  display:flex;align-items:flex-start;gap:9px;
-  padding:6px 2px;
-  border-bottom:1px solid var(--v-border);
+  display:flex;align-items:flex-start;gap:10px;
+  padding:7px 2px;
+  border-bottom:1px solid var(--v-line);
 }
 .dsh-vault-change-row:last-child{border-bottom:none}
 .dsh-vault-change-time{
-  flex:none;width:64px;
-  font-size:11px;line-height:17px;color:var(--v-text-3);
+  flex:none;width:66px;
+  font-size:10.5px;line-height:17px;color:var(--v-text-3);
   font-variant-numeric:tabular-nums;
 }
 .dsh-vault-change-body{flex:1;min-width:0;font-size:12px;line-height:17px;color:var(--v-text-2)}
-.dsh-vault-change-field{color:var(--v-text);font-weight:500}
+.dsh-vault-change-field{color:var(--v-text);font-weight:600}
 .dsh-vault-change-action{
   display:inline-flex;align-items:center;
-  margin-right:5px;padding:0 5px;height:15px;
-  border-radius:4px;font-size:10px;line-height:15px;
-  background:color-mix(in srgb,var(--v-text-3) 14%,transparent);
-  color:var(--v-text-3);
+  margin-right:6px;padding:0 6px;height:16px;
+  border-radius:5px;font-size:10px;line-height:16px;
+  background:var(--v-gold-soft);border:1px solid var(--v-gold-line);color:var(--v-gold);
 }
-.dsh-vault-change-diff{display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;margin-top:2px;min-width:0}
-.dsh-vault-change-old{
-  color:var(--v-text-3);text-decoration:line-through;
-  word-break:break-all;max-width:100%;
-}
+.dsh-vault-change-diff{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;margin-top:2px;min-width:0}
+.dsh-vault-change-old{color:var(--v-text-3);text-decoration:line-through;word-break:break-all;max-width:100%}
 .dsh-vault-change-new{color:var(--v-text);word-break:break-all;max-width:100%}
 .dsh-vault-change-old + .dsh-vault-change-new::before{content:"→ ";color:var(--v-text-3)}
 
-/* ── 按钮 ───────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════
+   11 · 按钮
+   ═══════════════════════════════════════════════════════════════════ */
 .dsh-vault-btn{
   display:inline-flex;align-items:center;justify-content:center;gap:6px;
-  height:30px;padding:0 14px;box-sizing:border-box;
-  border:1px solid var(--v-border-2);border-radius:var(--v-r-ctrl);
-  background:transparent;color:var(--v-text-2);
+  height:32px;padding:0 15px;box-sizing:border-box;
+  border:1px solid var(--v-line-2);border-radius:10px;
+  background:var(--v-surface);color:var(--v-text-2);
   font-family:inherit;font-size:12.5px;font-weight:500;line-height:18px;
   cursor:pointer;white-space:nowrap;
-  transition:border-color .14s ease,color .14s ease,background .14s ease,transform .12s ease;
+  transition:border-color .14s var(--v-ease),color .14s var(--v-ease),background .14s var(--v-ease),transform .12s var(--v-ease);
 }
-.dsh-vault-btn:hover:not(:disabled){border-color:var(--v-border-2);color:var(--v-text);background:var(--v-hover)}
+.dsh-vault-btn:hover:not(:disabled){border-color:var(--v-gold-line);color:var(--v-text);background:var(--v-surface-2)}
 .dsh-vault-btn:active:not(:disabled){transform:scale(.98)}
 .dsh-vault-btn:disabled{opacity:.45;cursor:default}
 .dsh-vault-btn-pri{
-  border-color:transparent;background:var(--v-accent);color:var(--dsw-alias-label-on-primary,#fff);
-  font-weight:600;
+  border-color:transparent;background:var(--v-gold);color:var(--v-on-gold);
+  font-weight:650;
 }
-.dsh-vault-btn-pri:hover:not(:disabled){
-  background:var(--dsw-alias-button-info-hover,var(--v-accent));
-  border-color:transparent;color:var(--dsw-alias-label-on-primary,#fff);
-}
+.dsh-vault-btn-pri:hover:not(:disabled){background:var(--v-gold-hi);border-color:transparent;color:var(--v-on-gold)}
 .dsh-vault-btn-danger:hover:not(:disabled){
   border-color:color-mix(in srgb,var(--v-err) 46%,transparent);
   color:var(--v-err);background:color-mix(in srgb,var(--v-err) 9%,transparent);
 }
 .dsh-vault-btn-ghost{border-color:transparent;background:transparent}
+.dsh-vault-btn-ghost:hover:not(:disabled){border-color:var(--v-line);background:var(--v-surface-2)}
 
-/* ── 大图查看 ───────────────────────────────────────────────────── */
-.dsh-vault-lightbox{
-  position:fixed;inset:0;z-index:4000;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
-  padding:28px;box-sizing:border-box;
-  background:rgba(8,9,12,.86);
-  animation:dsh-vault-fade .16s ease;
-  cursor:zoom-out;
-}
-.dsh-vault-lightbox-img{
-  max-width:100%;max-height:calc(100% - 46px);
-  object-fit:contain;border-radius:10px;
-  box-shadow:0 18px 50px rgba(0,0,0,.5);
-}
-.dsh-vault-lightbox-bar{
-  display:flex;align-items:center;gap:12px;
-  font-size:12px;line-height:18px;color:rgba(255,255,255,.72);
-}
-
-/* ── 底部统计条：滚动区末尾的一行小字 + 低频动作 ────────────────── */
+/* ═══════════════════════════════════════════════════════════════════
+   12 · 底部统计条
+   ═══════════════════════════════════════════════════════════════════ */
 .dsh-vault-foot{
   display:flex;align-items:center;gap:10px;flex-wrap:wrap;
-  margin-top:4px;padding-top:12px;
-  border-top:1px solid var(--v-border);
+  margin-top:2px;padding:14px 2px 0;
+  border-top:1px solid var(--v-line);
   font-size:11.5px;line-height:17px;color:var(--v-text-3);
   font-variant-numeric:tabular-nums;
 }
 .dsh-vault-foot-actions{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
 
-/* ══ 到期提醒入口（头部那枚按钮）════════════════════════════════════
-   它显示「有几条要到期了」，所以不能只是一个图标：数字是这条入口存在的理由。
-   有东西要处理时用警示色，没有时回到中性——与原来那枚「健康」按钮同一套形态，
-   只是判据从「一堆密码问题」收窄成了「哪几张证 / 哪几张卡快到期了」。 */
+/* ═══════════════════════════════════════════════════════════════════
+   13 · 到期提醒入口 / 窗口
+   ═══════════════════════════════════════════════════════════════════ */
 .dsh-vault-remind-btn{
-  display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;
-  border:1px solid var(--v-border);border-radius:var(--v-r-ctrl);
-  background:transparent;color:var(--v-text-2);
+  display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;
+  border:1px solid var(--v-line);border-radius:10px;
+  background:var(--v-surface);color:var(--v-text-2);
   font-family:inherit;font-size:12px;font-weight:500;line-height:16px;
   cursor:pointer;white-space:nowrap;
-  transition:border-color .15s ease,color .15s ease,background .15s ease;
+  transition:border-color .15s var(--v-ease),color .15s var(--v-ease),background .15s var(--v-ease);
 }
-.dsh-vault-remind-btn:hover{border-color:var(--v-border-2);color:var(--v-text);background:var(--v-soft)}
+.dsh-vault-remind-btn:hover{border-color:var(--v-gold-line);color:var(--v-gold);background:var(--v-gold-soft)}
 .dsh-vault-remind-btn[data-tone="warn"]{
   border-color:color-mix(in srgb,var(--v-warn) 40%,transparent);
   color:var(--v-warn);background:color-mix(in srgb,var(--v-warn) 8%,transparent);
@@ -827,248 +977,191 @@ const SHEET = `
   border-color:color-mix(in srgb,var(--v-err) 42%,transparent);
   color:var(--v-err);background:color-mix(in srgb,var(--v-err) 8%,transparent);
 }
-/* 徽标：数字反相（底=语义色、字=卡片底色）。不用 currentColor 做底——
-   那样字色与底色同源，深色主题下数字会整块消失。 */
 .dsh-vault-remind-badge{
   display:inline-flex;align-items:center;justify-content:center;
   min-width:17px;height:17px;box-sizing:border-box;padding:0 5px;
   border-radius:var(--v-r-pill);
-  background:var(--v-text-3);color:var(--v-card);
+  background:var(--v-text-3);color:var(--v-surface);
   font-size:10.5px;font-weight:700;line-height:17px;
   font-variant-numeric:tabular-nums;
 }
-.dsh-vault-remind-btn[data-tone="warn"] .dsh-vault-remind-badge{background:var(--v-warn);color:var(--v-card)}
-.dsh-vault-remind-btn[data-tone="bad"] .dsh-vault-remind-badge{background:var(--v-err);color:var(--v-card)}
-/* 一条要提醒的都没有：不显示「0」——一个灰 0 会让人以为有 0 件事要处理
-   （其实是没有这个维度），图标本身已经说明了。 */
+.dsh-vault-remind-btn[data-tone="warn"] .dsh-vault-remind-badge{background:var(--v-warn);color:var(--v-surface)}
+.dsh-vault-remind-btn[data-tone="bad"] .dsh-vault-remind-badge{background:var(--v-err);color:var(--v-surface)}
 .dsh-vault-remind-btn[data-tone="good"] .dsh-vault-remind-badge{display:none}
-
-/* ══ 到期提醒窗口 ══════════════════════════════════════════════════
-   与原来那个「密码健康」抽屉的最大区别：这里没有分数、没有严重度排序表、
-   没有一键修。它只回答一个问题——「接下来哪几样东西会过期」。
-   所以视觉上是一个**日程式清单**：一行一件事，右侧是那句「还剩 N 天」。 */
 .dsh-vault-remind-head{
   display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-  padding:13px 14px;box-sizing:border-box;
-  border:1px solid var(--v-border);border-radius:var(--v-r-card);
-  background:var(--v-sunk);
+  padding:14px 16px;box-sizing:border-box;
+  border:1px solid var(--v-line);border-radius:var(--v-r-card);
+  background:transparent;
 }
-.dsh-vault-remind-facts{display:flex;flex-wrap:wrap;gap:6px}
+.dsh-vault-remind-facts{display:flex;flex-wrap:wrap;gap:7px}
 .dsh-vault-remind-fact{
-  display:inline-flex;align-items:center;gap:5px;
-  height:22px;padding:0 9px;box-sizing:border-box;
-  border:1px solid var(--v-border);border-radius:var(--v-r-pill);
-  font-size:11.5px;line-height:22px;color:var(--v-text-2);
+  display:inline-flex;align-items:center;gap:6px;
+  height:24px;padding:0 10px;box-sizing:border-box;
+  border:1px solid var(--v-line);border-radius:var(--v-r-pill);
+  font-size:11.5px;line-height:24px;color:var(--v-text-2);
   font-variant-numeric:tabular-nums;
 }
-.dsh-vault-remind-fact-num{font-weight:600;color:var(--v-text)}
-
-.dsh-vault-remind-group{display:flex;flex-direction:column;gap:6px}
+.dsh-vault-remind-fact-num{font-weight:700;color:var(--v-gold)}
+.dsh-vault-remind-group{display:flex;flex-direction:column;gap:7px}
 .dsh-vault-remind-group-head{
-  display:flex;align-items:center;gap:7px;
-  font-size:11.5px;font-weight:600;line-height:16px;letter-spacing:.04em;
-  color:var(--v-text-3);
+  display:flex;align-items:center;gap:8px;
+  font-size:10.5px;font-weight:700;line-height:16px;letter-spacing:.1em;
+  color:var(--v-text-3);text-transform:uppercase;
 }
-/* 档位：只靠一枚小圆点 + 文字，不做色块条（一页里最多三档，色块会把整个
-   窗口变成红黄绿灯箱）。 */
-.dsh-vault-remind-level{
-  display:inline-flex;align-items:center;gap:5px;
-  font-size:11px;font-weight:600;line-height:16px;
-}
-.dsh-vault-remind-level::before{
-  content:"";width:6px;height:6px;border-radius:50%;background:currentColor;
-}
+.dsh-vault-remind-level{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;line-height:16px}
+.dsh-vault-remind-level::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
 .dsh-vault-remind-level[data-level="expired"]{color:var(--v-err)}
 .dsh-vault-remind-level[data-level="soon"]{color:var(--v-warn)}
 .dsh-vault-remind-level[data-level="later"]{color:var(--v-text-3)}
-
 .dsh-vault-remind-item{
-  display:flex;align-items:flex-start;gap:9px;
+  display:flex;align-items:flex-start;gap:10px;
   width:100%;box-sizing:border-box;
-  padding:9px 10px;text-align:left;
-  border:1px solid var(--v-border);border-radius:10px;
+  padding:10px 12px;text-align:left;
+  border:1px solid var(--v-line);border-radius:12px;
   background:transparent;color:inherit;font-family:inherit;
-  cursor:pointer;
-  transition:border-color .14s ease,background .14s ease;
+  cursor:pointer;transition:border-color .14s var(--v-ease),background .14s var(--v-ease),transform .14s var(--v-ease);
 }
-.dsh-vault-remind-item:hover{border-color:var(--v-border-2);background:var(--v-hover)}
-.dsh-vault-remind-item:focus-visible{
-  outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--v-accent) 40%,transparent);
-}
+.dsh-vault-remind-item:hover{border-color:var(--v-gold-line);background:color-mix(in srgb,var(--v-text) 3%,transparent);transform:translateY(-1px)}
+.dsh-vault-remind-item[data-level="expired"]{border-left:2px solid var(--v-err)}
+.dsh-vault-remind-item[data-level="soon"]{border-left:2px solid var(--v-warn)}
+.dsh-vault-remind-item[data-level="later"]{border-left:2px solid var(--v-line-2)}
+.dsh-vault-remind-item:focus-visible{outline:none;box-shadow:0 0 0 2px var(--v-gold-line)}
 .dsh-vault-remind-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .dsh-vault-remind-item-title{
-  font-size:12.5px;font-weight:500;line-height:18px;color:var(--v-text);
+  font-size:12.5px;font-weight:600;line-height:18px;color:var(--v-text);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 .dsh-vault-remind-item-meta{font-size:11.5px;line-height:17px;color:var(--v-text-2)}
 .dsh-vault-remind-item-days{
-  flex:none;align-self:center;
-  font-size:12px;font-weight:600;line-height:18px;
-  font-variant-numeric:tabular-nums;
-  white-space:nowrap;
+  flex:none;align-self:center;font-size:12px;font-weight:700;line-height:18px;
+  font-variant-numeric:tabular-nums;white-space:nowrap;
 }
 .dsh-vault-remind-item-days[data-level="expired"]{color:var(--v-err)}
 .dsh-vault-remind-item-days[data-level="soon"]{color:var(--v-warn)}
 .dsh-vault-remind-item-days[data-level="later"]{color:var(--v-text-2)}
-.dsh-vault-remind-due{
-  font-size:11px;line-height:16px;color:var(--v-text-3);
-  font-variant-numeric:tabular-nums;
-}
-/* ══ 备份与恢复 ═════════════════════════════════════════════════════
-   这两块是**救命通道**，所以视觉上要克制但信息必须齐：指纹（可核对）、
-   口令（不落盘）、覆盖警告（红）。 */
-.dsh-vault-backup{display:flex;flex-direction:column;gap:18px}
+.dsh-vault-remind-due{font-size:11px;line-height:16px;color:var(--v-text-3);font-variant-numeric:tabular-nums}
+
+/* ═══════════════════════════════════════════════════════════════════
+   14 · 备份与恢复
+   ═══════════════════════════════════════════════════════════════════ */
+.dsh-vault-backup{display:flex;flex-direction:column;gap:16px}
 .dsh-vault-backup-section{
-  display:flex;flex-direction:column;gap:9px;
-  padding:13px 14px;box-sizing:border-box;
-  border:1px solid var(--v-border);border-radius:var(--v-r-card);
-  background:var(--v-sunk);
+  display:flex;flex-direction:column;gap:10px;
+  padding:15px 16px;box-sizing:border-box;
+  border:1px solid var(--v-line);border-radius:var(--v-r-card);
+  background:transparent;
 }
 .dsh-vault-backup-label{
-  display:flex;align-items:center;gap:6px;
-  font-size:12.5px;font-weight:600;line-height:18px;color:var(--v-text);
+  display:flex;align-items:center;gap:7px;
+  font-size:12.5px;font-weight:650;line-height:18px;color:var(--v-text);
 }
-.dsh-vault-backup-label svg{color:var(--v-text-3)}
+.dsh-vault-backup-label svg{color:var(--v-gold)}
 .dsh-vault-backup-input{
-  width:100%;box-sizing:border-box;height:32px;padding:0 10px;
-  border:1px solid var(--v-border-2);border-radius:var(--v-r-ctrl);
-  background:var(--v-card);color:var(--v-text);
+  width:100%;box-sizing:border-box;height:34px;padding:0 11px;
+  border:1px solid var(--v-line-2);border-radius:var(--v-r-ctrl);
+  background:var(--v-surface-2);color:var(--v-text);
   font-family:inherit;font-size:13px;line-height:18px;
-  transition:border-color .15s ease,box-shadow .15s ease;
+  transition:border-color .15s var(--v-ease),box-shadow .15s var(--v-ease);
 }
 .dsh-vault-backup-input:focus{
-  outline:none;border-color:var(--v-accent);
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--v-accent) 12%,transparent);
+  outline:none;border-color:var(--v-gold);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--v-gold) 12%,transparent);
 }
 .dsh-vault-backup-input::placeholder{color:var(--v-text-3)}
 .dsh-vault-backup-hint{font-size:11.5px;line-height:17px;color:var(--v-text-3)}
 .dsh-vault-backup-fingerprint{
   display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;
-  padding:6px 9px;box-sizing:border-box;
-  border-radius:9px;background:var(--v-soft);
-  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  font-size:11.5px;line-height:17px;color:var(--v-text-2);
+  padding:7px 10px;box-sizing:border-box;
+  border-radius:10px;background:var(--v-surface-2);border:1px solid var(--v-line);
+  font-family:var(--v-mono);font-size:11.5px;line-height:17px;color:var(--v-text-2);
   word-break:break-all;
 }
 .dsh-vault-backup-fingerprint b{color:var(--v-text);font-weight:600}
-/* 云端按钮上的状态点：绿=已全部上传，黄=有改动未传。
-   比文字短，但用户扫一眼按钮就知道"我的档案在云上是不是最新的"。 */
-.dsh-vault-sync-dot{
-  flex:none;display:inline-block;
-  width:6px;height:6px;border-radius:50%;
-  margin-left:-1px;
-}
-.dsh-vault-sync-dot[data-state="done"]{background:var(--v-ok)}
-.dsh-vault-sync-dot[data-state="dirty"]{background:var(--v-warn)}
-
-/* ── 上传完整性状态条 ──────────────────────────────────────────────
-   回答「档案到底传全了没」。三态三色，一眼可辨：
-     data-state="done"    已全部上传（绿）
-     data-state="dirty"   有改动尚未上传（黄）
-     data-state="pending" 尚未上传 / 上次失败（灰）
-   刻意用左侧 2px 竖线而不是整块底色：这是结论条，不是告警横幅。 */
-.dsh-vault-upload-state{
-  display:flex;align-items:flex-start;gap:8px;
-  padding:9px 11px;box-sizing:border-box;
-  border-radius:var(--v-r-ctrl);
-  border-left:2px solid var(--v-text-3);
-  background:var(--v-sunk);
-  font-size:12px;line-height:17px;
-}
-.dsh-vault-upload-state-icon{flex:none;display:inline-flex;margin-top:1px;color:var(--v-text-3)}
-.dsh-vault-upload-state-text{display:flex;flex-direction:column;gap:1px;min-width:0}
-.dsh-vault-upload-state-text b{font-weight:600;color:var(--v-text)}
-.dsh-vault-upload-state-meta{color:var(--v-text-3);font-size:11.5px;line-height:16px}
-.dsh-vault-upload-state[data-state="done"]{
-  border-left-color:var(--v-ok);
-  background:color-mix(in srgb,var(--v-ok) 8%,transparent);
-}
-.dsh-vault-upload-state[data-state="done"] .dsh-vault-upload-state-icon{color:var(--v-ok)}
-.dsh-vault-upload-state[data-state="dirty"]{
-  border-left-color:var(--v-warn);
-  background:color-mix(in srgb,var(--v-warn) 9%,transparent);
-}
-.dsh-vault-upload-state[data-state="dirty"] .dsh-vault-upload-state-icon{color:var(--v-warn)}
-
 .dsh-vault-backup-warn{
   display:flex;align-items:flex-start;gap:8px;
-  padding:9px 11px;box-sizing:border-box;
+  padding:10px 12px;box-sizing:border-box;
   border:1px solid color-mix(in srgb,var(--v-err) 34%,transparent);
-  border-radius:10px;
+  border-radius:12px;
   background:color-mix(in srgb,var(--v-err) 8%,transparent);
   font-size:11.5px;line-height:17px;color:var(--v-err);
 }
 .dsh-vault-backup-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 
-/* ══ 生成按钮（密码字段右侧）════════════════════════════════════════
-   与眼睛、验证码按钮并排，用同一档强调色（accent = 可逆动作）：它只把新口令
-   填进输入框，**不落库**，用户还得回车 / 点保存才写入，所以浏览态也给这枚按钮。
-   强调色（accent）在本模块的语义是「可逆动作」：这枚按钮只改输入框里的草稿，
-   真正落库仍要用户点保存。 */
+/* ═══════════════════════════════════════════════════════════════════
+   15 · 强口令 / TOTP
+   ═══════════════════════════════════════════════════════════════════ */
 .dsh-vault-gen-btn{
   flex:none;display:inline-flex;align-items:center;gap:4px;
-  height:26px;padding:0 9px;
-  border:1px solid var(--v-accent-line);border-radius:var(--v-r-pill);
-  background:var(--v-accent-soft);color:var(--v-accent);
-  font-family:inherit;font-size:11.5px;font-weight:600;line-height:26px;
+  height:27px;padding:0 9px;
+  border:1px solid var(--v-gold-line);border-radius:var(--v-r-pill);
+  background:var(--v-gold-soft);color:var(--v-gold);
+  font-family:inherit;font-size:11px;font-weight:600;line-height:27px;
   cursor:pointer;white-space:nowrap;
-  transition:background .14s ease,border-color .14s ease;
+  transition:background .14s var(--v-ease),border-color .14s var(--v-ease);
 }
-.dsh-vault-gen-btn:hover:not(:disabled){background:color-mix(in srgb,var(--v-accent) 18%,transparent)}
+.dsh-vault-gen-btn:hover:not(:disabled){background:color-mix(in srgb,var(--v-gold) 17%,transparent)}
 .dsh-vault-gen-btn:disabled{opacity:.5;cursor:default}
 .dsh-vault-gen-hint{
-  flex:1 1 100%;
-  font-size:11px;line-height:16px;color:var(--v-text-3);
+  flex:1 1 100%;font-size:11px;line-height:16px;color:var(--v-text-3);
   font-variant-numeric:tabular-nums;
 }
-
-/* ══ TOTP 验证码 ════════════════════════════════════════════════════
-   6 位码要能被一眼读出来并一次选中复制：等宽、大字距、可点击整块选中。 */
 .dsh-vault-totp-btn{
   flex:none;display:inline-flex;align-items:center;gap:5px;
-  height:26px;padding:0 9px;
-  border:1px solid var(--v-accent-line);border-radius:var(--v-r-pill);
-  background:var(--v-accent-soft);color:var(--v-accent);
-  font-family:inherit;font-size:11.5px;font-weight:600;line-height:26px;
+  height:27px;padding:0 9px;
+  border:1px solid var(--v-gold-line);border-radius:var(--v-r-pill);
+  background:var(--v-gold-soft);color:var(--v-gold);
+  font-family:inherit;font-size:11px;font-weight:600;line-height:27px;
   cursor:pointer;white-space:nowrap;
-  transition:background .14s ease,border-color .14s ease;
+  transition:background .14s var(--v-ease),border-color .14s var(--v-ease);
 }
-.dsh-vault-totp-btn:hover{background:color-mix(in srgb,var(--v-accent) 18%,transparent)}
+.dsh-vault-totp-btn:hover{background:color-mix(in srgb,var(--v-gold) 17%,transparent)}
 .dsh-vault-totp-btn:disabled{opacity:.5;cursor:default}
 .dsh-vault-totp-box{
-  flex:1 1 100%;
-  display:flex;align-items:center;gap:12px;
-  padding:10px 12px;box-sizing:border-box;
-  border:1px solid var(--v-accent-line);border-radius:10px;
-  background:var(--v-accent-soft);
+  flex:1 1 100%;display:flex;align-items:center;gap:12px;
+  padding:11px 13px;box-sizing:border-box;
+  border:1px solid var(--v-gold-line);border-radius:12px;
+  background:var(--v-gold-soft);
 }
 .dsh-vault-totp-code{
-  flex:none;
-  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  font-size:20px;font-weight:600;line-height:24px;letter-spacing:3px;
-  color:var(--v-text);
-  font-variant-numeric:tabular-nums;
-  cursor:pointer;
-  user-select:all;
+  flex:none;font-family:var(--v-mono);
+  font-size:21px;font-weight:650;line-height:25px;letter-spacing:3px;
+  color:var(--v-text);font-variant-numeric:tabular-nums;
+  cursor:pointer;user-select:all;
 }
 .dsh-vault-totp-ring{flex:none;position:relative;width:28px;height:28px}
 .dsh-vault-totp-ring svg{display:block;transform:rotate(-90deg)}
 .dsh-vault-totp-left{
   position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-  font-size:10px;font-weight:600;line-height:1;color:var(--v-text-2);
+  font-size:10px;font-weight:700;line-height:1;color:var(--v-gold);
   font-variant-numeric:tabular-nums;
 }
 
-/* ── 动效 ───────────────────────────────────────────────────────── */
-@keyframes dsh-vault-rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-@keyframes dsh-vault-fade{from{opacity:0}to{opacity:1}}
-/* 弹窗入场：从下方 8px 轻微上浮 + 缩放淡入。不用整块飞入——120ms 内的位移一大
-   就会读成「界面在晃」，而这里只是把「刚刚出现」这件事说出来。 */
-@keyframes dsh-vault-pop{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
-@keyframes dsh-vault-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
+/* ═══════════════════════════════════════════════════════════════════
+   16 · 大图查看
+   ═══════════════════════════════════════════════════════════════════ */
+.dsh-vault-lightbox{
+  position:fixed;inset:0;z-index:4000;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  padding:28px;box-sizing:border-box;
+  background:rgba(8,9,12,.90);
+  animation:dsh-vault-fade .16s ease;
+  cursor:zoom-out;
+}
+.dsh-vault-lightbox-img{
+  max-width:100%;max-height:calc(100% - 46px);
+  object-fit:contain;border-radius:12px;
+  box-shadow:0 18px 50px rgba(0,0,0,.55);
+}
+.dsh-vault-lightbox-bar{display:flex;align-items:center;gap:12px;font-size:12px;line-height:18px;color:rgba(255,255,255,.72)}
 
-/* 减弱动效：只关动画帧，不动布局与可见性（否则「看不看得见」会取决于这条
-   媒体查询是否命中）。 */
+/* ═══════════════════════════════════════════════════════════════════
+   17 · 动效
+   ═══════════════════════════════════════════════════════════════════ */
+@keyframes dsh-vault-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes dsh-vault-fade{from{opacity:0}to{opacity:1}}
+@keyframes dsh-vault-pop{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes dsh-vault-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){
   .dsh-vault-group,.dsh-vault-backdrop,.dsh-vault-modal,.dsh-vault-expand,
   .dsh-vault-lightbox{animation:none!important}
@@ -1076,37 +1169,46 @@ const SHEET = `
   .dsh-vault-row,.dsh-vault-row-arrow,.dsh-vault-ghost-btn,.dsh-vault-group-add,
   .dsh-vault-photo-upload,.dsh-vault-btn,.dsh-vault-field-eye,.dsh-vault-photo-del,
   .dsh-vault-remind-btn,.dsh-vault-remind-item,.dsh-vault-totp-btn,
-  .dsh-vault-backup-input,.dsh-vault-gen-btn{
+  .dsh-vault-backup-input,.dsh-vault-gen-btn,.dsh-vault-scene-tab{
     transition:none!important;
   }
 }
 
-/* ── 窄屏：弹窗整宽、头部说明句折行 ────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════
+   18 · 响应式
+   ═══════════════════════════════════════════════════════════════════ */
+@media (max-width:1120px){
+  .dsh-vault-hero{padding:20px 22px 16px;gap:20px}
+  .dsh-vault-toolbar{padding:14px 22px 0}
+  .dsh-vault-scene-tabs{padding:12px 22px 14px}
+  .dsh-vault-scroll{padding:4px 22px 32px}
+  .dsh-vault-notice{margin:10px 22px 0}
+  .dsh-vault-hero-stat{min-width:76px;padding:10px 14px 9px}
+}
+@media (max-width:900px){
+  .dsh-vault-hero{align-items:flex-start;flex-direction:column;gap:16px}
+  /* 纵向排列时 flex-basis 会变成「高度基准」，不重置会在标题下留出 460px 空白 */
+  .dsh-vault-hero-main{flex:0 0 auto}
+  .dsh-vault-hero-stats{width:100%}
+  .dsh-vault-hero-stat{flex:1;min-width:0;padding:10px 12px}
+  .dsh-vault-hero-stat-num{font-size:19px}
+  .dsh-vault-group-body{grid-template-columns:1fr}
+  .dsh-vault-toolbar{flex-wrap:wrap}
+  .dsh-vault-search-wrap{flex:1 1 100%}
+  .dsh-vault-head-actions{margin-left:0}
+}
 @media (max-width:720px){
-  .dsh-vault-head{padding:12px 14px 10px}
-  .dsh-vault-scroll{padding:12px 14px 32px}
-  /* 窄屏没有多余留白可给：弹窗铺到只剩一圈能让点击落在外面关掉的缝。 */
+  .dsh-vault-hero{padding:16px 14px 14px}
+  .dsh-vault-toolbar{padding:12px 14px 0}
+  .dsh-vault-scene-tabs{padding:10px 14px 12px}
+  .dsh-vault-scroll{padding:4px 14px 28px;gap:22px}
+  .dsh-vault-notice{margin:10px 14px 0}
   .dsh-vault-backdrop{padding:16px 10px}
   .dsh-vault-modal{width:100%}
-  .dsh-vault-expand{margin:2px 4px 10px}
-  .dsh-vault-head-main{flex-wrap:wrap}
-  .dsh-vault-hint{flex-basis:100%;order:3}
+  .dsh-vault-expand{margin:2px 0 4px}
   .dsh-vault-group-desc{display:none}
-}
-
-/* 深色主题：只覆盖必须手写颜色的几处（图片占位、浮层投影、遮罩）。
-   其余全部走 --dsw-alias-* token，随主题自动切换。 */
-body[data-ds-dark-theme] .dsh-vault{
-  --v-shadow:0 10px 32px rgba(0,0,0,.56);
-}
-/* 深色下弹窗压暗要更实：底色本来就是 #232324，浅遮罩等于没效果，
-   而一旦用近白色派生又会变成白雾。两处都走中性黑，深浅各一档。 */
-body[data-ds-dark-theme] .dsh-vault .dsh-vault-backdrop{
-  background:rgba(0,0,0,.46);
-}
-body[data-ds-dark-theme] .dsh-vault-row-icon,
-body[data-ds-dark-theme] .dsh-vault-group-icon{
-  background:color-mix(in srgb,var(--v-text) 8%,transparent);
+  .dsh-vault-title{font-size:26px}
+  .dsh-vault-field-grid{grid-template-columns:1fr}
 }
 `
 

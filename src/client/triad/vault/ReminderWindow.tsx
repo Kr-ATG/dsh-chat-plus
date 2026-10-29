@@ -75,6 +75,8 @@ function ReminderItem({ reminder, onOpenRecord }: { reminder: VaultReminder; onO
     <button
       type="button"
       className={css.remindItem}
+      data-role="reminder-item"
+      data-level={level}
       onClick={() => { onOpenRecord(reminder.recordId) }}
     >
       <span style={{ display: 'inline-flex', flex: 'none', marginTop: 1, color: 'var(--v-text-3)' }}>
@@ -154,7 +156,7 @@ export function VaultReminderWindow({ onOpenRecord, onClose }: VaultReminderWind
 
   const body = loading && report === null
     ? (
-      <div className={css.panelBody}>
+      <div className={css.panelBody} data-role="panel-body" data-state="loading">
         {[0, 1, 2].map((index) => (
           <div key={index} className={css.skeleton} style={{ height: 60 }} />
         ))}
@@ -162,7 +164,7 @@ export function VaultReminderWindow({ onOpenRecord, onClose }: VaultReminderWind
     )
     : error !== '' && report === null
       ? (
-        <div className={css.panelBody}>
+        <div className={css.panelBody} data-role="panel-body">
           <div className={css.error}>
             <span style={{ display: 'inline-flex', flex: 'none' }}><AlertIcon size={15} /></span>
             <div className={css.errorText}>读取提醒失败：{error}</div>
@@ -176,7 +178,7 @@ export function VaultReminderWindow({ onOpenRecord, onClose }: VaultReminderWind
         </div>
       )
       : (
-        <div className={css.panelBody}>
+        <div className={css.panelBody} data-role="panel-body">
           {error !== '' && (
             <div className={css.error}>
               <span style={{ display: 'inline-flex', flex: 'none' }}><AlertIcon size={15} /></span>
@@ -188,7 +190,7 @@ export function VaultReminderWindow({ onOpenRecord, onClose }: VaultReminderWind
             <>
               {/* 顶部一句话结论 + 三个数。这一屏没有分数：分数需要一套打分口径，
                   而「有几件事要办」本身就是全部结论。 */}
-              <div className={css.remindHead}>
+              <div className={css.remindHead} data-role="summary">
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 5 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, lineHeight: '19px' }}>
                     {total === 0 ? '没有要到期的东西' : '有 ' + String(total) + ' 项要到期了'}
@@ -211,7 +213,7 @@ export function VaultReminderWindow({ onOpenRecord, onClose }: VaultReminderWind
               </div>
 
               {total === 0 && (
-                <div className={css.empty}>
+                <div className={css.empty} data-role="empty">
                   <span className={css.emptyIcon}><CheckIcon size={15} /></span>
                   <span className={css.emptyText}>
                     90 天内没有要到期的东西。
@@ -223,8 +225,8 @@ export function VaultReminderWindow({ onOpenRecord, onClose }: VaultReminderWind
               )}
 
               {groups.map((group) => (
-                <div key={group.key} className={css.remindGroup}>
-                  <div className={css.remindGroupHead}>
+                <div key={group.key} className={css.remindGroup} data-role="group" data-level={group.key}>
+                  <div className={css.remindGroupHead} data-role="group-head">
                     <span className={css.remindLevel} data-level={group.key}>{group.label}</span>
                     <span style={{ fontWeight: 500 }}>{String(group.items.length)}</span>
                   </div>
@@ -245,7 +247,7 @@ export function VaultReminderWindow({ onOpenRecord, onClose }: VaultReminderWind
   // 外壳（居中弹窗）由 Panel 的 VaultModal 提供，这里只出头部 + 内容。
   return (
     <>
-      <div className={css.panelHead}>
+      <div className={css.panelHead} data-role="panel-head">
         <span style={{ display: 'inline-flex', color: 'var(--v-text-2)' }}><ClockIcon size={16} /></span>
         <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 600, lineHeight: '22px' }}>
           到期提醒

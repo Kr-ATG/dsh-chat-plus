@@ -161,16 +161,6 @@ function tabIcon(tab: (typeof WORKBENCH_TABS)[number]['id']): NavSectionIcon {
       'aria-hidden': true,
     }
     switch (tab) {
-      case 'feed':
-        // 动态 = 一叠横向信息流（与 row-flyout.tsx 的 WorkbenchTabIcon 同一枚形状：
-        // 侧栏行与 hover 浮层用的是同一条菜单，两边图标不同形会显得是两个入口）。
-        return (
-          <svg {...common}>
-            <rect x="3" y="4" width="18" height="5" rx="1.6" />
-            <rect x="3" y="11.5" width="13" height="4.6" rx="1.4" />
-            <rect x="3" y="18.2" width="8.5" height="2.6" rx="1.3" />
-          </svg>
-        )
       case 'memory':
         return (
           <svg {...common}>
@@ -420,6 +410,61 @@ const VAULT_FIXED_CHILDREN: readonly NavChildDef[] = [
   },
 ]
 
+/**
+ * 档案场景的三级菜单分组（2026-10-29 用户要求「做三级菜单这样看起来不花眼」）。
+ *
+ * 场景仍然是用户可增删改的数据；这里只决定侧栏怎么分组展示。分组固定成
+ * 「账号与登录 / 支付与联系方式 / 证件与文件」三组，未列出的自定义场景落到
+ * 末尾的「其它」叶子项。叶子项的 id 仍是场景 id，因此页面筛选、持久化与原有
+ * AI 抽取归集完全不变。
+ */
+const VAULT_SCENE_GROUPS: ReadonlyArray<{ id: string; label: string; sceneIds: readonly string[] }> = [
+  { id: 'account-login', label: '账号与登录', sceneIds: ['accounts', 'email'] },
+  { id: 'payment-contact', label: '支付与联系方式', sceneIds: ['payment', 'contact'] },
+  { id: 'document-config', label: '证件与文件', sceneIds: ['document', 'configs'] },
+]
+
+/** 把一个场景转成三级菜单的叶子项。 */
+function vaultSceneLeaf(scene: { id: string; label: string; count: number }, index: number): NavChildDef {
+  return {
+    id: scene.id,
+    label: scene.label,
+    order: 10 + index * 10,
+    count: scene.count,
+    run: () => { requestVaultScene(scene.id) },
+  }
+}
+
+/** 场景清单 → 三级菜单（分组 + 其它叶子）。 */
+function vaultSceneChildren(scenes: Array<{ id: string; label: string; count: number }>): NavChildDef[] {
+  const byId = new Map(scenes.map((scene) => [scene.id, scene]))
+  const used = new Set<string>()
+  const out: NavChildDef[] = []
+  let groupOrder = 20
+  for (const group of VAULT_SCENE_GROUPS) {
+    const members = group.sceneIds
+      .map((id) => byId.get(id))
+      .filter((scene): scene is { id: string; label: string; count: number } => scene !== undefined)
+    if (members.length === 0) continue
+    members.forEach((scene) => used.add(scene.id))
+    const leaves = members.map((scene, index) => vaultSceneLeaf(scene, index))
+    const total = leaves.reduce((sum, leaf) => sum + (leaf.count ?? 0), 0)
+    out.push({
+      id: 'group-' + group.id,
+      label: group.label,
+      order: groupOrder,
+      ...(total > 0 ? { count: total } : {}),
+      run: () => {},
+      children: leaves,
+    })
+    groupOrder += 10
+  }
+  // 未归入固定分组的场景（用户自建 / 其它）：保持平铺在组之后，不强行塞进某个组。
+  const rest = scenes.filter((scene) => !used.has(scene.id))
+  rest.forEach((scene, index) => out.push(vaultSceneLeaf(scene, index + groupOrder)))
+  return out
+}
+
 /** 条目行「有没有二级菜单」那几项字段（行本体与 target 不在这里）。 */
 /** 条目行「有没有二级菜单」那几项字段（行本体与 target 不在这里）。 */
 type BranchFields = Pick<NavEntryDef, 'children' | 'activeChild'>
@@ -582,6 +627,15 @@ button[${ROW_HIDDEN_ATTR}='true']{display:none !important}
    4. 子项行字号 12.5px，紧凑精致；激活项时分支线与图标均亮起主题高亮色。 */
 .dsn-sub{display:flex;flex-direction:column;flex:none;min-height:0;margin:1px 0 4px;
   animation:dsn-sub-in 160ms cubic-bezier(.32,.72,0,1)}
+/* 三级分组（档案场景：账号与登录 / 支付与联系方式 / 证件与文件） */
+.dsn-sub-group{display:flex;flex-direction:column;flex:none}
+.dsn-sub-group-row{font-weight:500}
+.dsn-sub-caret{display:flex;align-items:center;justify-content:center;flex:none;
+  width:12px;color:var(--dsw-alias-label-tertiary,#8a8a8a);
+  transition:transform 160ms cubic-bezier(.32,.72,0,1)}
+.dsn-sub-caret[data-open='true']{transform:rotate(90deg)}
+.dsn-sub-nested{margin:0 0 2px}
+.dsn-sub-nested .dsn-rail{margin-left:14px;padding-left:12px}
 .dsn-rail{position:relative;display:flex;flex-direction:column;min-height:0;
   margin-left:18px;padding-left:14px}
 .dsn-rail::before{content:'';position:absolute;left:0;top:0;bottom:15px;width:1px;
@@ -828,6 +882,46 @@ function SubMenu({ entry }: { entry: NavEntryDef }): JSX.Element | null {
   if (children === undefined) return null
   const active = resolveActiveChild(entry)
   const ordered = orderedChildren(children)
+  /**
+   * 当前展开的三级分组（只影响档案场景；其它条目没有分组，状态用不到）。
+   *
+   * 默认展开「当前选中项所在组」：从页面或别处切回侧栏时，高亮的叶子不会
+   * 藏在一个收起的组里。用户手动收起后，除非 active 发生变化，否则不再强行
+   * 展开——所以 effect 只依赖 active，不依赖整个 children（那个数组每次
+   * setNavEntryChildren 都会换引用，会把用户的手动收起冲掉）。
+   */
+  const [expandedGroup, setExpandedGroup] = useState<string>(() => {
+    const group = ordered.find((child) => child.children?.some((leaf) => leaf.id === active))
+    return group?.id ?? ''
+  })
+  useEffect(() => {
+    const group = ordered.find((child) => child.children?.some((leaf) => leaf.id === active))
+    if (group !== undefined) {
+      setExpandedGroup((current) => (current === group.id ? current : group.id))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active])
+
+  const renderLeaf = (child: NavChildDef): JSX.Element => {
+    const ChildIcon = child.icon
+    const showCount = typeof child.count === 'number' && child.count > 0
+    return (
+      <button
+        key={child.id}
+        type="button"
+        className="dsn-sub-row"
+        data-active={child.id === active ? 'true' : undefined}
+        title={child.hint}
+        aria-label={child.label}
+        onClick={() => { runChild(entry, child) }}
+      >
+        {ChildIcon !== undefined ? <ChildIcon size={13} /> : null}
+        <span className="dsn-sub-label">{child.label}</span>
+        {showCount ? <span className="dsn-sub-count">{child.count}</span> : null}
+      </button>
+    )
+  }
+
   return (
     <div className="dsn-sub">
       <div className="dsn-rail">
@@ -838,22 +932,33 @@ function SubMenu({ entry }: { entry: NavEntryDef }): JSX.Element | null {
           // 这个信息；而空态本身就极少见（只在页面还没挂载过时出现）。
           ? <div className="dsn-empty">暂无内容</div>
           : ordered.map((child) => {
-            const ChildIcon = child.icon
+            if (child.children === undefined) return renderLeaf(child)
+            const open = expandedGroup === child.id
             const showCount = typeof child.count === 'number' && child.count > 0
             return (
-              <button
-                key={child.id}
-                type="button"
-                className="dsn-sub-row"
-                data-active={child.id === active ? 'true' : undefined}
-                title={child.hint}
-                aria-label={child.label}
-                onClick={() => { runChild(entry, child) }}
-              >
-                {ChildIcon !== undefined ? <ChildIcon size={13} /> : null}
-                <span className="dsn-sub-label">{child.label}</span>
-                {showCount ? <span className="dsn-sub-count">{child.count}</span> : null}
-              </button>
+              <div key={child.id} className="dsn-sub-group">
+                <button
+                  type="button"
+                  className="dsn-sub-row dsn-sub-group-row"
+                  aria-expanded={open}
+                  title={child.hint}
+                  aria-label={child.label}
+                  onClick={() => { setExpandedGroup(open ? '' : child.id) }}
+                >
+                  <span className="dsn-sub-caret" data-open={open ? 'true' : undefined}>
+                    <CaretIcon size={10} />
+                  </span>
+                  <span className="dsn-sub-label">{child.label}</span>
+                  {showCount ? <span className="dsn-sub-count">{child.count}</span> : null}
+                </button>
+                {open && (
+                  <div className="dsn-sub dsn-sub-nested">
+                    <div className="dsn-rail">
+                      {child.children.map((leaf) => renderLeaf(leaf))}
+                    </div>
+                  </div>
+                )}
+              </div>
             )
           })}
       </div>
@@ -938,10 +1043,10 @@ function EntryRow({ entry, expanded }: { entry: NavEntryDef; expanded: boolean }
 
 /** 侧栏本体：一个切换行 + 当前区域的条目行。 */
 function SidebarSections(): JSX.Element | null {
-  // 订阅 work.* 八个开关（hook 必须无条件、且在任何条件 return 之前调用）。
+  // 订阅 work.* 七个开关（hook 必须无条件、且在任何条件 return 之前调用）。
   // 侧栏条目与工作台 tab 共用同一份可见性：tab 关掉，这一行入口同一拍消失；
   // 重新打开同一拍回来。切换行「工作区 / 操作间」本身不挂在工作台开关上，
-  // 所以即使八个页面全关，双屏导航仍然可用。
+  // 所以即使七个页面全关，双屏导航仍然可用。
   const visibleTabs = useVisibleWorkbenchTabs()
   // version 参与下面的 layout effect 依赖：注册表一改就重新同步一次官方 chrome。
   const version = useNavVersion()
@@ -1125,13 +1230,7 @@ export function attachSidebarSections(): () => void {
       if (disposed) return
       setNavEntryChildren('workbench-vault', [
         ...VAULT_FIXED_CHILDREN,
-        ...scenes.map((scene, index) => ({
-          id: scene.id,
-          label: scene.label,
-          order: 20 + index * 10,
-          count: scene.count,
-          run: () => { requestVaultScene(scene.id) },
-        })),
+        ...vaultSceneChildren(scenes),
       ])
     } catch {
       // 宿主还没起来 / 路由 404：保持固定项，侧栏照常可用。

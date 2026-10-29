@@ -137,6 +137,7 @@ export function VaultTotpBox({ recordId, fieldKey, onError }: VaultTotpBoxProps)
       <button
         type="button"
         className={css.totpBtn}
+        data-role="totp-trigger"
         title="用这个字段的密钥生成 6 位动态验证码"
         onClick={() => { setOpen(true); void load() }}
       >
@@ -146,7 +147,7 @@ export function VaultTotpBox({ recordId, fieldKey, onError }: VaultTotpBoxProps)
   }
 
   return (
-    <div className={css.totpBox}>
+    <div className={css.totpBox} data-role="totp-box">
       <span style={{ display: 'inline-flex', flex: 'none', color: 'var(--v-text-3)' }}><ClockIcon size={14} /></span>
       {totp === null ? (
         <span className={css.backupHint} style={{ flex: 1 }}>

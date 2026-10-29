@@ -285,12 +285,12 @@ export function PopoverShell({
    * 直接 return，不放行）。
    *
    * ⚠ **已被内层浮层处理过的 Esc 必须放行**（2026-10-27 实测缺陷）：
-   * 面板里的浮层（动态页的「原文来源」「更新进度」「设置」等）自己在 window
+   * 面板里的浮层（如详情抽屉、设置弹层、进度浮窗等）自己在 window
    * 捕获阶段处理 Esc 并 preventDefault + stopPropagation。但本监听挂在 document
    * 上，而浮层 portal 到 body 之后，事件路径是 window → document → body → …
    * ——捕获阶段先到 window，**document 上的监听仍会收到同一个事件**。不检查
    * defaultPrevented 的话，用户按一次 Esc 会同时关掉浮层和整个面板，
-   * 表现为「按 Esc 直接退出了动态页」。
+   * 表现为「按 Esc 直接退出了整个工作台」。
    */
   useEffect(() => {
     if (closing) return undefined

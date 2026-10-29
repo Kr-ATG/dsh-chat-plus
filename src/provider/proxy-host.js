@@ -46,7 +46,7 @@ const ORIGINAL_FETCH = Symbol.for('dsh-proxy.originalFetch')
  */
 const PROXY_STATE_SYMBOL = Symbol.for('dsh-proxy.state')
 const SETTINGS_REF_SYMBOL = Symbol.for('dsh-proxy.settingsRef')
-const DEFAULT_PROXY = 'http://127.0.0.1:10808'
+const DEFAULT_PROXY = 'http://127.0.0.1:7897'
 /** 连通性自检目标与超时：走代理请求一个轻量海外端点。 */
 const PROBE_URL = 'https://www.gstatic.com/generate_204'
 const PROBE_TIMEOUT_MS = 8000

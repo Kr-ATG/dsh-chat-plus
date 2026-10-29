@@ -32,14 +32,14 @@ const SHEET = `
   position: relative;
 
   /* ── 现代产品级色彩体系：DeepSeek 品牌蓝与清晰语义色彩 ── */
-  --wb-accent: var(--dsw-alias-state-business-primary, #3b82f6);
+  --wb-accent: var(--dsw-alias-state-business-primary, #C3CEDF);
   --wb-surface-bg: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.035));
   --wb-surface-border: var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.08));
   --wb-surface-radius: 12px;
   --wb-surface-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 body[data-ds-dark-theme] .wb-root {
-  --wb-accent: #4d82f3;
+  --wb-accent: #C3CEDF;
   --wb-surface-bg: rgba(255, 255, 255, 0.03);
   --wb-surface-border: rgba(255, 255, 255, 0.07);
 }
