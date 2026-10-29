@@ -2644,6 +2644,33 @@ if (krEnabled) {
     }
   }
 
+  // 对话流滚动条自动隐藏（2026-10-29 用户要求）：滚动时显形，停止 3 秒后隐藏。
+  //
+  // 三个面缺一不可：模块要真的监听 scroll 并按 3000ms 隐藏；KrAgentPanel 要挂载；
+  // 样式要在同一份 KR 样式表里把 thumb 切成透明（否则 JS 加了属性也没人画）。
+  {
+    const autoHideCode = readFileSync(resolve(ROOT, 'src/client/kr-chat/scrollbar-autohide.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1 ')
+    const panelSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8')
+    if (!/SCROLLBAR_HIDE_DELAY_MS = 3000/.test(autoHideCode)) {
+      fail('对话流滚动条必须在停止滚动 3 秒后隐藏（SCROLLBAR_HIDE_DELAY_MS = 3000）')
+    } else if (!/addEventListener\('scroll', reveal/.test(autoHideCode) || !/data-scrollbar-active/.test(autoHideCode)) {
+      fail('滚动条自动隐藏必须监听 scroll 并通过 data-scrollbar-active 切换显隐')
+    } else if (!/current\.has\(node\)/.test(autoHideCode) || !/bound\.delete\(node\)/.test(autoHideCode)) {
+      fail('滚动条自动隐藏必须对容器做对账（新节点挂载 / 消失节点清理，会话切换会换掉滚动容器）')
+    } else if (!/installConversationScrollbarAutoHide/.test(panelSrc)) {
+      fail('KrAgentPanel 必须挂载对话流滚动条自动隐藏')
+    } else {
+      const autoHideStyles = readFileSync(resolve(ROOT, 'src/client/kr-chat/styles.ts'), 'utf8')
+      if (!/\[data-conversation-scroll\]\[data-scrollbar-autohide\]::-webkit-scrollbar-thumb/.test(autoHideStyles)
+        || !/\.kr-panel__scroll\[data-scrollbar-autohide\]::-webkit-scrollbar-thumb/.test(autoHideStyles)) {
+        fail('styles.ts 必须同时提供对话流与右栏滚动条的透明 / 显形规则')
+      } else {
+        pass('对话流滚动条：滚动显形 + 停止 3 秒隐藏 + 容器替换重挂')
+      }
+    }
+  }
+
   // 滚动守卫 · iframe 滚轮缺口（2026-10-20 修「出现 html / iu 卡片后鼠标滚不动」）。
   //
   // 事故形态：html 卡片是 opaque origin 的 iframe，里面的 wheel 事件**不会冒泡到

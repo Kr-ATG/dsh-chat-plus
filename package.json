@@ -1,6 +1,6 @@
 {
   "name": "dsh-chat-plus",
-  "version": "1.11.0",
+  "version": "1.11.1",
   "description": "DeepSeek Harness 对话体验增强套件（零源码改动、纯插件注入）。Seeker 双栏执行大盘：任务 / 操作面板（9 段任务动画）/ 子智能体 / 产出物四张卡；正文可出 html 沙箱、diagram 流程图、iu 原生交互卡与 proto-tabs；另有 @ 运行中的程序、对话截图、下载工具、裸路径转链接、对话完成胶囊；供应商中心（API Key / 网络代理 / 生图识图生视频 / AnySearch）；记忆 / SKILL / 用量 / 画廊 / 档案 / 系统提示词 / 同步设置七个工作台（档案支持账号密码、证件与任意文件附件，敏感值加密落盘且绝不进上下文）。",
   "keywords": [
     "dsh",
@@ -102,7 +102,7 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "smoke": "node scripts/smoke-client.mjs && node scripts/smoke-host.mjs && node scripts/smoke-triad-client.mjs && node scripts/smoke-triad-host.mjs && node scripts/test-session-isolation.mjs && node scripts/test-browser-on-demand.mjs && node scripts/test-mail-two-phase.mjs && node scripts/test-mail-channel.mjs && node scripts/test-html-card-width.mjs && node scripts/test-mail-drawer.mjs && node scripts/test-settings-card.mjs && node scripts/test-running-apps.mjs && node scripts/test-at-guard.mjs && node scripts/test-turn-input-images.mjs && node scripts/test-prompt-optimize-clean.mjs && node scripts/test-vault.mjs && node scripts/test-vault-http.mjs && node scripts/test-system-prompt.mjs && node scripts/test-feature-switches.mjs",
+    "smoke": "node scripts/smoke-client.mjs && node scripts/smoke-host.mjs && node scripts/smoke-triad-client.mjs && node scripts/smoke-triad-host.mjs && node scripts/test-session-isolation.mjs && node scripts/test-browser-on-demand.mjs && node scripts/test-mail-two-phase.mjs && node scripts/test-mail-channel.mjs && node scripts/test-html-card-width.mjs && node scripts/test-mail-drawer.mjs && node scripts/test-settings-card.mjs && node scripts/test-running-apps.mjs && node scripts/test-at-guard.mjs && node scripts/test-turn-input-images.mjs && node scripts/test-prompt-optimize-clean.mjs && node scripts/test-vault.mjs && node scripts/test-vault-http.mjs && node scripts/test-system-prompt.mjs && node scripts/test-scrollbar-autohide.mjs && node scripts/test-feature-switches.mjs",
     "smoke:client": "node scripts/smoke-client.mjs",
     "smoke:host": "node scripts/smoke-host.mjs",
     "smoke:triad-client": "node scripts/smoke-triad-client.mjs",
@@ -124,6 +124,7 @@
     "test:vault": "node scripts/test-vault.mjs",
     "test:vault-http": "node scripts/test-vault-http.mjs",
     "test:system-prompt": "node scripts/test-system-prompt.mjs",
+    "test:scrollbar-autohide": "node scripts/test-scrollbar-autohide.mjs",
     "test:feature-switches": "node scripts/test-feature-switches.mjs"
   },
   "engines": {

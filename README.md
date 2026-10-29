@@ -361,6 +361,7 @@ Chrome 的「翻译此页？」气泡、`TextInputHost` 等系统提示宿主 �
 | **共享活动抽屉** | 点思考 / 工具行打开，思考按语义分组、工具调用成树 |
 | **裸路径自动变链接** | 正文里出现的文件路径自动变成可点链接，点了在右栏预览；整段只有一个图片路径时**直接渲染成图** |
 | **对话滚动守卫** | 你手动往上翻时不被新内容拽回底部 |
+| **滚动条自动隐藏** | 对话流滚动条在停止滚动 3 秒后淡出，再次滚动时出现；槽位常驻，不引起内容跳动 |
 | **重试行影子** | 模型重试时显示官方同款试次行 |
 | **生图画廊条** | 生图结果收成一条画廊，不用一屏一屏刷 |
 
@@ -1231,6 +1232,7 @@ node scripts/smoke-host.mjs          # host 路由 + download 工具
 node scripts/smoke-triad-host.mjs    # 工作台 host：路由 + 记忆工具 + agent 钩子
 node scripts/smoke-triad-client.mjs  # 工作台 client 纯逻辑
 node scripts/test-system-prompt.mjs  # 系统提示词观测（组装 / 分段 / 变量 / 快照折叠 / 路由）
+node scripts/test-scrollbar-autohide.mjs # 对话流滚动条自动隐藏（3 秒 / 容器替换重挂）
 node scripts/test-workbench-sync.mjs # 工作台云端同步（打包加密 / 还原 / 主次优先级）
 node scripts/test-session-isolation.mjs  # 跨会话隔离（抽源码求值，真跑行为）
 node scripts/test-mail-two-phase.mjs     # 邮箱两阶段重放（host 能力）

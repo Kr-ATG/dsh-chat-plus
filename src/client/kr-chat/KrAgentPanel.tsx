@@ -26,6 +26,7 @@ import { subscribeToolCallsVisible, toolCallsVisible } from '../tool-calls-visib
 import { subscribePlainTimelineVisible, plainTimelineVisible } from '../plain-timeline-visible.js'
 import { KrPanelSettings } from './KrPanelSettings.tsx'
 import { installConversationScrollGuard } from './scroll-guard.ts'
+import { installConversationScrollbarAutoHide } from './scrollbar-autohide.ts'
 import { useOfficialWidthHandleFix } from './official-width-handles.ts'
 import { useFeature } from '../features/gate.tsx'
 
@@ -141,6 +142,10 @@ export const KrAgentPanel = memo(function KrAgentPanel({
   // 官方跟随控制器在内容提交/布局变化时会把不贴底的读者拉回 floor，插件层常驻
   // 状态机只对抗「无用户意图 + 短窗口落底」这一种指纹，其余一律放行。
   useEffect(() => installConversationScrollGuard(), [])
+
+  // 对话流滚动条自动隐藏（2026-10-29 用户要求）：滚动时显形，停止 3 秒后
+  // 淡出；槽位由官方 scrollbar-gutter 保留，不引起内容跳动。
+  useEffect(() => installConversationScrollbarAutoHide(), [])
 
   // 官方「正文宽度」两条拖拽手柄按**容器中心**定位（见 official-width-handles.ts）。
   // Seeker 把容器改成 flex row 并塞进本面板后，容器比对话流宽出一个面板，手柄于是

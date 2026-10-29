@@ -5612,6 +5612,50 @@ body[data-ds-dark-theme] .kr-stage__glow {
   }
 }
 
+/* ══ 对话流 / 右栏滚动条：滚动时显形，停止 3 秒后自动隐藏 ═══════════════
+   用户 2026-10-29 明确要求：滚动条要「3 秒后自动隐藏」。覆盖两处：
+   · [data-conversation-scroll]：官方对话流（8px，ui-theme 全局规则绘制）；
+   · .kr-panel__scroll：Seeker 右栏卡片滚动区（6px，上面的 KR 规则绘制）。
+
+   显隐由 scrollbar-autohide.ts 通过 data-scrollbar-active 切换；CSS 只做
+   「透明 ↔ token 色」的切换。槽位都不隐藏（官方 scrollbar-gutter: stable，
+   右栏是常驻 6px 槽），所以内容宽度不会因滚动条出现而跳动。
+
+   ⚠ 同一条规则里不要再写 scrollbar-width / scrollbar-color（非 auto）：
+   Blink 121+ 会让本段所有 ::-webkit-scrollbar-* 规则整体失效；Firefox 走
+   下面的 @supports 分支单独兜。 */
+[data-conversation-scroll][data-scrollbar-autohide]::-webkit-scrollbar-thumb,
+.kr-panel__scroll[data-scrollbar-autohide]::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  transition: background-color .22s ease;
+}
+[data-conversation-scroll][data-scrollbar-autohide][data-scrollbar-active="true"]::-webkit-scrollbar-thumb {
+  background-color: var(--dsh-scrollbar-thumb, var(--dsw-alias-scrollbar-bg-l1, rgba(127,127,127,.4)));
+}
+.kr-panel__scroll[data-scrollbar-autohide][data-scrollbar-active="true"]::-webkit-scrollbar-thumb {
+  background-color: var(--kr-scrollbar-thumb);
+}
+[data-conversation-scroll][data-scrollbar-autohide]::-webkit-scrollbar-thumb:hover {
+  background-color: var(--dsh-scrollbar-thumb-hover, var(--dsw-alias-scrollbar-hover-l1, rgba(127,127,127,.55)));
+}
+.kr-panel__scroll[data-scrollbar-autohide]::-webkit-scrollbar-thumb:hover {
+  background-color: var(--kr-scrollbar-thumb-hover);
+}
+@supports not selector(::-webkit-scrollbar) {
+  [data-conversation-scroll][data-scrollbar-autohide] {
+    scrollbar-color: transparent transparent;
+  }
+  [data-conversation-scroll][data-scrollbar-autohide][data-scrollbar-active="true"] {
+    scrollbar-color: var(--dsh-scrollbar-thumb, var(--dsw-alias-scrollbar-bg-l1, rgba(127,127,127,.4))) transparent;
+  }
+  .kr-panel__scroll[data-scrollbar-autohide] {
+    scrollbar-color: transparent transparent;
+  }
+  .kr-panel__scroll[data-scrollbar-autohide][data-scrollbar-active="true"] {
+    scrollbar-color: var(--kr-scrollbar-thumb) transparent;
+  }
+}
+
 /* ══ 标签行最右侧的「Agent 轨迹大盘」开关 ══════════════════════════════════
    整块已删除：大盘改为在 KR 对话里常态常驻，不需要"要不要它"的开关。
    （它此前是 header [role="tablist"] 的最后一个子节点，margin-left:auto 顶到
