@@ -910,6 +910,244 @@ function buildCss(): string {
   .dgi__item:hover .dgi__thumb { transform: none; }
 }
 
+/* ── 生图实时卡（dgi-stage__：对话流 turn-process 座位，2026-10-30）────────
+   生成中按本次图片比例 / 张数显示点阵动画（中性色，跟随深浅主题），出图后同一位置
+   直接换成图片；1:1 方阵、16:9 宽阵、9:16 高阵都按真实尺寸占位。
+   卡片刻意做得很轻：1px 发丝边框 + 圆角、不加整块底色 —— 视觉重心是点阵与图片
+   本身，卡片只负责给它们一个边界。 */
+.dgi-stage {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 10px 0;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.16));
+  border-radius: 14px;
+  background: transparent;
+  animation: dgi-stage-in .22s ease;
+}
+
+body[data-ds-dark-theme] .dgi-stage {
+  border-color: rgba(255,255,255,.10);
+}
+
+.dgi-stage__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dgi-stage__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.08));
+}
+
+.dgi-stage__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.dgi-stage__timer {
+  flex: none;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.dgi-stage__prompt {
+  margin: 4px 0 0 30px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.dgi-stage__groups {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  margin-top: 10px;
+}
+
+/*
+ * 每次 generate_image 调用是一个 group。多个调用必须**横向并排**：
+ * 典型场景是「第 1 张已经出图、第 2 张还在画」，上下堆会让人以为图跑到了
+ * 另一块地方；并排才能一眼看出「这一批就是这几张」。
+ * 同一 group 内的 n 张由 DotPlaceholder / 画廊条自己并排，不在这里重复。
+ */
+.dgi-stage__group {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 0;
+  min-width: min(160px, 100%);
+  max-width: 360px;
+}
+
+/* 单个调用可以用满整行（n 张点阵 / 多图在行内自己并排）；3 / 4 个调用按数量收窄，
+   保证一排放下，不出现 2+1 的孤行。 */
+.dgi-stage__groups[data-groups="1"] .dgi-stage__group { max-width: 100%; }
+.dgi-stage__groups[data-groups="3"] .dgi-stage__group { max-width: 230px; }
+.dgi-stage__groups[data-groups="4"] .dgi-stage__group { max-width: 170px; }
+
+/*
+ * 图片组的关键约束：单图必须缩到 group 宽度内。
+ * 之前只有 GeneratedImageStrip 自己的 max-width:360px —— 多组并排时 group 可能只有
+ * 170–230px，360px 的图会溢出 group，相邻几张图直接压在一起（用户 2026-10-30 截图）。
+ * 单组时仍以 360px 封顶，保持原来单图的观感。
+ */
+.dgi-stage__group .dgi__strip { width: 100%; min-width: 0; }
+.dgi-stage__group .dgi__strip:not(.dgi__strip--multi) .dgi__item {
+  max-width: min(100%, 360px);
+}
+.dgi-stage__group .dgi__thumb { max-width: 100%; }
+
+/*
+ * 点阵 → 图片的羽化过渡（2026-10-30 用户要求）：
+ * 图片层从 blur(10px) / opacity 0 显影，同时下面保留一层「幽灵点阵」淡出；
+ * 点阵是灰点、图片是彩图，硬切会像换脸，这一层让画面从点阵里长出来。
+ * 幽灵层是 absolute，不占布局高度，图片出现时分组高度直接由图片决定。
+ */
+.dgi-stage__reveal {
+  position: relative;
+  z-index: 1;
+  animation: dgi-image-reveal .55s cubic-bezier(.2, .7, .2, 1) both;
+}
+
+.dgi-stage__ghost {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  animation: dgi-ghost-fade .55s ease both;
+}
+
+.dgi-stage__ghost .dgi-stage__cell {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  max-width: none;
+  height: 100%;
+}
+
+@keyframes dgi-image-reveal {
+  from { opacity: 0; transform: scale(.985); filter: blur(10px); }
+  to { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+
+@keyframes dgi-ghost-fade {
+  from { opacity: .95; }
+  to { opacity: 0; }
+}
+
+/*
+ * 占位格子：宽高比来自本次 generate_image 的 size / aspect_ratio，出图前后
+ * 尺寸一致，布局不会从「大方阵」突然缩成小图。单张最大 360px（与画廊条单图
+ * 同档）；n > 1 时并排收缩，但每格仍保持各自比例。
+ */
+.dgi-stage__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.dgi-stage__cell {
+  position: relative;
+  width: min(100%, 360px);
+  aspect-ratio: var(--dgi-ratio, 1);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.06));
+}
+
+.dgi-stage__grid[data-multi] .dgi-stage__cell {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 110px;
+  max-width: 220px;
+}
+
+/* 3 / 4 张时按数量收窄，保证一行排得下，不会出现 3+1 的孤行。 */
+.dgi-stage__grid[data-count="3"] .dgi-stage__cell { max-width: 180px; }
+.dgi-stage__grid[data-count="4"] .dgi-stage__cell { max-width: 160px; }
+
+.dgi-stage__dots {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--dgi-dot-cols, 11), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--dgi-dot-rows, 11), minmax(0, 1fr));
+  /* 小格子（4 张并排时 160px）里 11 × 4px 点必须留得下：gap 上限压到 6px。 */
+  gap: clamp(3px, .5vw, 6px);
+  padding: 10%;
+  justify-items: center;
+  align-items: center;
+}
+
+/*
+ * 点色跟随主题（浅色=深灰、深色=浅灰），不再使用橙色。
+ * 动画三拍：缩小隐去 → 放大高亮 → 回落；径向负延迟形成一圈圈外扩的波。
+ */
+.dgi-stage__dots > i {
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-tertiary, rgba(127,127,127,.55));
+  opacity: .24;
+  transform: scale(.6);
+  animation: dgi-dot-wave 1.35s ease-in-out infinite;
+  animation-delay: var(--dgi-dot-delay, 0ms);
+}
+
+.dgi-stage__error {
+  margin: 10px 0 2px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+@keyframes dgi-dot-wave {
+  0%, 100% { transform: scale(.5); opacity: .12; }
+  30% { transform: scale(1.4); opacity: .9; }
+  60% { transform: scale(.85); opacity: .45; }
+}
+
+@keyframes dgi-stage-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dgi-stage { animation: none; }
+  .dgi-stage__dots > i { animation: none; opacity: .4; transform: none; }
+  .dgi-stage__reveal, .dgi-stage__ghost { animation: none; }
+  .dgi-stage__ghost { display: none; }
+}
+
 /* 用户要求：对话流卡片去全部底色无边框（只留阴影/文字/动效；hover 反馈保留）。 */
 .dtt__card--step, .dtt__card--reply { background: transparent !important; }
 /* 超细边条：1px 发丝描边（浅色 l3 / 深色白 10%），阴影回到 v0.4.7 的轻档。 */

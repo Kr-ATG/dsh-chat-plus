@@ -38,6 +38,7 @@ import { applySkillHealth } from './skill-health.js'
 import { applyMcpRecommended } from './mcp-recommended.js'
 import { applyMcpStatus } from './mcp-status.js'
 import { applyGallery } from './gallery/index.ts'
+import { applySessionOutputs } from './session-outputs/index.ts'
 import { applyVault } from './vault/index.js'
 import { installBundledSkills } from './bundled-skills.js'
 import { applyWorkbenchSync } from './workbench-sync/index.js'
@@ -192,6 +193,18 @@ export async function applyTriadHost(ctx: Context, config: TriadConfig = {}): Pr
   } catch (error) {
     ctx.logger?.warn?.(
       `[dsh-chat-plus] triad media gallery failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+    )
+  }
+
+  // ── 单会话产出物查询（/api/chat-flow/session-outputs）─────────────────
+  // 子智能体是独立会话，主会话快照里看不到它的工具事件；这条只读路由按
+  // 会话 id 复用画廊折叠层，把子代理做出来的文件交给主会话产出物卡。
+  try {
+    applySessionOutputs(ctx)
+    ctx.logger?.info?.('[dsh-chat-plus] session outputs route mounted')
+  } catch (error) {
+    ctx.logger?.warn?.(
+      `[dsh-chat-plus] session outputs route failed to mount: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
     )
   }
 

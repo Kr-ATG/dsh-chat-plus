@@ -98,7 +98,7 @@ export const FEATURES: ReadonlyArray<FeatureDef> = [
   { id: 'card.proto-tabs', group: 'cards', label: 'proto-tabs 卡片', desc: '把 ```proto 围栏渲染成可切换的原型标签页。', default: true, apply: 'live' },
   { id: 'card.download', group: 'cards', label: '下载进度卡片', desc: 'download 工具调用行的实时进度 / 速度 / ETA 卡片。', default: true, apply: 'live' },
   { id: 'card.screenshot', group: 'cards', label: '对话截图', desc: '助手消息操作栏的相机按钮与截图面板。', default: true, apply: 'live' },
-  { id: 'card.generated-images', group: 'cards', label: '生图画廊条', desc: '把生图结果收成一条横向画廊，不用一屏一屏刷。', default: true, apply: 'live' },
+  { id: 'card.generated-images', group: 'cards', label: '生图实时卡与画廊', desc: '生图时按图片比例与张数演点阵动画，出图就在对话流显示；多图收成一条横向画廊。', default: true, apply: 'live' },
   { id: 'card.path-linkify', group: 'cards', label: '裸路径转链接', desc: '正文里的文件路径自动变成可点链接，单张图片路径直接渲染成图。', default: true, apply: 'live' },
   { id: 'card.sidebar-doc', group: 'cards', label: 'PDF / Office 侧栏预览', desc: '接管官方 PDF / Word / PPT 预览（官方内嵌 pdf.js 对带 /ID 的 PDF 会崩）。', default: true, apply: 'live' },
   { id: 'card.sidebar-media', group: 'cards', label: '音视频侧栏预览', desc: '接管 mp4 / webm / mov / mp3 / wav 的原生播放（官方此前显示「不支持预览」）。', default: true, apply: 'live' },

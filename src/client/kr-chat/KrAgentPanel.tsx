@@ -20,7 +20,9 @@ import { KrPlainTimelineCard } from './KrPlainTimelineCard.tsx'
 import { KrSubagentsCard } from './KrSubagentsCard.tsx'
 import { useSubagentCatalog } from './subagent-catalog.ts'
 import { KrOutputsCard } from './KrOutputsCard.tsx'
-import { collectOutputs, collectSessionToolNodes, EMPTY_OUTPUTS, outputsFingerprint, type OutputsView } from './outputs.ts'
+import { collectOutputs, collectSessionToolNodes, EMPTY_OUTPUTS, mergeOutputs, outputsFingerprint, type OutputsView } from './outputs.ts'
+import { useSubagentOutputs } from './use-subagent-outputs.ts'
+import { useSessionOutputs } from './use-session-outputs.ts'
 import { KR_MEMORY_CARD_VISIBLE, KR_OUTPUTS_CARD_VISIBLE, KR_PLAIN_TIMELINE_CARD_VISIBLE, KR_SUBAGENTS_CARD_VISIBLE, KR_TOOL_CALLS_CARD_VISIBLE } from './enabled.ts'
 import { subscribeToolCallsVisible, toolCallsVisible } from '../tool-calls-visible.js'
 import { subscribePlainTimelineVisible, plainTimelineVisible } from '../plain-timeline-visible.js'
@@ -579,6 +581,28 @@ export const KrAgentPanel = memo(function KrAgentPanel({
    */
   const subagentCatalog = useSubagentCatalog(latestChatSessionId)
 
+  /*
+   * 子智能体产出物：并入主会话产出物卡（2026-10-30 用户要求）。
+   *
+   * 子智能体是独立会话，主会话快照里没有它们的 tool/call 节点 —— 只能按目录
+   * 里的子会话 id 向 host 的单会话产出物路由批量取。合并放在面板层而不是卡片
+   * 里，因为「有没有内容」的判定与右栏卡片挂载条件都读同一份 items。
+   */
+  const subagentOutputs = useSubagentOutputs(subagentCatalog.rows)
+
+  /*
+   * 主会话历史产出物补全（2026-10-30 重启回归）。
+   *
+   * 重启 DSH 后 Chat 只加载最后一页窗口，前面的工具节点还没分页回来；
+   * 只按快照收集会让产出物卡误判「0 项」而整卡消失。这里按会话 id 从 host
+   * 索引补一份，合并去重后卡片恢复成「会话累计」而不是「当前窗口累计」。
+   */
+  const persistedOutputs = useSessionOutputs(latestChatSessionId)
+  const outputsWithSubagents = useMemo<OutputsView>(
+    () => mergeOutputs(outputs, { items: persistedOutputs }, { items: subagentOutputs }),
+    [outputs, persistedOutputs, subagentOutputs],
+  )
+
   const hasContent = currentRunning
     || tasks.length > 0
     || reasoningTexts.length > 0
@@ -588,7 +612,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     || subagentCatalog.rows.length > 0
     // 产出物是**会话累计**的：本轮刚开始、什么都还没落盘时，前几轮做出的文件
     // 依然该被看见。不算进来的话，切到新一轮的瞬间整栏会闪一次空态。
-    || outputs.items.length > 0
+    || outputsWithSubagents.items.length > 0
 
 
   /* ── 右栏挤压自适应 ─────────────────────────────────────────────────────
@@ -607,7 +631,7 @@ export const KrAgentPanel = memo(function KrAgentPanel({
     () => reasoningTexts.reduce((sum, text) => sum + text.length, 0),
     [reasoningTexts],
   )
-  const heightFingerprint = `${memoryTick}|${reasoningChars}|${reasoningTexts.length}|${tools.length}|${tasks.length}|${plainTimeline.steps.length}|${outputs.items.length}|${subagentCatalog.rows.length}`
+  const heightFingerprint = `${memoryTick}|${reasoningChars}|${reasoningTexts.length}|${tools.length}|${tasks.length}|${plainTimeline.steps.length}|${outputsWithSubagents.items.length}|${subagentCatalog.rows.length}`
   const panelSqueezed = usePanelSqueezed(scrollRef, heightFingerprint)
 
 
@@ -917,9 +941,9 @@ export const KrAgentPanel = memo(function KrAgentPanel({
             任务清单几乎每轮都会有，空态本身是信息（"这轮还没列计划"）；而产出物
             大多数对话压根不会有文件，一张常驻的"本次会话还没有产出文件"只是在右栏
             底部长期占一块地方说"没事发生"，每轮都要看一眼。 */}
-        {KR_OUTPUTS_CARD_VISIBLE && panelOutputsOn && outputs.items.length > 0 && (
+        {KR_OUTPUTS_CARD_VISIBLE && panelOutputsOn && outputsWithSubagents.items.length > 0 && (
           <KrOutputsCard
-            outputs={outputs}
+            outputs={outputsWithSubagents}
             squeezed={panelSqueezed}
             sessionId={latestChatSessionId}
           />

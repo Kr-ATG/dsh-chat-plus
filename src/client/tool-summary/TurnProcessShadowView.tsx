@@ -23,6 +23,9 @@ import { getKrChatStore } from '../kr-chat/kr-chat-store.ts'
 import { getOfficialTurnProcessNodeView } from '../index.ts'
 import type { KrActivityReasoningItem } from '../kr-chat/KrLiveActivityCard.tsx'
 import { clearLiveDshTodos } from '../kr-chat/kr-todo-bridge.ts'
+import { ImageGenerationCard } from '../generated-images/ImageGenerationCard.tsx'
+import { useGeneratedImages } from '../generated-images/use-generated-images.ts'
+import { useFeature } from '../features/gate.tsx'
 
 const NS = 'dts'
 const LIVE_SUMMARY_CONFIRM_MS = 1200
@@ -689,6 +692,14 @@ const EMPTY_KR_ACTIVITY_PROJECTION: KrActivityProjection = {
 }
 
 /**
+ * 生图实时卡的稳定空输入。
+ *
+ * useGeneratedImages 内部以 toolNodes 引用为 memo 依赖；每次渲染新建 [] 会让它
+ * 每帧重扫一遍工具树，长会话里白白烧 CPU。共享一个冻结空数组即可。
+ */
+const EMPTY_IMAGE_TOOL_NODES: readonly ChatNode<'tool-call'>[] = []
+
+/**
  * 从 chat snapshot 投影 KR 活动卡数据。live 时只走本轮 locations 快路径；
  * closed 的第一次收口发布可传 includeHidden 扫全量 nodes，补齐 compact/answer
  * 隐藏成员并拿到工具终态。
@@ -919,6 +930,23 @@ export const TurnProcessShadowView = memo(function TurnProcessShadowView(props: 
   const krProjection = krProjectionSnapshot === EMPTY_KR_ACTIVITY_PROJECTION
     ? krLastProjectionRef.current
     : krProjectionSnapshot
+  /*
+   * 生图实时卡（2026-10-30）：把 generate_image 的「正在画 / 已出图」提前到
+   * 对话流里，不再等回合收口后的总结卡画廊条。
+   *
+   * 数据走 krProjection.tools（本轮 locations 快路径收集到的工具节点）：它已经
+   * 覆盖顶层调用与 PTC 子调用，且带引用稳定缓存，不需要再扫一遍 snapshot。
+   * 只在回合进行中（locationTurn.status === 'open'）渲染；收口后由总结卡里的
+   * GeneratedImageStrip 接管，避免同一张图在屏幕上出现两遍。
+   */
+  const generatedImagesOn = useFeature('card.generated-images')
+  const liveImageTurn = isKrMode && generatedImagesOn && locationTurn?.status === 'open'
+  // 只在本轮进行中扫描生图：收口后总结卡有自己的画廊条，不再让这个 hook 去请求
+  // spill（closed 时 krProjection 还会保留最后一次开放期的数据，不收敛会白拉一次）。
+  const imageGen = useGeneratedImages(liveImageTurn ? krProjection.tools : EMPTY_IMAGE_TOOL_NODES)
+  const showImageGeneration = liveImageTurn
+    && (imageGen.running || imageGen.loading || imageGen.urls.length > 0 || imageGen.error !== null)
+
   const answerStep = turnProcess?.spec.answerStep ?? null
   const configuredAnswerStarted = answerStep !== null && krProjection.steps.some(
     (step) => step.step === answerStep && step.hasVisibleAnswer && !step.hasToolCall,
@@ -1019,6 +1047,18 @@ export const TurnProcessShadowView = memo(function TurnProcessShadowView(props: 
          * 组件本体与样式**全部保留**（KrLiveActivityCard.tsx 与 .kr-agent-mini-*
          * 一族）：把这一行加回来即完整恢复，不需要重写任何东西。
          */}
+        {showImageGeneration && (
+          <ImageGenerationCard
+            calls={imageGen.calls}
+            images={imageGen.urls}
+            model={imageGen.model}
+            running={imageGen.running}
+            loading={imageGen.loading}
+            error={imageGen.error}
+            prompt={imageGen.prompt}
+            startedAt={imageGen.startedAt}
+          />
+        )}
         {OfficialProcessRow
           ? (
             <OfficialProcessRow

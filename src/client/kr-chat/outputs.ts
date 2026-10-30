@@ -33,7 +33,7 @@ import { argFields, toolArgsRaw } from '../tool-summary/activity-view-model.ts'
 /** 产出物的类别。决定行首那枚 SVG 缩略图长什么样。 */
 export type OutputKind =
   | 'image' | 'video' | 'audio' | 'model3d'
-  | 'doc' | 'pdf' | 'sheet' | 'slide' | 'archive' | 'page'
+  | 'doc' | 'pdf' | 'sheet' | 'slide' | 'archive' | 'installer' | 'page'
   | 'code' | 'other'
 
 export interface OutputItem {
@@ -47,6 +47,79 @@ export interface OutputItem {
   /** 文件名（上屏文案，只留最后一段）。 */
   readonly name: string
   readonly kind: OutputKind
+  /** 该条目被产出的时间（Unix ms）。旧快照 / 手工构造的条目可以没有。 */
+  readonly time?: number
+  /** 条目所属会话：主会话条目省略，子智能体产出物指向子会话 id。 */
+  readonly sessionId?: string
+  /** 子智能体产出物标记（用于行尾小标签与打开时的工作区解析）。 */
+  readonly origin?: 'subagent'
+}
+
+/**
+ * 产出物卡分组用的类别顺序。
+ *
+ * 按用户 2026-10-30 的口径：**HTML 排最上面，然后是音频、文档、图片**；
+ * 其余类型排在这四类之后（视频 / PDF / 演示 / 表格 / 3D 模型 / 压缩包 / 安装文件）。
+ * 不是字母序，也不是扩展名表顺序 —— 用户先看什么，什么就排前面。
+ * code / other 正常不会出现在清单里（前者 MATERIAL_KINDS 整类丢弃，后者认不出
+ * 扩展名不列），保留只为穷举类型。
+ */
+export const OUTPUT_KIND_ORDER: readonly OutputKind[] = [
+  'page', 'audio', 'doc', 'image', 'video', 'pdf', 'slide', 'sheet',
+  'model3d', 'archive', 'installer', 'code', 'other',
+]
+
+/** 类别 → 中文名（产出物卡分组标题与筛选用；与画廊的 8 类标签同语言）。 */
+export const OUTPUT_KIND_LABEL: Readonly<Record<OutputKind, string>> = {
+  image: '图片',
+  video: '视频',
+  audio: '音频',
+  page: '网页',
+  pdf: 'PDF',
+  slide: '演示',
+  sheet: '表格',
+  doc: '文档',
+  model3d: '3D 模型',
+  archive: '压缩包',
+  installer: '安装文件',
+  code: '代码',
+  other: '其他',
+}
+
+/** 运行时判一个未知值是不是合法 OutputKind（接口返回值的校验口）。 */
+export function isOutputKind(value: unknown): value is OutputKind {
+  return typeof value === 'string' && (OUTPUT_KIND_ORDER as readonly string[]).includes(value)
+}
+
+/**
+ * 产出物时间：卡片行尾的具体时间。
+ *
+ * 不显示相对时间（「3 小时前」）：这张卡要回答「这个文件是什么时候做出来的」，
+ * 用户常常在隔天回看，相对时间会随渲染时刻漂移；具体到分钟的绝对时间才是可核对的事实。
+ * 同年省略年份，跨年补上；日期与时间之间空一格。
+ *
+ * @param time - Unix ms；无效/缺省返回空串（调用方不渲染时间列）。
+ * @returns 例：10-30 18:09 / 2025-12-01 09:05。
+ */
+export function outputTimeText(time: number | undefined): string {
+  if (typeof time !== 'number' || !Number.isFinite(time) || time <= 0) return ''
+  const date = new Date(time)
+  const now = new Date()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+  const prefix = date.getFullYear() === now.getFullYear()
+    ? ''
+    : String(date.getFullYear()) + '-'
+  return prefix + month + '-' + day + ' ' + hour + ':' + minute
+}
+
+/** 一个类别分组：同类条目按首见顺序排列。 */
+export interface OutputGroup {
+  readonly kind: OutputKind
+  readonly label: string
+  readonly items: readonly OutputItem[]
 }
 
 /**
@@ -69,6 +142,61 @@ export interface OutputsView {
 
 /** 空清单。**共享同一个冻结实例**：调用方拿它当兜底值时，引用稳定才能让上游 memo 命中。 */
 export const EMPTY_OUTPUTS: OutputsView = Object.freeze({ items: Object.freeze([]) as readonly OutputItem[] })
+
+/**
+ * 按类别分组（组序固定、组内保持首见顺序）。
+ *
+ * 产出物卡原先是一条平铺清单，文件一多就分不清「哪张是图、哪个是网页」。
+ * 分组只做纯排序，不改变收集口径、不去重、不补类别 —— 传进来的 items 是什么，
+ * 输出就是同一批条目按 kind 归拢后的视图。没有任何条目时返回空数组，调用方
+ * 不应据此渲染空组。
+ *
+ * @param items - 已过滤的产出物清单（首见顺序）。
+ * @returns 按 OUTPUT_KIND_ORDER 排列的非空分组。
+ */
+export function groupOutputs(items: readonly OutputItem[]): readonly OutputGroup[] {
+  const buckets = new Map<OutputKind, OutputItem[]>()
+  for (const item of items) {
+    let bucket = buckets.get(item.kind)
+    if (bucket === undefined) {
+      bucket = []
+      buckets.set(item.kind, bucket)
+    }
+    bucket.push(item)
+  }
+  const groups: OutputGroup[] = []
+  for (const kind of OUTPUT_KIND_ORDER) {
+    const bucket = buckets.get(kind)
+    if (bucket !== undefined && bucket.length > 0) {
+      groups.push({ kind, label: OUTPUT_KIND_LABEL[kind], items: bucket })
+    }
+  }
+  return groups
+}
+
+/**
+ * 合并多份产出物视图（主会话 + 子智能体会话）。
+ *
+ * 主会话条目排在前、子会话条目按传入顺序追加；按路径归一化去重（Windows
+ * 盘符大小写不敏感），同一个文件被主会话和子会话都做到时只保留先出现的那条。
+ * 这是纯展示层合并，不改两个来源各自的收集口径。
+ *
+ * @param views - 要合并的产出物视图（按优先级排序）。
+ * @returns 去重后的合并视图。
+ */
+export function mergeOutputs(...views: readonly OutputsView[]): OutputsView {
+  const seen = new Set<string>()
+  const items: OutputItem[] = []
+  for (const view of views) {
+    for (const item of view.items) {
+      const key = item.path.replace(/\\/g, '/').toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      items.push(item)
+    }
+  }
+  return { items }
+}
 
 /**
  * 材料类：判得出类别，但**不进成品清单**。
@@ -119,6 +247,11 @@ const KIND_BY_EXT: Readonly<Record<string, OutputKind>> = {
   // 压缩包
   zip: 'archive', '7z': 'archive', rar: 'archive', tar: 'archive',
   gz: 'archive', bz2: 'archive', xz: 'archive',
+  // 安装文件：双击即安装/执行，属于「做出来的成品」，单独成类方便一眼找。
+  exe: 'installer', msi: 'installer', msix: 'installer', appx: 'installer',
+  apk: 'installer', aab: 'installer', ipa: 'installer',
+  dmg: 'installer', pkg: 'installer', deb: 'installer', rpm: 'installer',
+  appimage: 'installer', flatpak: 'installer', snap: 'installer',
   // 代码（判得出类别，但进 MATERIAL_KINDS 整类丢弃 —— 源码是材料不是成品）
   ts: 'code', tsx: 'code', js: 'code', jsx: 'code', mjs: 'code', cjs: 'code',
   json: 'code', jsonl: 'code', py: 'code', rb: 'code', go: 'code', rs: 'code',
@@ -1073,7 +1206,14 @@ function extractFromBlock(block: ToolCallBlock): readonly ExtractedItem[] {
     const key = dedupeKey(path)
     if (seen.has(key)) continue
     seen.add(key)
-    out.push({ path, name: outputNameOf(path), kind, delivered })
+    out.push({
+      path,
+      name: outputNameOf(path),
+      kind,
+      delivered,
+      // 工具结果节点自带的 Unix ms 时间：产出物卡的「具体时间」列直接读它。
+      ...(typeof block.time === 'number' && Number.isFinite(block.time) ? { time: block.time } : {}),
+    })
     if (out.length >= MAX_PER_CALL) break
   }
   return out

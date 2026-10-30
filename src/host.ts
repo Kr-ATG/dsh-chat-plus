@@ -151,6 +151,8 @@ export { humanizeCliError } from './mail/cli.ts'
 // 画廊的可测面（索引准入 / raw 路径解析纯函数）：供 smoke 对拍「相对路径按会话
 // cwd 解析」这条回归 —— 它正是「产出物卡点图片 403、侧栏却正常」的根因所在。
 export { __test as galleryTest } from './triad/gallery/index.ts'
+// 子会话产出物路由：供 smoke 钉住路由常量与「主会话汇总子代理产出」这条链路。
+export { applySessionOutputs, SESSION_OUTPUTS_ROUTE, __test as sessionOutputsTest } from './triad/session-outputs/index.ts'
 // Office / PDF 预览的可测面：引擎解析、工作目录判据、路径准入纯函数，以及
 // 「用假 ctx 挂路由 + 真 HTTP 请求」这条端到端链路（见 scripts/smoke-host.mjs）。
 // 这三块错了都不会抛错 —— 引擎缺了只是退回下载、判据错了只是 403 —— 必须能

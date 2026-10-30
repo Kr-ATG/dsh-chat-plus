@@ -50,6 +50,7 @@ import { splitProtoTabs } from '../proto/parse.ts'
 import { ProtoTabsCard } from '../proto/ProtoTabsCard.tsx'
 import { isRunning } from '../tool-summary/tool-stats.ts'
 import { GeneratedImageStrip } from '../generated-images/GeneratedImageStrip.tsx'
+import { textHasMarkdownImage } from '../generated-images/layout.ts'
 import { useGeneratedImages } from '../generated-images/use-generated-images.ts'
 import { getKrChatStore } from '../kr-chat/kr-chat-store.ts'
 import { KR_CHAT_ENABLED } from '../kr-chat/enabled.ts'
@@ -795,7 +796,36 @@ export const ThinkingStepNodeView = memo(function ThinkingStepNodeView(
     }
     return lastStep
   })
-  const gallery = !isReasoningProjection && generatedImagesOn && generated.urls.length > 0 && node.key === galleryStepKey
+  /*
+   * 实时卡与总结卡画廊的分工（2026-10-30 审查修复）：
+   *  · 回合进行中（KR）→ 只由 turn-process 座位上的 ImageGenerationCard 显示，
+   *    gallery 必须让位，否则最终答案流式期会同一屏出现两份图；
+   *  · 回合收口 / 中断 → 实时卡退场，gallery 接回最终总结卡。
+   * 普通「对话」视图没有实时卡，保持原行为（进行中也由 gallery 显示）。
+   *
+   * 另外补 lastStepKey 兜底：galleryStepKey 只扫 locations，长会话 compact 后
+   * 可能扫不到最后一个 step —— 那种情况下收口就没有画廊。lastStepKey 本身带
+   * 全量 nodes 兜底，两者取先命中者即可。
+   */
+  const galleryAllowedInView = !KR_CHAT_ENABLED || !isKrMode || locationTurn?.status !== 'open'
+  const galleryAnchorMatched = node.key === galleryStepKey
+    || (galleryStepKey === undefined && node.key === lastStepKey)
+  /*
+   * 正文自己已经贴过图就不再补画廊条（2026-10-30 用户报「对话流卡里重复了」）。
+   * 模型生图后通常会在最终回答里写 `![图](...)`；插件再补一条 GeneratedImageStrip
+   * 就是同一张图显示两遍。只有正文完全没图（只写文字 / 只给文件路径）时，
+   * 画廊条才是必要的兜底出口。
+   */
+  const bodyHasInlineImages = useMemo(() => {
+    for (const block of data.blocks) {
+      if (block.kind !== 'text') continue
+      const text = (block as { readonly text?: unknown }).text
+      if (typeof text === 'string' && textHasMarkdownImage(text)) return true
+    }
+    return false
+  }, [data.blocks])
+  const gallery = !isReasoningProjection && generatedImagesOn && generated.urls.length > 0
+    && galleryAllowedInView && galleryAnchorMatched && !bodyHasInlineImages
     ? <GeneratedImageStrip images={generated.urls} model={generated.model} />
     : undefined
 

@@ -33,15 +33,17 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactElement } from 'react'
+import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
+import { createPortal } from 'react-dom'
 import { useHeightAnimation, useMotionAllowed } from '../motion-utils.ts'
 import { probeWorkspaceFile, probeWorkspaceFiles, resolveWorkspacePath, tryOpenInSidebar } from '../open-preview.ts'
 import type { ProbeResult } from '../open-preview.ts'
-import { workspaceCwdOf } from '../client-ctx.ts'
+import { getService, workspaceCwdOf } from '../client-ctx.ts'
 import { openWithDefaultApp } from '../open-default-app.ts'
 import { openOutputFile } from '../open-file.ts'
 import { canShowInSidebar } from '../sidebar-display.ts'
-import type { OutputKind, OutputItem, OutputsView } from './outputs.ts'
+import { groupOutputs, outputTimeText } from './outputs.ts'
+import type { OutputKind, OutputGroup, OutputItem, OutputsView } from './outputs.ts'
 
 /**
  * 默认露出的成品条数。
@@ -54,11 +56,187 @@ const MAX_VISIBLE = 6
 const MAX_VISIBLE_SQUEEZED = 4
 
 /**
+ * 分组后的可见切片。
+ *
+ * 只有一个类别时保持旧版「前 N 条」的行为，连组标题都不画 —— 一张只有图片的
+ * 产出物卡不需要在每张图上再重复一遍「图片」。只有**两个及以上类别**才进入
+ * 分组视图，此时默认露出策略改成「每组先露一条，剩余额度按组序补」：分类显示
+ * 的第一价值是让读者知道「这次做出了哪几类东西」，不能让第一类把后面几类
+ * 全挤到「展开其余」里。
+ */
+interface VisibleOutputGroup {
+  readonly kind: OutputKind
+  readonly label: string
+  /** 该类的完整条数（不是当前露出的条数）—— 组标题上的计数读的是它。 */
+  readonly total: number
+  readonly items: readonly OutputItem[]
+}
+
+function visibleGroupsOf(
+  groups: readonly OutputGroup[],
+  showAll: boolean,
+  maxVisible: number,
+): readonly VisibleOutputGroup[] {
+  if (groups.length === 0) return []
+  if (groups.length === 1) {
+    const only = groups[0]!
+    return [{
+      kind: only.kind,
+      label: only.label,
+      total: only.items.length,
+      items: showAll ? only.items : only.items.slice(0, maxVisible),
+    }]
+  }
+  if (showAll) {
+    return groups.map((group) => ({
+      kind: group.kind,
+      label: group.label,
+      total: group.items.length,
+      items: group.items,
+    }))
+  }
+  // 每组先占一个名额（组数比额度多时只露前 maxVisible 组），剩余额度再按组序补。
+  let budget = maxVisible
+  const counts = groups.map(() => 0)
+  for (let index = 0; index < groups.length && budget > 0; index += 1) {
+    counts[index] = 1
+    budget -= 1
+  }
+  for (let index = 0; index < groups.length && budget > 0; index += 1) {
+    const extra = Math.min(budget, groups[index]!.items.length - counts[index]!)
+    if (extra > 0) {
+      counts[index]! += extra
+      budget -= extra
+    }
+  }
+  return groups
+    .map((group, index) => ({
+      kind: group.kind,
+      label: group.label,
+      total: group.items.length,
+      items: group.items.slice(0, counts[index]!),
+    }))
+    .filter((group) => group.items.length > 0)
+}
+
+/**
+ * 把一条产出物插入当前会话的输入框（「引用到对话框」）。
+ *
+ * 走官方 @ 文件引用（source='reference' / ref='@path'）：插入的是可点、可删的
+ * 文件引用 chip，不是普通字符串。路径先按条目所属会话（子智能体条目用子会话）
+ * 解析成绝对路径，再交给主会话 composer —— 主会话与子会话通常共享工作区，
+ * 绝对路径在两边都成立。
+ *
+ * 拿不到 composer 时回退剪贴板（至少用户能手动贴进去），绝不静默丢内容。
+ * @param item - 要引用的产出物。
+ * @param sessionId - 当前主会话 id（composer 落点）。
+ * @returns 是否成功插入或回退到剪贴板。
+ */
+function insertOutputReference(item: OutputItem, sessionId: string | null): boolean {
+  if (sessionId === null || sessionId === '') return false
+  const cwd = workspaceCwdOf(item.sessionId ?? sessionId)
+  const absolute = resolveWorkspacePath(cwd, item.path)
+  const mention = /\s/u.test(absolute) ? '@"' + absolute + '"' : '@' + absolute
+  const sessions = getService<any>('sessions')
+  const conversation = getService<any>('conversation')
+  const binding = sessions?.binding?.(sessionId)
+  if (conversation !== undefined && conversation !== null && binding?.ctx !== undefined) {
+    try {
+      const shell = conversation.input?.for?.(binding.ctx)
+      const span = shell?.actions?.captureInsertion?.()
+      if (shell !== undefined && shell !== null && span !== undefined && typeof shell.insertReference === 'function') {
+        const inserted = shell.insertReference({
+          source: 'reference',
+          ref: mention,
+          label: item.name,
+          appearance: 'file',
+          clipboardText: mention,
+        }, span)
+        if (inserted === true) {
+          try { shell.focus?.() } catch { /* 聚焦失败不影响插入结果 */ }
+          return true
+        }
+      }
+    } catch { /* 走剪贴板兜底 */ }
+  }
+  try {
+    void navigator.clipboard.writeText(mention)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 右键菜单的一条状态：点在哪、作用在哪条产出物上。 */
+interface OutputMenuState {
+  readonly item: OutputItem
+  readonly x: number
+  readonly y: number
+}
+
+/**
+ * 产出物行的右键菜单。
+ *
+ * 只有两项：引用到对话框 / 使用系统默认程序打开。位置跟随指针、按视口夹紧；
+ * 点击外部、Escape、滚动、窗口尺寸变化都关闭（与项目里其它浮层同一套手感）。
+ */
+function OutputContextMenu({ menu, onClose, onQuote, onOpenDefault }: {
+  readonly menu: OutputMenuState
+  readonly onClose: () => void
+  readonly onQuote: () => void
+  readonly onOpenDefault: () => void
+}): ReactElement {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const firstRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    firstRef.current?.focus()
+    const pointer = (event: PointerEvent): void => {
+      if (ref.current !== null && event.target instanceof Node && ref.current.contains(event.target)) return
+      onClose()
+    }
+    const key = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('pointerdown', pointer, true)
+    window.addEventListener('keydown', key)
+    window.addEventListener('resize', onClose)
+    window.addEventListener('scroll', onClose, true)
+    return () => {
+      document.removeEventListener('pointerdown', pointer, true)
+      window.removeEventListener('keydown', key)
+      window.removeEventListener('resize', onClose)
+      window.removeEventListener('scroll', onClose, true)
+    }
+  }, [onClose])
+  const width = 208
+  const height = 84
+  const left = Math.max(8, Math.min(menu.x, window.innerWidth - width - 8))
+  const top = Math.max(8, Math.min(menu.y, window.innerHeight - height - 8))
+  return createPortal(
+    <div
+      ref={ref}
+      className="kr-out-menu"
+      role="menu"
+      style={{ left: left + 'px', top: top + 'px', width: width + 'px' }}
+      onContextMenu={(event) => { event.preventDefault() }}
+    >
+      <button ref={firstRef} type="button" role="menuitem" className="kr-out-menu__item" onClick={onQuote}>
+        引用到对话框
+      </button>
+      <button type="button" role="menuitem" className="kr-out-menu__item" onClick={onOpenDefault}>
+        使用系统默认程序打开
+      </button>
+    </div>,
+    document.body,
+  )
+}
+
+/**
  * 类别 → 缩略图。
  *
  * 28px 见方，只画**能一眼认出的轮廓**：图 / 视频 / 音频 / 3D / 文档 / 表格 /
- * 演示 / 压缩包 / 代码。颜色不承担类型（颜色由 CSS 按 data-kind 给），形状才是
- * 判据 —— 色弱用户和灰度截图下同样读得出。
+ * 演示 / 压缩包 / 安装文件 / 代码。颜色不承担类型（颜色由 CSS 按 data-kind 给），
+ * 形状才是判据 —— 色弱用户和灰度截图下同样读得出。
  *
  * 图形一律用 currentColor + opacity 叠层次，颜色随主题走，不在 SVG 里写死色值。
  */
@@ -157,6 +335,17 @@ function Thumb({ kind }: { readonly kind: OutputKind }): ReactElement {
           <rect x="12.2" y="13.6" width="3.6" height="3.4" rx="1" fill="currentColor" stroke="none" />
         </svg>
       )
+    // 安装文件：箱体 + 向下的安装箭头（与压缩包的拉链箱区分开）。
+    case 'installer':
+      return (
+        <svg {...common}>
+          <rect x="4.6" y="6" width="18.8" height="16" rx="2.2" opacity=".28" fill="currentColor" stroke="none" />
+          <rect x="4.6" y="6" width="18.8" height="16" rx="2.2" />
+          <path d="M14 9v7" />
+          <path d="m10.8 13 3.2 3.2 3.2-3.2" />
+          <path d="M9.4 19.4h9.2" opacity=".7" />
+        </svg>
+      )
     // 可打开的页面：浏览器窗口 + 地址栏。与 code 的尖括号刻意区分 ——
     // .html 交付的是"一个能打开的页面"，不是"一段源码"。
     case 'page':
@@ -251,8 +440,16 @@ export const KrOutputsCard = memo(function KrOutputsCard({
     () => rawItems.filter((item) => !gonePaths.has(item.path)),
     [rawItems, gonePaths],
   )
+  const groups = useMemo(() => groupOutputs(items), [items])
+  const grouped = groups.length > 1
   const maxVisible = squeezed ? MAX_VISIBLE_SQUEEZED : MAX_VISIBLE
-  const visible = showAll ? items : items.slice(0, maxVisible)
+  const visibleGroups = useMemo(
+    () => visibleGroupsOf(groups, showAll, maxVisible),
+    [groups, showAll, maxVisible],
+  )
+  const visible = useMemo(() => visibleGroups.flatMap((group) => group.items), [visibleGroups])
+  /** 全局行序号：错峰入场按整卡顺序走，不按组内序号重来（否则每组第一行都同时入场）。 */
+  const rowOrder = useMemo(() => new Map(visible.map((item, index) => [item.path, index])), [visible])
   const hiddenCount = items.length - visible.length
   /** 「核对中」＝ 还没有结论（既没确认存在，也没被剔除）。 */
   const isPending = useCallback(
@@ -302,14 +499,23 @@ export const KrOutputsCard = memo(function KrOutputsCard({
    * 下指向不同文件，跨会话复用结论会剔错行。
    */
   const probeTargets = useMemo(() => {
-    const paths: string[] = []
-    for (const item of visible) paths.push(item.path)
+    const targets: { readonly path: string; readonly sessionId: string | null }[] = []
+    const seen = new Set<string>()
+    for (const item of visible) {
+      // 子智能体条目的工作区是子会话，不能拿主会话 id 去 stat。按条目自带的
+      // sessionId 分组探测；主会话条目回落到 props.sessionId。
+      const targetSessionId = item.sessionId ?? sessionId
+      const key = (targetSessionId ?? '') + '|' + item.path
+      if (seen.has(key) || probeCache.has(item.path)) continue
+      seen.add(key)
+      targets.push({ path: item.path, sessionId: targetSessionId })
+    }
     // 已有结论的不再探测：展开/收起会让 visible 反复变化，去重避免来回打请求。
     // 依赖里带上 gonePaths/checkedPaths —— ref 变化不触发重算，而这两个 state
     // 正是「结论已经拿到」的信号；漏了它们，收起再展开会对同一路径重复往返。
-    return paths.filter((path) => !probeCache.has(path))
-  }, [visible, gonePaths, checkedPaths, probeCache])
-  const probeKey = probeTargets.join('\u0000')
+    return targets
+  }, [visible, gonePaths, checkedPaths, probeCache, sessionId])
+  const probeKey = probeTargets.map((target) => (target.sessionId ?? '') + '|' + target.path).join('\u0000')
 
   /*
    * 会话切换：清掉结论（缓存已由上面的 sid 比对换新）。
@@ -326,8 +532,17 @@ export const KrOutputsCard = memo(function KrOutputsCard({
     if (probeTargets.length === 0) return
     let cancelled = false
     void (async () => {
-      const results = await probeWorkspaceFiles(probeTargets, { sessionId })
+      const bySession = new Map<string | null, string[]>()
+      for (const target of probeTargets) {
+        const bucket = bySession.get(target.sessionId)
+        if (bucket === undefined) bySession.set(target.sessionId, [target.path])
+        else bucket.push(target.path)
+      }
+      const batches = await Promise.all([...bySession.entries()].map(([targetSessionId, paths]) =>
+        probeWorkspaceFiles(paths, { sessionId: targetSessionId })))
       if (cancelled) return
+      const results = new Map<string, ProbeResult>()
+      for (const batch of batches) for (const [path, verdict] of batch) results.set(path, verdict)
       const gone = new Set<string>()
       const settled = new Set<string>()
       for (const [path, verdict] of results) {
@@ -358,7 +573,40 @@ export const KrOutputsCard = memo(function KrOutputsCard({
     // probeTargets 每帧都是新数组，用拼好的 key 做依赖。
   }, [probeKey, sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const openPath = useCallback(async (path: string) => {
+  /*
+   * 右键菜单：使用系统默认程序打开。
+   *
+   * 与左键的分流相反：这里用户明确选了"系统默认程序"，所以不再先试侧栏。
+   * 仍走本插件 openOutputFile（按会话工作区绝对化 + stat + .html 交给默认浏览器）；
+   * 仅在该路由不可用的旧宿主上退回官方 openWithDefaultApp，最终仍失败才退回侧栏
+   * 作为可操作落点。
+   */
+  const openDefault = useCallback(async (item: OutputItem): Promise<void> => {
+    const targetSessionId = item.sessionId ?? sessionId
+    const cwd = workspaceCwdOf(targetSessionId)
+    /*
+     * 安装文件（exe / msi / apk…）走官方「默认应用」而不是本插件 open-file：
+     * 后者的安全策略明确拒绝可执行扩展名（防止被当成任意程序启动器）。用户
+     * 主动点安装包时，语义就是「交给系统安装程序」，与双击一致；这里仍由官方
+     * verifyDesktopPath 校验路径，失败再退回侧栏（侧栏通常不支持，至少不静默）。
+     */
+    if (item.kind === 'installer') {
+      const absolute = cwd === undefined ? item.path : resolveWorkspacePath(cwd, item.path)
+      if (await openWithDefaultApp(absolute) === 'opened') return
+      tryOpenInSidebar(item.path, { sessionId: targetSessionId, cwd })
+      return
+    }
+    const result = await openOutputFile(item.path, { cwd })
+    if (result === 'opened') return
+    if (result === 'unavailable') {
+      const absolute = cwd === undefined ? item.path : resolveWorkspacePath(cwd, item.path)
+      const legacy = await openWithDefaultApp(absolute)
+      if (legacy === 'opened') return
+    }
+    tryOpenInSidebar(item.path, { sessionId: targetSessionId, cwd })
+  }, [sessionId])
+
+  const openPath = useCallback(async (item: OutputItem) => {
     /*
      * 打开前再确认一次（缓存命中就不重复请求）。
      *
@@ -368,8 +616,10 @@ export const KrOutputsCard = memo(function KrOutputsCard({
      *
      * 只有 `missing` 才剔除 —— `unknown` 照常打开，把决定权交回给打开链路。
      */
+    const targetSessionId = item.sessionId ?? sessionId
+    const path = item.path
     const known = probeCache.get(path)
-    const verdict: ProbeResult = known ?? await probeWorkspaceFile(path, { sessionId })
+    const verdict: ProbeResult = known ?? await probeWorkspaceFile(path, { sessionId: targetSessionId })
     probeCache.set(path, verdict)
     if (verdict === 'missing') {
       setGonePaths((prev) => {
@@ -382,7 +632,7 @@ export const KrOutputsCard = memo(function KrOutputsCard({
     }
     // 问过了（exists 或 unknown）：收掉待定外观。
     setCheckedPaths((prev) => (prev.has(path) ? prev : new Set(prev).add(path)))
-    const cwd = workspaceCwdOf(sessionId)
+    const cwd = workspaceCwdOf(targetSessionId)
     /*
      * 分流（2026-10-22 按用户口径）：**侧栏能正常展示的走侧栏，其余走系统默认**。
      *
@@ -398,61 +648,71 @@ export const KrOutputsCard = memo(function KrOutputsCard({
        * 全局面板占着主列时 openWorkspacePreview 会先收起面板（官方右栏只在
        * 会话填满主列时可见），这不是本卡多做的一步。
        */
-      if (tryOpenInSidebar(path, { sessionId, cwd })) return
+      if (tryOpenInSidebar(path, { sessionId: targetSessionId, cwd })) return
       // 右栏服务不可用（旧宿主 / 手机远程）：退回系统默认 —— 总比点了没反应好。
     }
-    /*
-     * 系统默认应用那条（浏览器文档进默认浏览器，其余进文件关联）。
-     *
-     * **为什么不用 openWithDefaultApp**：那条是官方
-     * remote.session.openWorkspacePath，它把相对路径按 **host 进程 cwd**
-     * （dsh-runtime）解析，而这张卡里 `present` 交付的路径是**相对会话工作区**
-     * 的 —— 于是「打开」的是一个不存在的 dsh-runtime\deliverables\…。更糟的是
-     * 官方校验不 stat 文件本体，explorer 收到不存在的 file URL 会**静默**弹出
-     * 「文档」文件夹，界面上看不出任何异常（用户报的「点了不打开」）。
-     * 细节与三条根因见 ../../open-file.ts 与 host 半身 src/open-file/index.ts。
-     *
-     * 本插件 /api/chat-flow/open-file：host 侧按会话工作区绝对化、stat 文件本体，
-     * 并把 .html 这类浏览器文档**直接交给系统默认浏览器**（Windows 上官方 opener
-     * 从不这么做，它只认文件关联）。
-     */
-    const result = await openOutputFile(path, { cwd })
-    if (result === 'opened') return
-    /*
-     * `unavailable` = 本插件路由没就绪（宿主降级 / 老版本）。此时退回官方链路，
-     * 但**一定要给绝对路径** —— 官方那条对相对路径的解析基准是 host cwd，正是
-     * 上面那个 bug 的来源。`failed` 不再退回官方：路由已经明确说「这个目标开不了」
-     * （文件不在 / 可执行类型 / 没有工作区基准），拿官方链路再撞一次只会重复一遍
-     * 「静默弹文件夹」。
-     */
-    if (result === 'unavailable') {
-      const absolute = cwd === undefined ? path : resolveWorkspacePath(cwd, path)
-      const legacy = await openWithDefaultApp(absolute)
-      if (legacy === 'opened') return
+    await openDefault(item)
+  }, [openDefault, sessionId])
+
+  /** 右键菜单状态：作用条目 + 指针位置。 */
+  const [menu, setMenu] = useState<OutputMenuState | null>(null)
+  const cardRef = useRef<HTMLDivElement | null>(null)
+  const closeMenu = useCallback(() => { setMenu(null) }, [])
+  const openMenu = useCallback((event: ReactMouseEvent, item: OutputItem) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setMenu({ item, x: event.clientX, y: event.clientY })
+  }, [])
+  /*
+   * 右键的**原生捕获兜底**。
+   *
+   * 某些页面环境里，右键事件会先被别的全局手势处理掉，React 的合成事件
+   * （挂在根容器冒泡阶段）收不到；这里在卡片根节点用 capture 阶段拦一次，
+   * 先于任何冒泡处理器执行，保证产出物行一定能打开自己的菜单。行上仍保留
+   * React onContextMenu 作为普通环境的直路；捕获层 stopPropagation 后，
+   * React 那条不会再触发，不会出现两份菜单。
+   */
+  useEffect(() => {
+    const root = cardRef.current
+    if (root === null) return undefined
+    const onNativeContextMenu = (event: MouseEvent): void => {
+      const target = event.target
+      const row = target instanceof Element ? target.closest('.kr-out-row') : null
+      if (!(row instanceof HTMLElement) || !root.contains(row)) return
+      const path = row.dataset.outputPath
+      const item = path === undefined ? undefined : items.find((entry) => entry.path === path)
+      if (item === undefined) return
+      event.preventDefault()
+      event.stopPropagation()
+      setMenu({ item, x: event.clientX, y: event.clientY })
     }
-    /*
-     * 其余情况都退回侧栏，**不剔除条目**：`unavailable` 是环境限制，
-     * `failed` 多半是「这台机器没有这个扩展名的默认程序」—— 前面刚 stat 过文件
-     * 是在的，把一行活文件从清单里抹掉是更糟的结果。侧栏对不可展示的类型只会
-     * 给一句"不支持预览"，但它至少是个有路径、有"用系统应用打开"按钮的落点，
-     * 比点了完全没反应好。
-     */
-    tryOpenInSidebar(path, { sessionId, cwd })
-  }, [sessionId])
+    // 挂在 window 的捕获阶段：比页面里任何 document / 卡片级右键拦截都先到。
+    window.addEventListener('contextmenu', onNativeContextMenu, true)
+    return () => { window.removeEventListener('contextmenu', onNativeContextMenu, true) }
+  }, [items])
+  const quoteMenuItem = useCallback(() => {
+    if (menu !== null) insertOutputReference(menu.item, sessionId)
+    setMenu(null)
+  }, [menu, sessionId])
+  const openDefaultMenuItem = useCallback(() => {
+    if (menu !== null) void openDefault(menu.item)
+    setMenu(null)
+  }, [menu, openDefault])
 
   /*
    * 计数读**过滤后**的清单（items），不是 outputs 原始值 —— 剔除的失效条目不该
    * 被算进「N 项」，否则头部的数字和下面的行数对不上，用户数一遍就懵。
    * 走到这里时 items 必非空（空态由挂载方拦掉，见文件头）。
    */
-  const header = `${items.length} 项`
+  // 多类时把类别数也放进卡头：卡片收起（标题行仍可见）时也能看出「这次产出分几类」。
+  const header = grouped ? `${items.length} 项 · ${groups.length} 类` : `${items.length} 项`
 
   // 2026-10-28：过滤后为空也不渲染（路径核对全部剔除时，清单只剩「0 项」空壳）。
   // 放在全部 hooks 之后，保证 hooks 顺序稳定。
   if (items.length === 0) return null
 
   return (
-    <div className="kr-card kr-card--outputs">
+    <div className="kr-card kr-card--outputs" ref={cardRef}>
       <div
         className="kr-card__header"
         onClick={() => { setOpen((value) => !value) }}
@@ -491,15 +751,33 @@ export const KrOutputsCard = memo(function KrOutputsCard({
           {...(!open ? { inert: '' } : {})}
         >
           {visible.length > 0 && (
-            <div className="kr-out-list">
-              {visible.map((item, index) => (
-                <OutputRow
-                  key={item.path}
-                  item={item}
-                  index={index}
-                  pending={isPending(item.path)}
-                  onOpen={() => { void openPath(item.path) }}
-                />
+            <div className={`kr-out-list${grouped ? ' kr-out-list--grouped' : ''}`}>
+              {visibleGroups.map((group) => (
+                <div
+                  className="kr-out-group"
+                  key={group.kind}
+                  data-kind={group.kind}
+                  role="group"
+                  aria-label={`${group.label}，${group.total} 项`}
+                >
+                  {grouped && (
+                    <div className="kr-out-group__head">
+                      <span className="kr-out-group__name">{group.label}</span>
+                      <span className="kr-out-group__rule" aria-hidden="true" />
+                      <span className="kr-out-group__count">{group.total}</span>
+                    </div>
+                  )}
+                  {group.items.map((item) => (
+                    <OutputRow
+                      key={item.path}
+                      item={item}
+                      index={rowOrder.get(item.path) ?? 0}
+                      pending={isPending(item.path)}
+                      onOpen={() => { void openPath(item) }}
+                      onContextMenu={(event) => { openMenu(event, item) }}
+                    />
+                  ))}
+                </div>
               ))}
             </div>
           )}
@@ -519,6 +797,14 @@ export const KrOutputsCard = memo(function KrOutputsCard({
         </div>
       )}
 
+      {menu !== null && (
+        <OutputContextMenu
+          menu={menu}
+          onClose={closeMenu}
+          onQuote={quoteMenuItem}
+          onOpenDefault={openDefaultMenuItem}
+        />
+      )}
     </div>
   )
 })
@@ -532,35 +818,38 @@ export const KrOutputsCard = memo(function KrOutputsCard({
  * 一枚 10px 高的小按钮上。
  *
  * 2026-10-19 起**行尾那枚「在侧栏打开」钮删掉**：行主体与它做的是同一件事，
- * 多一枚钮只是把同一句话说了两遍，还让一列行里多出一列图标。行末改留一枚
- * **纯视觉**的落点图标（aria-hidden），只在 hover / focus-within 时浮现 ——
- * 它承担「这里能点、点开在哪」的提示，不占焦点站、不进无障碍树（读屏用户听到
- * 的是整行按钮的 aria-label）。
+ * 多一枚钮只是把同一句话说了两遍，还让一列行里多出一列图标。
  *
- * 落点图标按 `data-target` 分派：**sidebar** 是一扇右栏面板（"在右侧打开"），
- * **external** 是一个跳出去的箭头（"交给别的程序"）。两枚形状差得够远，扫一眼
- * 就知道这一行点了会往哪走 —— 比同一個箭头配不同文案可靠。
+ * 2026-10-30 按用户要求**把行尾那枚纯视觉落点图标也去掉**：整行按钮仍然工作，
+ * 落点由 aria-label 说明（「在右侧栏查看」/「用默认应用打开」），行尾只留具体时间。
  *
  * `pending` 是**核对尚未出结论**：这一行刚上屏、还没问过磁盘。此时只要一点点
  * 低对比度（`data-pending`）而不是置灰 —— 绝大多数文件是活的，一瞬间的待定态
  * 不该看起来像出了事。结论是「不存在」的行根本不会走到这里（已被剔除）。
  */
-function OutputRow({ item, index, pending = false, onOpen }: {
+function OutputRow({ item, index, pending = false, onOpen, onContextMenu }: {
   readonly item: OutputItem
   readonly index: number
   readonly pending?: boolean
   /** 整行点击：侧栏能展示的进右栏，其余交给系统默认应用。 */
   readonly onOpen: () => void
+  /** 右键：在指针处打开「引用到对话框 / 使用系统默认程序打开」菜单。 */
+  readonly onContextMenu: (event: ReactMouseEvent) => void
 }): ReactElement {
-  /** 这一行的落点（决定 aria-label 与行尾图标）。纯扩展名判断，无副作用。 */
+  /** 这一行的落点（决定 aria-label）。纯扩展名判断，无副作用。 */
   const target = canShowInSidebar(item.path) ? 'sidebar' : 'external'
+  const timeText = outputTimeText(item.time)
   return (
     <div
       className="kr-out-row"
       data-kind={item.kind}
-      data-target={target}
+      data-output-path={item.path}
+      data-origin={item.origin}
       data-pending={pending ? 'true' : undefined}
-      title={item.path}
+      title={item.origin === 'subagent' ? item.path + '\n来自子智能体' : item.path}
+      onContextMenu={onContextMenu}
+      // 某些环境只派发 mousedown（contextmenu 被全局手势吞掉）：右键按下就开菜单兜底。
+      onMouseDown={(event) => { if (event.button === 2) onContextMenu(event) }}
       // 错峰入场：只对靠后的若干条错开，卡片整体不拖出一段长尾。
       style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
     >
@@ -571,30 +860,17 @@ function OutputRow({ item, index, pending = false, onOpen }: {
           ? `在右侧栏查看 ${item.name}`
           : `用默认应用打开 ${item.name}`}
         onClick={onOpen}
+        // 行主体也挂一份：某些浏览器把右键事件落在 button 上时，父级容器也能稳定接管。
+        onContextMenu={onContextMenu}
+        onMouseDown={(event) => { if (event.button === 2) onContextMenu(event) }}
       >
         <span className="kr-out-row__thumb" data-kind={item.kind} aria-hidden>
           <Thumb kind={item.kind} />
         </span>
         <span className="kr-out-row__name">{item.name}</span>
+        {item.origin === 'subagent' && <span className="kr-out-row__origin" title="子智能体产出">子代理</span>}
+        {timeText !== '' && <span className="kr-out-row__time" title={timeText}>{timeText}</span>}
       </button>
-      {/* 纯视觉落点图标：hover / focus 浮现。不占焦点站。 */}
-      <span className="kr-out-row__go" aria-hidden="true">
-        {target === 'sidebar' ? (
-          /* 右栏面板：一个带分隔线的矩形 + 右侧实心条，形状就是"右边那一栏" */
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2" y="3" width="12" height="10" rx="1.8" />
-            <path d="M9.6 3v10" opacity=".55" />
-            <path d="M11.4 6.2h1.2M11.4 8h1.2M11.4 9.8h1.2" opacity=".8" />
-          </svg>
-        ) : (
-          /* 跳出去：方框 + 斜向箭头（"交给别的程序"） */
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9.2 2.6h4.2v4.2" />
-            <path d="M13.4 2.6 7.6 8.4" />
-            <path d="M11.6 9.8v2.4a1.4 1.4 0 0 1-1.4 1.4H3.8a1.4 1.4 0 0 1-1.4-1.4V5.8a1.4 1.4 0 0 1 1.4-1.4h2.4" />
-          </svg>
-        )}
-      </span>
     </div>
   )
 }

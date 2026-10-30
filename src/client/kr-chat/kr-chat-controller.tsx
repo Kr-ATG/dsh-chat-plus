@@ -435,57 +435,67 @@ export function mountKrChatController(): void {
   disposers.push(() => window.removeEventListener('popstate', onPopState))
 
   /*
-   * 对话流点击 → 切换右栏大盘轮次。
+   * 对话流右键 → 切换右栏大盘轮次。
    *
-   * **只有用户自己发的那条消息可以点**（2026-10-05 用户要求）。
+   * 2026-10-30 用户要求：**左键不再触发**，改成右键用户自己发的消息才显示对应
+   * Agent 大盘。2026-10-05 的入口范围继续保留：只有 flowKind=user 那一条响应，
+   * 助手正文、思考卡、工具行、过程行一律不响应。
    *
-   * 原实现是「整个轮次区域都可点」：向上找 [data-chat-turn] 就切轮次，于是
-   * 手感上整条对话流都是活的 —— 最直接的代价是**鼠标指针整片变成手掌**
-   * （styles.ts 里那条 [data-chat-turn]{cursor:pointer}），用户原话「现在总结
-   * 老是出来一个手掌看着烦人」。
+   * 两个入口同用一份判据：
+   *  · contextmenu（标准右键）—— 命中后 preventDefault 掉原生菜单并切轮次；
+   *  · mousedown button=2（兜底）—— 某些 WebView / 全局手势会吞掉 contextmenu，
+   *    右键按下时也先切一次，保证「右键 = 看大盘」不会静默失效。
    *
-   * 现在的判据是**点击目标本身落在用户消息节点里**：官方 flowItem 上带
-   * data-chat-flow-kind，用户消息那条的值就是 'user'（见 ui-chat 的
-   * ChatView 注入：data-chat-flow-kind = routedNode.kind）。命中就取它的
-   * data-chat-turn 切轮次；没命中就**什么都不做**，交回给官方原本的行为
-   * （选中文本、点链接、点卡片折叠……一个都不受影响）。
-   *
+   * 监听挂 window 捕获阶段：比页面里任何 document / 业务容器的右键拦截都先到。
    * 用 closest 而不是判断 e.target 自己：用户消息气泡里还有时间戳、头像等
    * 子元素，点在它们身上同样算「点在提问上」。
    */
-  const onFlowClick = (e: MouseEvent): void => {
-    if (!owns()) return
-    const state = store.snapshot
-    if (state.activeTab !== 'kr') return
+  const userTurnOf = (target: HTMLElement | null): number | null => {
+    if (!owns()) return null
+    if (store.snapshot.activeTab !== 'kr') return null
+    if (target === null) return null
 
-    const target = e.target as HTMLElement | null
-    if (!target) return
-
-    // 如果用户正在选中文本（例如正在进行复制操作），不拦截触发切换
-    const sel = window.getSelection()
-    if (sel && sel.toString().trim().length > 0) {
-      return
-    }
+    /*
+     * 不因为「当前有选区」而跳过：用户常常先框选消息文字、再右键想切大盘；
+     * 旧的左键入口在这里跳过是为了不打断复制，但右键语义已经变成「看大盘」，
+     * 再跳过就会表现成「右键没反应」。复制仍可用 Ctrl+C。
+     */
 
     // 忽略右侧大盘内部、顶栏导航、模态弹窗以及可交互控件（按钮、超链接、输入框、下拉菜单等）
     if (target.closest('#dsh-kr-panel-container, header, button, a, input, textarea, select, [role="button"], [role="menuitem"], .tsh-panel, .tsh-mask')) {
-      return
+      return null
     }
 
     // 只认用户提问那一条：assistant 正文、思考卡、工具行、过程行一律不响应。
     const userEl = target.closest<HTMLElement>('[data-conversation-scroll] [data-chat-flow-kind="user"]')
-    if (!userEl) return
+    if (!userEl) return null
 
     const rawTurn = userEl.getAttribute('data-chat-turn')
-    if (!rawTurn) return
+    if (!rawTurn) return null
 
     const turn = parseInt(rawTurn, 10)
-    if (Number.isFinite(turn) && turn > 0) {
-      store.setSelectedTurn(turn)
-    }
+    return Number.isFinite(turn) && turn > 0 ? turn : null
   }
-  document.addEventListener('click', onFlowClick, true)
-  disposers.push(() => document.removeEventListener('click', onFlowClick, true))
+
+  const onFlowContextMenu = (e: MouseEvent): void => {
+    const turn = userTurnOf(e.target as HTMLElement | null)
+    if (turn === null) return
+    // 原生右键菜单会让「右键 = 看大盘」变成「右键 = 弹菜单」，必须压掉。
+    e.preventDefault()
+    store.setSelectedTurn(turn)
+  }
+  const onFlowMouseDown = (e: MouseEvent): void => {
+    if (e.button !== 2) return
+    const turn = userTurnOf(e.target as HTMLElement | null)
+    if (turn === null) return
+    // 右键按下就切，contextmenu 被吞掉也不影响；preventDefault 同时压掉原生菜单。
+    e.preventDefault()
+    store.setSelectedTurn(turn)
+  }
+  window.addEventListener('contextmenu', onFlowContextMenu, true)
+  window.addEventListener('mousedown', onFlowMouseDown, true)
+  disposers.push(() => window.removeEventListener('contextmenu', onFlowContextMenu, true))
+  disposers.push(() => window.removeEventListener('mousedown', onFlowMouseDown, true))
 
   const syncDom = () => {
     if (!owns()) return

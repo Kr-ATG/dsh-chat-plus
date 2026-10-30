@@ -12,6 +12,12 @@
  *
  * 所以把卡头抽成这个组件，操作面板卡与新对话页共用同一份。
  *
+ * ## 两套骨架（2026-10-30）
+ *
+ * 操作面板卡传 `compact`：小立绘（64×114）在左、名字/状态在右、底部一条摘要；
+ * 不传时是原来的竖排大立绘（92×164），新对话页 Hero 继续用那一版。两套只差
+ * 一个类名，DOM 与数据源完全共用，避免再次出现"两处长得不一样"的分叉。
+ *
  * ## 它不负责什么
  *
  * 不订阅任何数据源：浏览器标志、齿轮/邮箱的开合、当前动作/空闲文案，全部由调用方
@@ -84,6 +90,16 @@ export interface SeekerHeadProps {
   readonly renderIcon?: (name: string) => ReactElement
   /** 额外类名（新对话页要一版更大的尺寸）。 */
   readonly className?: string
+  /**
+   * 紧凑骨架（操作面板卡专用，2026-10-30）。
+   *
+   * 打开后：小立绘（64×114）在左，名字 / 状态两行在右，整块卡头压到约 160px；
+   * 关闭时保持原来的竖排大立绘（新对话页 Hero 用那一版）。
+   * 两处共用同一个组件，但布局差异只由这一个开关决定，不复制 DOM。
+   */
+  readonly compact?: boolean
+  /** 紧凑骨架底部摘要里的动作条数（操作面板传 timeline.steps.length；Hero 不传）。 */
+  readonly stepCount?: number
   /** 当前会话 ID（用于解析当前工作区根目录）。 */
   readonly sessionId?: string | null
   /** 工作区根目录（优先）。 */
@@ -125,6 +141,8 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
     expanded,
     renderIcon,
     className,
+    compact = false,
+    stepCount,
     sessionId,
     cwd,
     chrome = true,
@@ -255,7 +273,12 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
       : line.verb)
     : idleLine
 
-  const headClass = className === undefined ? 'kr-card__header kr-plain-head' : `kr-card__header kr-plain-head ${className}`
+  const headClass = [
+    'kr-card__header',
+    'kr-plain-head',
+    ...(compact ? ['kr-plain-head--compact'] : []),
+    ...(className === undefined ? [] : [className]),
+  ].join(' ')
 
   return (
     <div
@@ -276,8 +299,8 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
        * 立绘位现在是**任务动画**（2026-10-26 用户给的 9 个 GIF 转成的透明底
        * WebM，见 SeekerStage.tsx / motion-clips.ts）。
        *
-       * 盒子尺寸不变（92×164，见 styles.ts 的 .kr-stage）：用户点名
-       * 「不需要动」—— 卡头的排版一个像素都不该因为换素材而位移。
+       * 基础盒子 92×164 是 Hero / 旧竖排版用的尺寸（见 styles.ts 的 .kr-stage）；
+       * 操作面板的紧凑骨架在 .kr-plain-head--compact 下覆写成 64×114。
        */}
       {/* view.task-motion 关闭：motion=false 让 SeekerStage 只显示当前状态的静态首帧
           （它内部会把画面收到 restingClip，不会停在一段被暂停的一次性动画上）。 */}
@@ -328,6 +351,27 @@ export function SeekerHead(props: SeekerHeadProps): ReactElement {
       ) : (
         <span className="kr-plain-head__idle" data-thinking={thinking || undefined}>
           {idleLine}
+        </span>
+      )}
+
+      {/*
+       * 紧凑骨架底部的摘要行（2026-10-30）。
+       *
+       * 它把「这张卡下面还有东西」变成看得见的 affordance：左边是动作条数，
+       * 右边是「展开 / 收起时间线」与一枚旋转箭头。原先整块卡头虽然可点，但
+       * 没有任何视觉提示，新用户不会知道点它能看到完整流水。
+       *
+       * 只渲染在 compact（操作面板）里；Hero 没传 compact，不会出现这行。
+       */}
+      {compact && (
+        <span className="kr-plain-head__summary" data-open={expanded === true || undefined} aria-hidden="true">
+          <span className="kr-plain-head__summary-count">
+            {stepCount === undefined || stepCount === 0 ? '暂无动作' : `${stepCount} 个动作`}
+          </span>
+          <span className="kr-plain-head__summary-label">{expanded === true ? '收起时间线' : '展开时间线'}</span>
+          <svg className="kr-plain-head__chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m4 6 4 4 4-4" />
+          </svg>
         </span>
       )}
 

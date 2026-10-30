@@ -197,16 +197,16 @@ body[data-dsh-kr-chat="true"] [data-turn-process-member][data-chat-group-part="r
 }
 
 /* ══ KR 模式下左侧对话流交互（无染色视觉）═════════════════════════════════
-   只有**用户自己发的那条消息**是可点入口（点它把右栏大盘切到该轮），所以手掌
-   光标也只给它 —— 2026-10-05 用户明确「只有我发送的对话内容才可以点击出来 agent
-   大盘，其他不要受到影响，现在总结老是出来一个手掌看着烦人」。
+   只有**用户自己发的那条消息**是入口，但入口动作是**右键**（显示对应 Agent 大盘）；
+   2026-10-30 用户明确把左键改成右键，所以这里不再给手掌，改用 context-menu 光标
+   提示「这里右键有东西」。2026-10-05 的用户口径继续有效：其他区域不要受到影响。
    原来的规则写在 [data-chat-turn] 上（= 整条轮次都可点），于是助手正文、思考卡、
    过程行、总结卡整片都是手掌。现在收窄到 flowKind=user 那一条，并在它内部把文字
    恢复成常规光标（提问里的字仍然可以正常选中复制）。
    [data-chat-flow-kind] 是官方 ChatView 自己注入的（routedNode.kind），不是插件
    造的类名，没有 hash 漂移问题。 */
 body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-flow-kind="user"] {
-  cursor: pointer;
+  cursor: context-menu;
 }
 
 body[data-dsh-kr-chat="true"] [data-conversation-scroll] [data-chat-flow-kind="user"] p,
@@ -2264,6 +2264,179 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
 }
 
 /*
+ * ══ 操作面板 · 紧凑卡头（2026-10-30 用户要求「人物变小、整张卡重排」）══════════
+ *
+ * 旧版是「大立绘 92×164 居中 / 名字 / 状态」的竖排三行，人物占掉卡头 3/4 的
+ * 高度（实测卡头 215px），右栏本来就窄，信息反而挤在下面。这一版把身份区
+ * 压成一张横向的「小卡」：
+ *
+ *   ┌ 小立绘(64×114) ┐  Seeker              [Git][邮件][齿轮]
+ *   │                │  ● 观月中
+ *   └────────────────┘  查看文件 · 设计面板布局
+ *   ───────────────────────────────────────────────────────
+ *   12 个动作                                        展开时间线 ⌄
+ *
+ *  - 立绘缩到 64×114（原 92×164），完整保留任务动画；
+ *  - 名字与状态移进右侧信息列，左对齐，不再被大图压到卡片底部；
+ *  - 底部摘要行负责「还有东西可看」的暗示：动作数 + 展开/收起 + 箭头；
+ *  - 整块卡头仍然是折叠热区，点击行为不变；
+ *  - 以上只作用于 .kr-plain-head--compact（操作面板），新对话页 Hero 仍是原来的
+ *    竖排大立绘 —— 同一个组件、两套骨架，不会互相影响。
+ *
+ * 高度账：64×114 的立绘 + 8px 内距 + 23px 摘要行 ≈ 160px（旧版 215px），
+ * 一屏能多放约 55px 的内容；动作行最长两排时卡头会自然长高，逻辑不变。
+ */
+.kr-plain-head--compact {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-areas:
+    "stage name"
+    "stage status"
+    "summary summary";
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  justify-items: stretch;
+  column-gap: 14px;
+  row-gap: 1px;
+  /* 底部 0：摘要行自己带分隔线与内距，避免卡片下缘再叠一层留白。 */
+  padding: 8px 0 0;
+}
+
+.kr-plain-head--compact .kr-stage {
+  grid-area: stage;
+  width: 64px;
+  height: 114px;
+  align-self: center;
+  /* 小尺寸下原来的 14px 投影会糊成一圈灰雾，收小一点。 */
+  filter: drop-shadow(0 4px 9px rgba(60, 110, 170, .14));
+}
+
+.kr-plain-head--compact .kr-stage__glow {
+  height: 92px;
+  margin-top: -46px;
+  background: radial-gradient(ellipse 50% 50% at 50% 50%, rgba(96, 165, 250, .12) 0%, rgba(96, 165, 250, .04) 52%, transparent 76%);
+}
+
+body[data-ds-dark-theme] .kr-plain-head--compact .kr-stage {
+  filter: brightness(1.12) contrast(0.94) drop-shadow(0 4px 10px rgba(0, 0, 0, .45));
+}
+
+.kr-plain-head--compact .kr-plain-head__name-row {
+  grid-area: name;
+  justify-content: flex-start;
+  align-self: end;
+  margin-top: 0;
+  /* 名字与浏览器标志的间距：gap 6 在紧凑卡头里偏挤，单独放宽到 8。 */
+  gap: 8px;
+  /* 给右上角三枚动作按钮留出净空（3×28 + 2×2 gap = 88px）。 */
+  padding-right: 92px;
+  min-width: 0;
+}
+
+/*
+ * 浏览器标志在紧凑卡头里不能用基础规则的负外边距：那 -3px 会把 21px 的按钮
+ * 向左拉回名字上（实测按钮左缘落进名字右缘 3px），同时上下各 -3px 会让它在
+ * flex 行里比文字高 1.5px —— 正是「距离太近 + 没对齐」的来源。这里归零，
+ * 让 icon 的 3px 内边距 + 8px gap 形成干净的 11px 视觉间距，垂直交给
+ * align-items:center。 */
+.kr-plain-head--compact .kr-plain-head__browser {
+  margin: 0;
+}
+
+.kr-plain-head--compact .kr-plain-head__name {
+  text-align: left;
+  font-size: max(14px, calc(var(--dsh-content-font-size, 14px) + 1px));
+}
+
+.kr-plain-head--compact .kr-plain-head__act,
+.kr-plain-head--compact .kr-plain-head__idle {
+  grid-area: status;
+  justify-content: flex-start;
+  align-self: start;
+  margin-top: 0;
+  min-height: 20px;
+  height: auto;
+  font-size: max(12px, calc(var(--dsh-content-font-size, 14px) - 0.5px));
+  text-align: left;
+}
+
+.kr-plain-head--compact .kr-plain-head__act {
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.kr-plain-head--compact .kr-plain-head__detail {
+  text-align: left;
+}
+
+.kr-plain-head--compact .kr-plain-head__ic {
+  margin-top: 2px;
+}
+
+.kr-plain-head--compact .kr-plain-head__ic svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 工具按钮贴小立绘所在行的右上角，不参与信息列排版。 */
+.kr-plain-head--compact .kr-plain-head__tools {
+  top: 0;
+  right: -2px;
+}
+
+/* 摘要行：一条发丝线 + 动作数 + 展开提示 + 箭头。 */
+.kr-plain-head__summary {
+  grid-area: summary;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  padding: 5px 1px 1px;
+  border-top: 1px solid var(--kr-hairline);
+  min-height: 23px;
+  font-size: var(--kr-fs-11, 11px);
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  user-select: none;
+}
+
+.kr-plain-head__summary-count,
+.kr-plain-head__summary-label {
+  white-space: nowrap;
+}
+
+.kr-plain-head__summary-label {
+  margin-left: auto;
+  color: var(--dsw-alias-label-secondary);
+  transition: color var(--kr-dur-tap) linear;
+}
+
+.kr-plain-head:hover .kr-plain-head__summary-label {
+  color: var(--dsw-alias-label-primary);
+}
+
+.kr-plain-head__chevron {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  color: var(--dsw-alias-label-tertiary);
+  transition: transform var(--kr-dur-row) var(--kr-ease-soft), color var(--kr-dur-tap) linear;
+}
+
+.kr-plain-head__summary[data-open] .kr-plain-head__chevron {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-plain-head__chevron {
+    transition: color var(--kr-dur-tap) linear;
+  }
+  .kr-plain-head__summary[data-open] .kr-plain-head__chevron {
+    transform: none;
+  }
+}
+
+/*
  * ══ 卡头右上角的两枚动作按钮（2026-10-25 用户要求搬到这里）════════════════
  *
  * 「大盘设置」齿轮与「邮箱」信封，原先由 kr-chat-controller / mail-drawer 以
@@ -3432,8 +3605,11 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   }
 }
 
- * 注入）。用户原话：「这个球标志放在操作面板的 Seeker 文字右侧」—— 那枚图标说
- * 的是「这个会话正在操作浏览器」，而操作面板正是这个会话的实时状态卡，它就该跟
+/*
+ * Seeker 名字右侧的浏览器标志（2026-10-25 从会话列表行搬来）。
+ *
+ * 用户原话：「这个球标志放在操作面板的 Seeker 文字右侧」—— 那枚图标说的是
+ * 「这个会话正在操作浏览器」，而操作面板正是这个会话的实时状态卡，它就该跟
  * 当前动作待在一起；会话列表那一行是导航，不是状态。
  *
  * 用 flex 居中而不是绝对定位：名字长度会变（字号轴缩放），绝对定位在窄栏里迟早
@@ -3631,7 +3807,13 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
   justify-content: center;
   /* 内距给一点点：图标直接当按钮太小，点到边缘容易落空。 */
   padding: 3px;
-  margin: -3px;
+  /*
+   * 不要用负外边距抵消这 3px：父级 .kr-plain-head__name-row 是 flex + gap，
+   * 负 margin 会把按钮向左拉进名字里（-3px 正好吃掉半个 gap），同时缩小它在
+   * flex 行里的外盒、导致图标比文字高 1~2px。2026-10-30 用户反馈「太近且没对齐」
+   * 就是这条造成的。让内边距自然占位即可。
+   */
+  margin: 0;
   /*
    * 尺寸跟随「DSH 正文 +2」（与名字同一口径，2026-10-25 用户要求：「文字浏览器
    * 图标都跟随 dsh 字号大 2 号」）：图标基准 15px，字号每涨 1px 图标跟着涨 1px。
@@ -3813,9 +3995,11 @@ body[data-ds-dark-theme] .kr-card--reasoning[data-inline] {
    src/motion/index.ts）。播放器在 SeekerStage.tsx。
 
    两条硬约束（用户点名）：
-    1. **卡头盒子不动**。宽度沿用立绘那版的 92px，高度按素材比例放到 164px
-       —— 素材是 320x640（比原立绘更瘦长），按 164 高算出来正好 82 宽，
+    1. **基础盒子按 Hero / 旧竖排版定**。宽度沿用立绘那版的 92px，高度按素材比例
+       放到 164px —— 素材是 320x640（比原立绘更瘦长），按 164 高算出来正好 82 宽，
        居中后左右各留 5px。不做裁剪、不拉伸、不改卡头其它元素的排布。
+       （操作面板的紧凑骨架在 .kr-plain-head--compact 下覆写成 64×114；见上方
+       2026-10-30 的紧凑卡头注释。）
     2. **背景羽化**（用户选了「2羽化」）。素材的白底是在 Node 里用边沿洪泛
        抠掉的，轮廓边缘难免留一圈极淡的残影；羽化遮罩把最外一圈压到透明，
        让它在深色卡片上没有硬边。
@@ -5138,6 +5322,57 @@ body[data-ds-dark-theme] .kr-stage__glow {
   min-width: 0;
 }
 
+/* 多类分组：组与组之间留一道呼吸，组内文件行仍保持 1px 密排。 */
+.kr-out-list--grouped {
+  gap: 4px;
+}
+
+.kr-out-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+/*
+ * 组标题：类别名 + 发丝线 + 计数。
+ *
+ * 刻意做得很轻：11px 三级文字色 + 一条发丝线，不占整行、不加底色 —— 这张卡
+ * 的主体仍是文件行，分类是帮助扫读的分隔，不是第二套导航。计数读该类**完整
+ * 条数**（不是当前露出几条），所以「展开其余」收起时也能一眼看出还藏着多少。
+ * 只有两个及以上类别时才渲染（见 KrOutputsCard 的 grouped）。
+ */
+.kr-out-group__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 8px 1px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--kr-fs-11, 11px);
+  line-height: calc(15px + var(--dsh-content-font-delta, 0px) * 0.6);
+  letter-spacing: .02em;
+  user-select: none;
+}
+
+.kr-out-group__name {
+  flex: none;
+  font-weight: 500;
+}
+
+/* 发丝线把类别名和计数撑开：扫一列时视线沿同一条基线走，不会把计数读成文件名。 */
+.kr-out-group__rule {
+  flex: 1 1 auto;
+  height: 0;
+  border-top: 1px solid var(--kr-hairline);
+  opacity: .8;
+}
+
+.kr-out-group__count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
 /*
  * 一行产出物 = 一个整行按钮。
  *
@@ -5257,10 +5492,9 @@ body[data-ds-dark-theme] .kr-stage__glow {
 /*
  * 四张卡里其余的小图标 SVG：**一律显式覆盖呈现属性**。
  *
- * 这些 svg 的 width/height 都写在 JSX 里（子智能体卡的跳转箭头 12、两张卡的
- * 「展开其余 N」11、产出物卡的右栏箭头 12）。它们所在的容器已经跟着字号轴
- * 放大了，图形不跟就会在大字档下显得缩了一号、四周留空 —— 同样是零报错的
- * 静默失败。
+ * 这些 svg 的 width/height 都写在 JSX 里（子智能体卡的跳转箭头 12、
+ * 「展开其余 N」11）。它们所在的容器已经跟着字号轴放大了，图形不跟就会在大字档下
+ * 显得缩了一号、四周留空 —— 同样是零报错的静默失败。
  *
  * 用 CSS 覆盖（CSS 声明优先于呈现属性）：一处规则管全部，不必把比例一路
  * 透传进每个小组件，也不必改 tsx。
@@ -5269,8 +5503,7 @@ body[data-ds-dark-theme] .kr-stage__glow {
  * 写错不会报错，只会在默认档就把图形放大或缩小一点 —— 那属于「不改设置也变样」，
  * 违反本轮「默认档逐像素还原」的口径。
  */
-.kr-subs-row__go svg,
-.kr-out-row__go svg {
+.kr-subs-row__go svg {
   width: calc(12px + var(--dsh-content-font-delta, 0px) * 0.9);
   height: calc(12px + var(--dsh-content-font-delta, 0px) * 0.9);
 }
@@ -5335,6 +5568,7 @@ body[data-ds-dark-theme] .kr-stage__glow {
 .kr-out-row[data-kind="pdf"] .kr-out-row__thumb,
 .kr-out-row[data-kind="sheet"] .kr-out-row__thumb,
 .kr-out-row[data-kind="archive"] .kr-out-row__thumb,
+.kr-out-row[data-kind="installer"] .kr-out-row__thumb,
 .kr-out-row[data-kind="code"] .kr-out-row__thumb {
   background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 5%, transparent);
   color: var(--dsw-alias-label-secondary, #61666b);
@@ -5351,48 +5585,77 @@ body[data-ds-dark-theme] .kr-stage__glow {
   font-weight: 500;
 }
 
-/*
- * 行尾落点图标（2026-10-19 从「在侧栏打开」真按钮降级为**纯视觉提示**；
- * 2026-10-22 起按落点分派两枚不同形状）。
- *
- * 为什么是装饰：行主体点击就是唯一出口（整行 button），一列行里挂第二枚可点
- * 图标只是把同一句话说了两遍。所以它 status 是 aria-hidden：**不可聚焦、
- * 不可点**，只在 hover 或行内有焦点时浮现；pointer-events:none 保证它永远不会
- * 截走本属于整行按钮的那次点击。
- *
- * 为什么分两枚（2026-10-22）：产出物点击按类型分流（侧栏能展示的进右栏，其余
- * 交给系统默认应用），行尾那枚图标成了**唯一的落点预告**。一扇"右栏面板"和一
- * 个"跳出去"的箭头，形状差得够远，扫一眼就知道点了会往哪走 —— 比同一个箭头
- * 配两套文案可靠（也省掉一行悬停提示）。
- *
- * 动效沿用旧按钮那套节奏：向右 2px 位移回位 + 淡入，只是不再有 hover 底色
- * （它已经不是按钮，给按钮态会骗人）。
- */
-.kr-out-row__go {
+/* 子智能体产出标记：只给来源一个很轻的注脚，不抢文件名。 */
+.kr-out-row__origin {
   flex: none;
-  display: grid;
-  place-items: center;
-  width: calc(18px + var(--dsh-content-font-delta, 0px) * 1.2);
-  height: calc(18px + var(--dsh-content-font-delta, 0px) * 1.2);
-  margin-left: calc(6px + var(--dsh-content-font-delta, 0px) * 0.4);
-  color: var(--dsw-alias-label-tertiary, #8a8f99);
-  opacity: 0;
-  transform: translateX(-2px);
-  pointer-events: none;
-  transition: opacity var(--kr-dur-fade) linear, transform var(--kr-dur-fade) var(--kr-ease-soft);
+  margin-left: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--kr-fs-11, 11px);
+  line-height: 1;
+  white-space: nowrap;
 }
 
-.kr-out-row:hover .kr-out-row__go,
-.kr-out-row:focus-within .kr-out-row__go {
-  opacity: 1;
-  transform: none;
+/* 具体时间：固定在行尾、等宽数字；比正文再小一档（10px），不抢文件名。 */
+.kr-out-row__time {
+  flex: none;
+  margin-left: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--kr-fs-10, 10px);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-/* 落点预告：外部程序那枚让颜色退一档 —— 它要跳出应用，比"在右栏看一眼"重。 */
-.kr-out-row[data-target="external"]:hover .kr-out-row__go,
-.kr-out-row[data-target="external"]:focus-within .kr-out-row__go {
-  color: var(--dsw-alias-label-secondary, #9ca3af);
+/*
+ * 产出物行的右键菜单：body 下 fixed 定位，视口夹紧（位置由 JS 算）。
+ * 两项动作都是对「这一条文件」的操作，菜单本身不承载列表状态。
+ */
+.kr-out-menu {
+  position: fixed;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  box-sizing: border-box;
+  padding: 4px;
+  border: 1px solid var(--kr-card-border, var(--dsw-alias-border-l1, rgba(127, 127, 127, .16)));
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-base, #fff));
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--dsw-alias-label-primary, #000) 16%, transparent), 0 2px 8px rgba(0, 0, 0, .06);
+  animation: kr-out-menu-in 120ms var(--kr-ease-out);
 }
+
+@keyframes kr-out-menu-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
+}
+
+.kr-out-menu__item {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--kr-fs-12, 12px);
+  line-height: calc(16px + var(--dsh-content-font-delta, 0px) * 1.3333);
+  text-align: left;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.kr-out-menu__item:hover,
+.kr-out-menu__item:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, .08));
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-out-menu { animation: none; }
+}
+
+/* 2026-10-30 用户要求去掉行尾落点图标：整行按钮 + aria-label 仍是唯一入口。 */
 
 /*
  * 「核对中」的行（挂载后已上屏、还没问过磁盘）。
@@ -5460,9 +5723,7 @@ body[data-ds-dark-theme] .kr-stage__glow {
     animation: none;
   }
   .kr-out-row:hover .kr-out-row__thumb { transform: none; }
-  .kr-out-row__go,
   .kr-out-more svg { transition: none; }
-  .kr-out-row__go { transform: none; }
   .kr-out-more:hover svg { transform: none; }
 }
 

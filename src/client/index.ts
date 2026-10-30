@@ -457,6 +457,13 @@ export {
   PLUGIN_RENDERED_EXT, TEXT_RENDERED_EXT, BROWSER_UNDECODABLE_MEDIA_EXT,
 } from './sidebar-display.ts'
 /**
+ * 产出物分类分组（纯逻辑）：供 smoke 直接断言类别顺序、组内顺序与中文标签。
+ *
+ * 分组判错不会报错，只会让卡片里的「图片 / 网页」顺序和标签静默走样 ——
+ * 这类展示层口径必须能被离线断言。
+ */
+export { groupOutputs, OUTPUT_KIND_LABEL, OUTPUT_KIND_ORDER } from './kr-chat/outputs.ts'
+/**
  * 对话内 HTML 卡片：围栏切分 + iframe 文档装配的纯逻辑，供 smoke 直接钉住。
  *
  * 这两条判据错了都不会报错——围栏不命中就静默显示成代码块，沙箱写错就变成
@@ -630,3 +637,8 @@ export {
 } from './browser-flag/row-mark.ts'
 export { BROWSER_FLAG_STYLES, BROWSER_FLAG_STYLE_ID, injectBrowserFlagStyles } from './browser-flag/styles.ts'
 export { applyBrowserFlagClient } from './browser-flag/index.ts'
+/**
+ * 生图实时卡的两条纯判据：入参 → 张数/比例，比例 → 点阵行列。
+ * 判错不会报错，只会让点阵形状或数量走样，必须能被冒烟直接断言。
+ */
+export { parseImageRequest, dotGridForRatio, textHasMarkdownImage } from './generated-images/layout.ts'

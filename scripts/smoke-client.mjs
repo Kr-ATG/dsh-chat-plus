@@ -1501,27 +1501,31 @@ if (krEnabled) {
 }
 
 /*
- * 大盘的点击入口**只归用户自己发的消息**（2026-10-05 用户要求）。
+ * 大盘的入口**只归用户自己发的消息，且从 2026-10-30 起改成了右键**。
  *
- * 判据两条缺一不可：
- *  1. 控制器里 click 监听必须用 [data-chat-flow-kind="user"] 定位（原来向上找
- *     [data-chat-turn] = 整条轮次都可点，助手正文/思考卡/总结卡全在响应点击）；
- *  2. 光标规则也必须收窄到同一条上（styles.ts）—— 手掌铺满整片对话流正是用户
- *     报的「总结老是出来一个手掌看着烦人」；其余区域显式 cursor:auto 兜底。
+ * 判据三条缺一不可：
+ *  1. 控制器里必须是 contextmenu 监听（不再是 click）；
+ *  2. 且仍用 [data-chat-flow-kind="user"] 定位（原来向上找 [data-chat-turn] = 整条
+ *     轮次都可点，助手正文/思考卡/总结卡全在响应）；
+ *  3. 光标规则也要从手掌改为 context-menu（styles.ts），其余区域显式 cursor:auto。
  */
 if (krEnabled) {
   const controllerSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/kr-chat-controller.tsx'), 'utf8')
   const krStyleSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/styles.ts'), 'utf8')
   if (/target\.closest<HTMLElement>\('\[data-conversation-scroll\] \[data-chat-turn\], \[data-conversation-scroll\] \[data-turn-tail\]'\)/.test(controllerSrc)) {
-    fail('大盘点击不得再按整轮命中（[data-chat-turn] 那版会让助手正文也切轮次）')
+    fail('大盘右键不得再按整轮命中（[data-chat-turn] 那版会让助手正文也切轮次）')
+  } else if (!/window\.addEventListener\('contextmenu', onFlowContextMenu/.test(controllerSrc)) {
+    fail('大盘入口必须改为 window 捕获阶段的 contextmenu（右键）监听')
+  } else if (!/window\.addEventListener\('mousedown', onFlowMouseDown/.test(controllerSrc)) {
+    fail('大盘右键必须有 mousedown button=2 兜底（防止某些 WebView 吞掉 contextmenu）')
   } else if (!/data-chat-flow-kind="user"/.test(controllerSrc)) {
-    fail('大盘点击必须只认用户消息（data-chat-flow-kind="user"）')
-  } else if (!/\[data-conversation-scroll\] \[data-chat-flow-kind="user"\] \{\s*cursor: pointer/.test(krStyleSrc)) {
-    fail('手掌光标必须只给用户消息那一条')
+    fail('大盘右键必须只认用户消息（data-chat-flow-kind="user"）')
+  } else if (!/\[data-conversation-scroll\] \[data-chat-flow-kind="user"\] \{\s*cursor: context-menu/.test(krStyleSrc)) {
+    fail('用户消息的光标必须是 context-menu（不再是手掌，也不响应左键）')
   } else if (!/\[data-chat-turn\]:not\(\[data-chat-flow-kind="user"\]\) \{[\s\S]{0,40}cursor: auto/.test(krStyleSrc)) {
     fail('其余区域必须显式 cursor:auto（不靠隐式结果，防止将来宽规则又铺满手掌）')
   } else {
-    pass('大盘点击与手掌光标都只归用户消息（其余区域 cursor:auto）')
+    pass('大盘入口：右键用户消息切对应 Agent 大盘 + context-menu 光标（其余区域 cursor:auto）')
   }
 }
 
@@ -1918,6 +1922,23 @@ if (krEnabled) {
        * 方向相反，硬塞进去只会得到「跟正文一样小」。
        */
       fail('卡头名字字号必须是 max(13px, calc(var(--dsh-content-font-size) + 2px))（DSH 正文 +2）')
+    } else if (!/\.kr-plain-head__name-row\s*\{[^}]*display:\s*flex/.test(code)
+      || !/\.kr-plain-head--compact \.kr-plain-head__name-row\s*\{[^}]*gap:\s*8px/.test(code)
+      || !/\.kr-plain-head__browser\s*\{[^}]*margin:\s*0/.test(code)
+      || /\.kr-plain-head__browser\s*\{[^}]*margin:\s*-3px/.test(code)) {
+      /*
+       * 浏览器标志与名字的间距/对齐（2026-10-30 用户反馈：「浏览器比标识距离文字
+       * 太近并且没有对齐」）。
+       *
+       * 根因不是间距值本身，而是两点叠加：
+       *  ① .kr-plain-head__name-row 的 display:flex 被前面一段断掉的注释吞掉，
+       *     整条规则没进样式表 —— 名字与图标退回 inline，gap 不生效；
+       *  ② .kr-plain-head__browser 用 margin:-3px 抵消 3px 内边距，即使 flex
+       *     生效也会把按钮向左拉进名字、并把垂直中心抬 1~2px。
+       * 现在钉死：name-row 必须是 flex、紧凑卡头 gap 8px、browser 的 margin
+       * 必须是 0（且不得回退成 -3px）。
+       */
+      fail('浏览器标志必须与名字有 8px 间距且垂直居中（name-row 为 flex + browser margin:0）')
     } else if (!/\.kr-plain-head__browser\s*\{[^}]*color:\s*var\(--dsw-alias-label-secondary\)/.test(code)) {
       /*
        * 浏览器标志必须**灰色**（2026-10-25 用户：「浏览器和 svg 都要用灰色」）。
@@ -2087,6 +2108,33 @@ if (krEnabled) {
        *   · 这里查渲染层（卡头有没有真的听这个标记）。
        */
       fail('卡头必须遵守 hideVerb（终端族的动词不上屏，行首图标已表达该意思）')
+    } else if (!/kr-plain-head--compact/.test(seekerHeadSrc)
+      || !/<SeekerHead[\s\S]{0,700}?\bcompact\b/.test(cardSrc)) {
+      /*
+       * 操作面板卡头**必须是紧凑骨架**（2026-10-30 用户：「操作面板人物变小，
+       * 整个卡片重新设计布局」）。
+       *
+       * 判据落在两处：SeekerHead 渲染 compact 类名，KrPlainTimelineCard 真的把
+       * compact 传了下去。只改组件不传参 = 页面还是大立绘；只传参组件不认 =
+       * 多一个被忽略的 prop。
+       */
+      fail('操作面板卡头必须启用紧凑骨架（SeekerHead compact + KrPlainTimelineCard 传 compact）')
+    } else if (!/\.kr-plain-head--compact\s*\{[^}]*grid-template-columns:\s*64px/.test(code)
+      || !/\.kr-plain-head--compact\s+\.kr-stage\s*\{[^}]*width:\s*64px[^}]*height:\s*114px/.test(code)) {
+      /*
+       * 人物尺寸是本轮的核心诉求：92×164 → 64×114。两条一起钉住，否则单改
+       * grid 列宽而不改舞台盒，人物会被裁切或继续撑高卡头。
+       */
+      fail('紧凑卡头必须把人物缩到 64×114（.kr-plain-head--compact 的 grid 列宽 + .kr-stage 尺寸）')
+    } else if (!/className="kr-plain-head__summary"/.test(seekerHeadSrc)
+      || !/stepCount=\{timeline\.steps\.length\}/.test(cardSrc)) {
+      /*
+       * 底部的「N 个动作 · 展开 / 收起时间线」是新的折叠 affordance —— 没有它，
+       * 整块卡头可点这件事只能靠猜。计数必须来自真实 timeline.steps。
+       */
+      fail('紧凑卡头必须有动作数摘要行（kr-plain-head__summary + stepCount=timeline.steps.length）')
+    } else if (!/\.kr-plain-head__summary\s*\{[^}]*border-top:\s*1px solid var\(--kr-hairline\)/.test(code)) {
+      fail('紧凑卡头的摘要行必须有上边发丝线（与时间线分层）')
     } else if (!/\.kr-plain-head__detail\s*\{[^}]*-webkit-line-clamp:\s*2\b/.test(code)) {
       /*
        * 状态行**最多两排**（2026-10-26 用户：「操作面板的文字允许最大两排」）。
@@ -2349,6 +2397,27 @@ if (krEnabled) {
   const outputsEnabled = /export const KR_OUTPUTS_CARD_VISIBLE = (true|false)/
     .exec(readFileSync(resolve(ROOT, 'src/client/kr-chat/enabled.ts'), 'utf8'))?.[1] === 'true'
   const outputsPanelSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/KrAgentPanel.tsx'), 'utf8')
+  const sessionOutputsApiSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/session-outputs-api.ts'), 'utf8')
+  const subagentOutputsSrc = readFileSync(resolve(ROOT, 'src/client/kr-chat/use-subagent-outputs.ts'), 'utf8')
+  const sessionOutputsRouteSrc = readFileSync(resolve(ROOT, 'src/triad/session-outputs/index.ts'), 'utf8')
+  // 分类分组是纯逻辑：定义在 chain 外，既让下面的断言能给出实得值，也不影响 fail 链。
+  const outputGroupsProbe = typeof mod.groupOutputs === 'function'
+    ? mod.groupOutputs([
+      { path: 'a.png', name: 'a.png', kind: 'image' },
+      { path: 'b.html', name: 'b.html', kind: 'page' },
+      { path: 'c.webp', name: 'c.webp', kind: 'image' },
+      { path: 'd.pdf', name: 'd.pdf', kind: 'pdf' },
+      { path: 'e.mp3', name: 'e.mp3', kind: 'audio' },
+      { path: 'f.docx', name: 'f.docx', kind: 'doc' },
+      { path: 'g.exe', name: 'g.exe', kind: 'installer' },
+    ])
+    : null
+  const outputGroupsShape = outputGroupsProbe === null
+    ? ''
+    : outputGroupsProbe.map((group) => group.kind + ':' + group.items.length).join(',')
+  const outputGroupsLabels = outputGroupsProbe === null
+    ? ''
+    : outputGroupsProbe.map((group) => group.label).join(',')
 
   if (!outputsEnabled) {
     fail('KR_OUTPUTS_CARD_VISIBLE 必须默认 true（产出物卡默认展示）')
@@ -2370,28 +2439,63 @@ if (krEnabled) {
     // 2026-10-22：点击按「侧栏能不能正常展示」分流，aria-label 必须**两条都在**——
     // 读屏用户靠它知道这一行点下去是进右栏还是拉起外部程序，只写一条就是错误信息。
     fail('行主体 aria-label 必须按落点分两套（侧栏「在右侧栏查看」/ 外部「用默认应用打开」）')
-  } else if (!/if \(canShowInSidebar\(path\)\)[\s\S]{0,600}?tryOpenInSidebar\(path, \{ sessionId, cwd \}\)/.test(outputsCode)) {
+  } else if (!/if \(canShowInSidebar\(path\)\)[\s\S]{0,600}?tryOpenInSidebar\(path, \{ sessionId: targetSessionId, cwd \}\)/.test(outputsCode)) {
     // 2026-10-22 用户口径：**侧栏能正常展示的走侧栏**，判据收敛在 sidebar-display.ts。
     // 顺序必须是「先判类型、先试侧栏」，否则图 / PDF / 视频又会把外部程序整窗拉起来。
     fail('产出物行点击必须先按 canShowInSidebar 分流，可展示的直接 tryOpenInSidebar（不得先拉起系统应用）')
-  } else if (!/await openOutputFile\(path, \{ cwd \}\)/.test(outputsCode)) {
+  } else if (!/await openOutputFile\(item\.path, \{ cwd \}\)/.test(outputsCode)) {
     // 2026-10-21：系统默认那条走本插件 /api/chat-flow/open-file。
     // 官方那条对相对路径的解析基准是 host 进程 cwd，且 Windows 上从不把 .html
     // 交给默认浏览器 —— 两条叠起来就是用户报的「点产出物里的 html 打不开」。
     fail('侧栏展示不了的条目必须走本插件 openOutputFile（/api/chat-flow/open-file：按会话工作区绝对化 + 默认浏览器）')
-  } else if (!/const result = await openOutputFile\(path, \{ cwd \}\)[\s\S]{0,900}?resolveWorkspacePath\(cwd, path\)[\s\S]{0,200}?openWithDefaultApp\(absolute\)/.test(outputsCode)) {
+  } else if (!/const result = await openOutputFile\(item\.path, \{ cwd \}\)[\s\S]{0,900}?resolveWorkspacePath\(cwd, item\.path\)[\s\S]{0,200}?openWithDefaultApp\(absolute\)/.test(outputsCode)) {
     // 退回官方链路时**必须补成绝对路径**：官方 verifyDesktopPath 用 host 进程 cwd
     // 解析相对路径，直接传相对路径正是 bug 本身。
     fail('退回官方 openWithDefaultApp 时必须先 resolveWorkspacePath 补成绝对路径（相对路径会被 host cwd 解析错）')
-  } else if (!/className="kr-out-row__go"/.test(outputsCode) || !/data-target=\{target\}/.test(outputsCode)) {
-    fail('行尾必须保留纯视觉落点图标（kr-out-row__go + data-target，aria-hidden），侧栏 / 外部两枚形状不同')
+  } else if (/kr-out-row__go/.test(outputsCode) || /data-target=\{target\}/.test(outputsCode)) {
+    fail('产出物行尾不得再有落点图标（kr-out-row__go / data-target）：2026-10-30 用户要求去掉')
   } else if (/canInlinePreview|MediaLightbox/.test(outputsCode)) {
     // 2026-10-19：插件自带的 Lightbox 整套删除，预览一律交官方侧边栏。
     fail('产出物卡不得再引用 canInlinePreview / MediaLightbox（预览出口只有官方侧边栏）')
   } else if (/<img\b/.test(outputsCode)) {
     fail('缩略图必须是按类型画的 SVG，不得用 <img> 拉真实文件（28px 见方读不出画面，且每行一次请求）')
-  } else if (!/function Thumb\(\{ kind \}/.test(outputsCode) || !/case 'model3d':/.test(outputsCode)) {
-    fail('缩略图必须按 OutputKind 分派（image/video/model3d/doc/sheet/archive/code…）')
+  } else if (!/function Thumb\(\{ kind \}/.test(outputsCode) || !/case 'model3d':/.test(outputsCode) || !/case 'installer':/.test(outputsCode)) {
+    fail('缩略图必须按 OutputKind 分派（image/video/model3d/doc/sheet/archive/installer/code…）')
+  } else if (!/export function groupOutputs/.test(outputsSrc)
+    || !/export const OUTPUT_KIND_LABEL/.test(outputsSrc)
+    || !/image: '图片'/.test(outputsSrc) || !/page: '网页'/.test(outputsSrc)
+    || !/model3d: '3D 模型'/.test(outputsSrc) || !/archive: '压缩包'/.test(outputsSrc)
+    || !/installer: '安装文件'/.test(outputsSrc)) {
+    fail('outputs.ts 必须提供产出物分类分组（groupOutputs + OUTPUT_KIND_LABEL：图片 / 网页 / 视频 / 文档 / 3D 模型 / 压缩包…）')
+  } else if (!/className="kr-out-group"/.test(outputsCode)
+    || !/kr-out-group__head/.test(outputsCode) || !/kr-out-group__count/.test(outputsCode)
+    || !/kr-out-list--grouped/.test(outputsCode)) {
+    fail('产出物卡必须按类别分组显示（kr-out-group 组头 + 每组计数 + 分组列表类）')
+  } else if (!/\.kr-out-group__head/.test(code) || !/\.kr-out-group__count/.test(code)) {
+    fail('client bundle 缺产出物分组样式（.kr-out-group__head / .kr-out-group__count）')
+  } else if (!/\u00b7 \$\{groups\.length\} 类/.test(outputsCode)) {
+    fail('产出物卡头必须在多类时显示类别数（N 项 · M 类）')
+  } else if (typeof mod.groupOutputs !== 'function') {
+    fail('client bundle 必须导出 groupOutputs（产出物分类要能被离线断言）')
+  } else if (outputGroupsShape !== 'page:1,audio:1,doc:1,image:2,pdf:1,installer:1') {
+    fail('groupOutputs 必须按用户口径排序（HTML → 音频 → 文档 → 图片 → 其余，安装文件独立成组），实得 ' + outputGroupsShape)
+  } else if (outputGroupsLabels !== '网页,音频,文档,图片,PDF,安装文件') {
+    fail('groupOutputs 的组标题必须是中文类别名（网页 / 音频 / 文档 / 图片 / PDF / 安装文件），实得 ' + outputGroupsLabels)
+  } else if (!/export function outputTimeText/.test(outputsSrc)
+    || !/readonly time\?: number/.test(outputsSrc) || !/time: block\.time/.test(outputsSrc)) {
+    fail('产出物条目必须带产出时间，且卡片必须能格式化成具体时间（outputTimeText）')
+  } else if (!/onContextMenu=\{onContextMenu\}/.test(outputsCode)
+    || !/引用到对话框/.test(outputsCode) || !/使用系统默认程序打开/.test(outputsCode)
+    || !/kr-out-menu/.test(outputsCode)) {
+    fail('产出物行必须有右键菜单（引用到对话框 / 使用系统默认程序打开），且不抢左键打开')
+  } else if (!/useSubagentOutputs/.test(outputsPanelSrc) || !/outputsWithSubagents/.test(outputsPanelSrc)
+    || !/useSessionOutputs/.test(outputsPanelSrc) || !/persistedOutputs/.test(outputsPanelSrc)
+    || !/SESSION_OUTPUTS_ROUTE/.test(sessionOutputsApiSrc) || !/api\/triad\/gallery\/media/.test(sessionOutputsApiSrc)
+    || !/fetchSessionOutputs/.test(subagentOutputsSrc)) {
+    fail('产出物卡必须合并子智能体产出物与会话历史产出物（useSubagentOutputs + useSessionOutputs）')
+  } else if (!/applySessionOutputs/.test(readFileSync(resolve(ROOT, 'src/triad/host.ts'), 'utf8'))
+    || !/sessionItemsFor/.test(sessionOutputsRouteSrc) || !/classifyOutput/.test(sessionOutputsRouteSrc)) {
+    fail('host 必须提供单会话产出物路由（/api/chat-flow/session-outputs，复用 gallery sessionItemsFor）')
   } else if (/kr-out-code/.test(outputsCode) || /outputs\.code|\bcode\.length\b|rawCode/.test(outputsCode)) {
     // 2026-10-19 按用户要求整类移除：源文件是材料不是成品，连「另有 N 个代码文件」
     // 这行计数也不要。这里断言它**彻底不存在**，防的是日后有人把折行加回来。
@@ -2402,8 +2506,8 @@ if (krEnabled) {
     // 2026-10-19 按用户要求：没产出时整张卡不出现（原先常驻一行空态）。
     // 断言它**彻底不存在**，防的是日后把"常驻空壳"加回来。
     fail('产出物卡不得渲染空态（无产出时整卡不挂载，由 KrAgentPanel 拦）')
-  } else if (!/outputs\.items\.length > 0 && \(\s*<KrOutputsCard/.test(outputsPanelSrc)) {
-    fail('挂载方必须用 outputs.items.length > 0 拦住空态下的产出物卡（没产出就不出现）')
+  } else if (!/outputsWithSubagents\.items\.length > 0 && \(\s*<KrOutputsCard/.test(outputsPanelSrc)) {
+    fail('挂载方必须用 outputsWithSubagents.items.length > 0 拦住空态下的产出物卡（没产出就不出现）')
   } else if (!/if \(items\.length === 0\) return null/.test(outputsCode)) {
     // 2026-10-28 用户要求「空的不要显示卡片」：路径核对全部剔除后（gonePaths），
     // 原始清单非空、过滤后 items 为 0，必须在组件内 return null，否则只剩一张「0 项」空壳。
@@ -2531,7 +2635,7 @@ if (krEnabled) {
       } else if (!pluginExt.has('ods')) {
         fail('ods 必须由插件接管（host 引擎本来就支持，官方 UNVIEWABLE 挡着 —— 不接管只能看空态）')
       } else {
-        pass('产出物卡：整行可点 + SVG 类型缩略图 + 无代码文件 + 无产出时整卡不挂载（滚动区最后一张）')
+        pass('产出物卡：整行可点 + SVG 类型缩略图 + 按类别分组（组序/组内顺序/中文标签）+ 具体时间 + 右键菜单（引用/默认程序）+ 子代理产出合并 + 无代码文件 + 无产出时整卡不挂载（滚动区最后一张）')
         pass('点击分流判据：' + yes.length + ' 类能侧栏展示 / ' + no.length + ' 类交系统默认（含 ods 接管、大小写与反斜杠路径）')
         /*
          * 侧栏渲染器的**失败态第二出口**（2026-10-24）。
@@ -2714,6 +2818,8 @@ if (krEnabled) {
       + '命令行的参数是输入（-i in.mp4），都不该算成"我做出来的"')
   } else if (!/gif: 'video'/.test(outputsSrc) || !/blend: 'model3d'/.test(outputsSrc)) {
     fail('outputs.ts 的类别表必须把 gif 归 video、blend 归 model3d（截图里那两类产出物）')
+  } else if (!/exe: 'installer'/.test(outputsSrc) || !/msi: 'installer'/.test(outputsSrc) || !/apk: 'installer'/.test(outputsSrc)) {
+    fail('outputs.ts 必须把 exe / msi / apk 等安装包归 installer（安装文件独立成类）')
   } else if (!/ts: 'code'/.test(outputsSrc) || !/py: 'code'/.test(outputsSrc)
     || !/KIND_BY_EXT\[extOf\(path\)\] \?\? 'other'/.test(outputsSrc)) {
     fail('outputs.ts 仍须把代码类归 code、认不出的扩展名归 other（前者供 MATERIAL_KINDS 丢弃，后者不列）')
@@ -2795,7 +2901,7 @@ if (krEnabled) {
   } else if (!/workspace-file\/not-found/.test(readFileSync(resolve(ROOT, 'src/client/open-preview.ts'), 'utf8'))) {
     fail('探测必须按 Host 的 not-found / not-regular-file 错误码判定 missing，'
       + '其余错误一律 unknown')
-  } else if (!/probeWorkspaceFile\(path, \{ sessionId \}\)/.test(outputsCardSrc)) {
+  } else if (!/probeWorkspaceFile\(path, \{ sessionId: targetSessionId \}\)/.test(outputsCardSrc)) {
     fail('产出物卡点击前必须 probeWorkspaceFile 一次（missing 就不开 tab）')
   } else if (!/gonePaths/.test(outputsCardSrc) || !/setGonePaths/.test(outputsCardSrc)) {
     // 用户 2026-10-01 的要求：「已失效的究竟文件还存不存在呢，不存在还显示出来干嘛，
@@ -3189,7 +3295,6 @@ if (krEnabled) {
     // 「展开其余 N」只剩产出物卡一处：子智能体卡改成 10 行定高窗口后，
     // 它那枚按钮与 .kr-subs-more 整套样式一起删了（窗口自己能滚）。
     ['产出物「展开其余 N」.kr-out-more', /\.kr-out-more svg/],
-    ['产出物右栏箭头 .kr-out-row__go', /\.kr-out-row__go svg/],
   ]
   for (const [label, re] of SVG_MUST_SCALE) {
     if (!re.test(axisSrc)) {
@@ -3206,10 +3311,10 @@ if (krEnabled) {
    * 取错不会报错，只会在默认档就把图形放大或缩小一点 —— 那违反「默认档逐像素
    * 还原」。本轮就把 chevron 的 11 写成了 12，实测默认档量到 12px 才发现。
    */
-  const svgBase12 = /\.kr-subs-row__go svg,\s*\.kr-out-row__go svg\s*\{\s*width:\s*calc\(12px/.test(axisSrc)
+  const svgBase12 = /\.kr-subs-row__go svg\s*\{\s*width:\s*calc\(12px/.test(axisSrc)
   const svgBase11 = /\.kr-out-more svg\s*\{\s*width:\s*calc\(11px/.test(axisSrc)
   if (!svgBase12) {
-    axisReasons.push('跳转箭头与产出物右栏箭头 svg 的基准必须是 12px（与 JSX 呈现属性一致）')
+    axisReasons.push('子智能体跳转箭头 svg 的基准必须是 12px（与 JSX 呈现属性一致）')
   }
   if (!svgBase11) {
     axisReasons.push('产出物「展开其余 N」的 svg 基准必须是 11px（与 JSX 呈现属性一致）')
@@ -6656,6 +6761,63 @@ if (krEnabled) {
       pass('apply 阶段已注入字体覆盖样式表（首帧即所选字体）')
     }
   }
+}
+
+/*
+ * 生图实时卡（2026-10-30）：generate_image 运行中显示 GPT 风格点阵动画，
+ * 出图立刻在对话流里显示，不再等回合收口的总结卡。
+ *
+ * 这条链路每一环错了都不会报错，只会静默退化：
+ *  · 卡片没挂 → 生图时只剩「深度求索中」，用户以为卡住了；
+ *  · 运行态没接 → 点阵不出现，或出图后永远转圈；
+ *  · 出图没接 → 图片仍要等总结；
+ *  · 样式没注入 → 240 个裸 i 元素堆成一列。
+ * 对源码做结构断言、对产物做字符串契约断言，四类退化都能被冒烟拦下。
+ */
+{
+  const reasons = []
+  const cardSrc = readFileSync(resolve(ROOT, 'src/client/generated-images/ImageGenerationCard.tsx'), 'utf8')
+  const hookSrc = readFileSync(resolve(ROOT, 'src/client/generated-images/use-generated-images.ts'), 'utf8')
+  const layoutSrc = readFileSync(resolve(ROOT, 'src/client/generated-images/layout.ts'), 'utf8')
+  const processSrc = readFileSync(resolve(ROOT, 'src/client/tool-summary/TurnProcessShadowView.tsx'), 'utf8')
+  const thinkingSrc = readFileSync(resolve(ROOT, 'src/client/thinking/ThinkingStepNodeView.tsx'), 'utf8')
+  if (!/正在生成图片/.test(cardSrc) || !/生成图片/.test(cardSrc)) reasons.push('卡片缺少生成中/完成态文案')
+  if (!/GeneratedImageStrip/.test(cardSrc)) reasons.push('出图必须复用 GeneratedImageStrip（画廊 / 放大 / 保存）')
+  if (!/dotGridForRatio/.test(cardSrc) || !/DotPlaceholder/.test(cardSrc)) reasons.push('点阵必须按比例分格（dotGridForRatio / DotPlaceholder）')
+  if (!/data-multi/.test(cardSrc) || !/data-count/.test(cardSrc)) reasons.push('多张点阵缺少 data-multi / data-count 布局')
+  if (!/__reveal/.test(cardSrc) || !/__ghost/.test(cardSrc)) reasons.push('点阵→图片缺少羽化过渡（reveal / ghost）')
+  if (!/data-conversation-scroll/.test(cardSrc) || !/noteConversationScrollIntent/.test(cardSrc)) reasons.push('卡片出现时必须贴底跟随（并登记滚动意图，避免被 scroll-guard 回滚）')
+  if (!/calls/.test(hookSrc) || !/parseImageRequest/.test(hookSrc)) reasons.push('hook 未按调用分组（calls）或未解析 n / size')
+  if (!/running/.test(hookSrc) || !/startedAt/.test(hookSrc) || !/loading/.test(hookSrc)) reasons.push('hook 未导出 running / startedAt / loading 实时状态')
+  if (!/parseImageRequest/.test(layoutSrc) || !/dotGridForRatio/.test(layoutSrc)) reasons.push('layout.ts 缺少比例/网格纯逻辑')
+  if (!/bodyHasInlineImages/.test(thinkingSrc) || !/textHasMarkdownImage/.test(thinkingSrc)) reasons.push('总结卡未在正文已有图片时抑制画廊条（防重复）')
+  if (!/ImageGenerationCard/.test(processSrc) || !/showImageGeneration/.test(processSrc)) reasons.push('turn-process 座位未挂载生图实时卡')
+  if (!/locationTurn\?\.status === 'open'/.test(processSrc)) reasons.push('实时卡必须只在回合进行中挂载（收口后交给总结卡）')
+  // 产物里的中文会被 esbuild 转成 \u 转义，只断言 ASCII 类名/关键帧。
+  const bundleText = readFileSync(CLIENT, 'utf8')
+  if (!bundleText.includes('dgi-stage__cell')) reasons.push('产物缺少按比例格子类 dgi-stage__cell')
+  if (!bundleText.includes('dgi-stage__dots')) reasons.push('产物缺少点阵样式类 dgi-stage__dots')
+  if (!bundleText.includes('dgi-dot-wave')) reasons.push('产物缺少点阵动画关键帧 dgi-dot-wave')
+  if (!bundleText.includes('dgi-image-reveal')) reasons.push('产物缺少羽化过渡关键帧 dgi-image-reveal')
+  // 纯逻辑行为：size / n / aspect_ratio 三种入参形态与默认回落。
+  const shape = mod.parseImageRequest('{"prompt":"x","size":"1792x1024","n":4}')
+  if (!shape || shape.count !== 4 || Math.abs(shape.ratio - 1.75) > 1e-9) reasons.push('parseImageRequest：1792x1024 / n=4 解析错误')
+  const portrait = mod.parseImageRequest('{"prompt":"x","size":"1024x1792"}')
+  if (!portrait || portrait.count !== 1 || Math.abs(portrait.ratio - 1024 / 1792) > 1e-3) reasons.push('parseImageRequest：竖图比例解析错误')
+  const aspect = mod.parseImageRequest('{"prompt":"x","aspect_ratio":"16:9","n":"2"}')
+  if (!aspect || aspect.count !== 2 || Math.abs(aspect.ratio - 16 / 9) > 1e-9) reasons.push('parseImageRequest：aspect_ratio / n 字符串解析错误')
+  const fallback = mod.parseImageRequest('{"prompt":"x"')
+  if (!fallback || fallback.count !== 1 || fallback.ratio !== 1) reasons.push('parseImageRequest：流式半截 JSON 必须回落 1 张 / 1:1')
+  const square = mod.dotGridForRatio(1)
+  const wide = mod.dotGridForRatio(16 / 9)
+  const tall = mod.dotGridForRatio(9 / 16)
+  if (!(square.cols === square.rows)) reasons.push('dotGridForRatio：1:1 必须方阵')
+  if (!(wide.cols > wide.rows) || !(tall.rows > tall.cols)) reasons.push('dotGridForRatio：横/竖图行列方向必须正确')
+  if (!mod.textHasMarkdownImage('前文\n![鲸鱼](D:/AI/Dsh/outputs/a.png)')) reasons.push('textHasMarkdownImage：markdown 图片必须识别')
+  if (!mod.textHasMarkdownImage('<img src="a.png" />')) reasons.push('textHasMarkdownImage：HTML img 必须识别')
+  if (mod.textHasMarkdownImage('文件已保存到：D:/AI/Dsh/outputs/a.png')) reasons.push('textHasMarkdownImage：纯路径 / 纯文字不能误判为已有图')
+  if (reasons.length > 0) fail('生图实时卡：' + reasons.join('；'))
+  else pass('生图实时卡：按比例分格 / 多张点阵 / 运行中点阵 / 出图即显 / 收口交总结卡，三态与样式齐备')
 }
 
 console.log(`\n${process.exitCode ? 'SMOKE FAILED' : 'SMOKE PASSED'} — ${CLIENT}`)
