@@ -226,6 +226,68 @@ export function apply(ctx) {
     return { flags: {}, imageActive: '', videoActive: '', imagePath: 'images/generations', videoPath: 'videos/generations', proxyUrl: '' }
   }
 
+  /**
+   * 当前已知的供应商路由集合。
+   *
+   * 配置目录（listConfigurableProviders）+ 适配器已注册路由（listProviders）
+   * 一起算。删掉供应商后，DSH 只清自己的 providers 配置，本插件 flags 里按
+   * "provider/model" 存的键不会跟着消失——靠这个集合识别孤儿键
+   * （用户 2026-10-31 问「为什么还有 wuji/gpt-image-2，我不是把这个供应商
+   * 删了吗」：就是这类残留）。
+   */
+  function knownProviders() {
+    const set = new Set()
+    try {
+      for (const entry of ctx.llm.listConfigurableProviders()) {
+        if (entry && typeof entry.provider === 'string') set.add(entry.provider)
+      }
+    } catch { /* 目录不可用时返回空集合，调用方据此跳过清理 */ }
+    try {
+      for (const info of ctx.llm.listProviders()) {
+        if (info && typeof info.id === 'string') set.add(info.id)
+      }
+    } catch { /* 同上 */ }
+    return set
+  }
+
+  /**
+   * 去掉供应商已不存在的 flags 键，并把指向已删供应商的 imageActive /
+   * videoActive 清空。
+   * @param config - 当前配置。
+   * @param providers - {@link knownProviders} 的结果；空集合表示目录不可用，
+   *   此时原样返回（不能把整份配置当孤儿删掉）。
+   * @returns `flags` 是清理后的标记表；`patch` 是相对当前配置需要写回的部分
+   *   （空对象表示无需写盘）。
+   */
+  function pruneOrphans(config, providers) {
+    const flags = isPlainObject(config.flags) ? config.flags : {}
+    if (providers.size === 0) return { flags, patch: {} }
+    const kept = {}
+    for (const [key, value] of Object.entries(flags)) {
+      const slash = key.indexOf('/')
+      if (slash <= 0) continue
+      if (providers.has(key.slice(0, slash))) kept[key] = value
+    }
+    const patch = {}
+    if (Object.keys(kept).length !== Object.keys(flags).length) patch.flags = kept
+    for (const field of ['imageActive', 'videoActive']) {
+      const key = typeof config[field] === 'string' ? config[field] : ''
+      const slash = key.indexOf('/')
+      if (key !== '' && (slash <= 0 || !providers.has(key.slice(0, slash)))) patch[field] = ''
+    }
+    return { flags: kept, patch }
+  }
+
+  // 删供应商后本插件的 flags 会留下孤儿键：挂载时清一次（写回失败不影响功能）。
+  void (async () => {
+    try {
+      const { patch } = pruneOrphans(ownConfig(), knownProviders())
+      if (Object.keys(patch).length > 0) await scope.update(patch)
+    } catch (error) {
+      ctx.logger?.warn?.('[model-capabilities] prune orphan flags failed: %s', String(error?.message ?? error))
+    }
+  })()
+
   // ── 2. llm-pi-ai section 读写 ────────────────────────────────────────────
 
   /** llm-pi-ai 的完整描述符（含原始 user 层与 revision）。 */
@@ -542,7 +604,8 @@ export function apply(ctx) {
   async function setFlag(key, kind, enabled) {
     if (scope === undefined) return { ok: false, error: `设置命名空间 "${NS}" 不可用。` }
     const current = ownConfig()
-    const flags = JSON.parse(JSON.stringify(current.flags ?? {}))
+    // 写标记时顺手清掉已删供应商留下的孤儿键（见 pruneOrphans）。
+    const flags = JSON.parse(JSON.stringify(pruneOrphans(current, knownProviders()).flags))
     const existing = flags[key] ?? { image: false, video: false, speech: false, enabled: true }
     flags[key] = {
       image: existing.image === true,
