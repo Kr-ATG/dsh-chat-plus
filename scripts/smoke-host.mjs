@@ -1159,10 +1159,12 @@ if (gateTest === undefined) {
 const providerStylesSrc = stripComments(srcOf('src/client/provider/webui/styles.ts'))
 if (!/hideOfficialModelsNav/.test(providerStylesSrc)) {
   fail('styles.ts 必须恢复 hideOfficialModelsNav（供应商页接管模型目录，官方「模型」页重复）')
-} else if (!/:has\(\.phub-host\)/.test(providerStylesSrc)) {
-  fail('弹窗尺寸适配必须用 :has(.phub-host) 锁定（否则通用/插件页也被改尺寸）')
+} else if (/:has\(\.phub-host\)/.test(providerStylesSrc) || /@starting-style/.test(providerStylesSrc) || /(width|height)\s*:\s*min\(1680px/.test(providerStylesSrc)) {
+  fail('供应商页必须沿用官方 800×800：不得再撑大弹窗或加尺寸过渡（用户 2026-10-31 点名不要缩放）')
+} else if (!/\.phub-host\{[^}]*--phub-max-h/.test(providerStylesSrc)) {
+  fail('.phub-host 必须定义 --phub-max-h（左栏/详情限高按弹窗实高算，避免内外两条滚动条打架）')
 } else {
-  pass('官方「模型」页隐藏逻辑恢复 + 弹窗尺寸适配只对供应商页生效')
+  pass('官方「模型」页隐藏逻辑恢复 + 供应商页沿用官方弹窗尺寸（不放大、无尺寸过渡）')
 }
 const providerClientSrc = stripComments(srcOf('src/client/provider/index.ts'))
 const supplierSectionSrc = stripComments(srcOf('src/client/provider/webui/section.tsx'))

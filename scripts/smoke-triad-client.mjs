@@ -795,21 +795,15 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   } else {
     pass('官方「模型」页恢复隐藏（hideOfficialModelsNav 导出 + 调用都在）')
   }
-  // 4) 设置弹窗尺寸适配只对供应商页生效（:has 锁定，其余设置页维持官方 800×800）
-  if (!/:has\(\.phub-host\)/.test(providerStyles)) {
-    fail('弹窗加宽必须用 :has(.phub-host) 锁定（否则通用/插件页也被改尺寸）')
+  // 4) 设置弹窗沿用官方 800×800：不放大、不做尺寸过渡（用户 2026-10-31 点名「不要缩放了」）
+  if (/:has\(\.phub-host\)/.test(providerStyles) || /@starting-style/.test(providerStyles)) {
+    fail('供应商页必须沿用官方弹窗尺寸：不得再用 :has(.phub-host) 撑大或加 @starting-style 起点')
   } else if (!/--phub-max-h/.test(providerStyles) || !/var\(--phub-max-h/.test(providerStyles)) {
     fail('限高必须走 --phub-max-h 变量（写死 100vh-150px 会比弹窗内容区还高，内外滚动条打架）')
   } else if (!/var\(--phub-max-h/.test(supplierSrc)) {
     fail('详情面板限高必须取 --phub-max-h（否则设置弹窗里比容器还高）')
-  } else if (!/transition:width 420ms/.test(providerStyles)) {
-    fail('弹窗加宽加高要有过渡（用户偏好：UI 改动必须带动效）')
-  } else if (!/\[data-shortcut-modal="settings"\]\{\s*transition:width 420ms/.test(providerStyles)) {
-    fail('尺寸过渡必须挂在 data-shortcut-modal="settings" 的常驻规则上（写在 :has(.phub-host) 里退出方向会随页面卸载同帧失效）')
-  } else if (!/prefers-reduced-motion[\s\S]*has\(\.phub-host\)/.test(providerStyles)) {
-    fail('弹窗尺寸过渡必须尊重 prefers-reduced-motion')
   } else {
-    pass('弹窗尺寸适配：:has(.phub-host) 锁定 + --phub-max-h 限高 + 双向过渡 + reduced-motion 兜底')
+    pass('设置弹窗保持官方 800×800（无放大 / 无尺寸过渡）+ 限高走 --phub-max-h')
   }
   // 5) 代理仍在供应商页底部全宽区块（不在右列 .phub-blocks 里）
   //    blocks 定义块 = 从 `className: 'phub-blocks'` 到它自己的 `])` 收尾。
@@ -834,17 +828,19 @@ if (typeof toPlainStep !== 'function' || typeof buildPlainTimeline !== 'function
   } else {
     pass('三块模型卡窄屏换行 / 宽屏第三列，共用同一份 DOM（切档不重建）')
   }
-  // 5c) 过渡自然度：弹窗尺寸过渡常驻（进入/退出两个方向）+ 首次渲染起点 + 切档去抖
-  if (!/@starting-style/.test(stylesForWrap)) {
-    fail('弹窗打开时直接落在供应商页的场景需要 @starting-style 补起点（否则首帧就跳到 1680，无过渡）')
+  // 5c) 弹窗尺寸：沿用官方 800×800，不放大、不做尺寸过渡（用户 2026-10-31 点名「不要缩放了」）
+  if (/@starting-style/.test(stylesForWrap) || /(width|height)\s*:\s*min\(1680px/.test(stylesForWrap)) {
+    fail('供应商页必须沿用官方弹窗尺寸：不得再撑大或加尺寸过渡（用户 2026-10-31 点名不要缩放）')
+  } else if (!/\.phub-host\{[^}]*--phub-max-h/.test(stylesForWrap)) {
+    fail('.phub-host 必须定义 --phub-max-h（左栏/详情限高按弹窗实高算，避免内外两条滚动条打架）')
   } else if (!/ResizeObserver\(\(\) => \{/.test(supplierSrc) || !/setTimeout\(\(\) => \{ timer = undefined; apply\(\) \}, 450\)/.test(supplierSrc)) {
-    fail('三栏判定必须去抖（弹窗展开途中跨过阈值立刻切档 = 第三列啪地插进来，用户反馈「放大时过渡不自然」）')
+    fail('三栏判定必须去抖（容器宽度稳定后才切档，避免第三列啪地插进来）')
   } else if (!/phub-col-in/.test(stylesForWrap) || !/@keyframes phub-col-in/.test(stylesForWrap)) {
     fail('第三列切档必须有 phub-col-in（淡入 + 位移；不做宽度插值，避免卡内控件被压扁）')
   } else if (!/@keyframes phub-col-in\{from\{opacity:0;transform:translateX/.test(stylesForWrap)) {
     fail('phub-col-in 必须是纯淡入位移，不能从 0 宽/0 flex-basis 插值（下拉与输入框会被压扁 260ms）')
   } else {
-    pass('过渡自然度：@starting-style 起点 + 切档去抖 150ms + 第三列 phub-col-in 淡入位移')
+    pass('弹窗保持官方尺寸（无放大/无尺寸过渡）+ 限高变量 + 切档去抖 + 第三列淡入位移')
   }
   // 6) 右列三个模型卡必须够宽：写死 380 会把下拉挤成一小截（用户点名「右侧的拉宽」）。
   const stylesSrc = stripSrc(readSrcOf('src/client/provider/webui/styles.ts'))

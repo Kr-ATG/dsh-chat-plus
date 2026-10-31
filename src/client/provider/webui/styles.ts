@@ -5,12 +5,12 @@
  * 用户点名：把供应商配置和代理放回设置里），官方「模型」页导航项随之隐藏
  * （两页管同一件事，并存会让用户不知道该点哪个）。
  *
- * 设置弹窗天生只有 800×800（官方 `.panel` 的硬规格），塞不下「左列表 + 右详情 +
- * 底部三块 + 代理」。所以这里按 `:has(.phub-host)` 精确加宽加高——**只对供应商页
- * 生效**，其它设置页（通用 / 插件 / 会话）维持官方 800×800 原样。
+ * 弹窗尺寸完全沿用官方 800×800（2026-10-31 用户点名「不要缩放了」——此前
+ * 按 `:has(.phub-host)` 把这一页撑到 1680 宽并吃满视口，打开/切走时整页放大又
+ * 缩回，视觉上就是缩放）。页面内部布局自适应容器宽度，窄了自动纵向堆叠。
  *
- * 尺寸与高度上限走 `--phub-max-h` 变量（定义在弹窗上，靠继承下发）：左栏与详情
- * 面板的限高必须按弹窗实高算，写 `100vh - 150px` 在 1080p 上会算出 930px，
+ * 高度上限走 `--phub-max-h` 变量（定义在 `.phub-host` 上，靠继承下发）：左栏与
+ * 详情面板的限高必须按弹窗实高算，写 `100vh - 150px` 在 1080p 上会算出 930px，
  * 比弹窗内容区还高，结果是内外两条滚动条打架。
  */
 const STYLE_ID = 'dsh-provider-hub-styles'
@@ -143,67 +143,22 @@ export function injectStyles(): () => void {
 /* 空态占位：细虚线 + 居中说明，随页面淡入（无内容时不撑一条边框出来）。 */
 .phub-placeholder{border-style:dashed;border-color:var(--dsw-alias-border-l3,#c9cdd4);color:var(--dsw-alias-label-tertiary,#8f959e);text-align:center;align-items:center;justify-content:center;min-height:220px;padding:24px;animation:phub-block-in 260ms cubic-bezier(.2,.8,.2,1) backwards}
 
-/* ── 官方设置弹窗：尺寸过渡**常驻**（进入 / 退出两个方向都要有） ──
-   不能把 transition 写进下面那条 :has(.phub-host) 里：
-     · 进入：规则与尺寸同帧生效，浏览器把「首帧」当成初始值，不产生过渡（瞬变）；
-     · 退出：点其他页那一刻 .phub-host 卸载，规则与尺寸同帧失效，弹窗瞬间回弹
-       ——用户反馈的「点其他收回没动效」就是这个。
-   锚点取官方的 data-shortcut-modal="settings"（SettingsPanel 里写死的属性），
-   它在弹窗整个生命周期内都成立，两个方向都有过渡。尺寸没变化时不触发过渡，
-   其余设置页零影响。 */
-[role="presentation"] > [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]{
-  transition:width 420ms cubic-bezier(.22,1,.36,1), height 420ms cubic-bezier(.22,1,.36,1);
+/* ── 弹窗尺寸：保持官方 800×800，不做任何放大 / 缩放 ──
+   这一页曾按 :has(.phub-host) 把设置弹窗撑到 min(1680px, 100vw-48px) 并吃满
+   视口，打开 / 切走时整页放大又缩回——用户 2026-10-31 点名「不要缩放了」，
+   现在完全沿用官方规格：宽度、高度、内距、过渡一律不碰。
+   页面内部布局自适应容器宽度（ResizeObserver 打 data-wide），窄了就纵向堆叠。
+   --phub-max-h 仍要给：左栏与详情面板的限高必须按弹窗实高算，写 100vh - 150px
+   在 1080p 上会算出 930px，比弹窗内容区还高，内外两条滚动条打架。
+   算式 = 官方弹窗高 - header(54) - options 上下内距(24×2)。 */
+.phub-host{
+  --phub-max-h:calc(min(800px, 100vh - 2 * max(24px, var(--dsh-frame-overlay-top, 24px))) - 54px - 48px);
 }
-/* 兜底：万一官方改了那个属性名，至少在供应商页内还有过渡（退出方向会丢，但不至于全丢）。 */
-[role="presentation"] > [dialog][aria-modal="true"]:has(.phub-host){
-  transition:width 420ms cubic-bezier(.22,1,.36,1), height 420ms cubic-bezier(.22,1,.36,1);
-}
-/* options 内距同步过渡：供应商页把它从 24px 收成 16px，收放时不跟着跳一格。 */
-[role="presentation"] > [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"] > div:last-child > div:last-child{
-  transition:padding 420ms cubic-bezier(.22,1,.36,1);
-}
-
-/* ── 官方设置弹窗里的尺寸适配（只对供应商页生效） ──
-   :has(.phub-host) 把规则锁死在「当前打开的是供应商 section」这一种情况：
-   通用 / 插件 / 会话页完全没有 .phub-host，一律维持官方 800×800 原规格。
-   宽度给到 min(1680px, 100vw - 48px)，高度吃掉视口（减去上下留白），因为这一页
-   本身就是「左列表 + 右详情 + 底部四块」的整页工作区。
-   高度沿用官方那条算式（2 × max(24px, --dsh-frame-overlay-top)），只把 800px
-   的上限拿掉——壳内顶部有 chrome 时留白会更大，写死 48px 会被压出滚动条。 */
-[role="presentation"] > [role="dialog"][aria-modal="true"][aria-labelledby]:has(.phub-host){
-  width:min(1680px, calc(100vw - 48px));
-  --phub-panel-h:calc(100vh - 2 * max(24px, var(--dsh-frame-overlay-top, 24px)));
-  --phub-panel-h:calc(100dvh - 2 * max(24px, var(--dsh-frame-overlay-top, 24px)));
-  height:var(--phub-panel-h);
-  /* 弹窗实高减去 header(54) 与 options 的下内距(16)，供左栏 / 详情面板限高。 */
-  --phub-max-h:calc(var(--phub-panel-h) - 54px - 16px);
-}
-/* 首次渲染起点：设置弹窗**打开时就落在供应商页**（上次停在这一页）时，dialog 是
-   这一帧新建的，没有「上一帧」可插值——官方 .panel 的 800×800 在这里靠
-   @starting-style 补成起点，过渡才会真的播出来；否则第一帧就跳到 1680。
-   切换页面进来的路径本来就有上一帧，不需要它，也不受影响。 */
-@starting-style{
-  [role="presentation"] > [role="dialog"][aria-modal="true"][aria-labelledby]:has(.phub-host){
-    width:800px;
-    height:min(800px, calc(100vh - 2 * max(24px, var(--dsh-frame-overlay-top, 24px))));
-  }
-}
-/* 官方 options 有 24px 内距：宽屏三栏本来就吃紧，这里收成 16px 并留出底距。 */
-[role="presentation"] > [role="dialog"][aria-modal="true"][aria-labelledby]:has(.phub-host) > div:last-child > div:last-child{
-  padding:0 16px 16px;
-}
-/* 设置弹窗内的纵向滚动交给 options 一列，页面本体不再自造第二条滚动条。 */
-[role="presentation"] > [role="dialog"][aria-modal="true"][aria-labelledby]:has(.phub-host) .phub-host{overflow:visible}
 
 @media (prefers-reduced-motion: reduce){
   .phub-navwrap{transition:none}
   .phub-detail-in,.phub-block-in,.phub-placeholder,.phub-desc-in,.phub-host,.phub-blocks,.phub-blocks > *,.phub-proxy{animation:none}
   .phub-host .dsh-webui-provider-nav-row{transition:none}
-  [role="presentation"] > [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"],
-  [role="presentation"] > [role="dialog"][aria-modal="true"][data-shortcut-modal="settings"] > div:last-child > div:last-child,
-  [role="presentation"] > [role="dialog"][aria-modal="true"]:has(.phub-host){
-    transition:none;
-  }
 }
 `
     document.head.appendChild(tag)
