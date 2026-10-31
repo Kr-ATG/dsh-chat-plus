@@ -91,6 +91,11 @@ export function injectStyles(): () => void {
    overflow:hidden 只收横向（过渡期间的行溢出），纵向交给内层滚动区。 */
 .phub-navwrap{overflow:hidden;transition:width 220ms cubic-bezier(.2,.8,.2,1);position:sticky;top:0;align-self:flex-start;display:flex;flex-direction:column;max-height:var(--phub-max-h, calc(100vh - 150px));box-sizing:border-box}
 
+/* 打开某个供应商的详情时收起左栏：800×800 弹窗里「列表 232px + 详情」并排会把
+   详情挤成一条，模型目录/容量/推理等级都展不开。收起后右侧独占整行；
+   返回入口在详情工具条左侧（「← 供应商列表」）。 */
+.phub-host[data-editing] .phub-navwrap{display:none}
+
 /* 右侧详情：打开/切换/关闭回占位时滑入（key 变化重播） */
 .phub-detail-in{display:flex;flex-direction:column;min-width:0;animation:phub-slide-in 220ms cubic-bezier(.2,.8,.2,1)}
 @keyframes phub-slide-in{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}

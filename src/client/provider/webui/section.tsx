@@ -162,9 +162,17 @@ const detailPanelStyle: Record<string, string | number> = {
   maxHeight: 'var(--phub-max-h, calc(100vh - 150px))', overflowY: 'auto', overflowX: 'hidden',
 }
 
-/* 右侧面板工具条：关闭按钮右对齐一行（不占视觉噪音）。 */
+/* 右侧面板工具条：返回列表在左、关闭在右（打开详情时左栏收起，返回入口必须在
+   面板里，否则用户会被困在详情里）。 */
 const panelToolbarStyle: Record<string, string | number> = {
-  display: 'flex', justifyContent: 'flex-end', marginBottom: -6,
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: -6,
+}
+
+/* 返回供应商列表：文字小按钮，与官方 linkButton 同量级（28px 高、无边框）。 */
+const panelBackBtnStyle: Record<string, string | number> = {
+  display: 'inline-flex', alignItems: 'center', gap: 4,
+  height: 28, padding: '0 8px', border: 'none', borderRadius: 6, background: 'transparent',
+  color: 'var(--dsw-alias-label-secondary, #4e5969)', fontSize: 12, lineHeight: '20px', cursor: 'pointer',
 }
 
 /* 右侧面板关闭按钮：28×28 图标钮。 */
@@ -330,6 +338,10 @@ function Loaded({ injected }: { injected: SupplierInjected }): unknown {
     ? [
       h('div', { key: 'toolbar', style: panelToolbarStyle }, [
         h('button', {
+          key: 'back', type: 'button', title: '返回供应商列表',
+          style: panelBackBtnStyle, onClick: () => { closeDetail(false) },
+        }, '← 供应商列表'),
+        h('button', {
           key: 'close', type: 'button', title: '关闭', 'aria-label': '关闭',
           style: panelCloseBtnStyle, onClick: () => { closeDetail(false) },
         }, '✕'),
@@ -352,7 +364,13 @@ function Loaded({ injected }: { injected: SupplierInjected }): unknown {
   const proxyBlock = h('div', { key: 'proxy', className: 'phub-proxy phub-block-in' }, [
     h(ProxyPanel),
   ])
-  return h('div', { className: 'phub-host', ref: hostRef, 'data-wide': wide ? 'true' : undefined }, [
+  return h('div', {
+    className: 'phub-host',
+    ref: hostRef,
+    'data-wide': wide ? 'true' : undefined,
+    // 打开详情时收起左栏（800×800 弹窗里两栏并排太挤，收起后右侧独占整行）。
+    'data-editing': hasDetail ? 'true' : undefined,
+  }, [
     h('div', { key: 'hub', style: hubLayoutStyle }, [
       h('div', { key: 'navWrap', className: 'phub-navwrap', style: navStyle }, [
         h(ChatProviderList, {
