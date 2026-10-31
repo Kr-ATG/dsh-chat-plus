@@ -70,14 +70,14 @@ export function injectStyles(): () => void {
    nth-child 承担——容器再播一份 block-in 会和子卡叠成双重淡入，时序全乱。 */
 .phub-host[data-wide] > div:first-child > .phub-blocks{flex:0 0 clamp(560px,44%,900px);width:clamp(560px,44%,900px);max-height:var(--phub-max-h, calc(100vh - 150px));overflow-y:auto;overflow-x:hidden;padding-right:2px;animation:phub-col-in 360ms cubic-bezier(.22,1,.36,1) 120ms backwards}
 @keyframes phub-col-in{from{opacity:0;transform:translateX(10px)}}
-/* 窄屏（未打 data-wide）：三块模型设置换行落到第二行，占满整行。
+/* 窄屏（未打 data-wide）：模型设置卡换行落到第二行，占满整行。
    flex-basis:100% 是换行的关键——只给 flex:1 的话它会被压在同一行里，
    详情面板被挤成一条。容器自身不播动画，错峰淡入由下面的 nth-child 接管。 */
 .phub-host:not([data-wide]) > div:first-child > .phub-blocks{flex:1 1 100%;width:100%}
 .phub-host[data-wide] > div:first-child > .phub-blocks::-webkit-scrollbar{width:8px}
 .phub-host[data-wide] > div:first-child > .phub-blocks::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l3,#c9cdd4);border-radius:4px}
 .phub-host[data-wide] > div:first-child > .phub-blocks::-webkit-scrollbar-track{background:transparent}
-/* 宽屏时详情列与左栏一起收在视口内，底部三块跟着右列滚。
+/* 宽屏时详情列与左栏一起收在视口内，底部模型卡跟着右列滚。
    详情面板自身限宽：表单行拉到 1200+ 时「标签—控件」两端的距离已经超出
    扫视范围，模型目录那几行也会变成一条横带。 */
 .phub-host[data-wide] > div:first-child > div:nth-child(2){align-self:stretch;min-width:0}
@@ -85,11 +85,13 @@ export function injectStyles(): () => void {
 .phub-block-title{font-size:14px;font-weight:600;margin-bottom:8px}
 .phub-hint{font-size:12px;color:var(--dsw-alias-label-secondary,#888);margin-bottom:10px}
 
-/* 左栏容器（外层）：宽度滑动 + 滚动时跟随（sticky）。
+/* 左栏容器（外层）：宽度滑动；**不做 sticky**——800×800 弹窗里整页一起滚动，
+   sticky 会让左栏浮在第二行的模型卡 / 代理上（左栏背景透明，滚过去就是「内容
+   叠在供应商列表上」，用户 2026-10-31 反馈）。
    高度上限按视口算：目录预设展开后行数可以到一百多，不限高就会把右侧详情
-   与底部三块一起顶到视口外——那正是「页面看着乱」的主因。
+   与底部模型卡一起顶到视口外。
    overflow:hidden 只收横向（过渡期间的行溢出），纵向交给内层滚动区。 */
-.phub-navwrap{overflow:hidden;transition:width 220ms cubic-bezier(.2,.8,.2,1);position:sticky;top:0;align-self:flex-start;display:flex;flex-direction:column;max-height:var(--phub-max-h, calc(100vh - 150px));box-sizing:border-box}
+.phub-navwrap{overflow:hidden;transition:width 220ms cubic-bezier(.2,.8,.2,1);align-self:flex-start;display:flex;flex-direction:column;max-height:var(--phub-max-h, calc(100vh - 150px));box-sizing:border-box}
 
 /* 打开某个供应商的详情时收起左栏：800×800 弹窗里「列表 232px + 详情」并排会把
    详情挤成一条，模型目录/容量/推理等级都展不开。收起后右侧独占整行；
@@ -100,7 +102,7 @@ export function injectStyles(): () => void {
 .phub-detail-in{display:flex;flex-direction:column;min-width:0;animation:phub-slide-in 220ms cubic-bezier(.2,.8,.2,1)}
 @keyframes phub-slide-in{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
 
-/* ── 行 hover / 按下：列表行与底部三块的行卡片共用同一套反馈 ── */
+/* ── 行 hover / 按下：列表行与底部模型卡的行卡片共用同一套反馈 ── */
 .phub-host .dsh-webui-provider-nav-row{transition:background .16s ease,box-shadow .16s ease}
 .phub-host .dsh-webui-provider-nav-row:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.08))}
 .phub-host .dsh-webui-provider-nav-row:active{transform:translateY(1px)}
@@ -117,7 +119,7 @@ export function injectStyles(): () => void {
 .phub-host button.dsh-webui-capsule-btn:not(:disabled){border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-sm,8px);height:28px;padding:0 10px;font-size:12px;line-height:18px}
 .phub-host button.dsh-webui-capsule-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
 
-/* ── 详情面板与底部三块：同一张卡片的两种用法（同 token / 同圆角 / 同内距） ── */
+/* ── 详情面板与底部模型卡：同一张卡片的两种用法（同 token / 同圆角 / 同内距） ── */
 .phub-panel{border:.5px solid var(--dsw-alias-settings-card-stroke, rgba(255,255,255,.2));border-radius:var(--dsw-radius-xl,20px);padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-width:0;box-sizing:border-box;background:var(--dsw-alias-settings-card-fill, transparent)}
 /* 能力卡 = 官方 .rowCard 规格：0.5px settings-card-stroke + settings-card-fill +
    --dsw-radius-xl(20px) + gap 12 + padding 12/14。原自绘版是 1px border-l2 + 12px 圆角，
@@ -125,8 +127,8 @@ export function injectStyles(): () => void {
 .phub-block{border:.5px solid var(--dsw-alias-settings-card-stroke, rgba(255,255,255,.2));border-radius:var(--dsw-radius-xl,20px);padding:12px 14px;display:flex;flex-direction:column;gap:12px;min-width:0;box-sizing:border-box;background:var(--dsw-alias-settings-card-fill, transparent);transition:border-color 120ms ease}
 .phub-block:hover{border-color:var(--dsw-alias-border-l3,rgba(255,255,255,.24))}
 .phub-block-in{animation:phub-block-in 320ms cubic-bezier(.22,1,.36,1) backwards}
-/* 底部三块错峰入场：弹窗放大的 420ms 里先让骨架铺开，内容晚一拍跟进，
-   整页像一次性铺开而不是同时闪出来。代理块跟在第三块后面。
+/* 底部模型卡错峰入场：弹窗放大的 420ms 里先让骨架铺开，内容晚一拍跟进，
+   整页像一次性铺开而不是同时闪出来。代理块跟在最后一块后面。
    注意：nth-child 直接写 animation 简写（而非 animation-delay），
    会覆盖子卡自带的 .phub-block-in——这正是要的：时序以这里为准。 */
 .phub-blocks{display:flex;flex-direction:column;gap:14px;min-width:0}

@@ -9,7 +9,7 @@
  *
  * 左导航（ChatProviderList：已配置/目录预设/添加自定义）+ 右详情
  * （ChatProviderDetail：API Key、Base URL、协议、模型列表 + 获取可用模型 +
- * 🔍 检测推理等级）。底部含辅助视觉（含自动降级开关）/ 生图 / 生视频三块，
+ * 🔍 检测推理等级）。底部含生图 / 生视频两块，
  * 以及**网络代理**全宽区块（总开关 + 地址 + 连通性自检 + 生效范围）。
  *
  * 官方设置弹窗 800×800 原样沿用（2026-10-31 用户点名「不要缩放了」：此前这一页
@@ -31,7 +31,6 @@ import type { ChatProviderMode, ChatProviderTarget } from './chat/ChatProviderDe
 import { ModelsSettingsStore, deriveKeyRef } from './chat/store.ts'
 import type { ModelsSettingsState, ProviderRow } from './chat/store.ts'
 import { injectStyles, hideOfficialModelsNav } from './styles.ts'
-import { VisionModelBlock } from './vision/VisionModelBlock.tsx'
 import { ImageModelBlock } from './image/ImageModelBlock.tsx'
 import { VideoModelBlock } from './video/VideoModelBlock.tsx'
 import { createLegacyApi } from './api-adapter.ts'
@@ -140,7 +139,7 @@ const CUSTOM_TARGET: ChatProviderTarget = {
 const NAV_WIDTH = 232
 
 /* 两栏布局：左栏 flex-start（它自己 sticky 且限高），右栏 stretch 撑满。
-   flexWrap 常开：窄屏时底部三块靠换行落到第二行（全宽），宽屏时成为第三列。
+   flexWrap 常开：窄屏时模型设置卡靠换行落到第二行（全宽），宽屏时成为第三列。
    这样 .phub-blocks 的 DOM 位置**始终在 hub 内部**——原先按 wide 在「hub 内」
    与「hub 后」两处渲染，切档时 React 会卸载重建整棵模型卡子树（重新拉一次
    模型目录），观感上就是「放大时第三列啪地插进来」。 */
@@ -152,7 +151,7 @@ const detailColStyle: Record<string, string | number> = {
   flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignSelf: 'stretch',
 }
 
-/* 详情面板：规格由 .phub-panel 承担（与底部三块的 .phub-block 同一套 token），
+/* 详情面板：规格由 .phub-panel 承担（与底部模型卡的 .phub-block 同一套 token），
    这里只补 flex 让它填满左栏高度。
    限高走 --phub-max-h（弹窗加高后由 styles.ts 定义在 dialog 上、继承下来）：
    写死 100vh-150px 在 1080p 上算出 930px，比弹窗内容区还高，结果是内外两条
@@ -262,7 +261,7 @@ export function applySupplierSection(ctx: ClientContext): void {
   }, 'dsh-chat-plus: supplier settings section')
 }
 
-/** 三栏布局的宽度阈值（px）：低于它底部三块回到上下堆叠。 */
+/** 三栏布局的宽度阈值（px）：低于它模型设置卡回到上下堆叠。 */
 const WIDE_LAYOUT_PX = 1280
 
 function Loaded({ injected }: { injected: SupplierInjected }): unknown {
@@ -354,8 +353,8 @@ function Loaded({ injected }: { injected: SupplierInjected }): unknown {
     flex: `0 0 ${NAV_WIDTH}px`,
     width: NAV_WIDTH,
   }
+  // 辅助视觉模型块已删（用户 2026-10-31：主模型都能看图，不需要单独配视觉模型）。
   const blocks = h('div', { key: 'blocks', className: 'phub-blocks' }, [
-    h(VisionModelBlock, { key: 'vision' }),
     h(ImageModelBlock, { key: 'image' }),
     h(VideoModelBlock, { key: 'video' }),
   ])
@@ -383,7 +382,7 @@ function Loaded({ injected }: { injected: SupplierInjected }): unknown {
       h('div', { key: 'detail', style: detailColStyle }, [
         h('div', { key: 'panel', className: hasDetail ? 'phub-panel' : 'phub-panel phub-placeholder', style: detailPanelStyle }, panelBody),
       ]),
-      // 三块模型设置：宽屏成为第三列，窄屏被 flexWrap 挤到第二行（全宽）。
+      // 模型设置卡：宽屏成为第三列，窄屏被 flexWrap 挤到第二行（全宽）。
       // 两种形态共用同一份 DOM，切档不重建子树。
       blocks,
     ]),

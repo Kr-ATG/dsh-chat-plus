@@ -13,7 +13,7 @@
  * POST /api/dsh-proxy/set | member，settings 命名空间 network-proxy 不变，
  * 升级零迁移。保存即运行时生效，无需重启。
  *
- * 版式：两张卡走 .phub-block（与辅助视觉 / 生图 / 生视频同一套卡片 token），
+ * 版式：两张卡走 .phub-block（与生图 / 生视频同一套卡片 token），
  * 根节点 .pp-panel 是普通列容器——滚动交给外层的 .phub-blocks。
  */
 import { useCallback, useEffect, useState } from 'react'

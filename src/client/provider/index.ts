@@ -6,7 +6,7 @@
  *   2. 「优化提示词」图标（prompt-optimize/*，座位 id dsh-prompt-optimize 保留）。
  *   3. 「供应商」设置页（webui/section 的 applySupplierSection）——**官方「设置」
  *      弹窗的 `settings.section` 座位**（id provider-hub / order 10 / label
- *      「供应商」逐字保留），页内底部含辅助视觉 / 生图 / 生视频与网络代理区块。
+ *      「供应商」逐字保留），页内底部含生图 / 生视频与网络代理区块。
  *
  * 座位沿革：原 dsh-provider-hub 就是 `settings.section` + `settings.general.item`
  * （通用设置里的网络代理卡）；融合进 dsh-chat-plus 时曾整体搬进工作台 Tab，
