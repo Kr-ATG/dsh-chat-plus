@@ -99,7 +99,7 @@ export const chatCopy = {
   fetchUnsupported: '该供应商不支持模型列表查询（端点未提供 /models 接口），请手动填写下方模型列表。',
   fetchKeyInvalid: '请求被拒绝（403）：通常是 API 密钥无效或未填写。请先在卡片中填写正确的密钥，再重新获取。',
   fetchTitle: '选择要添加的模型',
-  fetchDescription: '以下是该提供方当前可用的模型，勾选要添加的。',
+  fetchDescription: '以下是该提供方当前可用的模型，勾选要添加的；上下文长度、最大输出与推理等级会一并带出。',
   fetchAdopt: '添加所选',
   close: '关闭',
   cancel: '取消',
@@ -654,13 +654,40 @@ function capacitySpelling(value: number | undefined): string {
   return value === undefined ? '' : formatCapacity(value)
 }
 
-/** 采纳一个候选，保留提供方披露的容量。 */
-function adopt(candidate: DiscoveredModelView): ModelDraft {
+/**
+ * 「获取可用模型」的候选：在官方模型发现字段之外，多带端点公布的推理档位。
+ * 插件路由 /api/model-catalog 会把它一并返回，「添加所选」时直接写进草稿。
+ */
+export interface CatalogCandidate {
+  id: string
+  name?: string
+  contextWindow?: number
+  maxTokens?: number
+  /** 端点公布的推理档位（pi-ai 的 reasoningEfforts 形态）；没公布时不带。 */
+  reasoningEfforts?: Record<string, string | null>
+}
+
+/** 候选行的自动带出摘要：容量 + 推理档位（都没有就不占行）。 */
+function candidateSummary(candidate: CatalogCandidate): string {
+  const parts: string[] = []
+  if (candidate.contextWindow !== undefined) parts.push(`上下文 ${formatCapacity(candidate.contextWindow)}`)
+  if (candidate.maxTokens !== undefined) parts.push(`输出 ${formatCapacity(candidate.maxTokens)}`)
+  const efforts = candidate.reasoningEfforts
+  if (efforts !== undefined) {
+    const levels = Object.keys(efforts).filter(level => level !== 'off')
+    parts.push(levels.length > 0 ? `推理 ${levels.join(' / ')}` : '不推理')
+  }
+  return parts.join(' · ')
+}
+
+/** 采纳一个候选，保留提供方披露的容量与推理档位。 */
+function adopt(candidate: CatalogCandidate): ModelDraft {
   return {
     id: candidate.id,
     ...candidate.name === undefined ? {} : { name: candidate.name },
     ...candidate.contextWindow === undefined ? {} : { contextWindow: candidate.contextWindow },
     ...candidate.maxTokens === undefined ? {} : { maxTokens: candidate.maxTokens },
+    ...candidate.reasoningEfforts === undefined ? {} : { reasoningEfforts: candidate.reasoningEfforts },
   }
 }
 
@@ -745,7 +772,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   const { models, onChange, probe, api, disabled } = props
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
-  const [candidates, setCandidates] = useState<readonly DiscoveredModelView[] | undefined>(undefined)
+  const [candidates, setCandidates] = useState<readonly CatalogCandidate[] | undefined>(undefined)
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
   // 行只携带 id；显示名称不再在界面上编辑（配置里已有的 name 仍按原样生效），
   // 容量是例外，折叠到披露里，免得每行挤三个输入框。
@@ -1066,10 +1093,45 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     })
   }
 
+  /**
+   * 向插件路由要端点自己的模型清单：容量与推理档位一并带回，添加后直接落进
+   * 模型行。拿不到（没 baseURL / 端点不提供 /models / 请求失败）时返回
+   * undefined，由调用方回退适配器的模型发现。
+   */
+  const discoverFromEndpoint = async (): Promise<readonly CatalogCandidate[] | undefined> => {
+    try {
+      const response = await fetch('/api/model-catalog', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...probe.provider === undefined ? {} : { provider: probe.provider },
+          ...probe.baseURL === undefined || probe.baseURL.length === 0 ? {} : { baseURL: probe.baseURL },
+          ...probe.api === undefined ? {} : { api: probe.api },
+          ...probe.apiKey === undefined ? {} : { apiKey: probe.apiKey },
+        }),
+      })
+      const payload: any = await response.json()
+      if (!payload || payload.ok !== true || !Array.isArray(payload.models)) return undefined
+      return payload.models as readonly CatalogCandidate[]
+    } catch {
+      return undefined
+    }
+  }
+
   const fetchModels = async (): Promise<void> => {
     setBusy(true)
     setFailure(undefined)
     try {
+      // 优先：插件路由直接读端点 /models——上下文长度、最大输出与推理等级
+      // 一并带回。官方 discoverModels 只给 id/name/容量，且对已装 catalog 的
+      // 供应商可能直接回 catalog、根本不打端点。
+      const fromEndpoint = await discoverFromEndpoint()
+      if (fromEndpoint !== undefined && fromEndpoint.length > 0) {
+        setCandidates(fromEndpoint)
+        setPicked(new Set())
+        return
+      }
+      // 回退：适配器自己的模型发现（无 baseURL 的供应商 / 端点不提供 /models）。
       const response = await api.llm.discoverModels({
         settingsNs: probe.settingsNs,
         ...probe.provider === undefined ? {} : { provider: probe.provider },
@@ -1095,7 +1157,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
       }
       // 全部候选默认不勾选，由用户显式挑选要添加的模型；采纳选择永不
       // 静默重写用户修正过的容量。
-      setCandidates(found)
+      setCandidates(found as readonly CatalogCandidate[])
       setPicked(new Set())
     } catch (error) {
       // 传输拒绝而非作答；不捕获按钮会一直 busy 且无任何提示。
@@ -1431,7 +1493,16 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                       checked={picked.has(candidate.id)}
                       onChange={() => { toggle(candidate.id) }}
                     />
-                    <span style={candidateIdStyle}>{candidate.id}</span>
+                    <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+                      <span style={candidateIdStyle}>{candidate.id}</span>
+                      {candidateSummary(candidate) === ''
+                        ? null
+                        : (
+                          <span style={{ fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary, #8f959e)' }}>
+                            {candidateSummary(candidate)}
+                          </span>
+                        )}
+                    </span>
                   </label>
                 </li>
               ))}

@@ -498,6 +498,63 @@ async function fetchProviderModels(
   }
 }
 
+/** 一组候选里取第一个正整数（端点字段名五花八门）。 */
+function positiveInt(...candidates: unknown[]): number | undefined {
+  for (const value of candidates) {
+    if (typeof value === 'number' && Number.isInteger(value) && value > 0) return value
+  }
+  return undefined
+}
+
+/** 「获取可用模型」的一个候选：id + 容量 + 端点公布的推理档位。 */
+interface ModelCatalogEntry {
+  id: string
+  name?: string
+  contextWindow?: number
+  maxTokens?: number
+  /** pi-ai 的 reasoningEfforts 形态；端点没公布档位时不带该字段。 */
+  reasoningEfforts?: Record<string, string | null>
+}
+
+/**
+ * 把 `/models` 里的一个条目变成「添加所选」可直接落进模型行的草稿。
+ *
+ * 上下文长度与最大输出按端点公布的各种拼写取（context_length / context_window /
+ * max_output_tokens ...）；推理档位取公布值，`none` 映射成 off 的线值。
+ * 端点只声明「支持推理」而没给档位时**不带** reasoningEfforts，让它继续继承。
+ */
+function catalogEntryOf(entry: unknown): ModelCatalogEntry | null {
+  if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return null
+  const record = entry as Record<string, any>
+  const id = typeof record.id === 'string' ? record.id.trim() : ''
+  if (id === '') return null
+  const name = typeof record.name === 'string' && record.name.trim() !== ''
+    ? record.name.trim()
+    : typeof record.display_name === 'string' && record.display_name.trim() !== ''
+      ? record.display_name.trim()
+      : undefined
+  const contextWindow = positiveInt(
+    record.context_window, record.contextWindow, record.context_length,
+    record.max_input_tokens, record.limit?.context,
+  )
+  const maxTokens = positiveInt(
+    record.max_output_tokens, record.maxOutputTokens, record.max_tokens, record.limit?.output,
+  )
+  const published = publishedReasoningOf(entry)
+  let reasoningEfforts: Record<string, string | null> | undefined
+  if (published !== null && published.levels.length > 0) {
+    reasoningEfforts = { off: published.offWire === 'none' ? 'none' : null }
+    for (const level of published.levels) reasoningEfforts[level] = level
+  }
+  return {
+    id,
+    ...(name === undefined ? {} : { name }),
+    ...(contextWindow === undefined ? {} : { contextWindow }),
+    ...(maxTokens === undefined ? {} : { maxTokens }),
+    ...(reasoningEfforts === undefined ? {} : { reasoningEfforts }),
+  }
+}
+
 /** 供应商 `/models` 公布值的读取结论。 */
 interface PublishedReasoningResult {
   /** published=读到了公布值；absent=条目在但没公布推理字段；unavailable=清单拉不到。 */
@@ -1912,6 +1969,47 @@ export function applyVisionHelper(ctx: PluginContext, configInput: Partial<Confi
         return jsonResponse(res, 200, { ok: true, state: detect })
       } catch (error: any) {
         return jsonResponse(res, 500, { ok: false, error: String(error?.message ?? error) })
+      }
+    })
+  })
+
+  // ── 获取可用模型：把端点 /models 的完整字段带出来 ─────────────────────
+  // 与 adapter 的 discoverModels 不同：这里直接读供应商公布的清单，上下文长度、
+  // 最大输出与 reasoning_levels 一并返回——「添加所选」后自动落进模型行，用户
+  // 不需要再点一次检测。拉不到时前端回退 adapter 自己的模型发现。
+  ctx.effect(() => {
+    const webServer = ctx.webServer
+    if (!webServer) return () => {}
+    return registerRoute(webServer, '/api/model-catalog', async (req: any, res: any) => {
+      try {
+        if (req.method !== 'POST') return jsonResponse(res, 405, { ok: false, error: 'method not allowed' })
+        const body = await readBody(req)
+        const provider = body && typeof body.provider === 'string' ? body.provider : ''
+        let baseURL = body && typeof body.baseURL === 'string' ? body.baseURL : ''
+        let apiKey = body && typeof body.apiKey === 'string' ? body.apiKey : ''
+        // 表单里刚填的端点 / 密钥优先（用户可能改了还没保存），配置兜底。
+        if (provider) {
+          const profile = providerConfig(ctx, provider)
+          if (!baseURL && profile && typeof profile.baseURL === 'string' && profile.baseURL) baseURL = profile.baseURL
+          if (!apiKey) {
+            const resolved = await resolveApiKey(ctx, profile)
+            if (resolved) apiKey = resolved
+          }
+        }
+        if (!baseURL) {
+          return jsonResponse(res, 200, { ok: false, error: '缺少 baseURL：请先填写 API 地址，或保存供应商后再获取。' })
+        }
+        const listed = await fetchProviderModels(ctx, baseURL, apiKey, TEST_TIMEOUT_MS, undefined)
+        if (!listed.ok) {
+          const reason = `${listed.error ?? '拉取 /models 失败'}${listed.detail ? `：${listed.detail}` : ''}`
+          return jsonResponse(res, 200, { ok: false, error: reason.slice(0, 400) })
+        }
+        const models = listed.models
+          .map(catalogEntryOf)
+          .filter((entry): entry is ModelCatalogEntry => entry !== null)
+        jsonResponse(res, 200, { ok: true, models })
+      } catch (error: any) {
+        jsonResponse(res, 500, { ok: false, error: String(error?.message ?? error) })
       }
     })
   })
