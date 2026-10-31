@@ -1,7 +1,9 @@
 /**
  * VideoModelBlock — 生视频模型区块。
  *
- * 交互：两级下拉——先选供应商，再选该供应商下的模型；选中即保存。
+ * 交互：两级下拉——先选供应商，再选该供应商下**已声明「生视频」**的模型；选中即保存。
+ * 只列已经勾选生视频能力的模型：这一块是「选生视频模型」，不是模型浏览器
+ * （用户 2026-10-31：不要把所有供应商的所有模型都摊出来）。
  * 版式走 {@link ../blocks/shared.tsx} 的统一外壳：标题行带当前生效胶囊、
  * 说明默认折叠，两个下拉并排在同一填充面里各带小标签。
  *
@@ -20,7 +22,7 @@ interface ProviderInfo { provider: string; displayName: string; models: ModelInf
 
 const BASE = '/api/model-capabilities'
 
-const DESCRIPTION = 'generate_video 使用的模型（提示词 → 视频生成，异步任务自动轮询）。标注「生视频」的模型声明了视频生成能力，可在供应商的模型设置中开启「生视频」。'
+const DESCRIPTION = 'generate_video 使用的模型（提示词 → 视频生成）。这里只列出已在供应商的模型设置里勾选「生视频」的模型。'
 
 /** 该模型是否声明了生视频能力。 */
 function isCapable(m: ModelInfo): boolean {
@@ -29,6 +31,7 @@ function isCapable(m: ModelInfo): boolean {
 
 export function VideoModelBlock(): ReactNode {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [loaded, setLoaded] = useState(false)
   const [active, setActive] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -54,17 +57,23 @@ export function VideoModelBlock(): ReactNode {
         } else {
           setError((d && d.error) || '加载失败')
         }
+        setLoaded(true)
       })
-      .catch(() => { if (alive) setError('接口不可用') })
+      .catch(() => { if (alive) { setError('接口不可用'); setLoaded(true) } })
     return () => { alive = false }
   }, [])
+
+  // 只留「至少有一个生视频模型」的供应商，模型也只留生视频模型。
+  const capableProviders = providers
+    .map(p => ({ ...p, models: p.models.filter(isCapable) }))
+    .filter(p => p.models.length > 0)
 
   const slash = active.indexOf('/')
   const activeProvider = slash > 0 ? active.slice(0, slash) : ''
   const activeModel = slash > 0 ? active.slice(slash + 1) : ''
 
-  const currentProvider = selectedProvider || activeProvider || providers[0]?.provider || ''
-  const currentModels = providers.find(p => p.provider === currentProvider)?.models ?? []
+  const currentProvider = selectedProvider || activeProvider || capableProviders[0]?.provider || ''
+  const currentModels = capableProviders.find(p => p.provider === currentProvider)?.models ?? []
   const modelValue = currentProvider === activeProvider ? activeModel : ''
 
   const pick = (key: string): void => {
@@ -89,26 +98,28 @@ export function VideoModelBlock(): ReactNode {
   return (
     <BlockShell title="生视频模型" activeText={active} description={DESCRIPTION}>
       {error !== null ? <StateHint text={error} tone="error" /> : null}
-      {providers.length === 0 && error === null
+      {!loaded
         ? <StateHint text="加载中…" />
-        : (
-          <div className="phub-fill" style={FILL_PANEL}>
-            <SelectField label="供应商" value={currentProvider} onChange={setSelectedProvider}>
-              {providers.map(p => <option key={p.provider} value={p.provider}>{p.displayName || p.provider}</option>)}
-            </SelectField>
-            <SelectField
-              label="模型"
-              value={modelValue}
-              disabled={saving || currentModels.length === 0}
-              onChange={(v) => { if (v !== '') pick(`${currentProvider}/${v}`) }}
-            >
-              <option value="">{currentModels.length === 0 ? '无可用模型' : '选择模型'}</option>
-              {currentModels.map(m => (
-                <option key={m.id} value={m.id}>{m.name || m.id}{isCapable(m) ? '（生视频）' : ''}</option>
-              ))}
-            </SelectField>
-          </div>
-        )}
+        : capableProviders.length === 0
+          ? <StateHint text="还没有模型声明「生视频」能力：到供应商的模型设置里给模型勾上「生视频」即可。" />
+          : (
+            <div className="phub-fill" style={FILL_PANEL}>
+              <SelectField label="供应商" value={currentProvider} onChange={setSelectedProvider}>
+                {capableProviders.map(p => <option key={p.provider} value={p.provider}>{p.displayName || p.provider}</option>)}
+              </SelectField>
+              <SelectField
+                label="模型"
+                value={modelValue}
+                disabled={saving || currentModels.length === 0}
+                onChange={(v) => { if (v !== '') pick(`${currentProvider}/${v}`) }}
+              >
+                <option value="">{currentModels.length === 0 ? '无可用模型' : '选择模型'}</option>
+                {currentModels.map(m => (
+                  <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                ))}
+              </SelectField>
+            </div>
+          )}
     </BlockShell>
   )
 }
