@@ -29,6 +29,8 @@ import type {
   Message,
 } from '@deepseek-ai/dsh-llm'
 import z from '../../vendor/schemastery/index.mjs'
+import { modelListOf, pickModelEntry, publishedReasoningOf } from './published-reasoning.ts'
+import type { PublishedReasoning } from './published-reasoning.ts'
 
 /** 附件服务读取所需的最小类型（避免依赖核心包 @deepseek-ai/dsh-attachment）。 */
 interface FallbackImageRef {
@@ -429,6 +431,118 @@ async function probeReasoningEffort(
   } finally {
     try { fs.rmSync(bodyFile, { force: true }) } catch { /* 清理失败忽略 */ }
   }
+}
+
+/** 一次 `/models` 拉取的结果。 */
+interface ProviderModelsResult {
+  ok: boolean
+  models: unknown[]
+  error?: string
+  detail?: string
+}
+
+/**
+ * 拉取供应商公布的模型清单（OpenAI 兼容 `GET {baseURL}/models`）。
+ *
+ * 与其它请求同一条 PowerShell 通道，但**响应体落盘**再由 TS 解析：网关清单
+ * 可能有几百个模型（OpenRouter 420 条、magpie 每条带 pricing 与 modalities），
+ * 走 stdout 会被截断，落盘才拿得到完整 JSON。
+ */
+async function fetchProviderModels(
+  ctx: PluginContext,
+  baseURL: string,
+  apiKey: string,
+  timeoutMs: number,
+  signal: AbortSignal | undefined,
+): Promise<ProviderModelsResult> {
+  const outFile = path.join(os.tmpdir(), `dsh-provider-models-${process.pid}-${crypto.randomBytes(6).toString('hex')}.json`)
+  const base = String(baseURL).replace(/[\\/]+$/, '')
+  const escaped = { out: psEscape(outFile), url: psEscape(`${base}/models`) }
+  const command = [
+    "$ErrorActionPreference = 'Stop'",
+    "[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12",
+    'try {',
+    "  $headers = @{ Accept = 'application/json' }",
+    `  if ($env:${KEY_ENV}) { $headers['Authorization'] = 'Bearer ' + $env:${KEY_ENV} }`,
+    `  $r = Invoke-RestMethod -UseBasicParsing -Uri '${escaped.url}' -Method Get -Headers $headers -TimeoutSec ${Math.floor(timeoutMs / 1000)}`,
+    '  $json = $r | ConvertTo-Json -Depth 8 -Compress',
+    `  [IO.File]::WriteAllText('${escaped.out}', $json, (New-Object System.Text.UTF8Encoding($false)))`,
+    "  @{ ok = $true } | ConvertTo-Json -Compress",
+    '} catch {',
+    "  $detail = ''",
+    "  if ($_.ErrorDetails.Message) { $detail = $_.ErrorDetails.Message }",
+    "  @{ ok = $false; error = $_.Exception.Message; detail = $detail } | ConvertTo-Json -Depth 4 -Compress",
+    '}',
+  ].join('; ')
+  try {
+    const spec = shellSpec(ctx, { command, timeoutMs, signal, apiKey })
+    const result = await shellRun(ctx, spec)
+    const stdout = result.stdout && result.stdout.text ? result.stdout.text : ''
+    const stderr = result.stderr && result.stderr.text ? result.stderr.text : ''
+    if (result.exitCode !== 0) {
+      return { ok: false, models: [], error: `shell 退出码 ${result.exitCode}`, detail: (stderr || stdout || '').slice(0, 400) }
+    }
+    let parsed: any = null
+    try { parsed = JSON.parse(stdout) } catch {
+      return { ok: false, models: [], error: '响应解析失败', detail: stdout.slice(0, 300) }
+    }
+    if (!parsed || parsed.ok !== true) {
+      return { ok: false, models: [], error: String(parsed?.error ?? '请求失败'), detail: String(parsed?.detail ?? '').slice(0, 400) }
+    }
+    const text = fs.readFileSync(outFile, 'utf8').replace(/^\uFEFF/, '')
+    return { ok: true, models: modelListOf(JSON.parse(text)) }
+  } catch (error: any) {
+    return { ok: false, models: [], error: String(error?.message ?? error) }
+  } finally {
+    try { fs.rmSync(outFile, { force: true }) } catch { /* 清理失败忽略 */ }
+  }
+}
+
+/** 供应商 `/models` 公布值的读取结论。 */
+interface PublishedReasoningResult {
+  /** published=读到了公布值；absent=条目在但没公布推理字段；unavailable=清单拉不到。 */
+  status: 'published' | 'absent' | 'unavailable'
+  reasoning: PublishedReasoning | null
+  /** 结论说明（回显给检测卡）。 */
+  detail: string
+}
+
+/**
+ * 读供应商在 `/models` 里公布的推理等级。
+ *
+ * 这是「检测推理等级」的首选来源：网关自己公布的档位比逐档发请求试探更准，
+ * 也不产生推理费用。拉不到或条目没公布时才回落实测。
+ *
+ * @param ctx - 插件上下文。
+ * @param provider - 供应商路由 key。
+ * @param model - 模型 id（也接受按 name / display_name 匹配）。
+ * @param signal - 取消信号。
+ */
+async function fetchPublishedReasoning(
+  ctx: PluginContext,
+  provider: string,
+  model: string,
+  signal: AbortSignal | undefined,
+): Promise<PublishedReasoningResult> {
+  const profile = providerConfig(ctx, provider)
+  if (!profile || typeof profile.baseURL !== 'string' || !profile.baseURL) {
+    return { status: 'unavailable', reasoning: null, detail: `provider "${provider}" 未配置 baseURL` }
+  }
+  const apiKey = await resolveApiKey(ctx, profile)
+  const listed = await fetchProviderModels(ctx, profile.baseURL, apiKey ?? '', TEST_TIMEOUT_MS, signal)
+  if (!listed.ok) {
+    const reason = `${listed.error ?? '拉取 /models 失败'}${listed.detail ? `：${listed.detail}` : ''}`
+    return { status: 'unavailable', reasoning: null, detail: reason.slice(0, 300) }
+  }
+  const entry = pickModelEntry(listed.models, model)
+  if (entry === null) {
+    return { status: 'absent', reasoning: null, detail: `/models 清单里没有 "${model}"` }
+  }
+  const published = publishedReasoningOf(entry)
+  if (published === null) {
+    return { status: 'absent', reasoning: null, detail: '/models 条目未公布推理字段' }
+  }
+  return { status: 'published', reasoning: published, detail: '' }
 }
 
 /**
@@ -1443,6 +1557,30 @@ export function applyVisionHelper(ctx: PluginContext, configInput: Partial<Confi
     if (!apiKey) return { ok: false, error: `未找到 API 凭据（${profile.apiKeyEnv || '未知 env'}）` }
     const base = String(profile.baseURL).replace(/[\\/]+$/, '')
     const levels = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+    // —— 优先：供应商 /models 公布的推理等级（网关自己说的，不用试探）——
+    const published = await fetchPublishedReasoning(ctx, provider, model, signal)
+    const pub = published.reasoning
+    if (pub !== null && (pub.levels.length > 0 || pub.nonReasoning)) {
+      const publishedLevels = pub.levels as readonly string[]
+      const rejected = levels
+        .filter(level => !publishedLevels.includes(level))
+        .map(level => ({
+          level,
+          reason: pub.levels.length > 0
+            ? `供应商 /models 未公布该档（公布：${pub.levels.join(' / ')}）`
+            : '供应商 /models 标记该模型不启用推理',
+        }))
+      return {
+        ok: true,
+        supported: [...pub.levels],
+        rejected,
+        fastPath: 'published',
+        offWire: pub.offWire,
+        hint: pub.nonReasoning
+          ? `供应商 /models 公布该模型不启用推理（${pub.sources.join(' / ')}）`
+          : `供应商 /models 公布等级：${pub.levels.join(' / ')}（${pub.sources.join(' / ')}）`,
+      }
+    }
     // —— 快捷路径 1：默认先测 max，通过则其余低档默认全支持（网关按序升级），直接返回 ——
     const maxProbe = await probeReasoningEffort(ctx, base, apiKey, model, 'max', TEST_TIMEOUT_MS, signal)
     if (maxProbe.ok) {
@@ -1572,10 +1710,14 @@ export function applyVisionHelper(ctx: PluginContext, configInput: Partial<Confi
     })
   })
 
-  // ── 新版推理等级检测（webui 异步协议 + max 优先快探）──────────────────
+  // ── 新版推理等级检测（webui 异步协议）────────────────────────────────
   // 协议与 webui perf-bench 的 /api/detect-capability 完全一致（POST 启动 →
-  // GET 轮询 state），只有探测核心换掉：默认先测 max，网关拒绝且错误里带
-  // 合法值表时直接按表填入（含 OpenAI 系 off:'none'），解析不到才回落逐档。
+  // GET 轮询 state）。检测核心的顺序：
+  //   1. 先读供应商 `/models` 公布的 reasoning_levels / supported_reasoning_levels
+  //      / reasoning（magpie 等网关已公布）——网关自己说的，比试探准确且不花钱；
+  //   2. 供应商没公布（或 /models 拉不到）才回落实测：默认先测 max，网关拒绝且
+  //      错误里带合法值表时直接按表填入（含 OpenAI 系 off:'none'），解析不到
+  //      才逐档发请求。
 
   const DETECT_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
   const DETECT_ORDER = ['minimal', 'low', 'medium', 'high', 'xhigh']
@@ -1583,6 +1725,8 @@ export function applyVisionHelper(ctx: PluginContext, configInput: Partial<Confi
   let detect: {
     running: boolean; provider: string; model: string; startedAt: number; finishedAt: number | null
     error: string; savedLevels: boolean; saveError: string; offWire: string | null; hint: string
+    /** 结果来源：published=供应商 /models 公布；probe=网关实测；空=尚未定。 */
+    source: 'published' | 'probe' | ''
     items: DetectItem[]
   } | null = null
 
@@ -1651,10 +1795,45 @@ export function applyVisionHelper(ctx: PluginContext, configInput: Partial<Confi
       if (!profile || typeof profile.baseURL !== 'string' || !profile.baseURL) {
         throw new Error(`provider "${provider}" 未配置 baseURL`)
       }
+      mark('off', true, '不发参数恒支持')
+      // —— 优先：供应商 /models 公布的 reasoning_levels（网关自己说的，不必试探）——
+      const published = await fetchPublishedReasoning(ctx, provider, model, undefined)
+      const pub = published.reasoning
+      if (pub !== null && (pub.levels.length > 0 || pub.nonReasoning)) {
+        st.source = 'published'
+        st.offWire = pub.offWire
+        const source = pub.sources.join(' / ')
+        const publishedLevels = pub.levels as readonly string[]
+        for (const level of DETECT_ORDER) {
+          const on = publishedLevels.includes(level)
+          mark(level, on, on
+            ? `供应商 /models 公布（${source}）`
+            : pub.nonReasoning ? '供应商 /models 标记不启用推理' : '供应商 /models 未公布该档')
+        }
+        const onMax = publishedLevels.includes('max')
+        mark('max', onMax, onMax
+          ? `供应商 /models 公布（${source}）`
+          : pub.nonReasoning ? '供应商 /models 标记不启用推理' : '供应商 /models 未公布该档')
+        if (pub.nonReasoning) {
+          st.hint = `供应商 /models 公布该模型不启用推理（${source}），未写入配置`
+          return
+        }
+        st.hint = `供应商 /models 公布等级：${pub.levels.join(' / ')}（${source}）`
+        const saved = await saveDetectedLevels(provider, model, [...pub.levels], pub.offWire)
+        st.savedLevels = saved.saved
+        st.saveError = saved.error
+        return
+      }
+      // —— 回落：供应商没公布（或只声明支持、没给档位）才实测 ——
+      st.source = 'probe'
+      const fallbackNote = published.status === 'unavailable'
+        ? `读取 /models 失败（${published.detail}），改为实测：`
+        : pub !== null && pub.declared && !pub.levelsKnown
+          ? '供应商 /models 只声明支持推理、未公布档位，改为实测：'
+          : '供应商 /models 未公布推理等级，改为实测：'
       const apiKey = await resolveApiKey(ctx, profile)
       if (!apiKey) throw new Error(`未找到 API 凭据（${profile.apiKeyEnv || '未知 env'}）`)
       const base = String(profile.baseURL).replace(/[\\/]+$/, '')
-      mark('off', true, '不发参数恒支持')
       markRunning('max')
       const maxProbe = await probeReasoningEffort(ctx, base, apiKey, model, 'max', TEST_TIMEOUT_MS, undefined)
       let supported: string[] = []
@@ -1692,6 +1871,7 @@ export function applyVisionHelper(ctx: PluginContext, configInput: Partial<Confi
         }
       }
       st.offWire = offWire
+      st.hint = `${fallbackNote}${st.hint}`
       if (supported.length > 0) {
         const saved = await saveDetectedLevels(provider, model, supported, offWire)
         st.savedLevels = saved.saved
@@ -1720,7 +1900,7 @@ export function applyVisionHelper(ctx: PluginContext, configInput: Partial<Confi
           }
           detect = {
             running: true, provider, model, startedAt: Date.now(), finishedAt: null,
-            error: '', savedLevels: false, saveError: '', offWire: null, hint: '',
+            error: '', savedLevels: false, saveError: '', offWire: null, hint: '', source: '',
             items: DETECT_LEVELS.map(level => ({
               key: `level:${level}`, label: `推理等级 · ${level}`,
               status: 'pending' as const, ok: null as boolean | null, note: '',

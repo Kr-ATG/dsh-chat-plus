@@ -76,7 +76,7 @@ export const chatCopy = {
   supportsSpeechHint: '声明该模型可输出语音（OpenAI 兼容 /audio/speech），语音播报的「模型语音」引擎可选它。',
   capabilityHint: '模型能力（手动开关声明）',
   detectReasoning: '检测推理等级',
-  detectReasoningTitle: '默认先测 max：网关接受则全档通过；拒绝且错误里带合法值表时直接按表填入并自动保存。视觉/生图/生视频请用行内复选框手动声明，不做实测。',
+  detectReasoningTitle: '优先读取供应商 /models 公布的 reasoning_levels / supported_reasoning_levels（magpie 等网关已公布），网关没公布时才回落实测；结果自动保存。视觉/生图/生视频请用行内复选框手动声明，不做实测。',
   detectingReasoning: '检测中…',
   capSaveFailed: '能力声明保存失败',
   addModel: '添加模型',
@@ -547,6 +547,18 @@ function DetectProgress({ state, manual }: {
         <span style={{ fontSize: 12, lineHeight: '18px', fontWeight: 600, color: 'var(--dsw-alias-label-primary, #1f2329)' }}>
           检测进度
         </span>
+        {state.source === 'published' || state.source === 'probe'
+          ? (
+            <span style={{
+              fontSize: 11, lineHeight: '16px', padding: '1px 8px', borderRadius: 8,
+              background: state.source === 'published' ? 'rgba(0,181,120,0.1)' : 'rgba(65,118,230,0.1)',
+              color: state.source === 'published' ? '#009464' : 'var(--dsw-alias-state-business-primary, #4176e6)',
+              fontWeight: 600, whiteSpace: 'nowrap',
+            }}>
+              {state.source === 'published' ? '/models 公布' : '网关实测'}
+            </span>
+          )
+          : null}
         <span style={{
           fontSize: 11, lineHeight: '16px', padding: '1px 8px', borderRadius: 8,
           background: state.running ? 'rgba(65,118,230,0.1)' : 'rgba(0,181,120,0.1)',
@@ -563,6 +575,9 @@ function DetectProgress({ state, manual }: {
       <div style={{ height: 4, borderRadius: 2, background: 'var(--dsw-alias-border-l3, #e9ebef)', overflow: 'hidden' }}>
         <div className="dsh-detect-bar" style={{ height: '100%', width: `${pct}%`, borderRadius: 2, background: state.running ? 'var(--dsw-alias-state-business-primary, #4176e6)' : '#00b578' }} />
       </div>
+      {typeof state.hint === 'string' && state.hint !== ''
+        ? <p style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-secondary, #4e5969)' }}>{state.hint}</p>
+        : null}
       {manual !== undefined && !state.running
         ? <p style={{ ...hintStyle, marginTop: 2 }}>档位可手动加选 / 取消（含未通过的），改完记得保存供应商。</p>
         : null}
